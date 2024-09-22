@@ -1,3 +1,13 @@
-export default function Home() {
-  return <div>案件管理表</div>;
-}
+import { MatterCardsGrid } from "./components/MatterCard";
+import PageTitle from "./components/PageTitle";
+
+const AllMatterPage = async () => {
+  return (
+    <div>
+      <PageTitle title="案件一覧" />
+      <MatterCardsGrid />
+    </div>
+  );
+};
+
+export default AllMatterPage;

@@ -2,6 +2,8 @@ import { Metadata } from "next";
 import { Footer } from "./components/Footer";
 import Header from "./components/Header";
 import "./globals.css";
+import "@mantine/core/styles.css";
+import { MantineProvider, ColorSchemeScript } from "@mantine/core";
 
 export const metadata: Metadata = {
   title: "案件管理アプリ",
@@ -15,10 +17,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ja">
+      <head>
+        <ColorSchemeScript />
+      </head>
       <body>
-        <Header />
-        {children}
-        <Footer />
+        <MantineProvider>
+          <Header />
+          {children}
+          <Footer />
+        </MantineProvider>
       </body>
     </html>
   );
