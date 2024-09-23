@@ -9,7 +9,7 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      matter: {
+      matters: {
         Row: {
           amount: number | null
           billing_address: string | null
@@ -17,6 +17,8 @@ export type Database = {
           id: number
           inserted_at: string
           invoice_date: string | null
+          is_completed: boolean | null
+          is_fixed: boolean | null
           name: string
           period_date: string | null
           start_date: string | null
@@ -31,6 +33,8 @@ export type Database = {
           id?: number
           inserted_at?: string
           invoice_date?: string | null
+          is_completed?: boolean | null
+          is_fixed?: boolean | null
           name: string
           period_date?: string | null
           start_date?: string | null
@@ -45,6 +49,8 @@ export type Database = {
           id?: number
           inserted_at?: string
           invoice_date?: string | null
+          is_completed?: boolean | null
+          is_fixed?: boolean | null
           name?: string
           period_date?: string | null
           start_date?: string | null
