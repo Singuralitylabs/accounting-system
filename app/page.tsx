@@ -1,13 +1,18 @@
 import { MatterCardsGrid } from "./components/MatterCard";
 import PageTitle from "./components/PageTitle";
+import { createServerComponentClient } from "@/node_modules/@supabase/auth-helpers-nextjs/dist/index";
+import { cookies } from "@/node_modules/next/headers";
 
-const AllMatterPage = async () => {
+const UsersMatterPage = async () => {
+  const supabase = createServerComponentClient({ cookies });
+  const { data: matterList } = await supabase.from("matters").select("*");
+
   return (
-    <div>
+    <main className="">
       <PageTitle title="案件一覧" />
-      <MatterCardsGrid />
-    </div>
+      <MatterCardsGrid matterList={matterList} />
+    </main>
   );
 };
 
-export default AllMatterPage;
+export default UsersMatterPage;
