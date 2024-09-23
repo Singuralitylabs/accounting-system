@@ -1,12 +1,4 @@
-import {
-  Card,
-  Text,
-  Badge,
-  Button,
-  Group,
-  Container,
-  SimpleGrid,
-} from "@mantine/core";
+import { Card, Text, Badge, Group, Container, SimpleGrid } from "@mantine/core";
 import { Database } from "../lib/database.types";
 
 type MattersTable = Database["public"]["Tables"]["matters"];
