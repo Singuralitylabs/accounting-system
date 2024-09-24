@@ -1,23 +1,31 @@
-import { Card, Text, Badge, Group, Container, SimpleGrid } from "@mantine/core";
-import { Database } from "../lib/database.types";
+"use client";
 
-type MattersTable = Database["public"]["Tables"]["matters"];
-type MattersRow = MattersTable["Row"];
+import { Card, Text, Badge, Group, Container, SimpleGrid } from "@mantine/core";
+import { useState } from "react";
+import { MatterType } from "../types/types";
+import { MatterCardDetailModal } from "./modal/MatterCardDetail";
 
 export function MatterCardsGrid({
   matterList,
 }: {
-  matterList: MattersRow[] | null;
+  matterList: MatterType[] | null;
 }) {
+  const [opened, setOpened] = useState(false);
+  const [matterInfo, setMatterInfo] = useState<MatterType | null>(null);
+
+  const openCard = (matter: MatterType) => {
+    setMatterInfo(matter);
+    setOpened(true);
+  };
   const cards = matterList?.map((matter) => (
     <Card
-      key={matter.name}
+      key={matter.id}
       p="md"
       radius="md"
       component="a"
       className="hover:bg-transparent hover:cursor-pointer hover:bg-gray-100 border transition"
       shadow="sm"
-      //   onClick={() => openCard(matter)}
+      onClick={() => openCard(matter)}
     >
       <Group justify="space-between" align="flex-start">
         <Text fw={700} size="lg" mt={5}>
@@ -40,6 +48,13 @@ export function MatterCardsGrid({
   return (
     <Container py="xl">
       <SimpleGrid cols={{ base: 1, sm: 2 }}>{cards}</SimpleGrid>
+      {opened && matterInfo ? (
+        <MatterCardDetailModal
+          matterInfo={matterInfo}
+          opened={opened}
+          setOpened={setOpened}
+        />
+      ) : null}
     </Container>
   );
 }
