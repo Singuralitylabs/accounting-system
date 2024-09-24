@@ -1,21 +1,23 @@
 import { MatterCardsGrid } from "./components/MatterCard";
 import PageTitle from "./components/PageTitle";
-import { createServerComponentClient } from "@/node_modules/@supabase/auth-helpers-nextjs/dist/index";
-import { cookies } from "@/node_modules/next/headers";
+import { getUserMatterInfoList } from "./utils/supabaseServer";
 
 // 明示的に動的なページに設定する
 export const dynamic = "force-dynamic";
 
-const UsersMatterPage = async () => {
-  const supabase = createServerComponentClient({ cookies });
-  const { data: matterList } = await supabase.from("matters").select("*");
+const UserMatterPage = async () => {
+  const matterList = await getUserMatterInfoList();
 
   return (
     <main>
       <PageTitle title="案件一覧" />
-      <MatterCardsGrid matterList={matterList} />
+      {matterList ? (
+        <MatterCardsGrid matterList={matterList} />
+      ) : (
+        <div>案件の取得に失敗しました。</div>
+      )}
     </main>
   );
 };
 
-export default UsersMatterPage;
+export default UserMatterPage;
