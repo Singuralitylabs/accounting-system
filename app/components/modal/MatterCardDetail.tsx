@@ -1,5 +1,14 @@
+import { categoryList, teamList } from "@/app/types/params";
 import { MatterType } from "@/app/types/types";
-import { Modal, TextInput, Checkbox, NumberInput } from "@mantine/core";
+import {
+  Modal,
+  TextInput,
+  Checkbox,
+  NumberInput,
+  Select,
+  Button,
+  Group,
+} from "@mantine/core";
 import { useForm } from "@mantine/form";
 
 type Props = {
@@ -17,13 +26,10 @@ export const MatterCardDetailModal = ({
     initialValues: {
       id: matterInfo.id,
       name: matterInfo.name,
-      inserted_at: matterInfo.inserted_at,
       team: matterInfo.team,
       category: matterInfo.category,
-      is_completed: matterInfo.is_completed,
       amount: matterInfo.amount,
       is_fixed: matterInfo.is_fixed,
-      user_id: matterInfo.user_id,
     },
   });
 
@@ -41,10 +47,19 @@ export const MatterCardDetailModal = ({
           placeholder="案件名をご記入ください。"
           {...form.getInputProps("name")}
         />
-        <TextInput
+        <Select
           label="分類"
           placeholder="案件の分類をご記入ください。"
+          data={categoryList}
+          required
           {...form.getInputProps("category")}
+        />
+        <Select
+          label="チーム"
+          placeholder="案件を担当するチームを選択ください。"
+          data={teamList}
+          required
+          {...form.getInputProps("team")}
         />
         <NumberInput
           label="金額"
@@ -63,6 +78,21 @@ export const MatterCardDetailModal = ({
           {...form.getInputProps("isFixed", { type: "checkbox" })}
         />
         <div className="border-spacing-3 h-6"></div>
+        <div className="flex justify-between">
+          <Group justify="flex-end" mt="md">
+            <Button type="button" color="gray">
+              削除
+            </Button>
+          </Group>
+          <Group justify="flex-end" mt="md">
+            <Button type="button" color="pink" onClick={closeModal}>
+              キャンセル
+            </Button>
+            <Button type="submit" color="green">
+              更新
+            </Button>
+          </Group>
+        </div>
       </form>
     </Modal>
   );
