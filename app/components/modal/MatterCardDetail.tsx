@@ -1,6 +1,10 @@
 import { categoryList, teamList } from "@/app/types/params";
 import { MatterType } from "@/app/types/types";
 import {
+  deleteMatterInfoInSupabase,
+  updateMatterInfoInSupabase,
+} from "@/app/utils/supabaseServer";
+import {
   Modal,
   TextInput,
   Checkbox,
@@ -15,6 +19,15 @@ type Props = {
   matterInfo: MatterType;
   opened: boolean;
   setOpened: React.Dispatch<React.SetStateAction<boolean>>;
+};
+
+type UpdatedMatterInfo = {
+  id: number;
+  name: string;
+  team: string;
+  category: string;
+  amount: number | null;
+  is_fixed: boolean | null;
 };
 
 export const MatterCardDetailModal = ({
@@ -38,9 +51,30 @@ export const MatterCardDetailModal = ({
     form.reset();
   };
 
+  const handleUpdateMatterInfo = async (
+    updatedMatterInfo: UpdatedMatterInfo
+  ) => {
+    matterInfo.name = updatedMatterInfo.name;
+    matterInfo.category = updatedMatterInfo.category;
+    matterInfo.team = updatedMatterInfo.team;
+    matterInfo.amount = updatedMatterInfo.amount;
+    matterInfo.is_fixed = updatedMatterInfo.is_fixed;
+    await updateMatterInfoInSupabase(matterInfo);
+    closeModal();
+  };
+
+  const handleDeleteMatterInfo = async () => {
+    await deleteMatterInfoInSupabase(matterInfo.id);
+    closeModal();
+  };
+
   return (
     <Modal opened={opened} onClose={closeModal} title={matterInfo.name}>
-      <form>
+      <form
+        onSubmit={form.onSubmit((updatedMatterInfo) => {
+          handleUpdateMatterInfo(updatedMatterInfo);
+        })}
+      >
         <TextInput
           withAsterisk
           label="案件名"
@@ -80,7 +114,7 @@ export const MatterCardDetailModal = ({
         <div className="border-spacing-3 h-6"></div>
         <div className="flex justify-between">
           <Group justify="flex-end" mt="md">
-            <Button type="button" color="gray">
+            <Button type="button" color="gray" onClick={handleDeleteMatterInfo}>
               削除
             </Button>
           </Group>
