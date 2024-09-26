@@ -27,3 +27,12 @@ export const updateMatterInfoInSupabase = async (matterInfo: MatterType) => {
   return { status, error };
 };
 
+export const deleteMatterInfoInSupabase = async (id: number) => {
+  const supabase = createServerComponentClient<Database>({ cookies });
+  const { data: status, error } = await supabase
+    .from("matters")
+    .delete()
+    .eq("id", id);
+
+  return { status, error };
+};

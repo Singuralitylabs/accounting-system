@@ -1,6 +1,7 @@
 import { categoryList, teamList } from "@/app/types/params";
 import { MatterType } from "@/app/types/types";
 import {
+  deleteMatterInfoInSupabase,
   updateMatterInfoInSupabase,
 } from "@/app/utils/supabaseServer";
 import {
@@ -62,6 +63,11 @@ export const MatterCardDetailModal = ({
     closeModal();
   };
 
+  const handleDeleteMatterInfo = async () => {
+    await deleteMatterInfoInSupabase(matterInfo.id);
+    closeModal();
+  };
+
   return (
     <Modal opened={opened} onClose={closeModal} title={matterInfo.name}>
       <form
@@ -108,7 +114,7 @@ export const MatterCardDetailModal = ({
         <div className="border-spacing-3 h-6"></div>
         <div className="flex justify-between">
           <Group justify="flex-end" mt="md">
-            <Button type="button" color="gray">
+            <Button type="button" color="gray" onClick={handleDeleteMatterInfo}>
               削除
             </Button>
           </Group>
