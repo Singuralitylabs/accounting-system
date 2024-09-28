@@ -6,6 +6,10 @@ import {
   updateMatterInfoInSupabase,
 } from "@/app/utils/supabaseServer";
 import {
+  deleteMatterInfoInSupabase,
+  updateMatterInfoInSupabase,
+} from "@/app/utils/supabaseServer";
+import {
   Modal,
   TextInput,
   Checkbox,
