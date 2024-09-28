@@ -30,7 +30,7 @@ type Props = {
 
 type UpdatedMatterInfo = {
   id: number;
-  name: string;
+  title: string;
   team: string;
   category: string;
   amount: number | null;
@@ -69,7 +69,7 @@ export const MatterCardDetailModal = ({
               name: costInfo.name,
               item: costInfo.item,
               payment_target: costInfo.payment_target,
-              amount: costInfo.amount,
+              price: costInfo.price,
               period: costInfo.period,
               certificate: costInfo.certificate,
               withholding: costInfo.withholding,
@@ -90,7 +90,7 @@ export const MatterCardDetailModal = ({
   const form = useForm({
     initialValues: {
       id: matterInfo.id,
-      name: matterInfo.name,
+      title: matterInfo.title,
       team: matterInfo.team,
       category: matterInfo.category,
       amount: matterInfo.amount,
@@ -107,7 +107,7 @@ export const MatterCardDetailModal = ({
   const handleUpdateMatterInfo = async (
     updatedMatterInfo: UpdatedMatterInfo
   ) => {
-    matterInfo.name = updatedMatterInfo.name;
+    matterInfo.title = updatedMatterInfo.title;
     matterInfo.category = updatedMatterInfo.category;
     matterInfo.team = updatedMatterInfo.team;
     matterInfo.amount = updatedMatterInfo.amount;
@@ -121,7 +121,7 @@ export const MatterCardDetailModal = ({
           costInfoInCard.name,
           costInfoInCard.item,
           costInfoInCard.payment_target,
-          costInfoInCard.amount,
+          costInfoInCard.price,
           costInfoInCard.period ?? "",
           costInfoInCard.certificate,
           costInfoInCard.withholding,
@@ -136,7 +136,7 @@ export const MatterCardDetailModal = ({
           costInfoInCard.name,
           costInfoInCard.item,
           costInfoInCard.payment_target,
-          costInfoInCard.amount,
+          costInfoInCard.price,
           costInfoInCard.period ?? "",
           costInfoInCard.certificate,
           costInfoInCard.withholding,
@@ -161,7 +161,7 @@ export const MatterCardDetailModal = ({
         id: costInfoIndex,
         name: "",
         item: "",
-        amount: 0,
+        price: 0,
         payment_target: "",
         period: "",
         certificate: "請求書",
@@ -187,7 +187,7 @@ export const MatterCardDetailModal = ({
   };
 
   return (
-    <Modal opened={opened} onClose={closeModal} title={matterInfo.name}>
+    <Modal opened={opened} onClose={closeModal} title={matterInfo.title}>
       <form
         onSubmit={form.onSubmit((updatedMatterInfo) => {
           handleUpdateMatterInfo(updatedMatterInfo);
@@ -197,7 +197,7 @@ export const MatterCardDetailModal = ({
           withAsterisk
           label="案件名"
           placeholder="案件名をご記入ください。"
-          {...form.getInputProps("name")}
+          {...form.getInputProps("title")}
         />
         <Select
           label="分類"
@@ -273,7 +273,7 @@ export const MatterCardDetailModal = ({
                 <NumberInput
                   placeholder="¥0"
                   className="flex-grow"
-                  value={cost.amount as number}
+                  value={cost.price as number}
                   prefix="¥"
                   allowNegative={false}
                   allowDecimal={false}
@@ -282,7 +282,7 @@ export const MatterCardDetailModal = ({
                     setCostInfoInCardList(
                       costInfoInCardList.map((costInfo) =>
                         costInfo.id === cost.id
-                          ? { ...costInfo, amount: Number(value) }
+                          ? { ...costInfo, price: Number(value) }
                           : costInfo
                       )
                     )
