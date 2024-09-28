@@ -29,7 +29,7 @@ export function MatterCardsGrid({
     >
       <Group justify="space-between" align="flex-start">
         <Text fw={700} size="lg" mt={5}>
-          {matter.name}
+          {matter.title}
         </Text>
         {matter.is_fixed ? (
           <Badge color="blue">確定</Badge>
