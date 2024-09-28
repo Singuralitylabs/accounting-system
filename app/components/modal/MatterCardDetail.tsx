@@ -1,8 +1,11 @@
 import { categoryList, itemList, teamList } from "@/app/types/params";
 import { CostType, MatterType } from "@/app/types/types";
 import {
+  deleteCostInfoInSupabase,
   deleteMatterInfoInSupabase,
   getUserCostInfoList,
+  insertCostInfoInSupabase,
+  updateCostInfoInSupabase,
   updateMatterInfoInSupabase,
 } from "@/app/utils/supabaseServer";
 import {
@@ -16,6 +19,8 @@ import {
 } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useEffect, useState } from "react";
+import { FaRegTrashAlt } from "react-icons/fa";
+import { CiSquarePlus } from "react-icons/ci";
 
 type Props = {
   matterInfo: MatterType;
@@ -32,12 +37,20 @@ type UpdatedMatterInfo = {
   is_fixed: boolean | null;
 };
 
+type CostInCardType = {
+  isNew: boolean;
+  isRemoved: boolean;
+} & CostType;
+
 export const MatterCardDetailModal = ({
   matterInfo,
   opened,
   setOpened,
 }: Props) => {
-  const [costInfoList, setCostInfoList] = useState<CostType[]>([]);
+  const [costInfoIndex, setCostInfoIndex] = useState<number>(10000);
+  const [costInfoInCardList, setCostInfoInCardList] = useState<
+    CostInCardType[]
+  >([]);
   useEffect(() => {
     if (opened) {
       const getCostInfo = async () => {
@@ -48,13 +61,31 @@ export const MatterCardDetailModal = ({
         if (error) {
           console.error("Error fetching costInfoList:", error);
           return <div>コスト情報の取得に失敗しました。</div>;
-        } else if (costInfoList) {
-          setCostInfoList(costInfoList);
+        }
+        if (costInfoList) {
+          setCostInfoInCardList(
+            costInfoList.map((costInfo) => ({
+              id: costInfo.id,
+              name: costInfo.name,
+              item: costInfo.item,
+              payment_target: costInfo.payment_target,
+              amount: costInfo.amount,
+              period: costInfo.period,
+              certificate: costInfo.certificate,
+              withholding: costInfo.withholding,
+              matter_id: costInfo.matter_id,
+              comment: costInfo.comment,
+              inserted_at: costInfo.inserted_at,
+              updated_at: costInfo.updated_at,
+              isNew: false,
+              isRemoved: false,
+            }))
+          );
         }
       };
       getCostInfo();
     }
-  }, [opened]);
+  }, [opened, matterInfo.id]);
 
   const form = useForm({
     initialValues: {
@@ -64,7 +95,7 @@ export const MatterCardDetailModal = ({
       category: matterInfo.category,
       amount: matterInfo.amount,
       is_fixed: matterInfo.is_fixed,
-      costInfoList: costInfoList as CostType[],
+      costInfoInCardList: costInfoInCardList,
     },
   });
 
@@ -81,13 +112,78 @@ export const MatterCardDetailModal = ({
     matterInfo.team = updatedMatterInfo.team;
     matterInfo.amount = updatedMatterInfo.amount;
     matterInfo.is_fixed = updatedMatterInfo.is_fixed;
+
     await updateMatterInfoInSupabase(matterInfo);
+
+    for (const costInfoInCard of costInfoInCardList) {
+      if (costInfoInCard.isNew && !costInfoInCard.isRemoved) {
+        await insertCostInfoInSupabase(
+          costInfoInCard.name,
+          costInfoInCard.item,
+          costInfoInCard.payment_target,
+          costInfoInCard.amount,
+          costInfoInCard.period ?? "",
+          costInfoInCard.certificate,
+          costInfoInCard.withholding,
+          costInfoInCard.matter_id,
+          costInfoInCard.comment ?? ""
+        );
+      } else if (costInfoInCard.isRemoved && !costInfoInCard.isNew) {
+        await deleteCostInfoInSupabase(costInfoInCard.id);
+      } else if (!costInfoInCard.isNew && !costInfoInCard.isRemoved) {
+        await updateCostInfoInSupabase(
+          costInfoInCard.id,
+          costInfoInCard.name,
+          costInfoInCard.item,
+          costInfoInCard.payment_target,
+          costInfoInCard.amount,
+          costInfoInCard.period ?? "",
+          costInfoInCard.certificate,
+          costInfoInCard.withholding,
+          costInfoInCard.matter_id,
+          costInfoInCard.comment ?? ""
+        );
+      }
+    }
+
     closeModal();
   };
 
   const handleDeleteMatterInfo = async () => {
     await deleteMatterInfoInSupabase(matterInfo.id);
     closeModal();
+  };
+
+  const handleAddCost = () => {
+    setCostInfoInCardList([
+      ...costInfoInCardList,
+      {
+        id: costInfoIndex,
+        name: "",
+        item: "",
+        amount: 0,
+        payment_target: "",
+        period: "",
+        certificate: "請求書",
+        withholding: false,
+        matter_id: matterInfo.id,
+        comment: "",
+        inserted_at: "",
+        updated_at: "",
+        isNew: true,
+        isRemoved: false,
+      },
+    ]);
+    setCostInfoIndex(costInfoIndex + 1);
+  };
+
+  const handleRemoveCost = (id: number) => {
+    setCostInfoInCardList(
+      costInfoInCardList.map((costInfo) => {
+        if (costInfo.id === id) costInfo.isRemoved = true;
+        return costInfo;
+      })
+    );
   };
 
   return (
@@ -133,61 +229,86 @@ export const MatterCardDetailModal = ({
           label="確定"
           {...form.getInputProps("isFixed", { type: "checkbox" })}
         />
-        {costInfoList.length > 0 ? <h2 className="my-4">コスト情報</h2> : ""}
-        {costInfoList?.map((cost) => (
-          <div className="flex items-center pb-2" key={cost.id}>
-            <Group gap="sm" className="flex-grow" grow>
-              <TextInput
-                placeholder="品名をご記入ください。"
-                className="flex-grow"
-                value={cost.name as string}
-                onChange={(event) =>
-                  setCostInfoList(
-                    costInfoList.map((costInfo) =>
-                      costInfo.id === cost.id
-                        ? { ...costInfo, name: event.target.value }
-                        : costInfo
+        {costInfoInCardList.length > 0 ? (
+          <h2 className="my-4">コスト情報</h2>
+        ) : (
+          ""
+        )}
+        {costInfoInCardList?.map((cost) =>
+          cost.isRemoved ? (
+            ""
+          ) : (
+            <div className="flex items-center pb-2" key={cost.id}>
+              <Group gap="sm" className="flex-grow" grow>
+                <TextInput
+                  placeholder="品名をご記入ください。"
+                  className="flex-grow"
+                  value={cost.name as string}
+                  onChange={(event) =>
+                    setCostInfoInCardList(
+                      costInfoInCardList.map((costInfo) =>
+                        costInfo.id === cost.id
+                          ? { ...costInfo, name: event.target.value }
+                          : costInfo
+                      )
                     )
-                  )
-                }
-              />
-              <Select
-                className="flex-grow"
-                placeholder="品目を選択ください。"
-                data={itemList}
-                required
-                value={cost.item}
-                onChange={(value) =>
-                  setCostInfoList(
-                    costInfoList.map((costInfo) =>
-                      costInfo.id === cost.id
-                        ? { ...costInfo, item: value || "" }
-                        : costInfo
+                  }
+                />
+                <Select
+                  className="flex-grow"
+                  placeholder="品目を選択ください。"
+                  data={itemList}
+                  required
+                  value={cost.item}
+                  onChange={(value) =>
+                    setCostInfoInCardList(
+                      costInfoInCardList.map((costInfo) =>
+                        costInfo.id === cost.id
+                          ? { ...costInfo, item: value || "" }
+                          : costInfo
+                      )
                     )
-                  )
-                }
-              />
-              <NumberInput
-                placeholder="¥0"
-                className="flex-grow"
-                value={cost.amount as number}
-                prefix="¥"
-                allowNegative={false}
-                allowDecimal={false}
-                thousandSeparator=","
-                onChange={(value) =>
-                  setCostInfoList(
-                    costInfoList.map((costInfo) =>
-                      costInfo.id === cost.id
-                        ? { ...costInfo, price: Number(value) }
-                        : costInfo
+                  }
+                />
+                <NumberInput
+                  placeholder="¥0"
+                  className="flex-grow"
+                  value={cost.amount as number}
+                  prefix="¥"
+                  allowNegative={false}
+                  allowDecimal={false}
+                  thousandSeparator=","
+                  onChange={(value) =>
+                    setCostInfoInCardList(
+                      costInfoInCardList.map((costInfo) =>
+                        costInfo.id === cost.id
+                          ? { ...costInfo, amount: Number(value) }
+                          : costInfo
+                      )
                     )
-                  )
-                }
-              />
-            </Group>
-          </div>
-        ))}
+                  }
+                />
+              </Group>
+              <div
+                className="h-full px-2 text-lg hover:cursor-pointer ml-auto flex items-center justify-center"
+                onClick={() => handleRemoveCost(cost.id)}
+              >
+                <FaRegTrashAlt />
+              </div>
+            </div>
+          )
+        )}
+        <Button
+          type="button"
+          fullWidth
+          color="dark"
+          variant="outline"
+          rightSection={<CiSquarePlus />}
+          onClick={handleAddCost}
+        >
+          コスト追加
+        </Button>
+
         <div className="border-spacing-3 h-6"></div>
         <div className="flex justify-between">
           <Group justify="flex-end" mt="md">
