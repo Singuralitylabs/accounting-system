@@ -1,8 +1,11 @@
 import { categoryList, itemList, teamList } from "@/app/types/params";
 import { CostType, MatterType } from "@/app/types/types";
 import {
+  deleteCostInfoInSupabase,
   deleteMatterInfoInSupabase,
   getUserCostInfoList,
+  insertCostInfoInSupabase,
+  updateCostInfoInSupabase,
   updateMatterInfoInSupabase,
 } from "@/app/utils/supabaseServer";
 import {
@@ -35,19 +38,9 @@ type UpdatedMatterInfo = {
 };
 
 type CostInCardType = {
-  id: number;
-  name: string;
-  item: string;
-  payment_target: string;
-  amount: number;
-  period: string | null;
-  certificate: string;
-  withholding: boolean;
-  matter_id: number;
-  comment: string | null;
   isNew: boolean;
   isRemoved: boolean;
-};
+} & CostType;
 
 export const MatterCardDetailModal = ({
   matterInfo,
@@ -82,6 +75,8 @@ export const MatterCardDetailModal = ({
               withholding: costInfo.withholding,
               matter_id: costInfo.matter_id,
               comment: costInfo.comment,
+              inserted_at: costInfo.inserted_at,
+              updated_at: costInfo.updated_at,
               isNew: false,
               isRemoved: false,
             }))
@@ -117,7 +112,40 @@ export const MatterCardDetailModal = ({
     matterInfo.team = updatedMatterInfo.team;
     matterInfo.amount = updatedMatterInfo.amount;
     matterInfo.is_fixed = updatedMatterInfo.is_fixed;
+
     await updateMatterInfoInSupabase(matterInfo);
+
+    for (const costInfoInCard of costInfoInCardList) {
+      if (costInfoInCard.isNew && !costInfoInCard.isRemoved) {
+        await insertCostInfoInSupabase(
+          costInfoInCard.name,
+          costInfoInCard.item,
+          costInfoInCard.payment_target,
+          costInfoInCard.amount,
+          costInfoInCard.period ?? "",
+          costInfoInCard.certificate,
+          costInfoInCard.withholding,
+          costInfoInCard.matter_id,
+          costInfoInCard.comment ?? ""
+        );
+      } else if (costInfoInCard.isRemoved && !costInfoInCard.isNew) {
+        await deleteCostInfoInSupabase(costInfoInCard.id);
+      } else if (!costInfoInCard.isNew && !costInfoInCard.isRemoved) {
+        await updateCostInfoInSupabase(
+          costInfoInCard.id,
+          costInfoInCard.name,
+          costInfoInCard.item,
+          costInfoInCard.payment_target,
+          costInfoInCard.amount,
+          costInfoInCard.period ?? "",
+          costInfoInCard.certificate,
+          costInfoInCard.withholding,
+          costInfoInCard.matter_id,
+          costInfoInCard.comment ?? ""
+        );
+      }
+    }
+
     closeModal();
   };
 
@@ -136,10 +164,12 @@ export const MatterCardDetailModal = ({
         amount: 0,
         payment_target: "",
         period: "",
-        certificate: "",
+        certificate: "請求書",
         withholding: false,
-        matter_id: 0,
+        matter_id: matterInfo.id,
         comment: "",
+        inserted_at: "",
+        updated_at: "",
         isNew: true,
         isRemoved: false,
       },
@@ -252,7 +282,7 @@ export const MatterCardDetailModal = ({
                     setCostInfoInCardList(
                       costInfoInCardList.map((costInfo) =>
                         costInfo.id === cost.id
-                          ? { ...costInfo, price: Number(value) }
+                          ? { ...costInfo, amount: Number(value) }
                           : costInfo
                       )
                     )
