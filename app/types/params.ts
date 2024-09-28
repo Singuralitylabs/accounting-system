@@ -17,3 +17,5 @@ export const categoryList = [
   "ハロスク",
   "その他",
 ];
+
+export const itemList = ["システム料", "外注費", "備品購入", "人件費"];

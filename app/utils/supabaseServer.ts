@@ -17,6 +17,16 @@ export const getUserMatterInfoList = async () => {
   return matterList;
 };
 
+export const getUserCostInfoList = async (matter_id: number) => {
+  const supabase = createServerComponentClient<Database>({ cookies });
+  const { data: costInfoList, error } = await supabase
+    .from("costs")
+    .select("*")
+    .eq("matter_id", matter_id);
+
+  return { costInfoList, error };
+};
+
 export const updateMatterInfoInSupabase = async (matterInfo: MatterType) => {
   const supabase = createServerComponentClient<Database>({ cookies });
   const { data: status, error } = await supabase
