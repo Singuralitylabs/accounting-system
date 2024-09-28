@@ -54,7 +54,7 @@ export const MatterCardDetailModal = ({
       };
       getCostInfo();
     }
-  }, [opened]);
+  }, [opened, matterInfo.id]);
 
   const form = useForm({
     initialValues: {
