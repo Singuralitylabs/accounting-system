@@ -60,6 +60,7 @@ const NewMatterForm = () => {
     period_date: "",
     start_date: "",
     updated_at: "",
+    description: "",
   });
   const [costList, setCostList] = useState<CostType[]>([]);
   const [costIndex, setCostIndex] = useState<number>(1);
@@ -119,18 +120,33 @@ const NewMatterForm = () => {
       className="p-4 lg:p-16 w-auto"
       onSubmit={form.onSubmit((values) => console.log(values))}
     >
-      <TextInput
-        withAsterisk
-        required
-        placeholder="案件名をご入力ください。（例）10月_世界版ボードゲーム制作"
-        label="案件名"
-        key={form.key("title")}
-        {...form.getInputProps("title")}
-        onChange={(event) =>
-          setMatterInfo({ ...matterInfo, title: event.currentTarget.value })
-        }
-      />
-
+      <div className="sm:flex gap-4 w-full">
+        <TextInput
+          className="w-full"
+          withAsterisk
+          required
+          placeholder="案件名をご入力ください。（例）10月_世界版ボードゲーム制作"
+          label="案件名"
+          key={form.key("title")}
+          {...form.getInputProps("title")}
+          onChange={(event) =>
+            setMatterInfo({ ...matterInfo, title: event.currentTarget.value })
+          }
+        />
+        <TextInput
+          className="w-full"
+          placeholder="協会から案件の報酬を請求するお相手名を入力して下さい。"
+          label="請求先"
+          key={form.key("billing_address")}
+          {...form.getInputProps("billing_address")}
+          onChange={(event) =>
+            setMatterInfo({
+              ...matterInfo,
+              billing_address: event.currentTarget.value,
+            })
+          }
+        />
+      </div>
       <div className="sm:flex gap-4 w-full">
         <Select
           withAsterisk
@@ -143,7 +159,6 @@ const NewMatterForm = () => {
             event ? setMatterInfo({ ...matterInfo, category: event }) : null
           }
         />
-
         <Select
           withAsterisk
           className="pt-4 w-full"
@@ -153,22 +168,6 @@ const NewMatterForm = () => {
           clearable
           onChange={(event) =>
             event ? setMatterInfo({ ...matterInfo, team: event }) : null
-          }
-        />
-      </div>
-
-      <div className="sm:flex gap-4 w-full">
-        <TextInput
-          className="pt-4 w-full"
-          placeholder="協会から案件の報酬を請求するお相手名を入力して下さい。"
-          label="請求先"
-          key={form.key("billing_address")}
-          {...form.getInputProps("billing_address")}
-          onChange={(event) =>
-            setMatterInfo({
-              ...matterInfo,
-              billing_address: event.currentTarget.value,
-            })
           }
         />
         <NumberInput
@@ -222,16 +221,16 @@ const NewMatterForm = () => {
         />
       </div>
 
-      <Checkbox
-        mt="md"
-        className="pt-4"
-        label="確定"
-        key={form.key("is_fixed")}
-        {...form.getInputProps("is_fixed", { type: "checkbox" })}
+      <TextInput
+        className="pt-4 w-full"
+        placeholder="案件に関して追加で説明があればご記入ください。"
+        label="説明"
+        key={form.key("description")}
+        {...form.getInputProps("description")}
         onChange={(event) =>
           setMatterInfo({
             ...matterInfo,
-            is_fixed: event.currentTarget.checked,
+            description: event.currentTarget.value,
           })
         }
       />
