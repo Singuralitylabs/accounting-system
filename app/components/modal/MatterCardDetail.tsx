@@ -11,7 +11,6 @@ import {
 import {
   Modal,
   TextInput,
-  Checkbox,
   NumberInput,
   Select,
   Button,
@@ -21,6 +20,7 @@ import { useForm } from "@mantine/form";
 import { useEffect, useState } from "react";
 import { FaRegTrashAlt } from "react-icons/fa";
 import { CiSquarePlus } from "react-icons/ci";
+import { DateInput } from "@mantine/dates";
 
 type Props = {
   matterInfo: MatterType;
@@ -28,13 +28,16 @@ type Props = {
   setOpened: React.Dispatch<React.SetStateAction<boolean>>;
 };
 
-type UpdatedMatterInfo = {
-  id: number;
+type UpdatedMatterInfoType = {
   title: string;
+  billing_address: string | null;
   team: string;
   category: string;
   amount: number | null;
-  is_fixed: boolean | null;
+  start_date: string | null;
+  invoice_date: string | null;
+  period_date: string | null;
+  description: string | null;
 };
 
 type CostInCardType = {
@@ -47,6 +50,15 @@ export const MatterCardDetailModal = ({
   opened,
   setOpened,
 }: Props) => {
+  const [startDate, setStartDate] = useState<Date | null>(
+    new Date(matterInfo.start_date!)
+  );
+  const [invoiceDate, setInvoiceDate] = useState<Date | null>(
+    new Date(matterInfo.invoice_date!)
+  );
+  const [periodDate, setPeriodDate] = useState<Date | null>(
+    new Date(matterInfo.period_date!)
+  );
   const [costInfoIndex, setCostInfoIndex] = useState<number>(10000);
   const [costInfoInCardList, setCostInfoInCardList] = useState<
     CostInCardType[]
@@ -94,7 +106,12 @@ export const MatterCardDetailModal = ({
       team: matterInfo.team,
       category: matterInfo.category,
       amount: matterInfo.amount,
+      billing_address: matterInfo.billing_address,
+      start_date: matterInfo.start_date,
+      invoice_date: matterInfo.invoice_date,
+      period_date: matterInfo.period_date,
       is_fixed: matterInfo.is_fixed,
+      description: matterInfo.description,
       costInfoInCardList: costInfoInCardList,
     },
   });
@@ -105,13 +122,17 @@ export const MatterCardDetailModal = ({
   };
 
   const handleUpdateMatterInfo = async (
-    updatedMatterInfo: UpdatedMatterInfo
+    updatedMatterInfo: UpdatedMatterInfoType
   ) => {
     matterInfo.title = updatedMatterInfo.title;
     matterInfo.category = updatedMatterInfo.category;
     matterInfo.team = updatedMatterInfo.team;
     matterInfo.amount = updatedMatterInfo.amount;
-    matterInfo.is_fixed = updatedMatterInfo.is_fixed;
+    matterInfo.billing_address = updatedMatterInfo.billing_address;
+    matterInfo.start_date = startDate?.toISOString() || null;
+    matterInfo.invoice_date = invoiceDate?.toISOString() || null;
+    matterInfo.period_date = periodDate?.toISOString() || null;
+    matterInfo.description = updatedMatterInfo.description;
 
     await updateMatterInfoInSupabase(matterInfo);
 
@@ -199,6 +220,12 @@ export const MatterCardDetailModal = ({
           placeholder="案件名をご記入ください。"
           {...form.getInputProps("title")}
         />
+        <TextInput
+          withAsterisk
+          label="取引先"
+          placeholder="取引先をご記入ください。"
+          {...form.getInputProps("billing_address")}
+        />
         <Select
           label="分類"
           placeholder="案件の分類をご記入ください。"
@@ -214,8 +241,8 @@ export const MatterCardDetailModal = ({
           {...form.getInputProps("team")}
         />
         <NumberInput
-          label="金額"
-          placeholder="金額をご記入ください。"
+          label="請求額"
+          placeholder="協会が取引先に請求する金額をご記入ください。"
           min={0}
           prefix="¥"
           allowNegative={false}
@@ -223,12 +250,40 @@ export const MatterCardDetailModal = ({
           thousandSeparator=","
           {...form.getInputProps("amount")}
         />
-
-        <Checkbox
-          mt="md"
-          label="確定"
-          {...form.getInputProps("isFixed", { type: "checkbox" })}
+        <DateInput
+          label="案件開始日"
+          required
+          placeholder="案件を開始した日付をご入力ください。"
+          valueFormat="YYYY/MM/DD"
+          value={startDate}
+          onChange={(value) =>
+            value ? setStartDate(value) : setStartDate(null)
+          }
         />
+        <DateInput
+          label="請求日"
+          placeholder="案件に対する報酬を請求する日付をご入力ください。"
+          valueFormat="YYYY/MM/DD"
+          value={invoiceDate}
+          onChange={(value) =>
+            value ? setInvoiceDate(value) : setInvoiceDate(null)
+          }
+        />
+        <DateInput
+          label="振込期限"
+          placeholder="案件の報酬の振込期限をご入力ください。"
+          valueFormat="YYYY/MM/DD"
+          value={periodDate}
+          onChange={(value) =>
+            value ? setPeriodDate(value) : setPeriodDate(null)
+          }
+        />
+        <TextInput
+          label="説明"
+          placeholder="案件に追加の説明があればご記入ください。"
+          {...form.getInputProps("description")}
+        />
+
         {costInfoInCardList.length > 0 ? (
           <h2 className="my-4">コスト情報</h2>
         ) : (
