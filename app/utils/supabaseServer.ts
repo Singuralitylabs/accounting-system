@@ -34,6 +34,14 @@ export const updateMatterInfoInSupabase = async (matterInfo: MatterType) => {
     .update(matterInfo)
     .eq("id", matterInfo.id);
 
+  if (error) {
+    console.error(
+      `${matterInfo.title}の案件情報の更新処理で失敗しました。`,
+      error
+    );
+    return;
+  }
+
   return { status, error };
 };
 
