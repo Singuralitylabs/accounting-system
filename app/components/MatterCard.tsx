@@ -31,7 +31,9 @@ export function MatterCardsGrid({
         <Text fw={700} size="lg" mt={5}>
           {matter.title}
         </Text>
-        {matter.is_fixed ? (
+        {matter.is_completed ? (
+          <Badge color="green">完了</Badge>
+        ) : matter.is_fixed ? (
           <Badge color="blue">確定</Badge>
         ) : (
           <Badge color="red">未確定</Badge>
