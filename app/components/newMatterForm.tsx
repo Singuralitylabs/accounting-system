@@ -134,7 +134,7 @@ const NewMatterForm = () => {
           {...form.getInputProps("title")}
         />
         <TextInput
-          className="w-full"
+          className="w-full sm:pt-0 pt-4"
           placeholder="協会から案件の報酬を請求するお相手名を入力して下さい。"
           label="請求先"
           key={form.key("billing_address")}
