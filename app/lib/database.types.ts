@@ -67,6 +67,7 @@ export type Database = {
           amount: number | null
           billing_address: string | null
           category: string
+          description: string | null
           id: number
           inserted_at: string
           invoice_date: string | null
@@ -83,6 +84,7 @@ export type Database = {
           amount?: number | null
           billing_address?: string | null
           category: string
+          description?: string | null
           id?: number
           inserted_at?: string
           invoice_date?: string | null
@@ -99,6 +101,7 @@ export type Database = {
           amount?: number | null
           billing_address?: string | null
           category?: string
+          description?: string | null
           id?: number
           inserted_at?: string
           invoice_date?: string | null

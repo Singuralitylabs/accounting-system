@@ -27,12 +27,62 @@ export const getUserCostInfoList = async (matter_id: number) => {
   return { costInfoList, error };
 };
 
+export const insertMatterInfoInSupabase = async (
+  title: string,
+  category: string,
+  team: string,
+  amount: number | null,
+  billing_address: string,
+  start_date: string,
+  invoice_date: string | null,
+  period_date: string | null,
+  is_fixed: boolean,
+  description: string | null
+) => {
+  const supabase = createServerComponentClient<Database>({ cookies });
+
+  const { data, error } = await supabase
+    .from("matters")
+    .insert({
+      title: title,
+      category: category,
+      team: team,
+      amount: amount,
+      billing_address: billing_address,
+      start_date: start_date,
+      invoice_date: invoice_date,
+      period_date: period_date,
+      description: description,
+      is_fixed: is_fixed,
+      is_completed: false,
+      user_id: 1,
+    })
+    .select();
+
+  if (error) {
+    console.error(`${title}の案件情報の追加処理で失敗しました。`, error);
+    return { newId: null, error };
+  }
+
+  const newId = data ? data[0].id : null;
+
+  return { newId, error: null };
+};
+
 export const updateMatterInfoInSupabase = async (matterInfo: MatterType) => {
   const supabase = createServerComponentClient<Database>({ cookies });
   const { data: status, error } = await supabase
     .from("matters")
     .update(matterInfo)
     .eq("id", matterInfo.id);
+
+  if (error) {
+    console.error(
+      `${matterInfo.title}の案件情報の更新処理で失敗しました。`,
+      error
+    );
+    return;
+  }
 
   return { status, error };
 };
@@ -43,6 +93,11 @@ export const deleteMatterInfoInSupabase = async (id: number) => {
     .from("matters")
     .delete()
     .eq("id", id);
+
+  if (error) {
+    console.error(`案件ID : ${id}の案件情報の削除処理で失敗しました。`, error);
+    return { status, error };
+  }
 
   return { status, error };
 };
@@ -115,8 +170,10 @@ export const insertCostInfoInSupabase = async (
 
   if (error) {
     console.error(`${name}のコスト情報の追加処理で失敗しました。`, error);
-    return;
+    return { error };
   }
+
+  return { error };
 };
 
 export const deleteCostInfoInSupabase = async (id: number) => {
