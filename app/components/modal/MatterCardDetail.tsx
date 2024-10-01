@@ -308,7 +308,6 @@ export const MatterCardDetailModal = ({
               className="sm:flex items-center mb-4"
               withBorder
               radius="lg"
-              shadow="sm"
               padding="lg"
               aria-label="コスト"
             >
@@ -470,6 +469,7 @@ export const MatterCardDetailModal = ({
         <Button
           type="button"
           fullWidth
+          className="mt-4"
           color="dark"
           variant="outline"
           rightSection={<CiSquarePlus />}
