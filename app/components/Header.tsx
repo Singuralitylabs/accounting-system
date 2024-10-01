@@ -14,7 +14,7 @@ const Header: FC = () => {
   return (
     <header className="bg-gray-800 p-4">
       <nav className="flex justify-between items-center">
-        <div className="hidden md:flex space-x-4">
+        <div className="hidden sm:flex space-x-4">
           <Link
             href="/"
             className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
@@ -34,7 +34,7 @@ const Header: FC = () => {
             新規作成
           </Link>
         </div>
-        <div className="ml-auto hidden md:block">
+        <div className="ml-auto hidden sm:block">
           <Link
             href="/login"
             className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
@@ -45,9 +45,9 @@ const Header: FC = () => {
       </nav>
 
       {/* Mobile Menu */}
-      <div className="md:hidden flex justify-end w-full">
+      <div className="sm:hidden flex justify-end w-full">
         <button
-          className="text-white md:hidden focus:outline-none"
+          className="text-white sm:hidden focus:outline-none"
           aria-label="Toggle menu"
           onClick={toggleMenu}
         >

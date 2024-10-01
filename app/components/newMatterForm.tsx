@@ -79,7 +79,17 @@ const NewMatterForm = () => {
 
   const handleAddMatterInfo = async (matterInfo: MatterType) => {
     try {
-      console.log(JSON.stringify(matterInfo));
+      const checkCreated = window.confirm(
+        `案件[${matterInfo.title}]を作成しますか？`
+      );
+      if (!checkCreated) {
+        alert(`案件[${matterInfo.title}]の作成を中止しました。`);
+        return;
+      }
+      matterInfo.is_fixed = window.confirm(
+        `案件[${matterInfo.title}]を確定にしますか？\n確定後は経理の確認に入るため、変更できません。`
+      );
+
       const { newId, error: matterError } = await insertMatterInfoInSupabase(
         matterInfo.title,
         matterInfo.category,
@@ -92,7 +102,6 @@ const NewMatterForm = () => {
         matterInfo.is_fixed!,
         matterInfo.description
       );
-      console.log(newId);
       if (matterError) throw new Error(matterError.message);
       if (!newId) throw new Error("案件IDの取得に失敗しました。");
       for (const cost of costList) {
@@ -134,7 +143,7 @@ const NewMatterForm = () => {
           {...form.getInputProps("title")}
         />
         <TextInput
-          className="w-full"
+          className="w-full sm:pt-0 pt-4"
           placeholder="協会から案件の報酬を請求するお相手名を入力して下さい。"
           label="請求先"
           key={form.key("billing_address")}
