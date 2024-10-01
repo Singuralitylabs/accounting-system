@@ -1,11 +1,20 @@
+"use client";
+
 import Link from "next/link";
-import React, { FC } from "react";
+import React, { FC, useState } from "react";
+import { GiHamburgerMenu } from "react-icons/gi";
 
 const Header: FC = () => {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  const toggleMenu = () => {
+    setIsMenuOpen((prev) => !prev);
+  };
+
   return (
     <header className="bg-gray-800 p-4">
       <nav className="flex justify-between items-center">
-        <div className="space-x-4">
+        <div className="hidden md:flex space-x-4">
           <Link
             href="/"
             className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
@@ -25,7 +34,7 @@ const Header: FC = () => {
             新規作成
           </Link>
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto hidden md:block">
           <Link
             href="/login"
             className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
@@ -34,6 +43,46 @@ const Header: FC = () => {
           </Link>
         </div>
       </nav>
+
+      {/* Mobile Menu */}
+      <div className="md:hidden flex justify-end w-full">
+        <button
+          className="text-white md:hidden focus:outline-none"
+          aria-label="Toggle menu"
+          onClick={toggleMenu}
+        >
+          <GiHamburgerMenu />
+        </button>
+      </div>
+
+      {isMenuOpen && (
+        <div className="md:hidden bg-gray-700 w-32 text-right ml-auto">
+          <Link
+            href="/"
+            className="block rounded px-3 py-2 text-white hover:bg-gray-500"
+          >
+            全ての案件
+          </Link>
+          <Link
+            href="/completed"
+            className="block rounded px-3 py-2 text-white hover:bg-gray-500"
+          >
+            完了した案件
+          </Link>
+          <Link
+            href="/new"
+            className="block rounded px-3 py-2 text-white hover:bg-gray-500"
+          >
+            新規作成
+          </Link>
+          <Link
+            href="/login"
+            className="block rounded px-3 py-2 text-white hover:bg-gray-500"
+          >
+            ログアウト
+          </Link>
+        </div>
+      )}
     </header>
   );
 };
