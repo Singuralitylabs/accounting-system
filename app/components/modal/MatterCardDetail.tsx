@@ -228,12 +228,15 @@ export const MatterCardDetailModal = ({
           withAsterisk
           label="案件名"
           placeholder="案件名をご記入ください。"
+          required
+          disabled={matterInfo.is_fixed!}
           {...form.getInputProps("title")}
         />
         <TextInput
           withAsterisk
           label="取引先"
           placeholder="取引先をご記入ください。"
+          disabled={matterInfo.is_fixed!}
           {...form.getInputProps("billing_address")}
         />
         <Select
@@ -241,6 +244,7 @@ export const MatterCardDetailModal = ({
           placeholder="案件の分類をご記入ください。"
           data={categoryList}
           required
+          disabled={matterInfo.is_fixed!}
           {...form.getInputProps("category")}
         />
         <Select
@@ -248,6 +252,7 @@ export const MatterCardDetailModal = ({
           placeholder="案件を担当するチームを選択ください。"
           data={teamList}
           required
+          disabled={matterInfo.is_fixed!}
           {...form.getInputProps("team")}
         />
         <NumberInput
@@ -258,12 +263,14 @@ export const MatterCardDetailModal = ({
           allowNegative={false}
           allowDecimal={false}
           thousandSeparator=","
+          disabled={matterInfo.is_fixed!}
           {...form.getInputProps("amount")}
         />
         <DateInput
           label="案件開始日"
           required
           placeholder="案件を開始した日付をご入力ください。"
+          disabled={matterInfo.is_fixed!}
           valueFormat="YYYY/MM/DD"
           value={startDate}
           onChange={(value) =>
@@ -273,6 +280,7 @@ export const MatterCardDetailModal = ({
         <DateInput
           label="請求日"
           placeholder="案件に対する報酬を請求する日付をご入力ください。"
+          disabled={matterInfo.is_fixed!}
           valueFormat="YYYY/MM/DD"
           value={invoiceDate}
           onChange={(value) =>
@@ -282,6 +290,7 @@ export const MatterCardDetailModal = ({
         <DateInput
           label="振込期限"
           placeholder="案件の報酬の振込期限をご入力ください。"
+          disabled={matterInfo.is_fixed!}
           valueFormat="YYYY/MM/DD"
           value={periodDate}
           onChange={(value) =>
@@ -290,6 +299,7 @@ export const MatterCardDetailModal = ({
         />
         <TextInput
           label="説明"
+          disabled={matterInfo.is_fixed!}
           placeholder="案件に追加の説明があればご記入ください。"
           {...form.getInputProps("description")}
         />
@@ -311,21 +321,24 @@ export const MatterCardDetailModal = ({
               padding="lg"
               aria-label="コスト"
             >
-              <div className="flex justify-between w-full mb-2">
-                <div>コスト{index + 1}</div>
-                <div
-                  className="h-full px-4 text-lg hover:cursor-pointer w-4 ml-auto items-center justify-center"
-                  onClick={() => handleRemoveCost(cost.id)}
-                >
-                  <FaRegTrashAlt />
+              {!matterInfo.is_fixed ? (
+                <div className="flex justify-between w-full mb-2">
+                  <div>コスト{index + 1}</div>
+                  <div
+                    className="h-full px-4 text-lg hover:cursor-pointer w-4 ml-auto items-center justify-center"
+                    onClick={() => handleRemoveCost(cost.id)}
+                  >
+                    <FaRegTrashAlt />
+                  </div>
                 </div>
-              </div>
+              ) : null}
               <div className="flex-grow">
                 <div className="flex pb-2">
                   <Group gap="sm" className="flex-grow w-full">
                     <TextInput
                       placeholder="品名をご記入ください。"
                       className="flex-grow"
+                      disabled={matterInfo.is_fixed!}
                       value={cost.name}
                       onChange={(event) =>
                         setCostInfoInCardList(
@@ -342,6 +355,7 @@ export const MatterCardDetailModal = ({
                       placeholder="品目を選択ください。"
                       data={itemList}
                       required
+                      disabled={matterInfo.is_fixed!}
                       value={cost.item}
                       onChange={(value) =>
                         setCostInfoInCardList(
@@ -356,6 +370,7 @@ export const MatterCardDetailModal = ({
                     <NumberInput
                       placeholder="¥0"
                       className="flex-grow"
+                      disabled={matterInfo.is_fixed!}
                       value={cost.price}
                       prefix="¥"
                       allowNegative={false}
@@ -378,6 +393,7 @@ export const MatterCardDetailModal = ({
                     <DateInput
                       className="flex-grow"
                       placeholder="支払い期限をご記入ください。"
+                      disabled={matterInfo.is_fixed!}
                       valueFormat="YYYY/MM/DD"
                       onChange={(event) => {
                         const dateString = event
@@ -395,6 +411,7 @@ export const MatterCardDetailModal = ({
                     <TextInput
                       placeholder="支払い先の名前をご記入ください。"
                       className="flex-grow"
+                      disabled={matterInfo.is_fixed!}
                       value={cost.payment_target}
                       onChange={(event) =>
                         setCostInfoInCardList(
@@ -414,6 +431,7 @@ export const MatterCardDetailModal = ({
                       placeholder="支払いの通知方法を選択ください。"
                       data={certificateList}
                       required
+                      disabled={matterInfo.is_fixed!}
                       value={cost.certificate}
                       onChange={(value) =>
                         setCostInfoInCardList(
@@ -427,6 +445,7 @@ export const MatterCardDetailModal = ({
                     />
                     <Checkbox
                       label="源泉徴収あり"
+                      disabled={matterInfo.is_fixed!}
                       key={form.key("withholding")}
                       {...form.getInputProps("withholding", {
                         type: "checkbox",
@@ -450,6 +469,7 @@ export const MatterCardDetailModal = ({
                   <TextInput
                     placeholder="コメントがあればご記入ください。"
                     className="flex-grow w-full"
+                    disabled={matterInfo.is_fixed!}
                     value={cost.comment ? cost.comment : ""}
                     onChange={(event) =>
                       setCostInfoInCardList(
@@ -466,32 +486,42 @@ export const MatterCardDetailModal = ({
             </Card>
           )
         )}
-        <Button
-          type="button"
-          fullWidth
-          className="mt-4"
-          color="dark"
-          variant="outline"
-          rightSection={<CiSquarePlus />}
-          onClick={handleAddCost}
-        >
-          コスト追加
-        </Button>
+        {!matterInfo.is_fixed ? (
+          <Button
+            type="button"
+            fullWidth
+            className="mt-4"
+            color="dark"
+            variant="outline"
+            rightSection={<CiSquarePlus />}
+            onClick={handleAddCost}
+          >
+            コスト追加
+          </Button>
+        ) : null}
 
         <div className="border-spacing-3 h-6"></div>
         <div className="flex justify-between">
-          <Group justify="flex-end" mt="md">
-            <Button type="button" color="gray" onClick={handleDeleteMatterInfo}>
-              削除
-            </Button>
-          </Group>
+          {!matterInfo.is_fixed ? (
+            <Group justify="flex-end" mt="md">
+              <Button
+                type="button"
+                color="gray"
+                onClick={handleDeleteMatterInfo}
+              >
+                削除
+              </Button>
+            </Group>
+          ) : null}
           <Group justify="flex-end" mt="md">
             <Button type="button" color="pink" onClick={closeModal}>
               キャンセル
             </Button>
-            <Button type="submit" color="green">
-              更新
-            </Button>
+            {!matterInfo.is_fixed ? (
+              <Button type="submit" color="green">
+                更新
+              </Button>
+            ) : null}
           </Group>
         </div>
       </form>
