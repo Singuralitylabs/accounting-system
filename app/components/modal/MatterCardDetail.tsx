@@ -178,6 +178,9 @@ export const MatterCardDetailModal = ({
   };
 
   const handleDeleteMatterInfo = async () => {
+    for (const costInfo of costInfoInCardList) {
+      await deleteCostInfoInSupabase(costInfo.id);
+    }
     await deleteMatterInfoInSupabase(matterInfo.id);
     closeModal();
   };
