@@ -131,6 +131,17 @@ export const MatterCardDetailModal = ({
   const handleUpdateMatterInfo = async (
     updatedMatterInfo: UpdatedMatterInfoType
   ) => {
+    const checkUpdate = window.confirm(
+      `案件[${updatedMatterInfo.title}]を更新しますか？`
+    );
+    if (!checkUpdate) {
+      closeModal();
+      return;
+    }
+    matterInfo.is_fixed = window.confirm(
+      `案件[${updatedMatterInfo.title}]を確定にしますか？\n確定後は経理の確認に入るため、変更できません。`
+    );
+
     matterInfo.title = updatedMatterInfo.title;
     matterInfo.category = updatedMatterInfo.category;
     matterInfo.team = updatedMatterInfo.team;
@@ -174,14 +185,24 @@ export const MatterCardDetailModal = ({
       }
     }
 
+    alert(`案件[${matterInfo.title}]を更新しました。`);
     closeModal();
   };
 
   const handleDeleteMatterInfo = async () => {
+    const checkDelete = window.confirm(
+      `案件[${matterInfo.title}]を削除してよろしいですか？`
+    );
+    if (!checkDelete) {
+      alert(`案件[${matterInfo.title}]の削除を中止しました。`);
+      closeModal();
+      return;
+    }
     for (const costInfo of costInfoInCardList) {
       await deleteCostInfoInSupabase(costInfo.id);
     }
     await deleteMatterInfoInSupabase(matterInfo.id);
+    alert(`案件[${matterInfo.title}]を削除しました。`);
     closeModal();
   };
 
@@ -500,9 +521,8 @@ export const MatterCardDetailModal = ({
           </Button>
         ) : null}
 
-        <div className="border-spacing-3 h-6"></div>
-        <div className="flex justify-between">
-          {!matterInfo.is_fixed ? (
+        {!matterInfo.is_fixed ? (
+          <div className="flex justify-between mt-6">
             <Group justify="flex-end" mt="md">
               <Button
                 type="button"
@@ -512,18 +532,13 @@ export const MatterCardDetailModal = ({
                 削除
               </Button>
             </Group>
-          ) : null}
-          <Group justify="flex-end" mt="md">
-            <Button type="button" color="pink" onClick={closeModal}>
-              キャンセル
-            </Button>
-            {!matterInfo.is_fixed ? (
+            <Group justify="flex-end" mt="md">
               <Button type="submit" color="green">
                 更新
               </Button>
-            ) : null}
-          </Group>
-        </div>
+            </Group>
+          </div>
+        ) : null}
       </form>
     </Modal>
   );
