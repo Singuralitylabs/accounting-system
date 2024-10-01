@@ -1,4 +1,9 @@
-import { categoryList, itemList, teamList } from "@/app/types/params";
+import {
+  categoryList,
+  certificateList,
+  itemList,
+  teamList,
+} from "@/app/types/params";
 import { CostType, MatterType } from "@/app/types/types";
 import {
   deleteCostInfoInSupabase,
@@ -11,16 +16,18 @@ import {
 import {
   Modal,
   TextInput,
-  Checkbox,
   NumberInput,
   Select,
   Button,
   Group,
+  Card,
+  Checkbox,
 } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useEffect, useState } from "react";
 import { FaRegTrashAlt } from "react-icons/fa";
 import { CiSquarePlus } from "react-icons/ci";
+import { DateInput } from "@mantine/dates";
 
 type Props = {
   matterInfo: MatterType;
@@ -28,13 +35,16 @@ type Props = {
   setOpened: React.Dispatch<React.SetStateAction<boolean>>;
 };
 
-type UpdatedMatterInfo = {
-  id: number;
+type UpdatedMatterInfoType = {
   title: string;
+  billing_address: string | null;
   team: string;
   category: string;
   amount: number | null;
-  is_fixed: boolean | null;
+  start_date: string | null;
+  invoice_date: string | null;
+  period_date: string | null;
+  description: string | null;
 };
 
 type CostInCardType = {
@@ -47,6 +57,15 @@ export const MatterCardDetailModal = ({
   opened,
   setOpened,
 }: Props) => {
+  const [startDate, setStartDate] = useState<Date | null>(
+    new Date(matterInfo.start_date!)
+  );
+  const [invoiceDate, setInvoiceDate] = useState<Date | null>(
+    new Date(matterInfo.invoice_date!)
+  );
+  const [periodDate, setPeriodDate] = useState<Date | null>(
+    new Date(matterInfo.period_date!)
+  );
   const [costInfoIndex, setCostInfoIndex] = useState<number>(10000);
   const [costInfoInCardList, setCostInfoInCardList] = useState<
     CostInCardType[]
@@ -94,7 +113,12 @@ export const MatterCardDetailModal = ({
       team: matterInfo.team,
       category: matterInfo.category,
       amount: matterInfo.amount,
+      billing_address: matterInfo.billing_address,
+      start_date: matterInfo.start_date,
+      invoice_date: matterInfo.invoice_date,
+      period_date: matterInfo.period_date,
       is_fixed: matterInfo.is_fixed,
+      description: matterInfo.description,
       costInfoInCardList: costInfoInCardList,
     },
   });
@@ -105,13 +129,17 @@ export const MatterCardDetailModal = ({
   };
 
   const handleUpdateMatterInfo = async (
-    updatedMatterInfo: UpdatedMatterInfo
+    updatedMatterInfo: UpdatedMatterInfoType
   ) => {
     matterInfo.title = updatedMatterInfo.title;
     matterInfo.category = updatedMatterInfo.category;
     matterInfo.team = updatedMatterInfo.team;
     matterInfo.amount = updatedMatterInfo.amount;
-    matterInfo.is_fixed = updatedMatterInfo.is_fixed;
+    matterInfo.billing_address = updatedMatterInfo.billing_address;
+    matterInfo.start_date = startDate?.toISOString() || null;
+    matterInfo.invoice_date = invoiceDate?.toISOString() || null;
+    matterInfo.period_date = periodDate?.toISOString() || null;
+    matterInfo.description = updatedMatterInfo.description;
 
     await updateMatterInfoInSupabase(matterInfo);
 
@@ -150,6 +178,9 @@ export const MatterCardDetailModal = ({
   };
 
   const handleDeleteMatterInfo = async () => {
+    for (const costInfo of costInfoInCardList) {
+      await deleteCostInfoInSupabase(costInfo.id);
+    }
     await deleteMatterInfoInSupabase(matterInfo.id);
     closeModal();
   };
@@ -199,6 +230,12 @@ export const MatterCardDetailModal = ({
           placeholder="案件名をご記入ください。"
           {...form.getInputProps("title")}
         />
+        <TextInput
+          withAsterisk
+          label="取引先"
+          placeholder="取引先をご記入ください。"
+          {...form.getInputProps("billing_address")}
+        />
         <Select
           label="分類"
           placeholder="案件の分類をご記入ください。"
@@ -214,8 +251,8 @@ export const MatterCardDetailModal = ({
           {...form.getInputProps("team")}
         />
         <NumberInput
-          label="金額"
-          placeholder="金額をご記入ください。"
+          label="請求額"
+          placeholder="協会が取引先に請求する金額をご記入ください。"
           min={0}
           prefix="¥"
           allowNegative={false}
@@ -223,79 +260,211 @@ export const MatterCardDetailModal = ({
           thousandSeparator=","
           {...form.getInputProps("amount")}
         />
-
-        <Checkbox
-          mt="md"
-          label="確定"
-          {...form.getInputProps("isFixed", { type: "checkbox" })}
+        <DateInput
+          label="案件開始日"
+          required
+          placeholder="案件を開始した日付をご入力ください。"
+          valueFormat="YYYY/MM/DD"
+          value={startDate}
+          onChange={(value) =>
+            value ? setStartDate(value) : setStartDate(null)
+          }
         />
+        <DateInput
+          label="請求日"
+          placeholder="案件に対する報酬を請求する日付をご入力ください。"
+          valueFormat="YYYY/MM/DD"
+          value={invoiceDate}
+          onChange={(value) =>
+            value ? setInvoiceDate(value) : setInvoiceDate(null)
+          }
+        />
+        <DateInput
+          label="振込期限"
+          placeholder="案件の報酬の振込期限をご入力ください。"
+          valueFormat="YYYY/MM/DD"
+          value={periodDate}
+          onChange={(value) =>
+            value ? setPeriodDate(value) : setPeriodDate(null)
+          }
+        />
+        <TextInput
+          label="説明"
+          placeholder="案件に追加の説明があればご記入ください。"
+          {...form.getInputProps("description")}
+        />
+
         {costInfoInCardList.length > 0 ? (
           <h2 className="my-4">コスト情報</h2>
         ) : (
           ""
         )}
-        {costInfoInCardList?.map((cost) =>
+        {costInfoInCardList?.map((cost, index) =>
           cost.isRemoved ? (
             ""
           ) : (
-            <div className="flex items-center pb-2" key={cost.id}>
-              <Group gap="sm" className="flex-grow" grow>
-                <TextInput
-                  placeholder="品名をご記入ください。"
-                  className="flex-grow"
-                  value={cost.name as string}
-                  onChange={(event) =>
-                    setCostInfoInCardList(
-                      costInfoInCardList.map((costInfo) =>
-                        costInfo.id === cost.id
-                          ? { ...costInfo, name: event.target.value }
-                          : costInfo
-                      )
-                    )
-                  }
-                />
-                <Select
-                  className="flex-grow"
-                  placeholder="品目を選択ください。"
-                  data={itemList}
-                  required
-                  value={cost.item}
-                  onChange={(value) =>
-                    setCostInfoInCardList(
-                      costInfoInCardList.map((costInfo) =>
-                        costInfo.id === cost.id
-                          ? { ...costInfo, item: value || "" }
-                          : costInfo
-                      )
-                    )
-                  }
-                />
-                <NumberInput
-                  placeholder="¥0"
-                  className="flex-grow"
-                  value={cost.price as number}
-                  prefix="¥"
-                  allowNegative={false}
-                  allowDecimal={false}
-                  thousandSeparator=","
-                  onChange={(value) =>
-                    setCostInfoInCardList(
-                      costInfoInCardList.map((costInfo) =>
-                        costInfo.id === cost.id
-                          ? { ...costInfo, price: Number(value) }
-                          : costInfo
-                      )
-                    )
-                  }
-                />
-              </Group>
-              <div
-                className="h-full px-2 text-lg hover:cursor-pointer ml-auto flex items-center justify-center"
-                onClick={() => handleRemoveCost(cost.id)}
-              >
-                <FaRegTrashAlt />
+            <Card
+              key={cost.id}
+              className="sm:flex items-center mb-4"
+              withBorder
+              radius="lg"
+              shadow="sm"
+              padding="lg"
+              aria-label="コスト"
+            >
+              <div className="flex justify-between w-full mb-2">
+                <div>コスト{index + 1}</div>
+                <div
+                  className="h-full px-4 text-lg hover:cursor-pointer w-4 ml-auto items-center justify-center"
+                  onClick={() => handleRemoveCost(cost.id)}
+                >
+                  <FaRegTrashAlt />
+                </div>
               </div>
-            </div>
+              <div className="flex-grow">
+                <div className="flex pb-2">
+                  <Group gap="sm" className="flex-grow w-full">
+                    <TextInput
+                      placeholder="品名をご記入ください。"
+                      className="flex-grow"
+                      value={cost.name}
+                      onChange={(event) =>
+                        setCostInfoInCardList(
+                          costInfoInCardList.map((costVal) =>
+                            costVal.id === cost.id
+                              ? { ...costVal, name: event.target.value }
+                              : costVal
+                          )
+                        )
+                      }
+                    />
+                    <Select
+                      className="flex-grow"
+                      placeholder="品目を選択ください。"
+                      data={itemList}
+                      required
+                      value={cost.item}
+                      onChange={(value) =>
+                        setCostInfoInCardList(
+                          costInfoInCardList.map((costVal) =>
+                            costVal.id === cost.id
+                              ? { ...costVal, item: value || "" }
+                              : costVal
+                          )
+                        )
+                      }
+                    />
+                    <NumberInput
+                      placeholder="¥0"
+                      className="flex-grow"
+                      value={cost.price}
+                      prefix="¥"
+                      allowNegative={false}
+                      allowDecimal={false}
+                      thousandSeparator=","
+                      onChange={(value) =>
+                        setCostInfoInCardList(
+                          costInfoInCardList.map((costVal) =>
+                            costVal.id === cost.id
+                              ? { ...costVal, price: Number(value) }
+                              : costVal
+                          )
+                        )
+                      }
+                    />
+                  </Group>
+                </div>
+                <div className="sm:flex flex-col sm:flex-row items-center pb-2">
+                  <Group gap="sm" className="flex-grow">
+                    <DateInput
+                      className="flex-grow"
+                      placeholder="支払い期限をご記入ください。"
+                      valueFormat="YYYY/MM/DD"
+                      onChange={(event) => {
+                        const dateString = event
+                          ? event.toISOString().split("T")[0]
+                          : null;
+                        setCostInfoInCardList(
+                          costInfoInCardList.map((costVal) =>
+                            costVal.id === cost.id
+                              ? { ...costVal, period: dateString }
+                              : costVal
+                          )
+                        );
+                      }}
+                    />
+                    <TextInput
+                      placeholder="支払い先の名前をご記入ください。"
+                      className="flex-grow"
+                      value={cost.payment_target}
+                      onChange={(event) =>
+                        setCostInfoInCardList(
+                          costInfoInCardList.map((costVal) =>
+                            costVal.id === cost.id
+                              ? {
+                                  ...costVal,
+                                  payment_target: event.target.value,
+                                }
+                              : costVal
+                          )
+                        )
+                      }
+                    />
+                    <Select
+                      className="flex-grow"
+                      placeholder="支払いの通知方法を選択ください。"
+                      data={certificateList}
+                      required
+                      value={cost.certificate}
+                      onChange={(value) =>
+                        setCostInfoInCardList(
+                          costInfoInCardList.map((costVal) =>
+                            costVal.id === cost.id
+                              ? { ...costVal, certificate: value || "" }
+                              : costVal
+                          )
+                        )
+                      }
+                    />
+                    <Checkbox
+                      label="源泉徴収あり"
+                      key={form.key("withholding")}
+                      {...form.getInputProps("withholding", {
+                        type: "checkbox",
+                      })}
+                      onChange={(value) =>
+                        setCostInfoInCardList(
+                          costInfoInCardList.map((costVal) =>
+                            costVal.id === cost.id
+                              ? {
+                                  ...costVal,
+                                  withholding: value.currentTarget.checked,
+                                }
+                              : costVal
+                          )
+                        )
+                      }
+                    />
+                  </Group>
+                </div>
+                <div className="flex items-center pb-2">
+                  <TextInput
+                    placeholder="コメントがあればご記入ください。"
+                    className="flex-grow w-full"
+                    value={cost.comment ? cost.comment : ""}
+                    onChange={(event) =>
+                      setCostInfoInCardList(
+                        costInfoInCardList.map((costVal) =>
+                          costVal.id === cost.id
+                            ? { ...costVal, comment: event.target.value }
+                            : costVal
+                        )
+                      )
+                    }
+                  />
+                </div>
+              </div>
+            </Card>
           )
         )}
         <Button

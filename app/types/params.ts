@@ -19,3 +19,5 @@ export const categoryList = [
 ];
 
 export const itemList = ["システム料", "外注費", "備品購入", "人件費"];
+
+export const certificateList = ["請求書", "領収書"];
