@@ -32,11 +32,11 @@ export function MatterCardsGrid({
           {matter.title}
         </Text>
         {matter.is_completed ? (
-          <Badge color="green">完了</Badge>
+          <Badge color="green">経理確認完了</Badge>
         ) : matter.is_fixed ? (
-          <Badge color="blue">確定</Badge>
+          <Badge color="blue">経理確認待ち</Badge>
         ) : (
-          <Badge color="red">未確定</Badge>
+          <Badge color="red">申請者編集中</Badge>
         )}
       </Group>
       <Text className="">分類：{matter.category}</Text>

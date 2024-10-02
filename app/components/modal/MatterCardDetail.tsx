@@ -22,6 +22,8 @@ import {
   Group,
   Card,
   Checkbox,
+  Badge,
+  Textarea,
 } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useEffect, useState } from "react";
@@ -239,86 +241,114 @@ export const MatterCardDetailModal = ({
   };
 
   return (
-    <Modal opened={opened} onClose={closeModal} title={matterInfo.title}>
+    <Modal
+      opened={opened}
+      onClose={closeModal}
+      title={matterInfo.title}
+      size="100%"
+    >
       <form
         onSubmit={form.onSubmit((updatedMatterInfo) => {
           handleUpdateMatterInfo(updatedMatterInfo);
         })}
       >
-        <TextInput
-          withAsterisk
-          label="案件名"
-          placeholder="案件名をご記入ください。"
-          required
-          disabled={matterInfo.is_fixed!}
-          {...form.getInputProps("title")}
-        />
-        <TextInput
-          withAsterisk
-          label="取引先"
-          placeholder="取引先をご記入ください。"
-          disabled={matterInfo.is_fixed!}
-          {...form.getInputProps("billing_address")}
-        />
-        <Select
-          label="分類"
-          placeholder="案件の分類をご記入ください。"
-          data={categoryList}
-          required
-          disabled={matterInfo.is_fixed!}
-          {...form.getInputProps("category")}
-        />
-        <Select
-          label="チーム"
-          placeholder="案件を担当するチームを選択ください。"
-          data={teamList}
-          required
-          disabled={matterInfo.is_fixed!}
-          {...form.getInputProps("team")}
-        />
-        <NumberInput
-          label="請求額"
-          placeholder="協会が取引先に請求する金額をご記入ください。"
-          min={0}
-          prefix="¥"
-          allowNegative={false}
-          allowDecimal={false}
-          thousandSeparator=","
-          disabled={matterInfo.is_fixed!}
-          {...form.getInputProps("amount")}
-        />
-        <DateInput
-          label="案件開始日"
-          required
-          placeholder="案件を開始した日付をご入力ください。"
-          disabled={matterInfo.is_fixed!}
-          valueFormat="YYYY/MM/DD"
-          value={startDate}
-          onChange={(value) =>
-            value ? setStartDate(value) : setStartDate(null)
-          }
-        />
-        <DateInput
-          label="請求日"
-          placeholder="案件に対する報酬を請求する日付をご入力ください。"
-          disabled={matterInfo.is_fixed!}
-          valueFormat="YYYY/MM/DD"
-          value={invoiceDate}
-          onChange={(value) =>
-            value ? setInvoiceDate(value) : setInvoiceDate(null)
-          }
-        />
-        <DateInput
-          label="振込期限"
-          placeholder="案件の報酬の振込期限をご入力ください。"
-          disabled={matterInfo.is_fixed!}
-          valueFormat="YYYY/MM/DD"
-          value={periodDate}
-          onChange={(value) =>
-            value ? setPeriodDate(value) : setPeriodDate(null)
-          }
-        />
-        <TextInput
+        <div className="flex justify-end">
+          {matterInfo.is_completed ? (
+            <Badge color="green">経理確認完了</Badge>
+          ) : matterInfo.is_fixed ? (
+            <Badge color="blue">経理確認待ち</Badge>
+          ) : (
+            <Badge color="red">申請者編集中</Badge>
+          )}
+        </div>
+        <div className="sm:flex gap-4 w-full">
+          <TextInput
+            className="w-full"
+            withAsterisk
+            label="案件名"
+            placeholder="案件名をご記入ください。"
+            required
+            disabled={matterInfo.is_fixed!}
+            {...form.getInputProps("title")}
+          />
+          <TextInput
+            className="w-full"
+            withAsterisk
+            label="取引先"
+            placeholder="取引先をご記入ください。"
+            disabled={matterInfo.is_fixed!}
+            {...form.getInputProps("billing_address")}
+          />
+        </div>
+        <div className="sm:flex gap-4 w-full">
+          <Select
+            label="分類"
+            className="pt-4 w-full"
+            placeholder="案件の分類をご記入ください。"
+            data={categoryList}
+            required
+            disabled={matterInfo.is_fixed!}
+            {...form.getInputProps("category")}
+          />
+          <Select
+            label="チーム"
+            className="pt-4 w-full"
+            placeholder="案件を担当するチームを選択ください。"
+            data={teamList}
+            required
+            disabled={matterInfo.is_fixed!}
+            {...form.getInputProps("team")}
+          />
+          <NumberInput
+            label="請求額"
+            className="pt-4 w-full"
+            placeholder="協会が取引先に請求する金額をご記入ください。"
+            min={0}
+            prefix="¥"
+            allowNegative={false}
+            allowDecimal={false}
+            thousandSeparator=","
+            disabled={matterInfo.is_fixed!}
+            {...form.getInputProps("amount")}
+          />
+        </div>
+        <div className="sm:flex gap-4 w-full">
+          <DateInput
+            label="案件開始日"
+            className="pt-4 w-full"
+            required
+            placeholder="案件を開始した日付をご入力ください。"
+            disabled={matterInfo.is_fixed!}
+            valueFormat="YYYY/MM/DD"
+            value={startDate}
+            onChange={(value) =>
+              value ? setStartDate(value) : setStartDate(null)
+            }
+          />
+          <DateInput
+            label="請求日"
+            className="pt-4 w-full"
+            placeholder="案件に対する報酬を請求する日付をご入力ください。"
+            disabled={matterInfo.is_fixed!}
+            valueFormat="YYYY/MM/DD"
+            value={invoiceDate}
+            onChange={(value) =>
+              value ? setInvoiceDate(value) : setInvoiceDate(null)
+            }
+          />
+          <DateInput
+            label="振込期限"
+            className="pt-4 w-full"
+            placeholder="案件の報酬の振込期限をご入力ください。"
+            disabled={matterInfo.is_fixed!}
+            valueFormat="YYYY/MM/DD"
+            value={periodDate}
+            onChange={(value) =>
+              value ? setPeriodDate(value) : setPeriodDate(null)
+            }
+          />
+        </div>
+        <Textarea
           label="説明"
           disabled={matterInfo.is_fixed!}
           placeholder="案件に追加の説明があればご記入ください。"

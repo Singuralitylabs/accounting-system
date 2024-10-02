@@ -8,6 +8,7 @@ import {
   Group,
   NumberInput,
   Select,
+  Textarea,
   TextInput,
 } from "@mantine/core";
 import { DateInput } from "@mantine/dates";
@@ -229,7 +230,7 @@ const NewMatterForm = () => {
         />
       </div>
 
-      <TextInput
+      <Textarea
         className="pt-4 w-full"
         placeholder="案件に関して追加で説明があればご記入ください。"
         label="説明"
