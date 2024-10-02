@@ -445,6 +445,7 @@ export const MatterCardDetailModal = ({
                       className="flex-grow"
                       placeholder="支払い期限をご記入ください。"
                       disabled={matterInfo.is_fixed!}
+                      value={cost.period ? new Date(cost.period) : null}
                       valueFormat="YYYY/MM/DD"
                       onChange={(event) => {
                         const dateString = event
@@ -497,6 +498,7 @@ export const MatterCardDetailModal = ({
                     <Checkbox
                       label="源泉徴収あり"
                       disabled={matterInfo.is_fixed!}
+                      checked={cost.withholding}
                       key={form.key("withholding")}
                       {...form.getInputProps("withholding", {
                         type: "checkbox",
