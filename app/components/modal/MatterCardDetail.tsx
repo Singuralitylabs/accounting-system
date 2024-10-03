@@ -272,7 +272,7 @@ export const MatterCardDetailModal = ({
             {...form.getInputProps("title")}
           />
           <TextInput
-            className="w-full"
+            className="w-full md:pt-0 pt-4"
             withAsterisk
             label="取引先"
             placeholder="取引先をご記入ください。"
@@ -350,6 +350,7 @@ export const MatterCardDetailModal = ({
         </div>
         <Textarea
           label="説明"
+          className="pt-4 w-full"
           disabled={matterInfo.is_fixed!}
           placeholder="案件に追加の説明があればご記入ください。"
           {...form.getInputProps("description")}
