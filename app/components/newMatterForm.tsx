@@ -244,8 +244,7 @@ const NewMatterForm = () => {
             key={cost.id}
             className="sm:flex items-center mb-4"
             withBorder
-            radius="lg"
-            shadow="sm"
+            radius="sm"
             padding="lg"
             aria-label="コスト"
           >
