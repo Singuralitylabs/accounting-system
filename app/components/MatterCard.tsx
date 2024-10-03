@@ -17,35 +17,64 @@ export function MatterCardsGrid({
     setMatterInfo(matter);
     setOpened(true);
   };
-  const cards = matterList?.map((matter) => (
-    <Card
-      key={matter.id}
-      p="md"
-      radius="md"
-      component="a"
-      className="hover:bg-transparent hover:cursor-pointer hover:bg-gray-100 border transition"
-      shadow="sm"
-      onClick={() => openCard(matter)}
-    >
-      <Group justify="space-between" align="flex-start">
-        <Text fw={700} size="lg" mt={5}>
-          {matter.title}
+  const cards = matterList?.map((matter) => {
+    const formattedDate = new Date(matter.inserted_at).toLocaleDateString(
+      "ja-JP",
+      {
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+        hour: "numeric",
+        minute: "numeric",
+        second: "numeric",
+      }
+    );
+
+    return (
+      <Card
+        key={matter.id}
+        p="md"
+        radius="md"
+        component="a"
+        className="hover:bg-transparent hover:cursor-pointer hover:bg-gray-100 border transition relative" // relativeを追加
+        shadow="sm"
+        onClick={() => openCard(matter)}
+      >
+        <Group justify="space-between" align="flex-start">
+          <Text
+            fw={700}
+            size="lg"
+            mt={5}
+            className="truncate w-2/3 overflow-hidden whitespace-nowrap"
+          >
+            {matter.title}
+          </Text>
+          <div className="absolute top-5 right-5">
+            {matter.is_completed ? (
+              <Badge color="green">経理確認完了</Badge>
+            ) : matter.is_fixed ? (
+              <Badge color="blue">経理確認待ち</Badge>
+            ) : (
+              <Badge color="red">申請者編集中</Badge>
+            )}
+          </div>
+        </Group>
+        <Text className="">分類　：{matter.category}</Text>
+        <Text className="">チーム：{matter.team}</Text>
+        <Text className="">金額　：{matter.amount}円</Text>
+        <Text
+          c="dimmed"
+          size="xs"
+          tt="uppercase"
+          fw={700}
+          mt="md"
+          className="flex justify-end"
+        >
+          作成日時：{formattedDate}
         </Text>
-        {matter.is_completed ? (
-          <Badge color="green">完了</Badge>
-        ) : matter.is_fixed ? (
-          <Badge color="blue">確定</Badge>
-        ) : (
-          <Badge color="red">未確定</Badge>
-        )}
-      </Group>
-      <Text className="">分類：{matter.category}</Text>
-      <Text className="">金額：{matter.amount}円</Text>
-      <Text c="dimmed" size="xs" tt="uppercase" fw={700} mt="md">
-        {matter.inserted_at}
-      </Text>
-    </Card>
-  ));
+      </Card>
+    );
+  });
 
   return (
     <Container py="xl">
