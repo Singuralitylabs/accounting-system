@@ -18,6 +18,17 @@ export const categoryList = [
   "その他",
 ];
 
-export const itemList = ["システム料", "外注費", "備品購入", "人件費"];
+export const itemList = [
+  "システム料",
+  "施設利用料",
+  "外注費",
+  "備品購入",
+  "メンバー報酬",
+  "シンラボ活動費",
+  "広告宣伝費",
+  "教育・研修",
+  "営業費",
+  "その他",
+];
 
 export const certificateList = ["請求書", "領収書"];

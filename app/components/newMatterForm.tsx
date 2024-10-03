@@ -8,6 +8,7 @@ import {
   Group,
   NumberInput,
   Select,
+  Textarea,
   TextInput,
 } from "@mantine/core";
 import { DateInput } from "@mantine/dates";
@@ -86,6 +87,18 @@ const NewMatterForm = () => {
         alert(`案件[${matterInfo.title}]の作成を中止しました。`);
         return;
       }
+      if (
+        !matterInfo.title ||
+        !matterInfo.category ||
+        !matterInfo.team ||
+        !matterInfo.amount ||
+        !matterInfo.start_date
+      ) {
+        alert(
+          `件名、分類、チーム、金額、案件開始日のいずれかが空欄のため、案件の作成を中止しました。`
+        );
+        return;
+      }
       matterInfo.is_fixed = window.confirm(
         `案件[${matterInfo.title}]を確定にしますか？\n確定後は経理の確認に入るため、変更できません。`
       );
@@ -97,8 +110,8 @@ const NewMatterForm = () => {
         matterInfo.amount,
         matterInfo.billing_address!,
         matterInfo.start_date!,
-        matterInfo.invoice_date,
-        matterInfo.period_date,
+        matterInfo.invoice_date || null,
+        matterInfo.period_date || null,
         matterInfo.is_fixed!,
         matterInfo.description
       );
@@ -153,6 +166,7 @@ const NewMatterForm = () => {
       <div className="sm:flex gap-4 w-full">
         <Select
           withAsterisk
+          required
           className="pt-4 w-full"
           placeholder="案件に適した分類を選択して下さい。"
           label="分類"
@@ -163,6 +177,7 @@ const NewMatterForm = () => {
         />
         <Select
           withAsterisk
+          required
           className="pt-4 w-full"
           placeholder="案件を担当するチームを選択して下さい。"
           label="チーム"
@@ -173,6 +188,7 @@ const NewMatterForm = () => {
         />
         <NumberInput
           withAsterisk
+          required
           className="pt-4 w-full"
           label="金額"
           prefix="¥"
@@ -188,6 +204,7 @@ const NewMatterForm = () => {
       <div className="sm:flex gap-4 w-full">
         <DateInput
           withAsterisk
+          required
           className="pt-4 w-full"
           label="案件開始日"
           placeholder="案件を開始した日付をご入力ください。"
@@ -213,7 +230,7 @@ const NewMatterForm = () => {
         />
       </div>
 
-      <TextInput
+      <Textarea
         className="pt-4 w-full"
         placeholder="案件に関して追加で説明があればご記入ください。"
         label="説明"
@@ -227,8 +244,7 @@ const NewMatterForm = () => {
             key={cost.id}
             className="sm:flex items-center mb-4"
             withBorder
-            radius="lg"
-            shadow="sm"
+            radius="sm"
             padding="lg"
             aria-label="コスト"
           >
