@@ -1,5 +1,5 @@
 import Link from "next/link";
-import React, { FC } from "react";
+import React, { FC, Suspense } from "react";
 import MobileHeader from "./mobile-header";
 import UserButton from "./user-button";
 
@@ -28,8 +28,9 @@ const Header: FC = () => {
           </Link>
         </div>
         <div className="hidden sm:flex ml-auto rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500">
-          {/* @ts-expect-error Server Component */}
-          <UserButton />
+          <Suspense fallback={<div>Loading...</div>}>
+            <UserButton />
+          </Suspense>
         </div>
       </nav>
       <MobileHeader />

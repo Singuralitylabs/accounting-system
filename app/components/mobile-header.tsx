@@ -52,8 +52,7 @@ const MobileHeader: FC = () => {
               className="block rounded px-3 py-2 text-white hover:bg-gray-500"
               onClick={toggleMenu}
             >
-              {/* @ts-expect-error Server Component */}
-              <UserButton />
+              Google認証
             </Link>
           </div>
         )}
