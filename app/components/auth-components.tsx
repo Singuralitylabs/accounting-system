@@ -2,7 +2,6 @@
 
 import { Button } from "@mantine/core";
 import { signIn, signOut } from "next-auth/react";
-import { redirect } from "next/navigation";
 
 export function SignIn({
   ...props
