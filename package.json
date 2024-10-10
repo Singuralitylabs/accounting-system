@@ -10,6 +10,7 @@
     "db:types": "source .env.local && npx supabase gen types --lang=typescript --project-id ${PROJECT_ID} --schema public > app/lib/database.types.ts"
   },
   "dependencies": {
+    "@auth/supabase-adapter": "^1.7.0",
     "@mantine/core": "^7.12.2",
     "@mantine/dates": "^7.13.0",
     "@mantine/form": "^7.13.0",
