@@ -36,7 +36,7 @@ export function MatterCardsGrid({
         p="md"
         radius="md"
         component="a"
-        className="hover:bg-transparent hover:cursor-pointer hover:bg-gray-100 border transition relative" // relativeを追加
+        className="hover:bg-transparent hover:cursor-pointer hover:bg-gray-100 border transition relative"
         shadow="sm"
         onClick={() => openCard(matter)}
       >
