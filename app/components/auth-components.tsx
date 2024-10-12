@@ -1,7 +1,14 @@
 "use client";
 
 import { Button } from "@mantine/core";
-import { signIn, signOut } from "next-auth/react";
+import { createClient } from "@supabase/supabase-js";
+import { signIn, signOut, useSession } from "next-auth/react";
+import { useEffect } from "react";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export function SignIn({
   ...props
@@ -37,4 +44,20 @@ export function SignOut({
       サインアウト
     </button>
   );
+}
+
+export function AuthStateListener() {
+  const { data: session } = useSession();
+
+  useEffect(() => {
+    if (session?.user) {
+      supabase.auth.onAuthStateChange((event, session) => {
+        if (event === "SIGNED_OUT") {
+          signOut({ callbackUrl: "/login" });
+        }
+      });
+    }
+  }, [session]);
+
+  return null;
 }

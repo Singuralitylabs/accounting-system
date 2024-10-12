@@ -4,6 +4,8 @@ import Header from "./components/Header";
 import "./globals.css";
 import "@mantine/core/styles.css";
 import { MantineProvider, ColorSchemeScript } from "@mantine/core";
+import { SessionProvider } from "next-auth/react";
+import { AuthStateListener } from "./components/auth-components";
 
 export const metadata: Metadata = {
   title: "案件管理アプリ",
@@ -21,11 +23,14 @@ export default function RootLayout({
         <ColorSchemeScript />
       </head>
       <body>
-        <MantineProvider>
-          <Header />
-          {children}
-          <Footer />
-        </MantineProvider>
+        <SessionProvider>
+          <AuthStateListener />
+          <MantineProvider>
+            <Header />
+            {children}
+            <Footer />
+          </MantineProvider>
+        </SessionProvider>
       </body>
     </html>
   );
