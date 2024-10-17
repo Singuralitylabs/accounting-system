@@ -16,6 +16,7 @@ export const getUserMatterInfoList = async () => {
 
   return matterList;
 };
+
 export const getCompletedUserMatterInfoList = async () => {
   const supabase = createServerComponentClient<Database>({ cookies });
   const { data: matterList } = await supabase
