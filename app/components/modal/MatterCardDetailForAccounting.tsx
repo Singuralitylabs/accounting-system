@@ -5,20 +5,12 @@ import {
   teamList,
 } from "@/app/types/params";
 import { CostType, MatterType } from "@/app/types/types";
-import {
-  deleteCostInfoInSupabase,
-  deleteMatterInfoInSupabase,
-  getUserCostInfoList,
-  insertCostInfoInSupabase,
-  updateCostInfoInSupabase,
-  updateMatterInfoInSupabase,
-} from "@/app/utils/supabaseServer";
+import { getUserCostInfoList } from "@/app/utils/supabaseServer";
 import {
   Modal,
   TextInput,
   NumberInput,
   Select,
-  Button,
   Group,
   Card,
   Checkbox,
@@ -27,26 +19,12 @@ import {
 } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useEffect, useState } from "react";
-import { FaRegTrashAlt } from "react-icons/fa";
-import { CiSquarePlus } from "react-icons/ci";
 import { DateInput } from "@mantine/dates";
 
 type Props = {
   matterInfo: MatterType;
   opened: boolean;
   setOpened: React.Dispatch<React.SetStateAction<boolean>>;
-};
-
-type UpdatedMatterInfoType = {
-  title: string;
-  billing_address: string | null;
-  team: string;
-  category: string;
-  amount: number | null;
-  start_date: string | null;
-  invoice_date: string | null;
-  period_date: string | null;
-  description: string | null;
 };
 
 type CostInCardType = {
@@ -68,7 +46,6 @@ export const MatterCardDetailModalForAccounting = ({
   const [periodDate, setPeriodDate] = useState<Date | null>(
     new Date(matterInfo.period_date!)
   );
-  const [costInfoIndex, setCostInfoIndex] = useState<number>(10000);
   const [costInfoInCardList, setCostInfoInCardList] = useState<
     CostInCardType[]
   >([]);
@@ -130,116 +107,6 @@ export const MatterCardDetailModalForAccounting = ({
     form.reset();
   };
 
-  const handleUpdateMatterInfo = async (
-    updatedMatterInfo: UpdatedMatterInfoType
-  ) => {
-    const checkUpdate = window.confirm(
-      `案件[${updatedMatterInfo.title}]を更新しますか？`
-    );
-    if (!checkUpdate) {
-      closeModal();
-      return;
-    }
-    matterInfo.is_fixed = window.confirm(
-      `案件[${updatedMatterInfo.title}]を確定にしますか？\n確定後は経理の確認に入るため、変更できません。`
-    );
-
-    matterInfo.title = updatedMatterInfo.title;
-    matterInfo.category = updatedMatterInfo.category;
-    matterInfo.team = updatedMatterInfo.team;
-    matterInfo.amount = updatedMatterInfo.amount;
-    matterInfo.billing_address = updatedMatterInfo.billing_address;
-    matterInfo.start_date = startDate?.toISOString() || null;
-    matterInfo.invoice_date = invoiceDate?.toISOString() || null;
-    matterInfo.period_date = periodDate?.toISOString() || null;
-    matterInfo.description = updatedMatterInfo.description;
-
-    await updateMatterInfoInSupabase(matterInfo);
-
-    for (const costInfoInCard of costInfoInCardList) {
-      if (costInfoInCard.isNew && !costInfoInCard.isRemoved) {
-        await insertCostInfoInSupabase(
-          costInfoInCard.name,
-          costInfoInCard.item,
-          costInfoInCard.payment_target,
-          costInfoInCard.price,
-          costInfoInCard.period ?? "",
-          costInfoInCard.certificate,
-          costInfoInCard.withholding,
-          costInfoInCard.matter_id,
-          costInfoInCard.comment ?? ""
-        );
-      } else if (costInfoInCard.isRemoved && !costInfoInCard.isNew) {
-        await deleteCostInfoInSupabase(costInfoInCard.id);
-      } else if (!costInfoInCard.isNew && !costInfoInCard.isRemoved) {
-        await updateCostInfoInSupabase(
-          costInfoInCard.id,
-          costInfoInCard.name,
-          costInfoInCard.item,
-          costInfoInCard.payment_target,
-          costInfoInCard.price,
-          costInfoInCard.period ?? "",
-          costInfoInCard.certificate,
-          costInfoInCard.withholding,
-          costInfoInCard.matter_id,
-          costInfoInCard.comment ?? ""
-        );
-      }
-    }
-
-    alert(`案件[${matterInfo.title}]を更新しました。`);
-    closeModal();
-  };
-
-  const handleDeleteMatterInfo = async () => {
-    const checkDelete = window.confirm(
-      `案件[${matterInfo.title}]を削除してよろしいですか？`
-    );
-    if (!checkDelete) {
-      alert(`案件[${matterInfo.title}]の削除を中止しました。`);
-      closeModal();
-      return;
-    }
-    for (const costInfo of costInfoInCardList) {
-      await deleteCostInfoInSupabase(costInfo.id);
-    }
-    await deleteMatterInfoInSupabase(matterInfo.id);
-    alert(`案件[${matterInfo.title}]を削除しました。`);
-    closeModal();
-  };
-
-  const handleAddCost = () => {
-    setCostInfoInCardList([
-      ...costInfoInCardList,
-      {
-        id: costInfoIndex,
-        name: "",
-        item: "",
-        price: 0,
-        payment_target: "",
-        period: "",
-        certificate: "請求書",
-        withholding: false,
-        matter_id: matterInfo.id,
-        comment: "",
-        inserted_at: "",
-        updated_at: "",
-        isNew: true,
-        isRemoved: false,
-      },
-    ]);
-    setCostInfoIndex(costInfoIndex + 1);
-  };
-
-  const handleRemoveCost = (id: number) => {
-    setCostInfoInCardList(
-      costInfoInCardList.map((costInfo) => {
-        if (costInfo.id === id) costInfo.isRemoved = true;
-        return costInfo;
-      })
-    );
-  };
-
   return (
     <Modal
       opened={opened}
@@ -247,11 +114,7 @@ export const MatterCardDetailModalForAccounting = ({
       title={matterInfo.title}
       size="100%"
     >
-      <form
-        onSubmit={form.onSubmit((updatedMatterInfo) => {
-          handleUpdateMatterInfo(updatedMatterInfo);
-        })}
-      >
+      <form>
         <div className="flex justify-end">
           {matterInfo.is_completed ? (
             <Badge color="green">経理確認完了</Badge>
