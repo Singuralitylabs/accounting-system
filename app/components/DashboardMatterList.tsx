@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Checkbox, Table } from "@mantine/core";
+import { Alert, Button, Checkbox, Table } from "@mantine/core";
 import { useState } from "react";
 import { elementListInDashboard } from "../types/params";
 import { MatterType } from "../types/types";
@@ -8,6 +8,8 @@ import { MatterCardDetailModalForAccounting } from "./modal/MatterCardDetailForA
 import { FaCheck } from "react-icons/fa";
 import { updateMatterInfoInSupabase } from "../utils/supabaseServer";
 import { NotificationMessage } from "./modal/NotificationMessage";
+import { notifications } from "@mantine/notifications";
+import { sendSlackNotification } from "../actions";
 
 export const DashboardMatterList = ({
   matterList,
@@ -64,15 +66,49 @@ export const DashboardMatterList = ({
     setCheckedMatterIdList([]);
   };
 
-  const handleNotifyToUser = async () => {
-    setNotificationOpened(true);
-    for (const id of checkedMatterIdList) {
+  const handleSendMessage = async (message: string) => {
+    if (checkedMatterIdList.length === 0) {
+      alert("送信対象となる案件にチェックを入れてください。");
+      return;
     }
-    setCheckedMatterIdList([]);
-  };
+    if (!message.trim()) {
+      alert("メッセージを入力してください。");
+      return;
+    }
 
-  const handleSendMessage = (message: string) => {
-    console.log("送信されたメッセージ:", message);
+    try {
+      for (const id of checkedMatterIdList) {
+        const matterToNotify: MatterType | undefined = matterList?.find(
+          (matter) => matter.id === id
+        );
+        const body =
+          `案件：${matterToNotify?.title}\n` +
+          `担当者：${matterToNotify?.user_id}\n` +
+          message;
+        const slackResult = await sendSlackNotification(body);
+
+        if (slackResult.error) {
+          throw new Error(slackResult.error);
+        }
+      }
+
+      notifications.show({
+        title: "通知成功",
+        message: "担当者への通知が完了しました",
+        color: "green",
+      });
+    } catch (error) {
+      console.error("通知送信エラー:", error);
+      notifications.show({
+        title: "エラー",
+        message: "通知の送信に失敗しました",
+        color: "red",
+      });
+      throw error;
+    } finally {
+      setNotificationOpened(false);
+      setCheckedMatterIdList([]);
+    }
   };
 
   const tableHeads = (
@@ -167,7 +203,7 @@ export const DashboardMatterList = ({
       ) : null}
       <div className="flex justify-center gap-4 my-4">
         <Button onClick={handleCheckCompleted}>確認完了</Button>
-        <Button color="green" onClick={handleNotifyToUser}>
+        <Button color="green" onClick={() => setNotificationOpened(true)}>
           担当者に連絡
         </Button>
       </div>

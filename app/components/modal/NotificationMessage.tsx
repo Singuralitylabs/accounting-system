@@ -1,7 +1,5 @@
 import { Modal, Button, Textarea } from "@mantine/core";
 import { useState } from "react";
-import { sendSlackNotification } from "@/app/actions";
-import { notifications } from "@mantine/notifications";
 
 export const NotificationMessage = ({
   opened,
@@ -10,7 +8,7 @@ export const NotificationMessage = ({
 }: {
   opened: boolean;
   setOpened: React.Dispatch<React.SetStateAction<boolean>>;
-  onSendMessage: (message: string) => void;
+  onSendMessage: (message: string) => Promise<void>;
 }) => {
   const [message, setMessage] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -25,31 +23,10 @@ export const NotificationMessage = ({
 
     try {
       setIsSending(true);
-
-      // Slack通知を送信
-      const slackResult = await sendSlackNotification(message);
-
-      if (slackResult.error) {
-        throw new Error(slackResult.error);
-      }
-
-      // 親コンポーネントのコールバックを実行
-      onSendMessage(message);
-
-      notifications.show({
-        title: "通知成功",
-        message: "担当者への通知が完了しました",
-        color: "green",
-      });
-
+      await onSendMessage(message);
       closeModal();
     } catch (error) {
       console.error("通知送信エラー:", error);
-      notifications.show({
-        title: "エラー",
-        message: "通知の送信に失敗しました",
-        color: "red",
-      });
     } finally {
       setIsSending(false);
     }
