@@ -268,7 +268,7 @@ export const MatterCardDetailModalForAccounting = ({
             label="案件名"
             placeholder="案件名をご記入ください。"
             required
-            disabled={matterInfo.is_fixed!}
+            disabled={true}
             {...form.getInputProps("title")}
           />
           <TextInput
@@ -276,7 +276,7 @@ export const MatterCardDetailModalForAccounting = ({
             withAsterisk
             label="取引先"
             placeholder="取引先をご記入ください。"
-            disabled={matterInfo.is_fixed!}
+            disabled={true}
             {...form.getInputProps("billing_address")}
           />
         </div>
@@ -287,7 +287,7 @@ export const MatterCardDetailModalForAccounting = ({
             placeholder="案件の分類をご記入ください。"
             data={categoryList}
             required
-            disabled={matterInfo.is_fixed!}
+            disabled={true}
             {...form.getInputProps("category")}
           />
           <Select
@@ -296,7 +296,7 @@ export const MatterCardDetailModalForAccounting = ({
             placeholder="案件を担当するチームを選択ください。"
             data={teamList}
             required
-            disabled={matterInfo.is_fixed!}
+            disabled={true}
             {...form.getInputProps("team")}
           />
           <NumberInput
@@ -308,7 +308,7 @@ export const MatterCardDetailModalForAccounting = ({
             allowNegative={false}
             allowDecimal={false}
             thousandSeparator=","
-            disabled={matterInfo.is_fixed!}
+            disabled={true}
             {...form.getInputProps("amount")}
           />
         </div>
@@ -318,7 +318,7 @@ export const MatterCardDetailModalForAccounting = ({
             className="pt-4 w-full"
             required
             placeholder="案件を開始した日付をご入力ください。"
-            disabled={matterInfo.is_fixed!}
+            disabled={true}
             valueFormat="YYYY/MM/DD"
             value={startDate}
             onChange={(value) =>
@@ -329,7 +329,7 @@ export const MatterCardDetailModalForAccounting = ({
             label="請求日"
             className="pt-4 w-full"
             placeholder="案件に対する報酬を請求する日付をご入力ください。"
-            disabled={matterInfo.is_fixed!}
+            disabled={true}
             valueFormat="YYYY/MM/DD"
             value={invoiceDate}
             onChange={(value) =>
@@ -340,7 +340,7 @@ export const MatterCardDetailModalForAccounting = ({
             label="振込期限"
             className="pt-4 w-full"
             placeholder="案件の報酬の振込期限をご入力ください。"
-            disabled={matterInfo.is_fixed!}
+            disabled={true}
             valueFormat="YYYY/MM/DD"
             value={periodDate}
             onChange={(value) =>
@@ -351,7 +351,7 @@ export const MatterCardDetailModalForAccounting = ({
         <Textarea
           label="説明"
           className="pt-4 w-full"
-          disabled={matterInfo.is_fixed!}
+          disabled={true}
           placeholder="案件に追加の説明があればご記入ください。"
           {...form.getInputProps("description")}
         />
@@ -376,12 +376,6 @@ export const MatterCardDetailModalForAccounting = ({
               {!matterInfo.is_fixed ? (
                 <div className="flex justify-between w-full mb-2">
                   <div>コスト{index + 1}</div>
-                  <div
-                    className="h-full px-4 text-lg hover:cursor-pointer w-4 ml-auto items-center justify-center"
-                    onClick={() => handleRemoveCost(cost.id)}
-                  >
-                    <FaRegTrashAlt />
-                  </div>
                 </div>
               ) : null}
               <div className="flex-grow">
@@ -390,7 +384,7 @@ export const MatterCardDetailModalForAccounting = ({
                     <TextInput
                       placeholder="品名をご記入ください。"
                       className="flex-grow"
-                      disabled={matterInfo.is_fixed!}
+                      disabled={true}
                       value={cost.name}
                       onChange={(event) =>
                         setCostInfoInCardList(
@@ -407,7 +401,7 @@ export const MatterCardDetailModalForAccounting = ({
                       placeholder="品目を選択ください。"
                       data={itemList}
                       required
-                      disabled={matterInfo.is_fixed!}
+                      disabled={true}
                       value={cost.item}
                       onChange={(value) =>
                         setCostInfoInCardList(
@@ -422,7 +416,7 @@ export const MatterCardDetailModalForAccounting = ({
                     <NumberInput
                       placeholder="¥0"
                       className="flex-grow"
-                      disabled={matterInfo.is_fixed!}
+                      disabled={true}
                       value={cost.price}
                       prefix="¥"
                       allowNegative={false}
@@ -445,7 +439,7 @@ export const MatterCardDetailModalForAccounting = ({
                     <DateInput
                       className="flex-grow"
                       placeholder="支払い期限をご記入ください。"
-                      disabled={matterInfo.is_fixed!}
+                      disabled={true}
                       value={cost.period ? new Date(cost.period) : null}
                       valueFormat="YYYY/MM/DD"
                       onChange={(event) => {
@@ -464,7 +458,7 @@ export const MatterCardDetailModalForAccounting = ({
                     <TextInput
                       placeholder="支払い先の名前をご記入ください。"
                       className="flex-grow"
-                      disabled={matterInfo.is_fixed!}
+                      disabled={true}
                       value={cost.payment_target}
                       onChange={(event) =>
                         setCostInfoInCardList(
@@ -484,7 +478,7 @@ export const MatterCardDetailModalForAccounting = ({
                       placeholder="支払いの通知方法を選択ください。"
                       data={certificateList}
                       required
-                      disabled={matterInfo.is_fixed!}
+                      disabled={true}
                       value={cost.certificate}
                       onChange={(value) =>
                         setCostInfoInCardList(
@@ -498,7 +492,7 @@ export const MatterCardDetailModalForAccounting = ({
                     />
                     <Checkbox
                       label="源泉徴収あり"
-                      disabled={matterInfo.is_fixed!}
+                      disabled={true}
                       checked={cost.withholding}
                       key={form.key("withholding")}
                       {...form.getInputProps("withholding", {
@@ -523,7 +517,7 @@ export const MatterCardDetailModalForAccounting = ({
                   <TextInput
                     placeholder="コメントがあればご記入ください。"
                     className="flex-grow w-full"
-                    disabled={matterInfo.is_fixed!}
+                    disabled={true}
                     value={cost.comment ? cost.comment : ""}
                     onChange={(event) =>
                       setCostInfoInCardList(
