@@ -1,24 +1,46 @@
 "use server";
 
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
+import { auth } from "@/auth";
+import {
+  createRouteHandlerClient,
+  createServerComponentClient,
+} from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { Database } from "../lib/database.types";
 import { MatterType } from "../types/types";
 
-export const supabaseServer = () => {
-  cookies().getAll();
-  return createServerComponentClient<Database>({ cookies });
+// route handlersで使用するクライアントを作成
+export const supabaseRouteHandlerServer = () => {
+  return createRouteHandlerClient<Database>({ cookies });
+};
+
+export const supabaseServer = async () => {
+  const session = await auth();
+  const supabase = createServerComponentClient<Database>({ cookies });
+
+  if (session?.user?.id) {
+    await supabase.auth.getSession();
+  }
+
+  return supabase;
+};
+
+export const getAllMatterInfoList = async () => {
+  const supabase = await supabaseServer();
+  const { data: matterList } = await supabase.from("matters").select("*");
+
+  return matterList;
 };
 
 export const getUserMatterInfoList = async () => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = await supabaseServer();
   const { data: matterList } = await supabase.from("matters").select("*");
 
   return matterList;
 };
 
 export const getCompletedUserMatterInfoList = async () => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = await supabaseServer();
   const { data: matterList } = await supabase
     .from("matters")
     .select("*")
@@ -28,7 +50,7 @@ export const getCompletedUserMatterInfoList = async () => {
 };
 
 export const getUserCostInfoList = async (matter_id: number) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = await supabaseServer();
   const { data: costInfoList, error } = await supabase
     .from("costs")
     .select("*")
@@ -49,7 +71,7 @@ export const insertMatterInfoInSupabase = async (
   is_fixed: boolean,
   description: string | null
 ) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = await supabaseServer();
 
   const { data, error } = await supabase
     .from("matters")
@@ -80,7 +102,7 @@ export const insertMatterInfoInSupabase = async (
 };
 
 export const updateMatterInfoInSupabase = async (matterInfo: MatterType) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = await supabaseServer();
   const { data: status, error } = await supabase
     .from("matters")
     .update(matterInfo)
@@ -98,7 +120,7 @@ export const updateMatterInfoInSupabase = async (matterInfo: MatterType) => {
 };
 
 export const deleteMatterInfoInSupabase = async (id: number) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = await supabaseServer();
   const { data: status, error } = await supabase
     .from("matters")
     .delete()
@@ -124,7 +146,7 @@ export const updateCostInfoInSupabase = async (
   matter_id: number,
   comment: string
 ) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = await supabaseServer();
   const formattedPeriod = period
     ? new Date(period).toISOString().split("T")[0]
     : null;
@@ -161,7 +183,7 @@ export const insertCostInfoInSupabase = async (
   matter_id: number,
   comment: string
 ) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = await supabaseServer();
 
   const { error } = await supabase
     .from("costs")
@@ -187,7 +209,7 @@ export const insertCostInfoInSupabase = async (
 };
 
 export const deleteCostInfoInSupabase = async (id: number) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = await supabaseServer();
 
   const { error } = await supabase.from("costs").delete().eq("id", id);
 
