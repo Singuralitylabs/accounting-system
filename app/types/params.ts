@@ -41,7 +41,5 @@ export const elementListInDashboard = [
   "分類",
   "取引先",
   "請求額(税抜)",
-  "案件開始日",
-  "請求日",
   "支払い期限",
 ];

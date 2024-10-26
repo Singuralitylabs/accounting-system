@@ -26,6 +26,12 @@ const Header: FC = () => {
           >
             新規作成
           </Link>
+          <Link
+            href="/dashboard"
+            className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
+          >
+            管理画面
+          </Link>
         </div>
         <div className="hidden sm:flex ml-auto rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500">
           <Suspense fallback={<div>Loading...</div>}>
