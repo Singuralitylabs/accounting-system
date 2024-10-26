@@ -71,6 +71,10 @@ export const DashboardMatterList = ({
     setCheckedMatterIdList([]);
   };
 
+  const handleSendMessage = (message: string) => {
+    console.log("送信されたメッセージ:", message);
+  };
+
   const tableHeads = (
     <Table.Tr key={elementListInDashboard[0]}>
       <Table.Th></Table.Th>
@@ -158,6 +162,7 @@ export const DashboardMatterList = ({
         <NotificationMessage
           opened={notificationOpened}
           setOpened={setNotificationOpened}
+          onSendMessage={handleSendMessage}
         />
       ) : null}
       <div className="flex justify-center gap-4 my-4">
