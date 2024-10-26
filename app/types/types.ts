@@ -9,3 +9,14 @@ export type MatterType = MattersTable["Row"];
 
 type CostsTable = Database["public"]["Tables"]["costs"];
 export type CostType = CostsTable["Row"];
+
+export type SlackNotificationResponse = {
+  success?: boolean;
+  error?: string;
+};
+
+export type SlackNotificationMetadata = {
+  matterId?: number;
+  matterTitle?: string;
+  sender?: string;
+};
