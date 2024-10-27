@@ -25,6 +25,16 @@ export const supabaseServer = async () => {
   return supabase;
 };
 
+export const getUserInfo = async (id: number) => {
+  const supabase = await supabaseServer();
+  const { data: userInfo } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", id);
+
+  return userInfo ? userInfo[0] : null;
+};
+
 export const getAllMatterInfoList = async () => {
   const supabase = await supabaseServer();
   const { data: matterList } = await supabase.from("matters").select("*");
