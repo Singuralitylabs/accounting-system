@@ -1,15 +1,22 @@
 "use client";
 
-import { Alert, Button, Checkbox, Table } from "@mantine/core";
-import { useState } from "react";
+import { Button, Checkbox, Table } from "@mantine/core";
+import { useEffect, useState } from "react";
 import { elementListInDashboard } from "../types/params";
 import { MatterType } from "../types/types";
 import { MatterCardDetailModalForAccounting } from "./modal/MatterCardDetailForAccounting";
 import { FaCheck } from "react-icons/fa";
-import { updateMatterInfoInSupabase } from "../utils/supabaseServer";
+import {
+  getUserInfo,
+  updateMatterInfoInSupabase,
+} from "../utils/supabaseServer";
 import { NotificationMessage } from "./modal/NotificationMessage";
 import { notifications } from "@mantine/notifications";
 import { sendSlackNotification } from "../actions";
+
+type MatterInfoWithUserNameType = {
+  user_name: string | null;
+} & MatterType;
 
 export const DashboardMatterList = ({
   matterList,
@@ -18,8 +25,39 @@ export const DashboardMatterList = ({
 }) => {
   const [checkedMatterIdList, setCheckedMatterIdList] = useState<number[]>([]);
   const [matterInfo, setMatterInfo] = useState<MatterType | null>(null);
+  const [matterInfoListWithName, setMatterInfoListWithName] = useState<
+    MatterInfoWithUserNameType[] | null
+  >(null);
   const [detailOpened, setDetailOpened] = useState<boolean>(false);
   const [notificationOpened, setNotificationOpened] = useState<boolean>(false);
+
+  useEffect(() => {
+    const getUserName = async (matter: MatterType) => {
+      const userInfo = await getUserInfo(matter.user_id);
+      return userInfo ? userInfo.name : null;
+    };
+
+    const fetchMatterInfoList = async () => {
+      if (!matterList) {
+        setMatterInfoListWithName(null);
+        return;
+      }
+
+      try {
+        const matterInfoList: MatterInfoWithUserNameType[] = await Promise.all(
+          matterList.map(async (matter) => {
+            const userName = await getUserName(matter);
+            return { ...matter, user_name: userName };
+          })
+        );
+        setMatterInfoListWithName(matterInfoList);
+      } catch (error) {
+        console.error("Error fetching user names:", error);
+        setMatterInfoListWithName(null);
+      }
+    };
+    fetchMatterInfoList();
+  }, [matterList]);
 
   const formatCurrency = (amount: number | null) => {
     if (amount === null) return "-";
@@ -122,7 +160,7 @@ export const DashboardMatterList = ({
     </Table.Tr>
   );
 
-  const tableInfoList = matterList?.map((matter) => {
+  const tableInfoList = matterInfoListWithName?.map((matter) => {
     return (
       <Table.Tr
         key={matter.id}
@@ -155,7 +193,9 @@ export const DashboardMatterList = ({
         </Table.Td>
         <Table.Td className="whitespace-nowrap px-4">{matter.id}</Table.Td>
         <Table.Td className="whitespace-nowrap px-4">{matter.title}</Table.Td>
-        <Table.Td className="whitespace-nowrap px-4">{matter.user_id}</Table.Td>
+        <Table.Td className="whitespace-nowrap px-4">
+          {matter.user_name}
+        </Table.Td>
         <Table.Td className="whitespace-nowrap px-4">{matter.team}</Table.Td>
         <Table.Td className="whitespace-nowrap px-4">
           {matter.category}
