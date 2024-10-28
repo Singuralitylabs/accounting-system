@@ -116,12 +116,11 @@ export const DashboardMatterList = ({
 
     try {
       for (const id of checkedMatterIdList) {
-        const matterToNotify: MatterType | undefined = matterList?.find(
-          (matter) => matter.id === id
-        );
+        const matterToNotify: MatterInfoWithUserNameType | undefined =
+          matterInfoListWithName?.find((matter) => matter.id === id);
         const body =
           `案件：${matterToNotify?.title}\n` +
-          `担当者：${matterToNotify?.user_id}\n` +
+          `担当者：${matterToNotify?.user_name}\n` +
           message;
         const slackResult = await sendSlackNotification(body);
 
