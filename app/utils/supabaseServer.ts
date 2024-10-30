@@ -37,14 +37,24 @@ export const getUserInfo = async (id: number) => {
 
 export const getAllMatterInfoList = async () => {
   const supabase = await supabaseServer();
-  const { data: matterList } = await supabase.from("matters").select("*");
+  const { data: matterList } = await supabase
+    .from("matters")
+    .select("*")
+    .order("is_completed", { ascending: true })
+    .order("is_fixed", { ascending: false })
+    .order("id", { ascending: true });
 
   return matterList;
 };
 
 export const getUserMatterInfoList = async () => {
   const supabase = await supabaseServer();
-  const { data: matterList } = await supabase.from("matters").select("*");
+  const { data: matterList } = await supabase
+    .from("matters")
+    .select("*")
+    .order("is_fixed", { ascending: true })
+    .order("is_completed", { ascending: true })
+    .order("id", { ascending: true });
 
   return matterList;
 };
@@ -64,7 +74,8 @@ export const getUserCostInfoList = async (matter_id: number) => {
   const { data: costInfoList, error } = await supabase
     .from("costs")
     .select("*")
-    .eq("matter_id", matter_id);
+    .eq("matter_id", matter_id)
+    .order("id", { ascending: true });
 
   return { costInfoList, error };
 };

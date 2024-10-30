@@ -31,6 +31,7 @@ type LabelTextPropsType = {
   isCurrency?: boolean;
   isDate?: boolean;
 };
+
 const LabelText = ({
   label,
   children,
