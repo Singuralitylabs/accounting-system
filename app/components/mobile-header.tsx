@@ -3,7 +3,6 @@
 import Link from "next/link";
 import React, { FC, useState } from "react";
 import { GiHamburgerMenu } from "react-icons/gi";
-import UserButton from "./user-button";
 
 const MobileHeader: FC = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -34,18 +33,18 @@ const MobileHeader: FC = () => {
               全ての案件
             </Link>
             <Link
-              href="/completed"
-              className="block rounded px-3 py-2 text-white hover:bg-gray-500"
-              onClick={toggleMenu}
-            >
-              完了した案件
-            </Link>
-            <Link
               href="/new"
               className="block rounded px-3 py-2 text-white hover:bg-gray-500"
               onClick={toggleMenu}
             >
               新規作成
+            </Link>
+            <Link
+              href="/dashboard"
+              className="block rounded px-3 py-2 text-white hover:bg-gray-500"
+              onClick={toggleMenu}
+            >
+              管理画面
             </Link>
             <Link
               href="/login"

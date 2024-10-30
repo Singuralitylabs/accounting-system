@@ -17,6 +17,16 @@ export function MatterCardsGrid({
     setMatterInfo(matter);
     setOpened(true);
   };
+
+  const formatCurrency = (amount: number | null) => {
+    if (amount === null || amount === undefined) return "-";
+    return new Intl.NumberFormat("ja-JP", {
+      style: "currency",
+      currency: "JPY",
+      minimumFractionDigits: 0,
+    }).format(amount);
+  };
+
   const cards = matterList?.map((matter) => {
     const formattedDate = new Date(matter.inserted_at).toLocaleDateString(
       "ja-JP",
@@ -61,7 +71,7 @@ export function MatterCardsGrid({
         </Group>
         <Text className="">分類　：{matter.category}</Text>
         <Text className="">チーム：{matter.team}</Text>
-        <Text className="">金額　：{matter.amount}円</Text>
+        <Text className="">金額　：{formatCurrency(matter.amount)}</Text>
         <Text
           c="dimmed"
           size="xs"
