@@ -11,13 +11,13 @@ const UserButtonMenu = ({
   userImage,
   onSignOut,
 }: UserButtonMenuProps) => {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
 
   return (
     <div
-      className="flex relative items-center gap-2 cursor-pointer"
-      onMouseEnter={() => setIsOpen(true)}
-      onMouseLeave={() => setIsOpen(false)}
+      className="flex items-center gap-2"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
     >
       {userImage && (
         <img
@@ -26,16 +26,15 @@ const UserButtonMenu = ({
           className="w-8 h-8 rounded-full"
         />
       )}
-      <span>{userName}</span>
-      {isOpen && (
-        <div className="absolute right-0 top-full mt-1 w-48 py-1 bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5">
-          <button
-            onClick={onSignOut}
-            className="w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 text-left"
-          >
-            ログアウト
-          </button>
-        </div>
+      {isHovered ? (
+        <button
+          onClick={onSignOut}
+          className="w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 text-left rounded transition-colors duration-200"
+        >
+          ログアウト
+        </button>
+      ) : (
+        <span>{userName}</span>
       )}
     </div>
   );
