@@ -1,10 +1,13 @@
-import { auth } from "@/auth";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import React from "react";
 import { SignIn, SignOut } from "../components/auth-components";
 import PageTitle from "../components/PageTitle";
 
 const Login = async () => {
-  const session = await auth();
+  const supabase = createClientComponentClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
 
   return (
     <div>
