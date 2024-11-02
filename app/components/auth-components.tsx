@@ -1,63 +1,128 @@
 "use client";
 
+import {
+  createClientComponentClient,
+  User,
+} from "@supabase/auth-helpers-nextjs";
 import { Button } from "@mantine/core";
-import { createClient } from "@supabase/supabase-js";
-import { signIn, signOut, useSession } from "next-auth/react";
-import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+interface SignInProps {
+  className?: string;
+  buttonText?: string;
+}
 
-export function SignIn({
-  ...props
-}: React.ComponentPropsWithRef<typeof Button>) {
+interface SignOutProps {
+  className?: string;
+  buttonText?: string;
+  onSignOutSuccess?: () => void;
+}
+
+export const SignIn = ({ className, buttonText = "ログイン" }: SignInProps) => {
+  const [isLoading, setIsLoading] = useState(false);
+  const supabase = createClientComponentClient();
+
   const handleSignIn = async () => {
     try {
-      await signIn("google", { callbackUrl: "/" });
-    } catch (err) {
-      console.error(err);
+      const redirectUrl = `${window.location.origin}/auth/callback`;
+      console.log("Redirect URL:", redirectUrl); // デバッグ用
+      console.log("Window Location:", window.location);
+      setIsLoading(true);
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+          queryParams: {
+            access_type: "offline",
+            prompt: "consent",
+          },
+        },
+      });
+
+      if (error) {
+        console.error("認証エラー:", error.message);
+      }
+      // デバッグ用
+      console.log("Auth Response:", { data, error });
+    } catch (error) {
+      console.error("ログイン処理でエラーが発生しました:", error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
-    <button onClick={handleSignIn} {...props}>
-      サインイン
-    </button>
+    <Button
+      onClick={handleSignIn}
+      loading={isLoading}
+      className={className}
+      variant="filled"
+      color="blue"
+    >
+      {buttonText}
+    </Button>
   );
-}
+};
 
-export function SignOut({
-  ...props
-}: React.ComponentPropsWithRef<typeof Button>) {
+export const SignOut = ({
+  className,
+  buttonText = "ログアウト",
+  onSignOutSuccess,
+}: SignOutProps) => {
+  const [isLoading, setIsLoading] = useState(false);
+  const supabase = createClientComponentClient();
+  const router = useRouter();
+
   const handleSignOut = async () => {
     try {
-      await signOut({ callbackUrl: "/login", redirect: true });
-    } catch (err) {
-      console.error(err);
+      setIsLoading(true);
+      const { error } = await supabase.auth.signOut();
+
+      if (error) {
+        console.error("ログアウトエラー:", error.message);
+      } else {
+        onSignOutSuccess?.();
+        router.refresh();
+      }
+    } catch (error) {
+      console.error("ログアウト処理でエラーが発生しました:", error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
-    <button onClick={handleSignOut} {...props}>
-      サインアウト
-    </button>
+    <Button
+      onClick={handleSignOut}
+      loading={isLoading}
+      className={className}
+      variant="light"
+      color="gray"
+    >
+      {buttonText}
+    </Button>
   );
-}
+};
 
-export function AuthStateListener() {
-  const { data: session } = useSession();
+// ユーザーセッション取得用のカスタムフック
+export const useSupabaseSession = () => {
+  const supabase = createClientComponentClient();
+  const [loading, setLoading] = useState<boolean>(true);
+  const [user, setUser] = useState<User | null>(null);
 
-  useEffect(() => {
-    if (session?.user) {
-      supabase.auth.onAuthStateChange((event, session) => {
-        if (event === "SIGNED_OUT") {
-          signOut({ callbackUrl: "/login" });
-        }
-      });
+  const getSession = async () => {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      setUser(session?.user ?? null);
+    } catch (error) {
+      console.error("セッション取得エラー:", error);
+    } finally {
+      setLoading(false);
     }
-  }, [session]);
+  };
 
-  return null;
-}
+  return { user, loading, getSession };
+};
