@@ -1,9 +1,12 @@
 "use server";
 
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
+import {
+  createServerComponentClient,
+  User,
+} from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { Database } from "../lib/database.types";
-import { MatterType } from "../types/types";
+import { MatterType, ProfilesType } from "../types/types";
 
 export const getUserInfo = async (id: number) => {
   const supabase = createServerComponentClient<Database>({ cookies });
@@ -14,6 +17,41 @@ export const getUserInfo = async (id: number) => {
     .eq("id", id);
 
   return userInfo ? userInfo[0] : null;
+};
+
+export const insertUserInfo = async ({
+  user,
+  name,
+  email,
+}: {
+  user: User;
+  name: string;
+  email: string;
+}) => {
+  const supabase = createServerComponentClient<Database>({ cookies });
+
+  const { error: profileError } = await supabase.from("profiles").upsert(
+    {
+      user_id: user.id,
+      email,
+      name,
+      class: "public",
+      updated_at: new Date().toISOString(),
+    },
+    {
+      onConflict: "user_id",
+    }
+  );
+
+  if (profileError) {
+    console.error(
+      `profilesテーブルへの${name}の追加処理で失敗しました。`,
+      profileError
+    );
+    return { profileError };
+  }
+
+  return { error: null };
 };
 
 export const getAllMatterInfoList = async () => {

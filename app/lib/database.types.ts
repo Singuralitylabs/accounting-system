@@ -129,19 +129,28 @@ export type Database = {
           class: string | null;
           email: string;
           id: number;
+          inserted_at: string;
           name: string;
+          updated_at: string;
+          user_id: string | null;
         };
         Insert: {
           class?: string | null;
           email: string;
           id?: never;
+          inserted_at?: string;
           name: string;
+          updated_at?: string;
+          user_id?: string | null;
         };
         Update: {
           class?: string | null;
           email?: string;
           id?: never;
+          inserted_at?: string;
           name?: string;
+          updated_at?: string;
+          user_id?: string | null;
         };
         Relationships: [];
       };
@@ -241,4 +250,19 @@ export type Enums<
   ? Database[PublicEnumNameOrOptions["schema"]]["Enums"][EnumName]
   : PublicEnumNameOrOptions extends keyof PublicSchema["Enums"]
   ? PublicSchema["Enums"][PublicEnumNameOrOptions]
+  : never;
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof PublicSchema["CompositeTypes"]
+    | { schema: keyof Database },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof Database;
+  }
+    ? keyof Database[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never
+> = PublicCompositeTypeNameOrOptions extends { schema: keyof Database }
+  ? Database[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof PublicSchema["CompositeTypes"]
+  ? PublicSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
   : never;
