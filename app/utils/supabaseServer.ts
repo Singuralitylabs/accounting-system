@@ -6,7 +6,31 @@ import {
 } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { Database } from "../lib/database.types";
-import { MatterType, ProfilesType } from "../types/types";
+import { MatterType } from "../types/types";
+
+const getProfileInfo = async () => {
+  const supabase = createServerComponentClient<Database>({ cookies });
+
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (!user || userError) {
+    return { error: new Error("ユーザー認証情報の取得に失敗しました。") };
+  }
+
+  const { data: profileInfo, error: profileError } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("user_id", user.id)
+    .single();
+  if (!profileInfo || profileError) {
+    return { error: new Error("プロファイル情報の取得に失敗しました。") };
+  }
+
+  return { profileInfo };
+};
 
 export const getUserInfo = async (id: number) => {
   const supabase = createServerComponentClient<Database>({ cookies });
@@ -59,7 +83,7 @@ export const getAllMatterInfoList = async () => {
 
   const { data: matterList } = await supabase
     .from("matters")
-    .select("*")
+    .select("*, profiles!inner(*)")
     .order("is_completed", { ascending: true })
     .order("is_fixed", { ascending: false })
     .order("id", { ascending: true });
@@ -70,9 +94,16 @@ export const getAllMatterInfoList = async () => {
 export const getUserMatterInfoList = async () => {
   const supabase = createServerComponentClient<Database>({ cookies });
 
+  const { profileInfo: profileInfo, error } = await getProfileInfo();
+  if (error || !profileInfo) {
+    console.error("profiles情報の取得処理で失敗しました。", error);
+    return { error: new Error("プロフィール情報の取得に失敗しました。") };
+  }
+
   const { data: matterList } = await supabase
     .from("matters")
     .select("*")
+    .eq("user_id", profileInfo.id)
     .order("is_fixed", { ascending: true })
     .order("is_completed", { ascending: true })
     .order("id", { ascending: true });
@@ -117,32 +148,46 @@ export const insertMatterInfoInSupabase = async (
 ) => {
   const supabase = createServerComponentClient<Database>({ cookies });
 
-  const { data, error } = await supabase
-    .from("matters")
-    .insert({
-      title: title,
-      category: category,
-      team: team,
-      amount: amount,
-      billing_address: billing_address,
-      start_date: start_date,
-      invoice_date: invoice_date,
-      period_date: period_date,
-      description: description,
-      is_fixed: is_fixed,
-      is_completed: false,
-      user_id: 1,
-    })
-    .select();
-
-  if (error) {
-    console.error(`${title}の案件情報の追加処理で失敗しました。`, error);
-    return { newId: null, error };
+  const { profileInfo: profileInfo, error } = await getProfileInfo();
+  if (error || !profileInfo) {
+    console.error("profiles情報の取得処理で失敗しました。", error);
+    return { error: new Error("プロフィール情報の取得に失敗しました。") };
   }
 
-  const newId = data ? data[0].id : null;
+  try {
+    const { data, error: insertError } = await supabase
+      .from("matters")
+      .insert({
+        title: title,
+        category: category,
+        team: team,
+        amount: amount,
+        billing_address: billing_address,
+        start_date: start_date,
+        invoice_date: invoice_date,
+        period_date: period_date,
+        description: description,
+        is_fixed: is_fixed,
+        is_completed: false,
+        user_id: profileInfo.id,
+        inserted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
 
-  return { newId, error: null };
+    if (insertError) {
+      console.error(`案件${title}の追加処理で失敗しました。`, insertError);
+      return { error: insertError };
+    }
+
+    const newId = data ? data.id : null;
+
+    return { newId, error: null };
+  } catch (err) {
+    console.error(`予期せぬエラーが発生しました。`, err);
+    return { err };
+  }
 };
 
 export const updateMatterInfoInSupabase = async (matterInfo: MatterType) => {
