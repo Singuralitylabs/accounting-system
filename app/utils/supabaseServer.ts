@@ -97,16 +97,21 @@ export const getUserMatterInfoList = async () => {
   const { profileInfo: profileInfo, error } = await getProfileInfo();
   if (error || !profileInfo) {
     console.error("profiles情報の取得処理で失敗しました。", error);
-    return { error: new Error("プロフィール情報の取得に失敗しました。") };
+    return null;
   }
 
-  const { data: matterList } = await supabase
+  const { data: matterList, error: matterError } = await supabase
     .from("matters")
     .select("*")
     .eq("user_id", profileInfo.id)
     .order("is_fixed", { ascending: true })
     .order("is_completed", { ascending: true })
     .order("id", { ascending: true });
+
+  if (matterError) {
+    console.error("案件情報の取得に失敗しました:", matterError);
+    return null;
+  }
 
   return matterList;
 };
