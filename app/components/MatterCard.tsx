@@ -13,6 +13,10 @@ export function MatterCardsGrid({
   const [opened, setOpened] = useState(false);
   const [matterInfo, setMatterInfo] = useState<MatterType | null>(null);
 
+  if (!Array.isArray(matterList)) {
+    return null;
+  }
+
   const openCard = (matter: MatterType) => {
     setMatterInfo(matter);
     setOpened(true);

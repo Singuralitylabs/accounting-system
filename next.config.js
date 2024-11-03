@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  poweredByHeader: false,
   reactStrictMode: true,
-  // 以下の行を追加
   eslint: {
     ignoreDuringBuilds: true,
   },

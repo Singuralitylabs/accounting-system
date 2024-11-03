@@ -5,6 +5,8 @@ import React from "react";
 import { SignIn } from "../components/auth-components";
 import PageTitle from "../components/PageTitle";
 
+export const dynamic = "force-dynamic";
+
 const Login = async () => {
   const cookieStore = cookies();
   const supabase = createServerComponentClient({
