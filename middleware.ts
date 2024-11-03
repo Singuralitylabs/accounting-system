@@ -10,22 +10,51 @@ export async function middleware(req: NextRequest) {
     data: { session },
   } = await supabase.auth.getSession();
 
-  const protectedRoutes = ["/dashboard", "/new"];
-  const isProtectedRoute = protectedRoutes.some((route) =>
-    req.nextUrl.pathname.startsWith(route)
-  );
+  const { pathname } = req.nextUrl;
 
-  if (isProtectedRoute && !session) {
-    return NextResponse.redirect(new URL("/login", req.nextUrl));
+  const isProtectedRoute =
+    pathname === "/" ||
+    pathname.startsWith("/dashboard") ||
+    pathname.startsWith("/new");
+
+  const isAuthRoute =
+    pathname.startsWith("/login") || pathname.startsWith("/auth/callback");
+
+  const isPublicFile =
+    pathname.match(/\.(js|css|ico|png|jpg|jpeg|svg|gif)$/) ||
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/api");
+
+  console.log({
+    pathname,
+    isProtectedRoute,
+    isAuthRoute,
+    hasSession: !!session,
+    isPublicFile,
+  });
+
+  if (isPublicFile) {
+    return res;
   }
 
-  if (session && req.nextUrl.pathname === "/login") {
-    return NextResponse.redirect(new URL("/", req.nextUrl));
+  if (!session && isProtectedRoute) {
+    const redirectUrl = new URL("/login", req.url);
+    console.log("Redirecting to:", redirectUrl.toString());
+    return NextResponse.redirect(redirectUrl);
+  }
+
+  if (session && isAuthRoute) {
+    const redirectUrl = new URL("/", req.url);
+    console.log("Redirecting to:", redirectUrl.toString());
+    return NextResponse.redirect(redirectUrl);
   }
 
   return res;
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: [
+    // 除外するパス
+    "/((?!_next/static|_next/image|favicon.ico).*)",
+  ],
 };
