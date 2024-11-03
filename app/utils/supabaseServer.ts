@@ -54,12 +54,14 @@ export const insertUserInfo = async ({
 }) => {
   const supabase = createServerComponentClient<Database>({ cookies });
 
+  const { profileInfo: existingProfileInfo } = await getProfileInfo();
+
   const { error: profileError } = await supabase.from("profiles").upsert(
     {
       user_id: user.id,
       email,
       name,
-      class: "public",
+      class: existingProfileInfo?.class ?? "public",
       updated_at: new Date().toISOString(),
     },
     {
