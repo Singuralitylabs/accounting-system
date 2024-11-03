@@ -6,15 +6,21 @@ export async function middleware(req: NextRequest) {
   const res = NextResponse.next();
   const supabase = createMiddlewareClient({ req, res });
 
-  // セッションの更新
-  await supabase.auth.getSession();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
 
-  // 保護されたルートの設定（必要に応じて）
-  const path = req.nextUrl.pathname;
-  const session = await supabase.auth.getSession();
+  const protectedRoutes = ["/dashboard", "/new"];
+  const isProtectedRoute = protectedRoutes.some((route) =>
+    req.nextUrl.pathname.startsWith(route)
+  );
 
-  if (path.startsWith("/protected") && !session.data.session) {
-    return NextResponse.redirect(new URL("/auth/login", req.url));
+  if (isProtectedRoute && !session) {
+    return NextResponse.redirect(new URL("/login", req.nextUrl));
+  }
+
+  if (session && req.nextUrl.pathname === "/login") {
+    return NextResponse.redirect(new URL("/", req.nextUrl));
   }
 
   return res;
