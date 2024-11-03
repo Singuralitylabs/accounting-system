@@ -151,8 +151,8 @@ export const DashboardMatterList = ({
   const tableHeads = (
     <Table.Tr key={elementListInDashboard[0]}>
       <Table.Th></Table.Th>
-      {elementListInDashboard.map((element) => (
-        <Table.Th className="whitespace-nowrap px-4 text-center">
+      {elementListInDashboard.map((element, index) => (
+        <Table.Th key={index} className="whitespace-nowrap px-4 text-center">
           {element}
         </Table.Th>
       ))}
