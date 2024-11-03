@@ -25,14 +25,6 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith("/_next") ||
     pathname.startsWith("/api");
 
-  console.log({
-    pathname,
-    isProtectedRoute,
-    isAuthRoute,
-    hasSession: !!session,
-    isPublicFile,
-  });
-
   if (isPublicFile) {
     return res;
   }
