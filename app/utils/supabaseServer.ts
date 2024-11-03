@@ -8,7 +8,7 @@ import { cookies } from "next/headers";
 import { Database } from "../lib/database.types";
 import { MatterType } from "../types/types";
 
-const getProfileInfo = async () => {
+export const getProfileInfo = async () => {
   const supabase = createServerComponentClient<Database>({ cookies });
 
   const {
@@ -22,7 +22,7 @@ const getProfileInfo = async () => {
 
   const { data: profileInfo, error: profileError } = await supabase
     .from("profiles")
-    .select("id")
+    .select("*")
     .eq("user_id", user.id)
     .single();
   if (!profileInfo || profileError) {
