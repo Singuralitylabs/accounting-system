@@ -10,7 +10,7 @@ const UserMatterPage = async () => {
 
   return (
     <main>
-      <PageTitle title="案件一覧" />
+      <PageTitle title="案件カード" />
       {matterList ? (
         <MatterCardsGrid matterList={matterList} />
       ) : (
