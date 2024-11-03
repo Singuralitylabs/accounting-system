@@ -1,6 +1,7 @@
 import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { getProfileInfo } from "./app/utils/supabaseServer";
 
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next();
@@ -9,6 +10,20 @@ export async function middleware(req: NextRequest) {
   const {
     data: { session },
   } = await supabase.auth.getSession();
+
+  if (req.nextUrl.pathname === "/dashboard") {
+    if (!session) {
+      return NextResponse.redirect(new URL("/", req.url));
+    }
+
+    const { profileInfo: profileInfo } = await getProfileInfo();
+    if (
+      !profileInfo?.class ||
+      (profileInfo.class !== "accounting" && profileInfo.class !== "admin")
+    ) {
+      return NextResponse.redirect(new URL("/", req.url));
+    }
+  }
 
   const { pathname } = req.nextUrl;
 
@@ -30,15 +45,11 @@ export async function middleware(req: NextRequest) {
   }
 
   if (!session && isProtectedRoute) {
-    const redirectUrl = new URL("/login", req.url);
-    console.log("Redirecting to:", redirectUrl.toString());
-    return NextResponse.redirect(redirectUrl);
+    return NextResponse.redirect(new URL("/login", req.url));
   }
 
   if (session && isAuthRoute) {
-    const redirectUrl = new URL("/", req.url);
-    console.log("Redirecting to:", redirectUrl.toString());
-    return NextResponse.redirect(redirectUrl);
+    return NextResponse.redirect(new URL("/", req.url));
   }
 
   return res;
