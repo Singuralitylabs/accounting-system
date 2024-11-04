@@ -242,7 +242,8 @@ export const updateCostInfoInSupabase = async (
   certificate: string,
   withholding: boolean,
   matter_id: number,
-  comment: string
+  comment: string,
+  is_completed: boolean
 ) => {
   const supabase = createServerComponentClient<Database>({ cookies });
 
@@ -262,6 +263,7 @@ export const updateCostInfoInSupabase = async (
       withholding: withholding,
       matter_id: matter_id,
       comment: comment,
+      is_completed: is_completed,
       updated_at: new Date().toISOString(),
     })
     .eq("id", id);
@@ -364,7 +366,8 @@ export const updateBusinessInfoList = async (
   amount: number,
   invoice_date: string,
   period_date: string,
-  matter_id: number
+  matter_id: number,
+  is_completed: boolean
 ) => {
   const supabase = createServerComponentClient<Database>({ cookies });
 
@@ -384,6 +387,7 @@ export const updateBusinessInfoList = async (
       invoice_date: formattedInvoice,
       period_date: formattedPeriod,
       matter_id: matter_id,
+      is_completed: is_completed,
       updated_at: new Date().toISOString(),
     })
     .eq("id", id);

@@ -15,6 +15,7 @@ export type Database = {
           id: number
           inserted_at: string
           invoice_date: string | null
+          is_completed: boolean
           matter_id: number
           name: string
           period_date: string | null
@@ -25,6 +26,7 @@ export type Database = {
           id?: number
           inserted_at?: string
           invoice_date?: string | null
+          is_completed?: boolean
           matter_id: number
           name: string
           period_date?: string | null
@@ -35,6 +37,7 @@ export type Database = {
           id?: number
           inserted_at?: string
           invoice_date?: string | null
+          is_completed?: boolean
           matter_id?: number
           name?: string
           period_date?: string | null
@@ -56,6 +59,7 @@ export type Database = {
           comment: string | null
           id: number
           inserted_at: string
+          is_completed: boolean
           item: string
           matter_id: number
           name: string
@@ -70,6 +74,7 @@ export type Database = {
           comment?: string | null
           id?: number
           inserted_at?: string
+          is_completed?: boolean
           item: string
           matter_id: number
           name: string
@@ -84,6 +89,7 @@ export type Database = {
           comment?: string | null
           id?: number
           inserted_at?: string
+          is_completed?: boolean
           item?: string
           matter_id?: number
           name?: string
@@ -107,7 +113,9 @@ export type Database = {
         Row: {
           amount: number | null
           billing_address: string | null
+          business_count: number | null
           category: string
+          cost_count: number | null
           description: string | null
           id: number
           inserted_at: string
@@ -118,13 +126,17 @@ export type Database = {
           start_date: string | null
           team: string
           title: string
+          total_amount: number | null
+          total_cost: number | null
           updated_at: string
           user_id: number
         }
         Insert: {
           amount?: number | null
           billing_address?: string | null
+          business_count?: number | null
           category: string
+          cost_count?: number | null
           description?: string | null
           id?: number
           inserted_at?: string
@@ -135,13 +147,17 @@ export type Database = {
           start_date?: string | null
           team: string
           title: string
+          total_amount?: number | null
+          total_cost?: number | null
           updated_at?: string
           user_id: number
         }
         Update: {
           amount?: number | null
           billing_address?: string | null
+          business_count?: number | null
           category?: string
+          cost_count?: number | null
           description?: string | null
           id?: number
           inserted_at?: string
@@ -152,6 +168,8 @@ export type Database = {
           start_date?: string | null
           team?: string
           title?: string
+          total_amount?: number | null
+          total_cost?: number | null
           updated_at?: string
           user_id?: number
         }

@@ -1,15 +1,12 @@
 "use client";
 
 import { Button, Checkbox, Table } from "@mantine/core";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { elementListInAccounting } from "../types/params";
 import { MatterInfoWithUserNameType, MatterType } from "../types/types";
 import { MatterCardDetailModalForAccounting } from "./modal/MatterCardDetailForAccounting";
 import { FaCheck } from "react-icons/fa";
-import {
-  getUserInfo,
-  updateMatterInfoInSupabase,
-} from "../utils/supabaseServer";
+import { updateMatterInfoInSupabase } from "../utils/supabaseServer";
 import { NotificationMessage } from "./modal/NotificationMessage";
 import { notifications } from "@mantine/notifications";
 import { sendSlackNotification } from "../actions";
@@ -20,40 +17,10 @@ export const AccountingMatterList = ({
   matterList: MatterInfoWithUserNameType[] | null;
 }) => {
   const [checkedMatterIdList, setCheckedMatterIdList] = useState<number[]>([]);
-  const [matterInfo, setMatterInfo] = useState<MatterType | null>(null);
-  const [matterInfoListWithName, setMatterInfoListWithName] = useState<
-    MatterInfoWithUserNameType[]
-  >([]);
+  const [detailMatterInfo, setDetailMatterInfo] =
+    useState<MatterInfoWithUserNameType | null>(null);
   const [detailOpened, setDetailOpened] = useState<boolean>(false);
   const [notificationOpened, setNotificationOpened] = useState<boolean>(false);
-
-  useEffect(() => {
-    const getUserName = async (matter: MatterType) => {
-      const userInfo = await getUserInfo(matter.user_id);
-      return userInfo ? userInfo.name : null;
-    };
-
-    const fetchMatterInfoList = async () => {
-      if (!matterList) {
-        setMatterInfoListWithName([]);
-        return;
-      }
-
-      try {
-        const matterInfoList: MatterInfoWithUserNameType[] = await Promise.all(
-          matterList.map(async (matter) => {
-            const userName = await getUserName(matter);
-            return { ...matter, user_name: userName };
-          })
-        );
-        setMatterInfoListWithName(matterInfoList);
-      } catch (error) {
-        console.error("Error fetching user names:", error);
-        setMatterInfoListWithName([]);
-      }
-    };
-    fetchMatterInfoList();
-  }, [matterList]);
 
   const formatCurrency = (amount: number | null) => {
     if (amount === null) return "-";
@@ -74,8 +41,8 @@ export const AccountingMatterList = ({
     return `${year}/${month}/${day}`;
   };
 
-  const handleShowMatterInfo = (matter: MatterType) => {
-    setMatterInfo(matter);
+  const handleShowMatterInfo = (matter: MatterInfoWithUserNameType) => {
+    setDetailMatterInfo(matter);
     setDetailOpened(true);
   };
 
@@ -113,7 +80,7 @@ export const AccountingMatterList = ({
     try {
       for (const id of checkedMatterIdList) {
         const matterToNotify: MatterInfoWithUserNameType | undefined =
-          matterInfoListWithName?.find((matter) => matter.id === id);
+          matterList?.find((matter) => matter.id === id);
         const body =
           `案件：${matterToNotify?.title}\n` +
           `担当者：${matterToNotify?.user_name}\n` +
@@ -155,7 +122,7 @@ export const AccountingMatterList = ({
     </Table.Tr>
   );
 
-  const tableInfoList = matterInfoListWithName?.map((matter) => {
+  const tableInfoList = matterList?.map((matter) => {
     return (
       <Table.Tr
         key={matter.id}
@@ -222,9 +189,9 @@ export const AccountingMatterList = ({
         <Table.Thead>{tableHeads}</Table.Thead>
         <Table.Tbody>{tableInfoList}</Table.Tbody>
       </Table>
-      {detailOpened && matterInfo ? (
+      {detailOpened && detailMatterInfo ? (
         <MatterCardDetailModalForAccounting
-          matterInfo={matterInfo}
+          matterInfo={detailMatterInfo}
           opened={detailOpened}
           setOpened={setDetailOpened}
         />
