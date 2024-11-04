@@ -23,9 +23,9 @@ import {
   teamList,
 } from "../types/params";
 import {
-  insertBusinessInfoList,
-  insertCostInfoInSupabase,
-  insertMatterInfoInSupabase,
+  insertBusinessInfo,
+  insertCostInfo,
+  insertMatterInfo,
 } from "../utils/supabaseServer";
 
 const NewMatterForm = () => {
@@ -130,7 +130,7 @@ const NewMatterForm = () => {
         return cost.price ? acc + cost.price : acc;
       }, 0);
 
-      const { newId, error: matterError } = await insertMatterInfoInSupabase(
+      const { newId, error: matterError } = await insertMatterInfo(
         matterInfo.title,
         matterInfo.category,
         matterInfo.team,
@@ -146,7 +146,7 @@ const NewMatterForm = () => {
       if (!newId) throw new Error("案件IDの取得に失敗しました。");
 
       for (const cost of costList) {
-        const { error: costError } = await insertCostInfoInSupabase(
+        const { error: costError } = await insertCostInfo(
           cost.name,
           cost.item,
           cost.payment_target,
@@ -161,7 +161,7 @@ const NewMatterForm = () => {
       }
 
       for (const business of businessList) {
-        const { error: businessError } = await insertBusinessInfoList(
+        const { error: businessError } = await insertBusinessInfo(
           business.name,
           business.amount!,
           business.invoice_date!,

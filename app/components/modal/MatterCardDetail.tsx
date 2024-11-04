@@ -6,16 +6,16 @@ import {
 } from "@/app/types/params";
 import { BusinessType, CostType, MatterType } from "@/app/types/types";
 import {
-  deleteBusinessInfoList,
-  deleteCostInfoInSupabase,
-  deleteMatterInfoInSupabase,
+  deleteBusinessInfo,
+  deleteCostInfo,
+  deleteMatterInfo,
   getUserBusinessInfoList,
   getUserCostInfoList,
-  insertBusinessInfoList,
-  insertCostInfoInSupabase,
-  updateBusinessInfoList,
-  updateCostInfoInSupabase,
-  updateMatterInfoInSupabase,
+  insertBusinessInfo,
+  insertCostInfo,
+  updateBusinessInfo,
+  updateCostInfo,
+  updateMatterInfo,
 } from "@/app/utils/supabaseServer";
 import {
   Modal,
@@ -196,11 +196,11 @@ export const MatterCardDetailModal = ({
     matterInfo.cost_count = costInfoInCardList.length;
     matterInfo.description = updatedMatterInfo.description;
 
-    await updateMatterInfoInSupabase(matterInfo);
+    await updateMatterInfo(matterInfo);
 
     for (const costInfoInCard of costInfoInCardList) {
       if (costInfoInCard.isNew && !costInfoInCard.isRemoved) {
-        await insertCostInfoInSupabase(
+        await insertCostInfo(
           costInfoInCard.name,
           costInfoInCard.item,
           costInfoInCard.payment_target,
@@ -212,9 +212,9 @@ export const MatterCardDetailModal = ({
           costInfoInCard.comment ?? ""
         );
       } else if (costInfoInCard.isRemoved && !costInfoInCard.isNew) {
-        await deleteCostInfoInSupabase(costInfoInCard.id);
+        await deleteCostInfo(costInfoInCard.id);
       } else if (!costInfoInCard.isNew && !costInfoInCard.isRemoved) {
-        await updateCostInfoInSupabase(
+        await updateCostInfo(
           costInfoInCard.id,
           costInfoInCard.name,
           costInfoInCard.item,
@@ -232,7 +232,7 @@ export const MatterCardDetailModal = ({
 
     for (const businessInfoInCard of businessInfoInCardList) {
       if (businessInfoInCard.isNew && !businessInfoInCard.isRemoved) {
-        await insertBusinessInfoList(
+        await insertBusinessInfo(
           businessInfoInCard.name,
           businessInfoInCard.amount!,
           businessInfoInCard.invoice_date!,
@@ -240,9 +240,9 @@ export const MatterCardDetailModal = ({
           matterInfo.id
         );
       } else if (businessInfoInCard.isRemoved && !businessInfoInCard.isNew) {
-        await deleteBusinessInfoList(businessInfoInCard.id);
+        await deleteBusinessInfo(businessInfoInCard.id);
       } else if (!businessInfoInCard.isNew && !businessInfoInCard.isRemoved) {
-        await updateBusinessInfoList(
+        await updateBusinessInfo(
           businessInfoInCard.id,
           businessInfoInCard.name,
           businessInfoInCard.amount!,
@@ -268,9 +268,9 @@ export const MatterCardDetailModal = ({
       return;
     }
     for (const costInfo of costInfoInCardList) {
-      await deleteCostInfoInSupabase(costInfo.id);
+      await deleteCostInfo(costInfo.id);
     }
-    await deleteMatterInfoInSupabase(matterInfo.id);
+    await deleteMatterInfo(matterInfo.id);
     alert(`案件[${matterInfo.title}]を削除しました。`);
     closeModal();
   };

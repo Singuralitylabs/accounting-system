@@ -6,8 +6,8 @@ import {
 import {
   getUserBusinessInfoList,
   getUserCostInfoList,
-  updateBusinessInfoList,
-  updateCostInfoInSupabase,
+  updateBusinessInfo,
+  updateCostInfo,
 } from "@/app/utils/supabaseServer";
 import {
   Modal,
@@ -134,7 +134,7 @@ export const MatterCardDetailModalForAccounting = ({
     }
     for (const business of businessList) {
       if (business) {
-        await updateBusinessInfoList(
+        await updateBusinessInfo(
           business.id,
           business.name,
           business.amount!,
@@ -147,7 +147,7 @@ export const MatterCardDetailModalForAccounting = ({
     }
     for (const cost of costList) {
       if (cost) {
-        await updateCostInfoInSupabase(
+        await updateCostInfo(
           cost.id,
           cost.name,
           cost.item,
