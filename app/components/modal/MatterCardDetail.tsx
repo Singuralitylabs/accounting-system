@@ -355,6 +355,9 @@ export const MatterCardDetailModal = ({
           });
         })}
       >
+        <span className="text-red-700 text-sm">
+          ※全て税抜金額でご記入ください。
+        </span>
         <div className="flex justify-end">
           {matterInfo.is_completed ? (
             <Badge color="green">経理確認完了</Badge>
@@ -414,7 +417,9 @@ export const MatterCardDetailModal = ({
           {...form.getInputProps("description")}
         />
 
-        <h2 className="mt-8 mb-4">取引先情報</h2>
+        {businessInfoInCardList.length > 0 ? (
+          <h2 className="mt-8 mb-4">取引先情報</h2>
+        ) : null}
         {businessInfoInCardList.map((businessInfo) =>
           businessInfo.isRemoved ? (
             ""
@@ -509,12 +514,14 @@ export const MatterCardDetailModal = ({
                   />
                 </div>
               </div>
-              <button
-                className="p-2 hover:text-blue-500"
-                onClick={() => handleRemoveBusiness(businessInfo.id)}
-              >
-                <FaRegTrashAlt />
-              </button>
+              {!matterInfo.is_fixed ? (
+                <button
+                  className="p-2 hover:text-blue-500"
+                  onClick={() => handleRemoveBusiness(businessInfo.id)}
+                >
+                  <FaRegTrashAlt />
+                </button>
+              ) : null}
             </div>
           )
         )}

@@ -179,6 +179,9 @@ export const AccountingMatterList = ({
 
   return (
     <div className="my-4">
+      <span className="text-red-700 text-sm m-4">
+        ※記載の金額は、全て税抜となっております。
+      </span>
       <Table>
         <Table.Thead>{tableHeads}</Table.Thead>
         <Table.Tbody>{tableInfoList}</Table.Tbody>

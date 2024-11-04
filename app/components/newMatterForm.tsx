@@ -193,7 +193,10 @@ const NewMatterForm = () => {
         })
       )}
     >
-      <h2 className="mb-4">基本情報</h2>
+      <span className="text-red-700 text-sm">
+        ※全て税抜金額をご記入ください。
+      </span>
+      <h2 className="my-4">基本情報</h2>
       <div className="md:flex gap-4 w-full">
         <TextInput
           className="w-full"
