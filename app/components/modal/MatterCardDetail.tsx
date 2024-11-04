@@ -4,12 +4,16 @@ import {
   itemList,
   teamList,
 } from "@/app/types/params";
-import { CostType, MatterType } from "@/app/types/types";
+import { BusinessType, CostType, MatterType } from "@/app/types/types";
 import {
+  deleteBusinessInfoList,
   deleteCostInfoInSupabase,
   deleteMatterInfoInSupabase,
+  getUserBusinessInfoList,
   getUserCostInfoList,
+  insertBusinessInfoList,
   insertCostInfoInSupabase,
+  updateBusinessInfoList,
   updateCostInfoInSupabase,
   updateMatterInfoInSupabase,
 } from "@/app/utils/supabaseServer";
@@ -39,13 +43,13 @@ type Props = {
 
 type UpdatedMatterInfoType = {
   title: string;
-  billing_address: string | null;
   team: string;
   category: string;
-  amount: number | null;
   start_date: string | null;
-  invoice_date: string | null;
-  period_date: string | null;
+  total_amount: number;
+  business_count: number;
+  total_cost: number;
+  cost_count: number;
   description: string | null;
 };
 
@@ -53,6 +57,11 @@ type CostInCardType = {
   isNew: boolean;
   isRemoved: boolean;
 } & CostType;
+
+type BussinessInCardType = {
+  isNew: boolean;
+  isRemoved: boolean;
+} & BusinessType;
 
 export const MatterCardDetailModal = ({
   matterInfo,
@@ -62,16 +71,14 @@ export const MatterCardDetailModal = ({
   const [startDate, setStartDate] = useState<Date | null>(
     new Date(matterInfo.start_date!)
   );
-  const [invoiceDate, setInvoiceDate] = useState<Date | null>(
-    new Date(matterInfo.invoice_date!)
-  );
-  const [periodDate, setPeriodDate] = useState<Date | null>(
-    new Date(matterInfo.period_date!)
-  );
   const [costInfoIndex, setCostInfoIndex] = useState<number>(10000);
   const [costInfoInCardList, setCostInfoInCardList] = useState<
     CostInCardType[]
   >([]);
+  const [businessInfoInCardList, setBusinessInfoInCardList] = useState<
+    BussinessInCardType[]
+  >([]);
+  const [businessInfoIndex, setBusinessInfoIndex] = useState<number>(10000);
   useEffect(() => {
     if (opened) {
       const getCostInfo = async () => {
@@ -96,6 +103,7 @@ export const MatterCardDetailModal = ({
               withholding: costInfo.withholding,
               matter_id: costInfo.matter_id,
               comment: costInfo.comment,
+              is_completed: false,
               inserted_at: costInfo.inserted_at,
               updated_at: costInfo.updated_at,
               isNew: false,
@@ -105,6 +113,34 @@ export const MatterCardDetailModal = ({
         }
       };
       getCostInfo();
+      const getBusinessInfo = async () => {
+        const { businessInfoList, error } = await getUserBusinessInfoList(
+          matterInfo.id
+        );
+
+        if (error) {
+          console.error("Error fetching businessInfoList:", error);
+          return <div>取引先情報の取得に失敗しました。</div>;
+        }
+        if (businessInfoList) {
+          setBusinessInfoInCardList(
+            businessInfoList.map((businessInfo) => ({
+              id: businessInfo.id,
+              name: businessInfo.name,
+              amount: businessInfo.amount,
+              invoice_date: businessInfo.invoice_date,
+              period_date: businessInfo.period_date,
+              matter_id: matterInfo.id,
+              is_completed: false,
+              inserted_at: businessInfo.inserted_at,
+              updated_at: businessInfo.updated_at,
+              isNew: false,
+              isRemoved: false,
+            }))
+          );
+        }
+      };
+      getBusinessInfo();
     }
   }, [opened, matterInfo.id]);
 
@@ -114,14 +150,13 @@ export const MatterCardDetailModal = ({
       title: matterInfo.title,
       team: matterInfo.team,
       category: matterInfo.category,
-      amount: matterInfo.amount,
-      billing_address: matterInfo.billing_address,
       start_date: matterInfo.start_date,
-      invoice_date: matterInfo.invoice_date,
-      period_date: matterInfo.period_date,
+      total_amount: matterInfo.total_amount,
+      business_count: matterInfo.business_count,
+      total_cost: matterInfo.total_cost,
+      cost_count: matterInfo.cost_count,
       is_fixed: matterInfo.is_fixed,
       description: matterInfo.description,
-      costInfoInCardList: costInfoInCardList,
     },
   });
 
@@ -144,14 +179,21 @@ export const MatterCardDetailModal = ({
       `案件[${updatedMatterInfo.title}]を確定にしますか？\n確定後は経理の確認に入るため、変更できません。`
     );
 
+    const totalAmount = businessInfoInCardList.reduce((acc, business) => {
+      return business.amount ? acc + business.amount : acc;
+    }, 0);
+    const totalCost = costInfoInCardList.reduce((acc, cost) => {
+      return cost.price ? acc + cost.price : acc;
+    }, 0);
+
     matterInfo.title = updatedMatterInfo.title;
     matterInfo.category = updatedMatterInfo.category;
     matterInfo.team = updatedMatterInfo.team;
-    matterInfo.amount = updatedMatterInfo.amount;
-    matterInfo.billing_address = updatedMatterInfo.billing_address;
     matterInfo.start_date = startDate?.toISOString() || null;
-    matterInfo.invoice_date = invoiceDate?.toISOString() || null;
-    matterInfo.period_date = periodDate?.toISOString() || null;
+    matterInfo.total_amount = totalAmount;
+    matterInfo.business_count = businessInfoInCardList.length;
+    matterInfo.total_cost = totalCost;
+    matterInfo.cost_count = costInfoInCardList.length;
     matterInfo.description = updatedMatterInfo.description;
 
     await updateMatterInfoInSupabase(matterInfo);
@@ -182,7 +224,32 @@ export const MatterCardDetailModal = ({
           costInfoInCard.certificate,
           costInfoInCard.withholding,
           costInfoInCard.matter_id,
-          costInfoInCard.comment ?? ""
+          costInfoInCard.comment ?? "",
+          costInfoInCard.is_completed
+        );
+      }
+    }
+
+    for (const businessInfoInCard of businessInfoInCardList) {
+      if (businessInfoInCard.isNew && !businessInfoInCard.isRemoved) {
+        await insertBusinessInfoList(
+          businessInfoInCard.name,
+          businessInfoInCard.amount!,
+          businessInfoInCard.invoice_date!,
+          businessInfoInCard.period_date!,
+          matterInfo.id
+        );
+      } else if (businessInfoInCard.isRemoved && !businessInfoInCard.isNew) {
+        await deleteBusinessInfoList(businessInfoInCard.id);
+      } else if (!businessInfoInCard.isNew && !businessInfoInCard.isRemoved) {
+        await updateBusinessInfoList(
+          businessInfoInCard.id,
+          businessInfoInCard.name,
+          businessInfoInCard.amount!,
+          businessInfoInCard.invoice_date!,
+          businessInfoInCard.period_date!,
+          matterInfo.id,
+          businessInfoInCard.is_completed
         );
       }
     }
@@ -222,6 +289,7 @@ export const MatterCardDetailModal = ({
         withholding: false,
         matter_id: matterInfo.id,
         comment: "",
+        is_completed: false,
         inserted_at: "",
         updated_at: "",
         isNew: true,
@@ -231,11 +299,40 @@ export const MatterCardDetailModal = ({
     setCostInfoIndex(costInfoIndex + 1);
   };
 
+  const handleAddBusiness = () => {
+    setBusinessInfoInCardList([
+      ...businessInfoInCardList,
+      {
+        id: businessInfoIndex,
+        name: "",
+        amount: 0,
+        invoice_date: "",
+        period_date: "",
+        matter_id: matterInfo.id,
+        is_completed: false,
+        inserted_at: "",
+        updated_at: "",
+        isNew: true,
+        isRemoved: false,
+      },
+    ]);
+    setBusinessInfoIndex(businessInfoIndex + 1);
+  };
+
   const handleRemoveCost = (id: number) => {
     setCostInfoInCardList(
       costInfoInCardList.map((costInfo) => {
         if (costInfo.id === id) costInfo.isRemoved = true;
         return costInfo;
+      })
+    );
+  };
+
+  const handleRemoveBusiness = (id: number) => {
+    setBusinessInfoInCardList(
+      businessInfoInCardList.map((businessInfo) => {
+        if (businessInfo.id === id) businessInfo.isRemoved = true;
+        return businessInfo;
       })
     );
   };
@@ -249,7 +346,13 @@ export const MatterCardDetailModal = ({
     >
       <form
         onSubmit={form.onSubmit((updatedMatterInfo) => {
-          handleUpdateMatterInfo(updatedMatterInfo);
+          handleUpdateMatterInfo({
+            ...updatedMatterInfo,
+            total_amount: 0,
+            business_count: businessInfoInCardList.length,
+            total_cost: 0,
+            cost_count: costInfoInCardList.length,
+          });
         })}
       >
         <div className="flex justify-end">
@@ -261,6 +364,7 @@ export const MatterCardDetailModal = ({
             <Badge color="red">申請者編集中</Badge>
           )}
         </div>
+        <h2 className="mb-4">基本情報</h2>
         <div className="sm:flex gap-4 w-full">
           <TextInput
             className="w-full"
@@ -271,19 +375,9 @@ export const MatterCardDetailModal = ({
             disabled={matterInfo.is_fixed!}
             {...form.getInputProps("title")}
           />
-          <TextInput
-            className="w-full md:pt-0 pt-4"
-            withAsterisk
-            label="取引先"
-            placeholder="取引先をご記入ください。"
-            disabled={matterInfo.is_fixed!}
-            {...form.getInputProps("billing_address")}
-          />
-        </div>
-        <div className="sm:flex gap-4 w-full">
           <Select
             label="分類"
-            className="pt-4 w-full"
+            className="w-full"
             placeholder="案件の分類をご記入ください。"
             data={categoryList}
             required
@@ -292,30 +386,16 @@ export const MatterCardDetailModal = ({
           />
           <Select
             label="チーム"
-            className="pt-4 w-full"
+            className="w-full"
             placeholder="案件を担当するチームを選択ください。"
             data={teamList}
             required
             disabled={matterInfo.is_fixed!}
             {...form.getInputProps("team")}
           />
-          <NumberInput
-            label="請求額"
-            className="pt-4 w-full"
-            placeholder="協会が取引先に請求する金額をご記入ください。"
-            min={0}
-            prefix="¥"
-            allowNegative={false}
-            allowDecimal={false}
-            thousandSeparator=","
-            disabled={matterInfo.is_fixed!}
-            {...form.getInputProps("amount")}
-          />
-        </div>
-        <div className="sm:flex gap-4 w-full">
           <DateInput
             label="案件開始日"
-            className="pt-4 w-full"
+            className="w-full"
             required
             placeholder="案件を開始した日付をご入力ください。"
             disabled={matterInfo.is_fixed!}
@@ -323,28 +403,6 @@ export const MatterCardDetailModal = ({
             value={startDate}
             onChange={(value) =>
               value ? setStartDate(value) : setStartDate(null)
-            }
-          />
-          <DateInput
-            label="請求日"
-            className="pt-4 w-full"
-            placeholder="案件に対する報酬を請求する日付をご入力ください。"
-            disabled={matterInfo.is_fixed!}
-            valueFormat="YYYY/MM/DD"
-            value={invoiceDate}
-            onChange={(value) =>
-              value ? setInvoiceDate(value) : setInvoiceDate(null)
-            }
-          />
-          <DateInput
-            label="振込期限"
-            className="pt-4 w-full"
-            placeholder="案件の報酬の振込期限をご入力ください。"
-            disabled={matterInfo.is_fixed!}
-            valueFormat="YYYY/MM/DD"
-            value={periodDate}
-            onChange={(value) =>
-              value ? setPeriodDate(value) : setPeriodDate(null)
             }
           />
         </div>
@@ -356,8 +414,127 @@ export const MatterCardDetailModal = ({
           {...form.getInputProps("description")}
         />
 
+        <h2 className="mt-8 mb-4">取引先情報</h2>
+        {businessInfoInCardList.map((businessInfo) =>
+          businessInfo.isRemoved ? (
+            ""
+          ) : (
+            <div
+              key={businessInfo.id}
+              className="md:border-none flex border rounded-lg md:p-0 p-2 my-2 items-center"
+            >
+              <div className="md:flex gap-4 w-full">
+                <div className="sm:flex md:my-0 my-2 gap-4 w-full">
+                  <TextInput
+                    placeholder="取引先名をご記入ください。"
+                    className="flex-grow sm:my-0 my-2 "
+                    disabled={matterInfo.is_fixed!}
+                    value={businessInfo.name}
+                    onChange={(event) =>
+                      setBusinessInfoInCardList(
+                        businessInfoInCardList.map((businessVal) =>
+                          businessVal.id === businessInfo.id
+                            ? { ...businessVal, name: event.target.value }
+                            : businessVal
+                        )
+                      )
+                    }
+                  />
+                  <NumberInput
+                    placeholder="¥0"
+                    className="flex-grow"
+                    disabled={matterInfo.is_fixed!}
+                    value={businessInfo.amount!}
+                    prefix="¥"
+                    allowNegative={false}
+                    allowDecimal={false}
+                    thousandSeparator=","
+                    onChange={(value) =>
+                      setBusinessInfoInCardList(
+                        businessInfoInCardList.map((businessVal) =>
+                          businessVal.id === businessInfo.id
+                            ? { ...businessVal, amount: Number(value) }
+                            : businessVal
+                        )
+                      )
+                    }
+                  />
+                </div>
+                <div className="sm:flex gap-4 w-full">
+                  <DateInput
+                    className="flex-grow sm:my-0 my-2 "
+                    placeholder="請求日をご記入ください。"
+                    disabled={matterInfo.is_fixed!}
+                    value={
+                      businessInfo.invoice_date
+                        ? new Date(businessInfo.invoice_date)
+                        : null
+                    }
+                    valueFormat="YYYY/MM/DD"
+                    onChange={(event) => {
+                      const dateString = event
+                        ? event.toISOString().split("T")[0]
+                        : null;
+                      setBusinessInfoInCardList(
+                        businessInfoInCardList.map((businessVal) =>
+                          businessVal.id === businessInfo.id
+                            ? { ...businessVal, invoice_date: dateString }
+                            : businessVal
+                        )
+                      );
+                    }}
+                  />
+                  <DateInput
+                    className="flex-grow"
+                    placeholder="振込期限をご記入ください。"
+                    disabled={matterInfo.is_fixed!}
+                    value={
+                      businessInfo.period_date
+                        ? new Date(businessInfo.period_date!)
+                        : null
+                    }
+                    valueFormat="YYYY/MM/DD"
+                    onChange={(event) => {
+                      const dateString = event
+                        ? event.toISOString().split("T")[0]
+                        : null;
+                      setBusinessInfoInCardList(
+                        businessInfoInCardList.map((businessVal) =>
+                          businessVal.id === businessInfo.id
+                            ? { ...businessVal, period_date: dateString }
+                            : businessVal
+                        )
+                      );
+                    }}
+                  />
+                </div>
+              </div>
+              <button
+                className="p-2 hover:text-blue-500"
+                onClick={() => handleRemoveBusiness(businessInfo.id)}
+              >
+                <FaRegTrashAlt />
+              </button>
+            </div>
+          )
+        )}
+
+        {!matterInfo.is_fixed ? (
+          <Button
+            type="button"
+            fullWidth
+            className="mt-4"
+            color="dark"
+            variant="outline"
+            rightSection={<CiSquarePlus />}
+            onClick={handleAddBusiness}
+          >
+            取引先追加
+          </Button>
+        ) : null}
+
         {costInfoInCardList.length > 0 ? (
-          <h2 className="my-4">コスト情報</h2>
+          <h2 className="mt-8 mb-4">コスト情報</h2>
         ) : (
           ""
         )}
@@ -377,7 +554,7 @@ export const MatterCardDetailModal = ({
                 <div className="flex justify-between w-full mb-2">
                   <div>コスト{index + 1}</div>
                   <div
-                    className="h-full px-4 text-lg hover:cursor-pointer w-4 ml-auto items-center justify-center"
+                    className="h-full px-4 text-lg hover:cursor-pointer w-4 ml-auto items-center justify-center hover:text-blue-500"
                     onClick={() => handleRemoveCost(cost.id)}
                   >
                     <FaRegTrashAlt />

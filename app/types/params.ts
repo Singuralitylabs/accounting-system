@@ -33,13 +33,14 @@ export const itemList = [
 
 export const certificateList = ["請求書", "領収書"];
 
-export const elementListInDashboard = [
+export const elementListInAccounting = [
   "案件ID",
   "案件名",
   "担当者名",
   "チーム名",
   "分類",
-  "取引先",
-  "請求額(税抜)",
-  "支払い期限",
+  "合計請求額",
+  "取引先数",
+  "合計コスト",
+  "コスト数",
 ];

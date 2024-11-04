@@ -11,7 +11,7 @@ export async function middleware(req: NextRequest) {
     data: { session },
   } = await supabase.auth.getSession();
 
-  if (req.nextUrl.pathname === "/dashboard") {
+  if (req.nextUrl.pathname === "/accounting") {
     if (!session) {
       return NextResponse.redirect(new URL("/", req.url));
     }
@@ -29,7 +29,7 @@ export async function middleware(req: NextRequest) {
 
   const isProtectedRoute =
     pathname === "/" ||
-    pathname.startsWith("/dashboard") ||
+    pathname.startsWith("/accounting") ||
     pathname.startsWith("/new");
 
   const isAuthRoute =

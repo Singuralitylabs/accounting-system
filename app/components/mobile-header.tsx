@@ -51,7 +51,7 @@ const MobileHeader: FC = () => {
               新規作成
             </Link>
             <Link
-              href="/dashboard"
+              href="/accounting"
               className="block rounded px-3 py-2 text-white hover:bg-gray-500 text-right w-full"
               onClick={toggleMenu}
             >

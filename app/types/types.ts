@@ -13,6 +13,9 @@ export type CostType = CostsTable["Row"];
 type ProfilesTable = Database["public"]["Tables"]["profiles"];
 export type ProfilesType = ProfilesTable["Row"];
 
+type BusinessTable = Database["public"]["Tables"]["business"];
+export type BusinessType = BusinessTable["Row"];
+
 export type SlackNotificationResponse = {
   success?: boolean;
   error?: string;
@@ -23,3 +26,7 @@ export type SlackNotificationMetadata = {
   matterTitle?: string;
   sender?: string;
 };
+
+export type MatterInfoWithUserNameType = {
+  user_name: string | null;
+} & MatterType;

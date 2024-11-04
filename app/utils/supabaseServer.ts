@@ -129,28 +129,16 @@ export const getCompletedUserMatterInfoList = async () => {
   return matterList;
 };
 
-export const getUserCostInfoList = async (matter_id: number) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
-
-  const { data: costInfoList, error } = await supabase
-    .from("costs")
-    .select("*")
-    .eq("matter_id", matter_id)
-    .order("id", { ascending: true });
-
-  return { costInfoList, error };
-};
-
 export const insertMatterInfoInSupabase = async (
   title: string,
   category: string,
   team: string,
-  amount: number | null,
-  billing_address: string,
   start_date: string,
-  invoice_date: string | null,
-  period_date: string | null,
   is_fixed: boolean,
+  total_amount: number,
+  business_count: number,
+  total_cost: number,
+  cost_count: number,
   description: string | null
 ) => {
   const supabase = createServerComponentClient<Database>({ cookies });
@@ -168,12 +156,12 @@ export const insertMatterInfoInSupabase = async (
         title: title,
         category: category,
         team: team,
-        amount: amount,
-        billing_address: billing_address,
         start_date: start_date,
-        invoice_date: invoice_date,
-        period_date: period_date,
         description: description,
+        total_amount: total_amount,
+        business_count: business_count,
+        total_cost: total_cost,
+        cost_count: cost_count,
         is_fixed: is_fixed,
         is_completed: false,
         user_id: profileInfo.id,
@@ -232,6 +220,18 @@ export const deleteMatterInfoInSupabase = async (id: number) => {
   return { status, error };
 };
 
+export const getUserCostInfoList = async (matter_id: number) => {
+  const supabase = createServerComponentClient<Database>({ cookies });
+
+  const { data: costInfoList, error } = await supabase
+    .from("costs")
+    .select("*")
+    .eq("matter_id", matter_id)
+    .order("id", { ascending: true });
+
+  return { costInfoList, error };
+};
+
 export const updateCostInfoInSupabase = async (
   id: number,
   name: string,
@@ -242,7 +242,8 @@ export const updateCostInfoInSupabase = async (
   certificate: string,
   withholding: boolean,
   matter_id: number,
-  comment: string
+  comment: string,
+  is_completed: boolean
 ) => {
   const supabase = createServerComponentClient<Database>({ cookies });
 
@@ -262,6 +263,7 @@ export const updateCostInfoInSupabase = async (
       withholding: withholding,
       matter_id: matter_id,
       comment: comment,
+      is_completed: is_completed,
       updated_at: new Date().toISOString(),
     })
     .eq("id", id);
@@ -314,6 +316,94 @@ export const deleteCostInfoInSupabase = async (id: number) => {
 
   if (error) {
     console.error(`ID : ${id}のコスト情報の削除処理で失敗しました。`, error);
+    return;
+  }
+};
+
+export const getUserBusinessInfoList = async (matter_id: number) => {
+  const supabase = createServerComponentClient<Database>({ cookies });
+
+  const { data: businessInfoList, error } = await supabase
+    .from("business")
+    .select("*")
+    .eq("matter_id", matter_id)
+    .order("id", { ascending: true });
+
+  return { businessInfoList, error };
+};
+
+export const insertBusinessInfoList = async (
+  name: string,
+  amount: number,
+  invoice_date: string,
+  period_date: string,
+  matter_id: number
+) => {
+  const supabase = createServerComponentClient<Database>({ cookies });
+
+  const { error } = await supabase
+    .from("business")
+    .insert({
+      name: name,
+      amount: amount,
+      invoice_date: invoice_date,
+      period_date: period_date,
+      matter_id: matter_id,
+    })
+    .select();
+
+  if (error) {
+    console.error(`${name}の取引先情報の追加処理で失敗しました。`, error);
+    return { error };
+  }
+
+  return { error };
+};
+
+export const updateBusinessInfoList = async (
+  id: number,
+  name: string,
+  amount: number,
+  invoice_date: string,
+  period_date: string,
+  matter_id: number,
+  is_completed: boolean
+) => {
+  const supabase = createServerComponentClient<Database>({ cookies });
+
+  const formattedInvoice = invoice_date
+    ? new Date(invoice_date).toISOString().split("T")[0]
+    : null;
+
+  const formattedPeriod = period_date
+    ? new Date(period_date).toISOString().split("T")[0]
+    : null;
+
+  const { error } = await supabase
+    .from("business")
+    .update({
+      name: name,
+      amount: amount,
+      invoice_date: formattedInvoice,
+      period_date: formattedPeriod,
+      matter_id: matter_id,
+      is_completed: is_completed,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (error) {
+    console.error(`ID : ${id}の取引先情報の更新処理で失敗しました。`, error);
+    return;
+  }
+};
+
+export const deleteBusinessInfoList = async (id: number) => {
+  const supabase = createServerComponentClient<Database>({ cookies });
+
+  const { error } = await supabase.from("business").delete().eq("id", id);
+
+  if (error) {
+    console.error(`ID : ${id}の取引先情報の削除処理で失敗しました。`, error);
     return;
   }
 };

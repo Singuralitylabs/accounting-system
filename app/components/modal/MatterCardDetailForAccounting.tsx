@@ -1,6 +1,25 @@
-import { CostType, MatterType } from "@/app/types/types";
-import { getUserCostInfoList } from "@/app/utils/supabaseServer";
-import { Modal, Group, Card, Badge, Text, Stack, Grid } from "@mantine/core";
+import {
+  BusinessType,
+  CostType,
+  MatterInfoWithUserNameType,
+} from "@/app/types/types";
+import {
+  getUserBusinessInfoList,
+  getUserCostInfoList,
+  updateBusinessInfoList,
+  updateCostInfoInSupabase,
+} from "@/app/utils/supabaseServer";
+import {
+  Modal,
+  Group,
+  Card,
+  Badge,
+  Text,
+  Stack,
+  Grid,
+  Checkbox,
+  Button,
+} from "@mantine/core";
 import { useEffect, useState } from "react";
 
 const formatCurrency = (amount: number | null) => {
@@ -57,7 +76,7 @@ const LabelText = ({
 };
 
 type Props = {
-  matterInfo: MatterType;
+  matterInfo: MatterInfoWithUserNameType;
   opened: boolean;
   setOpened: React.Dispatch<React.SetStateAction<boolean>>;
 };
@@ -67,9 +86,25 @@ export const MatterCardDetailModalForAccounting = ({
   opened,
   setOpened,
 }: Props) => {
-  const [costInfoInCardList, setCostInfoInCardList] = useState<CostType[]>([]);
+  const [costList, setCostList] = useState<CostType[]>([]);
+  const [businessList, setBusinessList] = useState<BusinessType[]>([]);
   useEffect(() => {
     if (opened) {
+      const getBusinessInfo = async () => {
+        const { businessInfoList, error } = await getUserBusinessInfoList(
+          matterInfo.id
+        );
+
+        if (error) {
+          console.error("Error fetching businessInfoList:", error);
+          return <div>取引先情報の取得に失敗しました。</div>;
+        }
+        if (businessInfoList) {
+          setBusinessList(businessInfoList);
+        }
+      };
+      getBusinessInfo();
+
       const getCostInfo = async () => {
         const { costInfoList, error } = await getUserCostInfoList(
           matterInfo.id
@@ -80,7 +115,7 @@ export const MatterCardDetailModalForAccounting = ({
           return <div>コスト情報の取得に失敗しました。</div>;
         }
         if (costInfoList) {
-          setCostInfoInCardList(costInfoList);
+          setCostList(costInfoList);
         }
       };
       getCostInfo();
@@ -91,6 +126,45 @@ export const MatterCardDetailModalForAccounting = ({
     setOpened(false);
   };
 
+  const handleCheckMatterInfo = async () => {
+    const isUpdated = window.confirm(`案件を更新にしますか？`);
+    if (!isUpdated) {
+      alert("案件の更新を中止しました。");
+      return;
+    }
+    for (const business of businessList) {
+      if (business) {
+        await updateBusinessInfoList(
+          business.id,
+          business.name,
+          business.amount!,
+          business.invoice_date!,
+          business.period_date!,
+          business.matter_id,
+          business.is_completed
+        );
+      }
+    }
+    for (const cost of costList) {
+      if (cost) {
+        await updateCostInfoInSupabase(
+          cost.id,
+          cost.name,
+          cost.item,
+          cost.payment_target,
+          cost.price,
+          cost.period!,
+          cost.certificate,
+          cost.withholding,
+          cost.matter_id,
+          cost.comment!,
+          cost.is_completed
+        );
+      }
+    }
+    closeModal();
+  };
+
   return (
     <Modal
       opened={opened}
@@ -98,7 +172,7 @@ export const MatterCardDetailModalForAccounting = ({
       title={matterInfo.title}
       size="100%"
     >
-      <div>
+      <div className="w-full">
         <div className="flex justify-end">
           {matterInfo.is_completed ? (
             <Badge color="green">経理確認完了</Badge>
@@ -108,50 +182,118 @@ export const MatterCardDetailModalForAccounting = ({
             <Badge color="red">申請者編集中</Badge>
           )}
         </div>
-        <div className="sm:flex gap-4 w-full">
-          <LabelText label="案件名">{matterInfo.title}</LabelText>
-          <LabelText label="取引先">{matterInfo.billing_address}</LabelText>
-        </div>
+        <h2 className="my-4">基本情報</h2>
         <div className="sm:flex gap-4 w-full my-4">
+          <LabelText label="担当者名">{matterInfo.user_name}</LabelText>
           <LabelText label="分類">{matterInfo.category}</LabelText>
           <LabelText label="チーム">{matterInfo.team}</LabelText>
-          <LabelText label="請求額" isCurrency>
-            {matterInfo.amount}
-          </LabelText>
-        </div>
-        <div className="sm:flex gap-4 w-full">
           <LabelText label="案件開始日" isDate>
             {matterInfo.start_date}
-          </LabelText>
-          <LabelText label="請求日" isDate>
-            {matterInfo.invoice_date}
-          </LabelText>
-          <LabelText label="振込期限" isDate>
-            {matterInfo.period_date}
           </LabelText>
         </div>
         <div className="w-full my-4">
           <LabelText label="説明">{matterInfo.description}</LabelText>
         </div>
 
-        {costInfoInCardList.length > 0 ? (
-          <h2 className="my-4">コスト情報</h2>
-        ) : (
-          ""
-        )}
+        {businessList.length > 0 ? <h2 className="my-4">取引先情報</h2> : ""}
         <Grid gutter="md">
-          {costInfoInCardList?.map((cost) => (
+          {businessList?.map((business) => (
+            <Grid.Col key={business.id} span={{ base: 12, md: 6, lg: 4 }}>
+              <Card
+                key={business.id}
+                className="items-center mb-2 relative"
+                withBorder
+                radius="sm"
+                padding="sm"
+                aria-label="コスト"
+                bg="green.0"
+              >
+                <div className="flex gap-2 items-center absolute top-2 right-2">
+                  <Checkbox
+                    aria-label="受取済み"
+                    checked={business.is_completed}
+                    onChange={(event) =>
+                      setBusinessList(
+                        businessList.map((businessInfo) => {
+                          return businessInfo.id === business.id
+                            ? {
+                                ...business,
+                                is_completed: event.currentTarget.checked,
+                              }
+                            : businessInfo;
+                        })
+                      )
+                    }
+                  />
+                  <span>確認完了</span>
+                </div>
+
+                <div className="flex-grow flex pb-2 pt-8">
+                  <Group gap="sm" className="flex-grow w-full">
+                    <Stack gap="xs" className="flex-grow">
+                      <Text size="sm" fw={500} c="dimmed">
+                        取引先名
+                      </Text>
+                      <Text>{business.name}</Text>
+                    </Stack>
+                    <Stack gap="xs" className="flex-grow">
+                      <Text size="sm" fw={500} c="dimmed">
+                        請求額
+                      </Text>
+                      <Text>{formatCurrency(business.amount)}</Text>
+                    </Stack>
+                    <Stack gap="xs" className="flex-grow">
+                      <Text size="sm" fw={500} c="dimmed">
+                        請求日
+                      </Text>
+                      <Text>{formatDate(business.invoice_date)}</Text>
+                    </Stack>
+                    <Stack gap="xs" className="flex-grow">
+                      <Text size="sm" fw={500} c="dimmed">
+                        振込期限
+                      </Text>
+                      <Text>{formatDate(business.period_date)}</Text>
+                    </Stack>
+                  </Group>
+                </div>
+              </Card>
+            </Grid.Col>
+          ))}
+        </Grid>
+        {costList.length > 0 ? <h2 className="my-4">コスト情報</h2> : ""}
+        <Grid gutter="md">
+          {costList?.map((cost) => (
             <Grid.Col key={cost.id} span={{ base: 12, md: 6, lg: 4 }}>
               <Card
                 key={cost.id}
-                className="sm:flex items-center mb-4"
+                className="mb-4 relative"
                 withBorder
                 radius="sm"
-                padding="lg"
+                padding="sm"
                 aria-label="コスト"
                 bg="gray.0"
               >
-                <div className="flex-grow">
+                <div className="flex gap-2 items-center absolute top-2 right-2">
+                  <Checkbox
+                    aria-label="支払い済み"
+                    checked={cost.is_completed}
+                    onChange={(event) =>
+                      setCostList(
+                        costList.map((costInfo) => {
+                          return costInfo.id === cost.id
+                            ? {
+                                ...cost,
+                                is_completed: event.currentTarget.checked,
+                              }
+                            : costInfo;
+                        })
+                      )
+                    }
+                  />
+                  <span>支払い完了</span>
+                </div>
+
+                <div className="flex-grow pt-8">
                   <div className="flex pb-2">
                     <Group gap="sm" className="flex-grow w-full">
                       <Stack gap="xs" className="flex-grow">
@@ -174,7 +316,7 @@ export const MatterCardDetailModalForAccounting = ({
                       </Stack>
                     </Group>
                   </div>
-                  <div className="sm:flex flex-col sm:flex-row items-center pb-2">
+                  <div className="items-center pb-2">
                     <Group gap="sm" className="flex-grow">
                       <Stack gap="xs" className="flex-grow">
                         <Text size="sm" fw={500} c="dimmed">
@@ -202,7 +344,7 @@ export const MatterCardDetailModalForAccounting = ({
                       </Stack>
                     </Group>
                   </div>
-                  <div className="flex items-center pb-2">
+                  <div className="items-center">
                     <Stack gap="xs" className="flex-grow">
                       <Text size="sm" fw={500} c="dimmed">
                         コメント
@@ -215,6 +357,18 @@ export const MatterCardDetailModalForAccounting = ({
             </Grid.Col>
           ))}
         </Grid>
+        {!matterInfo.is_completed ? (
+          <div className="my-4 w-full">
+            <Button
+              fullWidth
+              color="green"
+              className="w-full"
+              onClick={handleCheckMatterInfo}
+            >
+              更新
+            </Button>
+          </div>
+        ) : null}
       </div>
     </Modal>
   );

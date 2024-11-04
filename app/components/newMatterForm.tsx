@@ -1,6 +1,6 @@
 "use client";
 
-import { CostType, MatterType } from "@/app/types/types";
+import { BusinessType, CostType, MatterType } from "@/app/types/types";
 import {
   Button,
   Card,
@@ -23,6 +23,7 @@ import {
   teamList,
 } from "../types/params";
 import {
+  insertBusinessInfoList,
   insertCostInfoInSupabase,
   insertMatterInfoInSupabase,
 } from "../utils/supabaseServer";
@@ -34,26 +35,23 @@ const NewMatterForm = () => {
       id: 0,
       title: "",
       category: "",
-      amount: 0,
       team: "",
-      billing_address: "",
       start_date: "",
-      invoice_date: "",
-      period_date: "",
       description: "",
       is_fixed: false,
       is_completed: false,
       user_id: 0,
       inserted_at: "",
       updated_at: "",
-      costList: [],
     },
   });
 
   const [costList, setCostList] = useState<CostType[]>([]);
+  const [businessList, setBusinessList] = useState<BusinessType[]>([]);
   const [costIndex, setCostIndex] = useState<number>(1);
+  const [businessIndex, setBusinessIndex] = useState<number>(1);
 
-  const addCost = () => {
+  const handleAddCost = () => {
     setCostList([
       ...costList,
       {
@@ -69,13 +67,36 @@ const NewMatterForm = () => {
         period: null,
         updated_at: "2024-01-01",
         withholding: false,
+        is_completed: false,
       },
     ]);
     setCostIndex(costIndex + 1);
   };
 
-  const removeCost = (id: number) => {
+  const handleAddBusiness = () => {
+    setBusinessList([
+      ...businessList,
+      {
+        id: businessIndex,
+        name: "",
+        amount: 0,
+        invoice_date: null,
+        period_date: null,
+        inserted_at: "2024-01-01",
+        matter_id: 0,
+        updated_at: "2024-01-01",
+        is_completed: false,
+      },
+    ]);
+    setBusinessIndex(businessIndex + 1);
+  };
+
+  const handleRemoveCost = (id: number) => {
     setCostList(costList.filter((cost) => cost.id !== id));
+  };
+
+  const handleRemoveBusiness = (id: number) => {
+    setBusinessList(businessList.filter((business) => business.id !== id));
   };
 
   const handleAddMatterInfo = async (matterInfo: MatterType) => {
@@ -91,11 +112,10 @@ const NewMatterForm = () => {
         !matterInfo.title ||
         !matterInfo.category ||
         !matterInfo.team ||
-        !matterInfo.amount ||
         !matterInfo.start_date
       ) {
         alert(
-          `件名、分類、チーム、金額、案件開始日のいずれかが空欄のため、案件の作成を中止しました。`
+          `案件名、分類、チーム、案件開始日のいずれかが空欄のため、案件の作成を中止しました。`
         );
         return;
       }
@@ -103,20 +123,28 @@ const NewMatterForm = () => {
         `案件[${matterInfo.title}]を確定にしますか？\n確定後は経理の確認に入るため、変更できません。`
       );
 
+      const totalAmount = businessList.reduce((acc, business) => {
+        return business.amount ? acc + business.amount : acc;
+      }, 0);
+      const totalCost = costList.reduce((acc, cost) => {
+        return cost.price ? acc + cost.price : acc;
+      }, 0);
+
       const { newId, error: matterError } = await insertMatterInfoInSupabase(
         matterInfo.title,
         matterInfo.category,
         matterInfo.team,
-        matterInfo.amount,
-        matterInfo.billing_address!,
         matterInfo.start_date!,
-        matterInfo.invoice_date || null,
-        matterInfo.period_date || null,
         matterInfo.is_fixed!,
+        totalAmount,
+        businessList.length,
+        totalCost,
+        costList.length,
         matterInfo.description
       );
       if (matterError) throw new Error(matterError.message);
       if (!newId) throw new Error("案件IDの取得に失敗しました。");
+
       for (const cost of costList) {
         const { error: costError } = await insertCostInfoInSupabase(
           cost.name,
@@ -131,6 +159,18 @@ const NewMatterForm = () => {
         );
         if (costError) throw new Error(costError.message);
       }
+
+      for (const business of businessList) {
+        const { error: businessError } = await insertBusinessInfoList(
+          business.name,
+          business.amount!,
+          business.invoice_date!,
+          business.period_date!,
+          newId
+        );
+        if (businessError) throw new Error(businessError.message);
+      }
+
       alert(`${matterInfo.title}の新規登録を完了しました。`);
       form.reset();
       setCostList([]);
@@ -142,32 +182,32 @@ const NewMatterForm = () => {
 
   return (
     <form
-      className="p-4 lg:p-16 w-auto"
-      onSubmit={form.onSubmit((values) => handleAddMatterInfo(values))}
+      className="p-4 w-auto"
+      onSubmit={form.onSubmit((values) =>
+        handleAddMatterInfo({
+          ...values,
+          total_amount: 0,
+          total_cost: 0,
+          business_count: 0,
+          cost_count: 0,
+        })
+      )}
     >
-      <div className="sm:flex gap-4 w-full">
+      <h2 className="mb-4">基本情報</h2>
+      <div className="md:flex gap-4 w-full">
         <TextInput
           className="w-full"
           withAsterisk
           required
-          placeholder="案件名をご入力ください。（例）10月_世界版ボードゲーム制作"
+          placeholder="案件名をご記入ください。"
           label="案件名"
           key={form.key("title")}
           {...form.getInputProps("title")}
         />
-        <TextInput
-          className="w-full sm:pt-0 pt-4"
-          placeholder="協会から案件の報酬を請求するお相手名を入力して下さい。"
-          label="請求先"
-          key={form.key("billing_address")}
-          {...form.getInputProps("billing_address")}
-        />
-      </div>
-      <div className="sm:flex gap-4 w-full">
         <Select
           withAsterisk
           required
-          className="pt-4 w-full"
+          className="md:pt-0 pt-4 w-full"
           placeholder="案件に適した分類を選択して下さい。"
           label="分類"
           data={categoryList}
@@ -178,55 +218,23 @@ const NewMatterForm = () => {
         <Select
           withAsterisk
           required
-          className="pt-4 w-full"
-          placeholder="案件を担当するチームを選択して下さい。"
+          className="md:pt-0 pt-4 w-full"
+          placeholder="案件担当のチームを選択して下さい。"
           label="チーム"
           data={teamList}
           clearable
           key={form.key("team")}
           {...form.getInputProps("team")}
         />
-        <NumberInput
-          withAsterisk
-          required
-          className="pt-4 w-full"
-          label="金額"
-          prefix="¥"
-          placeholder="¥0"
-          allowNegative={false}
-          allowDecimal={false}
-          thousandSeparator=","
-          key={form.key("amount")}
-          {...form.getInputProps("amount")}
-        />
-      </div>
-
-      <div className="sm:flex gap-4 w-full">
         <DateInput
           withAsterisk
           required
-          className="pt-4 w-full"
+          className="md:pt-0 pt-4 w-full"
           label="案件開始日"
-          placeholder="案件を開始した日付をご入力ください。"
+          placeholder="案件開始日をご記入ください。"
           valueFormat="YYYY/MM/DD"
           key={form.key("start_date")}
           {...form.getInputProps("start_date")}
-        />
-        <DateInput
-          className="pt-4 w-full"
-          label="請求日"
-          placeholder="案件の報酬を請求する日付をご入力ください。"
-          valueFormat="YYYY/MM/DD"
-          key={form.key("invoice_date")}
-          {...form.getInputProps("invoice_date")}
-        />
-        <DateInput
-          className="pt-4 w-full"
-          label="振込期限"
-          placeholder="案件の報酬の振込期限をご入力ください。"
-          valueFormat="YYYY/MM/DD"
-          key={form.key("period_date")}
-          {...form.getInputProps("period_date")}
         />
       </div>
 
@@ -238,7 +246,119 @@ const NewMatterForm = () => {
         {...form.getInputProps("description")}
       />
 
-      <div className="pt-4">
+      <h2 className="mt-8 mb-4">取引先情報</h2>
+      <div>
+        {businessList.map((businessInfo) => (
+          <div
+            key={businessInfo.id}
+            className="md:border-none flex border rounded-lg md:p-0 p-2 my-2 items-center"
+          >
+            <div className="md:flex gap-4 w-full">
+              <div className="sm:flex md:my-0 my-2 gap-4 w-full">
+                <TextInput
+                  placeholder="取引先名をご記入ください。"
+                  className="flex-grow sm:my-0 my-2 "
+                  value={businessInfo.name}
+                  onChange={(event) =>
+                    setBusinessList(
+                      businessList.map((businessVal) =>
+                        businessVal.id === businessInfo.id
+                          ? { ...businessVal, name: event.target.value }
+                          : businessVal
+                      )
+                    )
+                  }
+                />
+                <NumberInput
+                  placeholder="¥0"
+                  className="flex-grow"
+                  value={businessInfo.amount!}
+                  prefix="¥"
+                  allowNegative={false}
+                  allowDecimal={false}
+                  thousandSeparator=","
+                  onChange={(value) =>
+                    setBusinessList(
+                      businessList.map((businessVal) =>
+                        businessVal.id === businessInfo.id
+                          ? { ...businessVal, amount: Number(value) }
+                          : businessVal
+                      )
+                    )
+                  }
+                />
+              </div>
+              <div className="sm:flex gap-4 w-full">
+                <DateInput
+                  className="flex-grow sm:my-0 my-2 "
+                  placeholder="請求日をご記入ください。"
+                  value={
+                    businessInfo.invoice_date
+                      ? new Date(businessInfo.invoice_date)
+                      : null
+                  }
+                  valueFormat="YYYY/MM/DD"
+                  onChange={(event) => {
+                    const dateString = event
+                      ? event.toISOString().split("T")[0]
+                      : null;
+                    setBusinessList(
+                      businessList.map((businessVal) =>
+                        businessVal.id === businessInfo.id
+                          ? { ...businessVal, invoice_date: dateString }
+                          : businessVal
+                      )
+                    );
+                  }}
+                />
+                <DateInput
+                  className="flex-grow"
+                  placeholder="振込期限をご記入ください。"
+                  value={
+                    businessInfo.period_date
+                      ? new Date(businessInfo.period_date!)
+                      : null
+                  }
+                  valueFormat="YYYY/MM/DD"
+                  onChange={(event) => {
+                    const dateString = event
+                      ? event.toISOString().split("T")[0]
+                      : null;
+                    setBusinessList(
+                      businessList.map((businessVal) =>
+                        businessVal.id === businessInfo.id
+                          ? { ...businessVal, period_date: dateString }
+                          : businessVal
+                      )
+                    );
+                  }}
+                />
+              </div>
+            </div>
+            <button
+              className="p-2 hover:text-blue-500"
+              onClick={() => handleRemoveBusiness(businessInfo.id)}
+            >
+              <FaRegTrashAlt />
+            </button>
+          </div>
+        ))}
+
+        <Button
+          type="button"
+          fullWidth
+          className="mt-4"
+          color="dark"
+          variant="outline"
+          rightSection={<CiSquarePlus />}
+          onClick={handleAddBusiness}
+        >
+          取引先追加
+        </Button>
+      </div>
+
+      <h2 className="mt-8 mb-4">コスト情報</h2>
+      <div>
         {costList.map((cost, index) => (
           <Card
             key={cost.id}
@@ -251,8 +371,8 @@ const NewMatterForm = () => {
             <div className="flex justify-between w-full mb-2">
               <div>コスト{index + 1}</div>
               <div
-                className="h-full px-4 text-lg hover:cursor-pointer w-4 ml-auto items-center justify-center"
-                onClick={() => removeCost(cost.id)}
+                className="h-full px-4 text-lg hover:cursor-pointer hover:text-blue-500 w-4 ml-auto items-center justify-center"
+                onClick={() => handleRemoveCost(cost.id)}
               >
                 <FaRegTrashAlt />
               </div>
@@ -405,7 +525,7 @@ const NewMatterForm = () => {
           color="dark"
           variant="outline"
           rightSection={<CiSquarePlus />}
-          onClick={addCost}
+          onClick={handleAddCost}
         >
           コスト追加
         </Button>
