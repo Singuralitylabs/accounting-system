@@ -33,7 +33,7 @@ export const itemList = [
 
 export const certificateList = ["請求書", "領収書"];
 
-export const elementListInDashboard = [
+export const elementListInAccounting = [
   "案件ID",
   "案件名",
   "担当者名",

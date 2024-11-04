@@ -2,7 +2,7 @@
 
 import { Button, Checkbox, Table } from "@mantine/core";
 import { useEffect, useState } from "react";
-import { elementListInDashboard } from "../types/params";
+import { elementListInAccounting } from "../types/params";
 import { MatterType } from "../types/types";
 import { MatterCardDetailModalForAccounting } from "./modal/MatterCardDetailForAccounting";
 import { FaCheck } from "react-icons/fa";
@@ -18,7 +18,7 @@ type MatterInfoWithUserNameType = {
   user_name: string | null;
 } & MatterType;
 
-export const DashboardMatterList = ({
+export const AccountingMatterList = ({
   matterList,
 }: {
   matterList: MatterType[] | null;
@@ -149,9 +149,9 @@ export const DashboardMatterList = ({
   };
 
   const tableHeads = (
-    <Table.Tr key={elementListInDashboard[0]}>
+    <Table.Tr key={elementListInAccounting[0]}>
       <Table.Th></Table.Th>
-      {elementListInDashboard.map((element, index) => (
+      {elementListInAccounting.map((element, index) => (
         <Table.Th key={index} className="whitespace-nowrap px-4 text-center">
           {element}
         </Table.Th>

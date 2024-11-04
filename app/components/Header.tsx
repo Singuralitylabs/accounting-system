@@ -73,7 +73,7 @@ const Header: FC = () => {
           </Link>
           {profile?.class === "accounting" && (
             <Link
-              href="/dashboard"
+              href="/accounting"
               className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
             >
               経理用一覧
