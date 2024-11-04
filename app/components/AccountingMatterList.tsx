@@ -3,7 +3,7 @@
 import { Button, Checkbox, Table } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { elementListInAccounting } from "../types/params";
-import { MatterType } from "../types/types";
+import { MatterInfoWithUserNameType, MatterType } from "../types/types";
 import { MatterCardDetailModalForAccounting } from "./modal/MatterCardDetailForAccounting";
 import { FaCheck } from "react-icons/fa";
 import {
@@ -14,20 +14,16 @@ import { NotificationMessage } from "./modal/NotificationMessage";
 import { notifications } from "@mantine/notifications";
 import { sendSlackNotification } from "../actions";
 
-type MatterInfoWithUserNameType = {
-  user_name: string | null;
-} & MatterType;
-
 export const AccountingMatterList = ({
   matterList,
 }: {
-  matterList: MatterType[] | null;
+  matterList: MatterInfoWithUserNameType[] | null;
 }) => {
   const [checkedMatterIdList, setCheckedMatterIdList] = useState<number[]>([]);
   const [matterInfo, setMatterInfo] = useState<MatterType | null>(null);
   const [matterInfoListWithName, setMatterInfoListWithName] = useState<
-    MatterInfoWithUserNameType[] | null
-  >(null);
+    MatterInfoWithUserNameType[]
+  >([]);
   const [detailOpened, setDetailOpened] = useState<boolean>(false);
   const [notificationOpened, setNotificationOpened] = useState<boolean>(false);
 
@@ -39,7 +35,7 @@ export const AccountingMatterList = ({
 
     const fetchMatterInfoList = async () => {
       if (!matterList) {
-        setMatterInfoListWithName(null);
+        setMatterInfoListWithName([]);
         return;
       }
 
@@ -53,7 +49,7 @@ export const AccountingMatterList = ({
         setMatterInfoListWithName(matterInfoList);
       } catch (error) {
         console.error("Error fetching user names:", error);
-        setMatterInfoListWithName(null);
+        setMatterInfoListWithName([]);
       }
     };
     fetchMatterInfoList();

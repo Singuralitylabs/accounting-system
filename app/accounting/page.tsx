@@ -1,11 +1,28 @@
 import PageTitle from "../components/PageTitle";
 import { AccountingMatterList } from "../components/AccountingMatterList";
 import { getAllMatterInfoList } from "../utils/supabaseServer";
+import {
+  MatterInfoWithUserNameType,
+  MatterType,
+  ProfilesType,
+} from "../types/types";
 
 export const dynamic = "force-dynamic";
 
+type MatterTypeAndProfileType = MatterType & {
+  profiles: ProfilesType;
+};
 const AccountingMatterPage = async () => {
-  const matterList = await getAllMatterInfoList();
+  const matterListWithProfile: MatterTypeAndProfileType[] | null =
+    await getAllMatterInfoList();
+
+  const matterList: MatterInfoWithUserNameType[] =
+    matterListWithProfile?.map(
+      (matterWithProfile: MatterTypeAndProfileType) => {
+        const { profiles, ...matterInfo } = matterWithProfile;
+        return { ...matterInfo, user_name: profiles.name };
+      }
+    ) ?? [];
 
   return (
     <main>
