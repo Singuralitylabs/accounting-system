@@ -401,7 +401,10 @@ export const MatterCardDetailModal = ({
           businessInfo.isRemoved ? (
             ""
           ) : (
-            <div className="md:border-none flex border rounded-lg md:p-0 p-2 my-2 items-center">
+            <div
+              key={businessInfo.id}
+              className="md:border-none flex border rounded-lg md:p-0 p-2 my-2 items-center"
+            >
               <div className="md:flex gap-4 w-full">
                 <div className="sm:flex md:my-0 my-2 gap-4 w-full">
                   <TextInput
