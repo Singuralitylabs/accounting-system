@@ -43,13 +43,13 @@ type Props = {
 
 type UpdatedMatterInfoType = {
   title: string;
-  billing_address: string | null;
   team: string;
   category: string;
-  amount: number | null;
   start_date: string | null;
-  invoice_date: string | null;
-  period_date: string | null;
+  total_amount: number;
+  business_count: number;
+  total_cost: number;
+  cost_count: number;
   description: string | null;
 };
 
@@ -103,6 +103,7 @@ export const MatterCardDetailModal = ({
               withholding: costInfo.withholding,
               matter_id: costInfo.matter_id,
               comment: costInfo.comment,
+              is_completed: false,
               inserted_at: costInfo.inserted_at,
               updated_at: costInfo.updated_at,
               isNew: false,
@@ -130,6 +131,7 @@ export const MatterCardDetailModal = ({
               invoice_date: businessInfo.invoice_date,
               period_date: businessInfo.period_date,
               matter_id: matterInfo.id,
+              is_completed: false,
               inserted_at: businessInfo.inserted_at,
               updated_at: businessInfo.updated_at,
               isNew: false,
@@ -148,14 +150,13 @@ export const MatterCardDetailModal = ({
       title: matterInfo.title,
       team: matterInfo.team,
       category: matterInfo.category,
-      amount: matterInfo.amount,
-      billing_address: matterInfo.billing_address,
       start_date: matterInfo.start_date,
-      invoice_date: matterInfo.invoice_date,
-      period_date: matterInfo.period_date,
+      total_amount: matterInfo.total_amount,
+      business_count: matterInfo.business_count,
+      total_cost: matterInfo.total_cost,
+      cost_count: matterInfo.cost_count,
       is_fixed: matterInfo.is_fixed,
       description: matterInfo.description,
-      costInfoInCardList: costInfoInCardList,
     },
   });
 
@@ -178,14 +179,21 @@ export const MatterCardDetailModal = ({
       `案件[${updatedMatterInfo.title}]を確定にしますか？\n確定後は経理の確認に入るため、変更できません。`
     );
 
+    const totalAmount = businessInfoInCardList.reduce((acc, business) => {
+      return business.amount ? acc + business.amount : acc;
+    }, 0);
+    const totalCost = costInfoInCardList.reduce((acc, cost) => {
+      return cost.price ? acc + cost.price : acc;
+    }, 0);
+
     matterInfo.title = updatedMatterInfo.title;
     matterInfo.category = updatedMatterInfo.category;
     matterInfo.team = updatedMatterInfo.team;
-    matterInfo.amount = updatedMatterInfo.amount;
-    matterInfo.billing_address = updatedMatterInfo.billing_address;
     matterInfo.start_date = startDate?.toISOString() || null;
-    matterInfo.invoice_date = null;
-    matterInfo.period_date = null;
+    matterInfo.total_amount = totalAmount;
+    matterInfo.business_count = businessInfoInCardList.length;
+    matterInfo.total_cost = totalCost;
+    matterInfo.cost_count = costInfoInCardList.length;
     matterInfo.description = updatedMatterInfo.description;
 
     await updateMatterInfoInSupabase(matterInfo);
@@ -216,7 +224,8 @@ export const MatterCardDetailModal = ({
           costInfoInCard.certificate,
           costInfoInCard.withholding,
           costInfoInCard.matter_id,
-          costInfoInCard.comment ?? ""
+          costInfoInCard.comment ?? "",
+          costInfoInCard.is_completed
         );
       }
     }
@@ -239,7 +248,8 @@ export const MatterCardDetailModal = ({
           businessInfoInCard.amount!,
           businessInfoInCard.invoice_date!,
           businessInfoInCard.period_date!,
-          matterInfo.id
+          matterInfo.id,
+          businessInfoInCard.is_completed
         );
       }
     }
@@ -279,6 +289,7 @@ export const MatterCardDetailModal = ({
         withholding: false,
         matter_id: matterInfo.id,
         comment: "",
+        is_completed: false,
         inserted_at: "",
         updated_at: "",
         isNew: true,
@@ -298,6 +309,7 @@ export const MatterCardDetailModal = ({
         invoice_date: "",
         period_date: "",
         matter_id: matterInfo.id,
+        is_completed: false,
         inserted_at: "",
         updated_at: "",
         isNew: true,
@@ -334,7 +346,13 @@ export const MatterCardDetailModal = ({
     >
       <form
         onSubmit={form.onSubmit((updatedMatterInfo) => {
-          handleUpdateMatterInfo(updatedMatterInfo);
+          handleUpdateMatterInfo({
+            ...updatedMatterInfo,
+            total_amount: 0,
+            business_count: businessInfoInCardList.length,
+            total_cost: 0,
+            cost_count: costInfoInCardList.length,
+          });
         })}
       >
         <div className="flex justify-end">
