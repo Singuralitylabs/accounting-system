@@ -32,15 +32,6 @@ export const AccountingMatterList = ({
     }).format(amount);
   };
 
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return "-";
-    const date = new Date(dateString);
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}/${month}/${day}`;
-  };
-
   const handleShowMatterInfo = (matter: MatterInfoWithUserNameType) => {
     setDetailMatterInfo(matter);
     setDetailOpened(true);
@@ -162,14 +153,17 @@ export const AccountingMatterList = ({
         <Table.Td className="whitespace-nowrap px-4">
           {matter.category}
         </Table.Td>
-        <Table.Td className="whitespace-nowrap px-4">
-          {matter.billing_address}
+        <Table.Td className="whitespace-nowrap px-4 text-right">
+          {formatCurrency(matter.total_amount)}
         </Table.Td>
         <Table.Td className="whitespace-nowrap px-4 text-right">
-          {formatCurrency(matter.amount)}
+          {matter.business_count}
         </Table.Td>
-        <Table.Td className="whitespace-nowrap px-4">
-          {formatDate(matter.period_date)}
+        <Table.Td className="whitespace-nowrap px-4 text-right">
+          {formatCurrency(matter.total_cost)}
+        </Table.Td>
+        <Table.Td className="whitespace-nowrap px-4 text-right">
+          {matter.cost_count}
         </Table.Td>
         <Table.Td className="whitespace-nowrap px-4">
           <button
