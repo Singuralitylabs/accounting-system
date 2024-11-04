@@ -190,6 +190,7 @@ const NewMatterForm = () => {
           total_cost: 0,
           business_count: 0,
           cost_count: 0,
+          accounting_memo: "",
         })
       )}
     >
