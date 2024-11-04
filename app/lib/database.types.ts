@@ -111,18 +111,14 @@ export type Database = {
       }
       matters: {
         Row: {
-          amount: number | null
-          billing_address: string | null
           business_count: number | null
           category: string
           cost_count: number | null
           description: string | null
           id: number
           inserted_at: string
-          invoice_date: string | null
           is_completed: boolean | null
           is_fixed: boolean | null
-          period_date: string | null
           start_date: string | null
           team: string
           title: string
@@ -132,18 +128,14 @@ export type Database = {
           user_id: number
         }
         Insert: {
-          amount?: number | null
-          billing_address?: string | null
           business_count?: number | null
           category: string
           cost_count?: number | null
           description?: string | null
           id?: number
           inserted_at?: string
-          invoice_date?: string | null
           is_completed?: boolean | null
           is_fixed?: boolean | null
-          period_date?: string | null
           start_date?: string | null
           team: string
           title: string
@@ -153,18 +145,14 @@ export type Database = {
           user_id: number
         }
         Update: {
-          amount?: number | null
-          billing_address?: string | null
           business_count?: number | null
           category?: string
           cost_count?: number | null
           description?: string | null
           id?: number
           inserted_at?: string
-          invoice_date?: string | null
           is_completed?: boolean | null
           is_fixed?: boolean | null
-          period_date?: string | null
           start_date?: string | null
           team?: string
           title?: string
