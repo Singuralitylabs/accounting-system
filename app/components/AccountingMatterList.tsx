@@ -1,0 +1,208 @@
+"use client";
+
+import { Button, Checkbox, Table } from "@mantine/core";
+import { useState } from "react";
+import { elementListInAccounting } from "../types/params";
+import { MatterInfoWithUserNameType, MatterType } from "../types/types";
+import { MatterCardDetailModalForAccounting } from "./modal/MatterCardDetailForAccounting";
+import { FaCheck } from "react-icons/fa";
+import { updateMatterInfoInSupabase } from "../utils/supabaseServer";
+import { NotificationMessage } from "./modal/NotificationMessage";
+import { notifications } from "@mantine/notifications";
+import { sendSlackNotification } from "../actions";
+
+export const AccountingMatterList = ({
+  matterList,
+}: {
+  matterList: MatterInfoWithUserNameType[] | null;
+}) => {
+  const [checkedMatterIdList, setCheckedMatterIdList] = useState<number[]>([]);
+  const [detailMatterInfo, setDetailMatterInfo] =
+    useState<MatterInfoWithUserNameType | null>(null);
+  const [detailOpened, setDetailOpened] = useState<boolean>(false);
+  const [notificationOpened, setNotificationOpened] = useState<boolean>(false);
+
+  const formatCurrency = (amount: number | null) => {
+    if (amount === null) return "-";
+    return new Intl.NumberFormat("ja-JP", {
+      style: "currency",
+      currency: "JPY",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  };
+
+  const handleShowMatterInfo = (matter: MatterInfoWithUserNameType) => {
+    setDetailMatterInfo(matter);
+    setDetailOpened(true);
+  };
+
+  const handleCheckCompleted = async () => {
+    const isCompleted = window.confirm(
+      `${checkedMatterIdList.length}件の案件を完了にしますか？`
+    );
+    if (!isCompleted) {
+      return;
+    }
+    for (const id of checkedMatterIdList) {
+      let updatedMatter: MatterType | undefined = matterList?.find(
+        (matter) => matter.id === id
+      );
+      if (updatedMatter) {
+        updatedMatter.is_completed = true;
+        await updateMatterInfoInSupabase(updatedMatter);
+      } else {
+        console.error(`案件ID${id}が見つかりません。`);
+      }
+    }
+    setCheckedMatterIdList([]);
+  };
+
+  const handleSendMessage = async (message: string) => {
+    if (checkedMatterIdList.length === 0) {
+      alert("送信対象となる案件にチェックを入れてください。");
+      return;
+    }
+    if (!message.trim()) {
+      alert("メッセージを入力してください。");
+      return;
+    }
+
+    try {
+      for (const id of checkedMatterIdList) {
+        const matterToNotify: MatterInfoWithUserNameType | undefined =
+          matterList?.find((matter) => matter.id === id);
+        const body =
+          `案件：${matterToNotify?.title}\n` +
+          `担当者：${matterToNotify?.user_name}\n` +
+          message;
+        const slackResult = await sendSlackNotification(body);
+
+        if (slackResult.error) {
+          throw new Error(slackResult.error);
+        }
+      }
+
+      notifications.show({
+        title: "通知成功",
+        message: "担当者への通知が完了しました",
+        color: "green",
+      });
+    } catch (error) {
+      console.error("通知送信エラー:", error);
+      notifications.show({
+        title: "エラー",
+        message: "通知の送信に失敗しました",
+        color: "red",
+      });
+      throw error;
+    } finally {
+      setNotificationOpened(false);
+      setCheckedMatterIdList([]);
+    }
+  };
+
+  const tableHeads = (
+    <Table.Tr key={elementListInAccounting[0]}>
+      <Table.Th></Table.Th>
+      {elementListInAccounting.map((element, index) => (
+        <Table.Th key={index} className="whitespace-nowrap px-4 text-center">
+          {element}
+        </Table.Th>
+      ))}
+    </Table.Tr>
+  );
+
+  const tableInfoList = matterList?.map((matter) => {
+    return (
+      <Table.Tr
+        key={matter.id}
+        bg={
+          checkedMatterIdList.includes(matter.id)
+            ? "var(--mantine-color-blue-light)"
+            : matter.is_completed
+            ? "var(--mantine-color-gray-light)"
+            : matter.is_fixed
+            ? "var(--mantine-color-red-light)"
+            : undefined
+        }
+      >
+        <Table.Td>
+          {matter.is_completed ? (
+            <FaCheck />
+          ) : (
+            <Checkbox
+              aria-label="案件チェック"
+              checked={checkedMatterIdList.includes(matter.id)}
+              onChange={(event) =>
+                setCheckedMatterIdList(
+                  event.currentTarget.checked
+                    ? [...checkedMatterIdList, matter.id]
+                    : checkedMatterIdList.filter((id) => id !== matter.id)
+                )
+              }
+            />
+          )}
+        </Table.Td>
+        <Table.Td className="whitespace-nowrap px-4">{matter.id}</Table.Td>
+        <Table.Td className="whitespace-nowrap px-4">{matter.title}</Table.Td>
+        <Table.Td className="whitespace-nowrap px-4">
+          {matter.user_name}
+        </Table.Td>
+        <Table.Td className="whitespace-nowrap px-4">{matter.team}</Table.Td>
+        <Table.Td className="whitespace-nowrap px-4">
+          {matter.category}
+        </Table.Td>
+        <Table.Td className="whitespace-nowrap px-4 text-right">
+          {formatCurrency(matter.total_amount)}
+        </Table.Td>
+        <Table.Td className="whitespace-nowrap px-4 text-right">
+          {matter.business_count}
+        </Table.Td>
+        <Table.Td className="whitespace-nowrap px-4 text-right">
+          {formatCurrency(matter.total_cost)}
+        </Table.Td>
+        <Table.Td className="whitespace-nowrap px-4 text-right">
+          {matter.cost_count}
+        </Table.Td>
+        <Table.Td className="whitespace-nowrap px-4">
+          <button
+            onClick={() => handleShowMatterInfo(matter)}
+            className="bg-gray-700 hover:bg-gray-500 px-2 rounded text-white"
+          >
+            詳細
+          </button>
+        </Table.Td>
+      </Table.Tr>
+    );
+  });
+
+  return (
+    <div className="my-4">
+      <Table>
+        <Table.Thead>{tableHeads}</Table.Thead>
+        <Table.Tbody>{tableInfoList}</Table.Tbody>
+      </Table>
+      {detailOpened && detailMatterInfo ? (
+        <MatterCardDetailModalForAccounting
+          matterInfo={detailMatterInfo}
+          opened={detailOpened}
+          setOpened={setDetailOpened}
+        />
+      ) : null}
+      {notificationOpened ? (
+        <NotificationMessage
+          opened={notificationOpened}
+          setOpened={setNotificationOpened}
+          onSendMessage={handleSendMessage}
+        />
+      ) : null}
+      <div className="flex justify-center gap-4 my-4">
+        <Button onClick={handleCheckCompleted}>確認完了</Button>
+        <Button color="green" onClick={() => setNotificationOpened(true)}>
+          担当者に連絡
+        </Button>
+      </div>
+    </div>
+  );
+};
