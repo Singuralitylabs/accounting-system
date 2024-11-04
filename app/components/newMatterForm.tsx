@@ -35,19 +35,14 @@ const NewMatterForm = () => {
       id: 0,
       title: "",
       category: "",
-      amount: 0,
       team: "",
-      billing_address: "",
       start_date: "",
-      invoice_date: "",
-      period_date: "",
       description: "",
       is_fixed: false,
       is_completed: false,
       user_id: 0,
       inserted_at: "",
       updated_at: "",
-      costList: [],
     },
   });
 
@@ -72,6 +67,7 @@ const NewMatterForm = () => {
         period: null,
         updated_at: "2024-01-01",
         withholding: false,
+        is_completed: false,
       },
     ]);
     setCostIndex(costIndex + 1);
@@ -89,6 +85,7 @@ const NewMatterForm = () => {
         inserted_at: "2024-01-01",
         matter_id: 0,
         updated_at: "2024-01-01",
+        is_completed: false,
       },
     ]);
     setBusinessIndex(businessIndex + 1);
@@ -126,16 +123,23 @@ const NewMatterForm = () => {
         `案件[${matterInfo.title}]を確定にしますか？\n確定後は経理の確認に入るため、変更できません。`
       );
 
+      const totalAmount = businessList.reduce((acc, business) => {
+        return business.amount ? acc + business.amount : acc;
+      }, 0);
+      const totalCost = costList.reduce((acc, cost) => {
+        return cost.price ? acc + cost.price : acc;
+      }, 0);
+
       const { newId, error: matterError } = await insertMatterInfoInSupabase(
         matterInfo.title,
         matterInfo.category,
         matterInfo.team,
-        matterInfo.amount,
-        matterInfo.billing_address!,
         matterInfo.start_date!,
-        matterInfo.invoice_date || null,
-        matterInfo.period_date || null,
         matterInfo.is_fixed!,
+        totalAmount,
+        businessList.length,
+        totalCost,
+        costList.length,
         matterInfo.description
       );
       if (matterError) throw new Error(matterError.message);
@@ -179,7 +183,15 @@ const NewMatterForm = () => {
   return (
     <form
       className="p-4 w-auto"
-      onSubmit={form.onSubmit((values) => handleAddMatterInfo(values))}
+      onSubmit={form.onSubmit((values) =>
+        handleAddMatterInfo({
+          ...values,
+          total_amount: 0,
+          total_cost: 0,
+          business_count: 0,
+          cost_count: 0,
+        })
+      )}
     >
       <h2 className="mb-4">基本情報</h2>
       <div className="md:flex gap-4 w-full">
