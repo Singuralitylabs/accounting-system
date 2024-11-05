@@ -20,7 +20,11 @@ const AccountingMatterPage = async () => {
     matterListWithProfile?.map(
       (matterWithProfile: MatterTypeAndProfileType) => {
         const { profiles, ...matterInfo } = matterWithProfile;
-        return { ...matterInfo, user_name: profiles.name };
+        return {
+          ...matterInfo,
+          user_name: profiles.name,
+          slack_id: profiles.slack_id,
+        };
       }
     ) ?? [];
 

@@ -29,4 +29,5 @@ export type SlackNotificationMetadata = {
 
 export type MatterInfoWithUserNameType = {
   user_name: string | null;
+  slack_id: string | null;
 } & MatterType;

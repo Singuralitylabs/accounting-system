@@ -6,8 +6,9 @@ import {
 import {
   getUserBusinessInfoList,
   getUserCostInfoList,
-  updateBusinessInfoList,
-  updateCostInfoInSupabase,
+  updateBusinessInfo,
+  updateCostInfo,
+  updateMatterInfo,
 } from "@/app/utils/supabaseServer";
 import {
   Modal,
@@ -19,6 +20,7 @@ import {
   Grid,
   Checkbox,
   Button,
+  Textarea,
 } from "@mantine/core";
 import { useEffect, useState } from "react";
 
@@ -88,6 +90,7 @@ export const MatterCardDetailModalForAccounting = ({
 }: Props) => {
   const [costList, setCostList] = useState<CostType[]>([]);
   const [businessList, setBusinessList] = useState<BusinessType[]>([]);
+  const [accountingMemo, setAccountingMemo] = useState<string | null>("");
   useEffect(() => {
     if (opened) {
       const getBusinessInfo = async () => {
@@ -127,14 +130,33 @@ export const MatterCardDetailModalForAccounting = ({
   };
 
   const handleCheckMatterInfo = async () => {
-    const isUpdated = window.confirm(`案件を更新にしますか？`);
+    const isUpdated = window.confirm(`保存しますか？`);
     if (!isUpdated) {
-      alert("案件の更新を中止しました。");
+      alert("保存処理を中止しました。");
       return;
     }
+    await updateMatterInfo({
+      id: matterInfo.id,
+      title: matterInfo.title,
+      category: matterInfo.category,
+      team: matterInfo.team,
+      start_date: matterInfo.start_date,
+      description: matterInfo.description,
+      total_amount: matterInfo.total_amount,
+      business_count: matterInfo.business_count,
+      total_cost: matterInfo.total_cost,
+      cost_count: matterInfo.cost_count,
+      is_fixed: matterInfo.is_fixed,
+      is_completed: false,
+      user_id: matterInfo.user_id,
+      inserted_at: matterInfo.inserted_at,
+      updated_at: new Date().toISOString(),
+      accounting_memo: accountingMemo,
+    });
+
     for (const business of businessList) {
       if (business) {
-        await updateBusinessInfoList(
+        await updateBusinessInfo(
           business.id,
           business.name,
           business.amount!,
@@ -147,7 +169,7 @@ export const MatterCardDetailModalForAccounting = ({
     }
     for (const cost of costList) {
       if (cost) {
-        await updateCostInfoInSupabase(
+        await updateCostInfo(
           cost.id,
           cost.name,
           cost.item,
@@ -357,6 +379,15 @@ export const MatterCardDetailModalForAccounting = ({
             </Grid.Col>
           ))}
         </Grid>
+        <Textarea
+          label="経理メモ"
+          className="pt-4 w-full"
+          defaultValue={
+            matterInfo.accounting_memo ? matterInfo.accounting_memo : ""
+          }
+          disabled={matterInfo.is_completed!}
+          onChange={(event) => setAccountingMemo(event.currentTarget.value)}
+        />
         {!matterInfo.is_completed ? (
           <div className="my-4 w-full">
             <Button
@@ -365,7 +396,7 @@ export const MatterCardDetailModalForAccounting = ({
               className="w-full"
               onClick={handleCheckMatterInfo}
             >
-              更新
+              保存
             </Button>
           </div>
         ) : null}

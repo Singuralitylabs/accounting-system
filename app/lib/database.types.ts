@@ -111,6 +111,7 @@ export type Database = {
       }
       matters: {
         Row: {
+          accounting_memo: string | null
           business_count: number | null
           category: string
           cost_count: number | null
@@ -128,6 +129,7 @@ export type Database = {
           user_id: number
         }
         Insert: {
+          accounting_memo?: string | null
           business_count?: number | null
           category: string
           cost_count?: number | null
@@ -145,6 +147,7 @@ export type Database = {
           user_id: number
         }
         Update: {
+          accounting_memo?: string | null
           business_count?: number | null
           category?: string
           cost_count?: number | null
@@ -178,6 +181,7 @@ export type Database = {
           id: number
           inserted_at: string
           name: string
+          slack_id: string | null
           updated_at: string
           user_id: string | null
         }
@@ -187,6 +191,7 @@ export type Database = {
           id?: never
           inserted_at?: string
           name: string
+          slack_id?: string | null
           updated_at?: string
           user_id?: string | null
         }
@@ -196,6 +201,7 @@ export type Database = {
           id?: never
           inserted_at?: string
           name?: string
+          slack_id?: string | null
           updated_at?: string
           user_id?: string | null
         }

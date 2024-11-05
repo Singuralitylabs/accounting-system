@@ -23,9 +23,9 @@ import {
   teamList,
 } from "../types/params";
 import {
-  insertBusinessInfoList,
-  insertCostInfoInSupabase,
-  insertMatterInfoInSupabase,
+  insertBusinessInfo,
+  insertCostInfo,
+  insertMatterInfo,
 } from "../utils/supabaseServer";
 
 const NewMatterForm = () => {
@@ -130,7 +130,7 @@ const NewMatterForm = () => {
         return cost.price ? acc + cost.price : acc;
       }, 0);
 
-      const { newId, error: matterError } = await insertMatterInfoInSupabase(
+      const { newId, error: matterError } = await insertMatterInfo(
         matterInfo.title,
         matterInfo.category,
         matterInfo.team,
@@ -146,7 +146,7 @@ const NewMatterForm = () => {
       if (!newId) throw new Error("案件IDの取得に失敗しました。");
 
       for (const cost of costList) {
-        const { error: costError } = await insertCostInfoInSupabase(
+        const { error: costError } = await insertCostInfo(
           cost.name,
           cost.item,
           cost.payment_target,
@@ -161,7 +161,7 @@ const NewMatterForm = () => {
       }
 
       for (const business of businessList) {
-        const { error: businessError } = await insertBusinessInfoList(
+        const { error: businessError } = await insertBusinessInfo(
           business.name,
           business.amount!,
           business.invoice_date!,
@@ -190,10 +190,14 @@ const NewMatterForm = () => {
           total_cost: 0,
           business_count: 0,
           cost_count: 0,
+          accounting_memo: "",
         })
       )}
     >
-      <h2 className="mb-4">基本情報</h2>
+      <span className="text-red-700 text-sm">
+        ※全て税抜金額をご記入ください。
+      </span>
+      <h2 className="my-4">基本情報</h2>
       <div className="md:flex gap-4 w-full">
         <TextInput
           className="w-full"
@@ -246,12 +250,15 @@ const NewMatterForm = () => {
         {...form.getInputProps("description")}
       />
 
-      <h2 className="mt-8 mb-4">取引先情報</h2>
+      <h2 className="mt-8">取引先情報</h2>
+      <span className="text-sm">
+        ※協会への支払いがある場合にご記入ください。
+      </span>
       <div>
         {businessList.map((businessInfo) => (
           <div
             key={businessInfo.id}
-            className="md:border-none flex border rounded-lg md:p-0 p-2 my-2 items-center"
+            className="md:border-none flex border rounded-lg md:p-0 p-2 my-2 items-center md:bg-slate-50 bg-green-50"
           >
             <div className="md:flex gap-4 w-full">
               <div className="sm:flex md:my-0 my-2 gap-4 w-full">
@@ -367,6 +374,7 @@ const NewMatterForm = () => {
             radius="sm"
             padding="lg"
             aria-label="コスト"
+            bg="gray.1"
           >
             <div className="flex justify-between w-full mb-2">
               <div>コスト{index + 1}</div>
@@ -532,7 +540,9 @@ const NewMatterForm = () => {
       </div>
 
       <Group className="pt-8" justify="flex-end" mt="md">
-        <Button type="submit">作成</Button>
+        <Button color="pink" type="submit">
+          作成
+        </Button>
       </Group>
     </form>
   );

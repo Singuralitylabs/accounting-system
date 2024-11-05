@@ -129,7 +129,7 @@ export const getCompletedUserMatterInfoList = async () => {
   return matterList;
 };
 
-export const insertMatterInfoInSupabase = async (
+export const insertMatterInfo = async (
   title: string,
   category: string,
   team: string,
@@ -185,7 +185,7 @@ export const insertMatterInfoInSupabase = async (
   }
 };
 
-export const updateMatterInfoInSupabase = async (matterInfo: MatterType) => {
+export const updateMatterInfo = async (matterInfo: MatterType) => {
   const supabase = createServerComponentClient<Database>({ cookies });
 
   const { data: status, error } = await supabase
@@ -204,7 +204,7 @@ export const updateMatterInfoInSupabase = async (matterInfo: MatterType) => {
   return { status, error };
 };
 
-export const deleteMatterInfoInSupabase = async (id: number) => {
+export const deleteMatterInfo = async (id: number) => {
   const supabase = createServerComponentClient<Database>({ cookies });
 
   const { data: status, error } = await supabase
@@ -232,7 +232,7 @@ export const getUserCostInfoList = async (matter_id: number) => {
   return { costInfoList, error };
 };
 
-export const updateCostInfoInSupabase = async (
+export const updateCostInfo = async (
   id: number,
   name: string,
   item: string,
@@ -273,7 +273,7 @@ export const updateCostInfoInSupabase = async (
   }
 };
 
-export const insertCostInfoInSupabase = async (
+export const insertCostInfo = async (
   name: string,
   item: string,
   payment_target: string,
@@ -309,7 +309,7 @@ export const insertCostInfoInSupabase = async (
   return { error };
 };
 
-export const deleteCostInfoInSupabase = async (id: number) => {
+export const deleteCostInfo = async (id: number) => {
   const supabase = createServerComponentClient<Database>({ cookies });
 
   const { error } = await supabase.from("costs").delete().eq("id", id);
@@ -332,7 +332,7 @@ export const getUserBusinessInfoList = async (matter_id: number) => {
   return { businessInfoList, error };
 };
 
-export const insertBusinessInfoList = async (
+export const insertBusinessInfo = async (
   name: string,
   amount: number,
   invoice_date: string,
@@ -360,7 +360,7 @@ export const insertBusinessInfoList = async (
   return { error };
 };
 
-export const updateBusinessInfoList = async (
+export const updateBusinessInfo = async (
   id: number,
   name: string,
   amount: number,
@@ -397,7 +397,7 @@ export const updateBusinessInfoList = async (
   }
 };
 
-export const deleteBusinessInfoList = async (id: number) => {
+export const deleteBusinessInfo = async (id: number) => {
   const supabase = createServerComponentClient<Database>({ cookies });
 
   const { error } = await supabase.from("business").delete().eq("id", id);
