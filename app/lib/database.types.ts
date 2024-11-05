@@ -111,6 +111,7 @@ export type Database = {
       }
       matters: {
         Row: {
+          accounting_memo: string | null
           business_count: number | null
           category: string
           cost_count: number | null
@@ -128,6 +129,7 @@ export type Database = {
           user_id: number
         }
         Insert: {
+          accounting_memo?: string | null
           business_count?: number | null
           category: string
           cost_count?: number | null
@@ -145,6 +147,7 @@ export type Database = {
           user_id: number
         }
         Update: {
+          accounting_memo?: string | null
           business_count?: number | null
           category?: string
           cost_count?: number | null

@@ -6,7 +6,7 @@ import { elementListInAccounting } from "../types/params";
 import { MatterInfoWithUserNameType, MatterType } from "../types/types";
 import { MatterCardDetailModalForAccounting } from "./modal/MatterCardDetailForAccounting";
 import { FaCheck } from "react-icons/fa";
-import { updateMatterInfoInSupabase } from "../utils/supabaseServer";
+import { updateMatterInfo } from "../utils/supabaseServer";
 import { NotificationMessage } from "./modal/NotificationMessage";
 import { notifications } from "@mantine/notifications";
 import { sendSlackNotification } from "../actions";
@@ -50,7 +50,7 @@ export const AccountingMatterList = ({
       );
       if (updatedMatter) {
         updatedMatter.is_completed = true;
-        await updateMatterInfoInSupabase(updatedMatter);
+        await updateMatterInfo(updatedMatter);
       } else {
         console.error(`案件ID${id}が見つかりません。`);
       }
@@ -179,6 +179,9 @@ export const AccountingMatterList = ({
 
   return (
     <div className="my-4">
+      <span className="text-red-700 text-sm m-4">
+        ※記載の金額は、全て税抜となっております。
+      </span>
       <Table>
         <Table.Thead>{tableHeads}</Table.Thead>
         <Table.Tbody>{tableInfoList}</Table.Tbody>

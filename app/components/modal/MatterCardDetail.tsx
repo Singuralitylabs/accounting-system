@@ -6,16 +6,16 @@ import {
 } from "@/app/types/params";
 import { BusinessType, CostType, MatterType } from "@/app/types/types";
 import {
-  deleteBusinessInfoList,
-  deleteCostInfoInSupabase,
-  deleteMatterInfoInSupabase,
+  deleteBusinessInfo,
+  deleteCostInfo,
+  deleteMatterInfo,
   getUserBusinessInfoList,
   getUserCostInfoList,
-  insertBusinessInfoList,
-  insertCostInfoInSupabase,
-  updateBusinessInfoList,
-  updateCostInfoInSupabase,
-  updateMatterInfoInSupabase,
+  insertBusinessInfo,
+  insertCostInfo,
+  updateBusinessInfo,
+  updateCostInfo,
+  updateMatterInfo,
 } from "@/app/utils/supabaseServer";
 import {
   Modal,
@@ -175,15 +175,14 @@ export const MatterCardDetailModal = ({
       closeModal();
       return;
     }
-    matterInfo.is_fixed = window.confirm(
-      `案件[${updatedMatterInfo.title}]を確定にしますか？\n確定後は経理の確認に入るため、変更できません。`
-    );
 
     const totalAmount = businessInfoInCardList.reduce((acc, business) => {
-      return business.amount ? acc + business.amount : acc;
+      return business.amount && !business.isRemoved
+        ? acc + business.amount
+        : acc;
     }, 0);
     const totalCost = costInfoInCardList.reduce((acc, cost) => {
-      return cost.price ? acc + cost.price : acc;
+      return cost.price && !cost.isRemoved ? acc + cost.price : acc;
     }, 0);
 
     matterInfo.title = updatedMatterInfo.title;
@@ -191,16 +190,20 @@ export const MatterCardDetailModal = ({
     matterInfo.team = updatedMatterInfo.team;
     matterInfo.start_date = startDate?.toISOString() || null;
     matterInfo.total_amount = totalAmount;
-    matterInfo.business_count = businessInfoInCardList.length;
+    matterInfo.business_count = businessInfoInCardList.filter(
+      (business) => !business.isRemoved
+    ).length;
     matterInfo.total_cost = totalCost;
-    matterInfo.cost_count = costInfoInCardList.length;
+    matterInfo.cost_count = costInfoInCardList.filter(
+      (cost) => !cost.isRemoved
+    ).length;
     matterInfo.description = updatedMatterInfo.description;
 
-    await updateMatterInfoInSupabase(matterInfo);
+    await updateMatterInfo(matterInfo);
 
     for (const costInfoInCard of costInfoInCardList) {
       if (costInfoInCard.isNew && !costInfoInCard.isRemoved) {
-        await insertCostInfoInSupabase(
+        await insertCostInfo(
           costInfoInCard.name,
           costInfoInCard.item,
           costInfoInCard.payment_target,
@@ -212,9 +215,9 @@ export const MatterCardDetailModal = ({
           costInfoInCard.comment ?? ""
         );
       } else if (costInfoInCard.isRemoved && !costInfoInCard.isNew) {
-        await deleteCostInfoInSupabase(costInfoInCard.id);
+        await deleteCostInfo(costInfoInCard.id);
       } else if (!costInfoInCard.isNew && !costInfoInCard.isRemoved) {
-        await updateCostInfoInSupabase(
+        await updateCostInfo(
           costInfoInCard.id,
           costInfoInCard.name,
           costInfoInCard.item,
@@ -232,7 +235,7 @@ export const MatterCardDetailModal = ({
 
     for (const businessInfoInCard of businessInfoInCardList) {
       if (businessInfoInCard.isNew && !businessInfoInCard.isRemoved) {
-        await insertBusinessInfoList(
+        await insertBusinessInfo(
           businessInfoInCard.name,
           businessInfoInCard.amount!,
           businessInfoInCard.invoice_date!,
@@ -240,9 +243,9 @@ export const MatterCardDetailModal = ({
           matterInfo.id
         );
       } else if (businessInfoInCard.isRemoved && !businessInfoInCard.isNew) {
-        await deleteBusinessInfoList(businessInfoInCard.id);
+        await deleteBusinessInfo(businessInfoInCard.id);
       } else if (!businessInfoInCard.isNew && !businessInfoInCard.isRemoved) {
-        await updateBusinessInfoList(
+        await updateBusinessInfo(
           businessInfoInCard.id,
           businessInfoInCard.name,
           businessInfoInCard.amount!,
@@ -258,6 +261,23 @@ export const MatterCardDetailModal = ({
     closeModal();
   };
 
+  const handleFixMatterInfo = async () => {
+    matterInfo.is_fixed = window.confirm(
+      `案件[${matterInfo.title}]を確定にしますか？\n確定後は経理の確認に入るため、変更できません。`
+    );
+    if (!matterInfo.is_fixed) {
+      closeModal();
+      return;
+    }
+    try {
+      await updateMatterInfo(matterInfo);
+    } catch (err) {
+      console.error("案件の確定に失敗しました。", err);
+    }
+    alert(`案件[${matterInfo.title}]を確定しました。`);
+    closeModal();
+  };
+
   const handleDeleteMatterInfo = async () => {
     const checkDelete = window.confirm(
       `案件[${matterInfo.title}]を削除してよろしいですか？`
@@ -268,9 +288,9 @@ export const MatterCardDetailModal = ({
       return;
     }
     for (const costInfo of costInfoInCardList) {
-      await deleteCostInfoInSupabase(costInfo.id);
+      await deleteCostInfo(costInfo.id);
     }
-    await deleteMatterInfoInSupabase(matterInfo.id);
+    await deleteMatterInfo(matterInfo.id);
     alert(`案件[${matterInfo.title}]を削除しました。`);
     closeModal();
   };
@@ -355,6 +375,9 @@ export const MatterCardDetailModal = ({
           });
         })}
       >
+        <span className="text-red-700 text-sm">
+          ※全て税抜金額でご記入ください。
+        </span>
         <div className="flex justify-end">
           {matterInfo.is_completed ? (
             <Badge color="green">経理確認完了</Badge>
@@ -414,15 +437,28 @@ export const MatterCardDetailModal = ({
           {...form.getInputProps("description")}
         />
 
-        <h2 className="mt-8 mb-4">取引先情報</h2>
-        {businessInfoInCardList.map((businessInfo) =>
+        {businessInfoInCardList.length > 0 && (
+          <h2 className="mt-8 mb-4">取引先情報</h2>
+        )}
+        {businessInfoInCardList.map((businessInfo, index) =>
           businessInfo.isRemoved ? (
             ""
           ) : (
             <div
               key={businessInfo.id}
-              className="md:border-none flex border rounded-lg md:p-0 p-2 my-2 items-center"
+              className="md:flex md:border-none border rounded-lg md:p-0 p-2 my-2 items-center md:bg-white bg-green-50"
             >
+              {!matterInfo.is_fixed && (
+                <div className="md:hidden flex justify-between w-full mb-2">
+                  <div>取引先{index + 1}</div>
+                  <button
+                    className="p-2 hover:text-blue-500"
+                    onClick={() => handleRemoveBusiness(businessInfo.id)}
+                  >
+                    <FaRegTrashAlt />
+                  </button>
+                </div>
+              )}
               <div className="md:flex gap-4 w-full">
                 <div className="sm:flex md:my-0 my-2 gap-4 w-full">
                   <TextInput
@@ -509,17 +545,19 @@ export const MatterCardDetailModal = ({
                   />
                 </div>
               </div>
-              <button
-                className="p-2 hover:text-blue-500"
-                onClick={() => handleRemoveBusiness(businessInfo.id)}
-              >
-                <FaRegTrashAlt />
-              </button>
+              {!matterInfo.is_fixed && (
+                <button
+                  className="hidden md:block p-2 hover:text-blue-500"
+                  onClick={() => handleRemoveBusiness(businessInfo.id)}
+                >
+                  <FaRegTrashAlt />
+                </button>
+              )}
             </div>
           )
         )}
 
-        {!matterInfo.is_fixed ? (
+        {!matterInfo.is_fixed && (
           <Button
             type="button"
             fullWidth
@@ -531,12 +569,10 @@ export const MatterCardDetailModal = ({
           >
             取引先追加
           </Button>
-        ) : null}
+        )}
 
-        {costInfoInCardList.length > 0 ? (
+        {costInfoInCardList.length > 0 && (
           <h2 className="mt-8 mb-4">コスト情報</h2>
-        ) : (
-          ""
         )}
         {costInfoInCardList?.map((cost, index) =>
           cost.isRemoved ? (
@@ -547,10 +583,11 @@ export const MatterCardDetailModal = ({
               className="sm:flex items-center mb-4"
               withBorder
               radius="sm"
-              padding="lg"
+              padding="sm"
               aria-label="コスト"
+              bg="gray.1"
             >
-              {!matterInfo.is_fixed ? (
+              {!matterInfo.is_fixed && (
                 <div className="flex justify-between w-full mb-2">
                   <div>コスト{index + 1}</div>
                   <div
@@ -560,7 +597,7 @@ export const MatterCardDetailModal = ({
                     <FaRegTrashAlt />
                   </div>
                 </div>
-              ) : null}
+              )}
               <div className="flex-grow">
                 <div className="flex pb-2">
                   <Group gap="sm" className="flex-grow w-full">
@@ -677,10 +714,6 @@ export const MatterCardDetailModal = ({
                       label="源泉徴収あり"
                       disabled={matterInfo.is_fixed!}
                       checked={cost.withholding}
-                      key={form.key("withholding")}
-                      {...form.getInputProps("withholding", {
-                        type: "checkbox",
-                      })}
                       onChange={(value) =>
                         setCostInfoInCardList(
                           costInfoInCardList.map((costVal) =>
@@ -717,7 +750,7 @@ export const MatterCardDetailModal = ({
             </Card>
           )
         )}
-        {!matterInfo.is_fixed ? (
+        {!matterInfo.is_fixed && (
           <Button
             type="button"
             fullWidth
@@ -729,9 +762,9 @@ export const MatterCardDetailModal = ({
           >
             コスト追加
           </Button>
-        ) : null}
+        )}
 
-        {!matterInfo.is_fixed ? (
+        {!matterInfo.is_fixed && (
           <div className="flex justify-between mt-6">
             <Group justify="flex-end" mt="md">
               <Button
@@ -743,12 +776,15 @@ export const MatterCardDetailModal = ({
               </Button>
             </Group>
             <Group justify="flex-end" mt="md">
+              <Button type="button" onClick={handleFixMatterInfo} color="red">
+                確定
+              </Button>
               <Button type="submit" color="green">
                 更新
               </Button>
             </Group>
           </div>
-        ) : null}
+        )}
       </form>
     </Modal>
   );
