@@ -540,7 +540,9 @@ const NewMatterForm = () => {
       </div>
 
       <Group className="pt-8" justify="flex-end" mt="md">
-        <Button type="submit">作成</Button>
+        <Button color="pink" type="submit">
+          作成
+        </Button>
       </Group>
     </form>
   );

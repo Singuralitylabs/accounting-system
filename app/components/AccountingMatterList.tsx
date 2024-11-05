@@ -188,6 +188,14 @@ export const AccountingMatterList = ({
 
   return (
     <div className="my-4">
+      <div className="flex justify-end gap-4 my-4">
+        <Button color="green" onClick={handleCheckCompleted}>
+          確認完了
+        </Button>
+        <Button color="indigo" onClick={() => setNotificationOpened(true)}>
+          担当者に連絡
+        </Button>
+      </div>
       <span className="text-red-700 text-sm m-4">
         ※記載の金額は、全て税抜となっております。
       </span>
@@ -209,12 +217,6 @@ export const AccountingMatterList = ({
           onSendMessage={handleSendMessage}
         />
       ) : null}
-      <div className="flex justify-center gap-4 my-4">
-        <Button onClick={handleCheckCompleted}>確認完了</Button>
-        <Button color="green" onClick={() => setNotificationOpened(true)}>
-          担当者に連絡
-        </Button>
-      </div>
     </div>
   );
 };
