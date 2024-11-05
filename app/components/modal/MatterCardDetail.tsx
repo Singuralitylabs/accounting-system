@@ -177,10 +177,12 @@ export const MatterCardDetailModal = ({
     }
 
     const totalAmount = businessInfoInCardList.reduce((acc, business) => {
-      return business.amount ? acc + business.amount : acc;
+      return business.amount && !business.isRemoved
+        ? acc + business.amount
+        : acc;
     }, 0);
     const totalCost = costInfoInCardList.reduce((acc, cost) => {
-      return cost.price ? acc + cost.price : acc;
+      return cost.price && !cost.isRemoved ? acc + cost.price : acc;
     }, 0);
 
     matterInfo.title = updatedMatterInfo.title;
@@ -188,9 +190,13 @@ export const MatterCardDetailModal = ({
     matterInfo.team = updatedMatterInfo.team;
     matterInfo.start_date = startDate?.toISOString() || null;
     matterInfo.total_amount = totalAmount;
-    matterInfo.business_count = businessInfoInCardList.length;
+    matterInfo.business_count = businessInfoInCardList.filter(
+      (business) => !business.isRemoved
+    ).length;
     matterInfo.total_cost = totalCost;
-    matterInfo.cost_count = costInfoInCardList.length;
+    matterInfo.cost_count = costInfoInCardList.filter(
+      (cost) => !cost.isRemoved
+    ).length;
     matterInfo.description = updatedMatterInfo.description;
 
     await updateMatterInfo(matterInfo);
@@ -434,14 +440,25 @@ export const MatterCardDetailModal = ({
         {businessInfoInCardList.length > 0 && (
           <h2 className="mt-8 mb-4">取引先情報</h2>
         )}
-        {businessInfoInCardList.map((businessInfo) =>
+        {businessInfoInCardList.map((businessInfo, index) =>
           businessInfo.isRemoved ? (
             ""
           ) : (
             <div
               key={businessInfo.id}
-              className="md:border-none flex border rounded-lg md:p-0 p-2 my-2 items-center md:bg-white bg-green-50"
+              className="md:flex md:border-none border rounded-lg md:p-0 p-2 my-2 items-center md:bg-white bg-green-50"
             >
+              {!matterInfo.is_fixed && (
+                <div className="md:hidden flex justify-between w-full mb-2">
+                  <div>取引先{index + 1}</div>
+                  <button
+                    className="p-2 hover:text-blue-500"
+                    onClick={() => handleRemoveBusiness(businessInfo.id)}
+                  >
+                    <FaRegTrashAlt />
+                  </button>
+                </div>
+              )}
               <div className="md:flex gap-4 w-full">
                 <div className="sm:flex md:my-0 my-2 gap-4 w-full">
                   <TextInput
@@ -530,7 +547,7 @@ export const MatterCardDetailModal = ({
               </div>
               {!matterInfo.is_fixed && (
                 <button
-                  className="p-2 hover:text-blue-500"
+                  className="hidden md:block p-2 hover:text-blue-500"
                   onClick={() => handleRemoveBusiness(businessInfo.id)}
                 >
                   <FaRegTrashAlt />
