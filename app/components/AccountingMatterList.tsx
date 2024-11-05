@@ -38,23 +38,33 @@ export const AccountingMatterList = ({
   };
 
   const handleCheckCompleted = async () => {
+    if (checkedMatterIdList.length === 0) {
+      alert("完了にする案件にチェックを入れてください。");
+      return;
+    }
     const isCompleted = window.confirm(
       `${checkedMatterIdList.length}件の案件を完了にしますか？`
     );
     if (!isCompleted) {
+      alert("案件の完了処理を中止しました。");
       return;
     }
     for (const id of checkedMatterIdList) {
-      let updatedMatter: MatterType | undefined = matterList?.find(
-        (matter) => matter.id === id
-      );
-      if (updatedMatter) {
+      const matterInfo = matterList?.find((matter) => matter.id === id);
+      if (matterInfo) {
+        if (!matterInfo.is_fixed) {
+          alert(`ID[${id}]の案件は未確定のため、完了できません。`);
+          continue;
+        }
+        let { user_name, slack_id, ...updatedMatter } = matterInfo;
         updatedMatter.is_completed = true;
         await updateMatterInfo(updatedMatter);
       } else {
+        alert(`ID[${id}]の案件の完了に失敗しました。`);
         console.error(`案件ID${id}が見つかりません。`);
       }
     }
+    alert(`案件をチェック処理を完了しました。`);
     setCheckedMatterIdList([]);
   };
 
