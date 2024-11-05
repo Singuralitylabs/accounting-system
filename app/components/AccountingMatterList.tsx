@@ -81,6 +81,15 @@ export const AccountingMatterList = ({
         if (slackResult.error) {
           throw new Error(slackResult.error);
         }
+        let updatedMatter: MatterType | undefined = matterList?.find(
+          (matter) => matter.id === id
+        );
+        if (updatedMatter) {
+          updatedMatter.is_fixed = false;
+          await updateMatterInfo(updatedMatter);
+        } else {
+          console.error(`案件ID${id}が見つかりません。`);
+        }
       }
 
       notifications.show({
