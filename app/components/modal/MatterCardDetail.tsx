@@ -175,9 +175,6 @@ export const MatterCardDetailModal = ({
       closeModal();
       return;
     }
-    matterInfo.is_fixed = window.confirm(
-      `案件[${updatedMatterInfo.title}]を確定にしますか？\n確定後は経理の確認に入るため、変更できません。`
-    );
 
     const totalAmount = businessInfoInCardList.reduce((acc, business) => {
       return business.amount ? acc + business.amount : acc;
@@ -255,6 +252,23 @@ export const MatterCardDetailModal = ({
     }
 
     alert(`案件[${matterInfo.title}]を更新しました。`);
+    closeModal();
+  };
+
+  const handleFixMatterInfo = async () => {
+    matterInfo.is_fixed = window.confirm(
+      `案件[${matterInfo.title}]を確定にしますか？\n確定後は経理の確認に入るため、変更できません。`
+    );
+    if (!matterInfo.is_fixed) {
+      closeModal();
+      return;
+    }
+    try {
+      await updateMatterInfo(matterInfo);
+    } catch (err) {
+      console.error("案件の確定に失敗しました。", err);
+    }
+    alert(`案件[${matterInfo.title}]を確定しました。`);
     closeModal();
   };
 
@@ -750,6 +764,9 @@ export const MatterCardDetailModal = ({
               </Button>
             </Group>
             <Group justify="flex-end" mt="md">
+              <Button type="button" onClick={handleFixMatterInfo} color="red">
+                確定
+              </Button>
               <Button type="submit" color="green">
                 更新
               </Button>
