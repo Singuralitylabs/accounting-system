@@ -49,11 +49,11 @@ export const NotificationMessage = ({
         <div className="my-4 flex justify-center">
           <Button
             onClick={handleSendMessage}
-            color="green"
+            color="indigo"
             loading={isSending}
             disabled={!message.trim()}
           >
-            担当者へ通知
+            slack通知
           </Button>
         </div>
       </Modal>

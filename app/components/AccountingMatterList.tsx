@@ -38,23 +38,33 @@ export const AccountingMatterList = ({
   };
 
   const handleCheckCompleted = async () => {
+    if (checkedMatterIdList.length === 0) {
+      alert("完了にする案件にチェックを入れてください。");
+      return;
+    }
     const isCompleted = window.confirm(
       `${checkedMatterIdList.length}件の案件を完了にしますか？`
     );
     if (!isCompleted) {
+      alert("案件の完了処理を中止しました。");
       return;
     }
     for (const id of checkedMatterIdList) {
-      let updatedMatter: MatterType | undefined = matterList?.find(
-        (matter) => matter.id === id
-      );
-      if (updatedMatter) {
+      const matterInfo = matterList?.find((matter) => matter.id === id);
+      if (matterInfo) {
+        if (!matterInfo.is_fixed) {
+          alert(`ID[${id}]の案件は未確定のため、完了できません。`);
+          continue;
+        }
+        let { user_name, slack_id, ...updatedMatter } = matterInfo;
         updatedMatter.is_completed = true;
         await updateMatterInfo(updatedMatter);
       } else {
+        alert(`ID[${id}]の案件の完了に失敗しました。`);
         console.error(`案件ID${id}が見つかりません。`);
       }
     }
+    alert(`案件をチェック処理を完了しました。`);
     setCheckedMatterIdList([]);
   };
 
@@ -72,14 +82,26 @@ export const AccountingMatterList = ({
       for (const id of checkedMatterIdList) {
         const matterToNotify: MatterInfoWithUserNameType | undefined =
           matterList?.find((matter) => matter.id === id);
+        const slackName = matterToNotify?.slack_id
+          ? `<@${matterToNotify.slack_id}>`
+          : matterToNotify?.user_name;
         const body =
           `案件：${matterToNotify?.title}\n` +
-          `担当者：${matterToNotify?.user_name}\n` +
+          `担当者：${slackName}\n` +
           message;
         const slackResult = await sendSlackNotification(body);
 
         if (slackResult.error) {
           throw new Error(slackResult.error);
+        }
+        let updatedMatter: MatterType | undefined = matterList?.find(
+          (matter) => matter.id === id
+        );
+        if (updatedMatter) {
+          updatedMatter.is_fixed = false;
+          await updateMatterInfo(updatedMatter);
+        } else {
+          console.error(`案件ID${id}が見つかりません。`);
         }
       }
 
@@ -179,6 +201,14 @@ export const AccountingMatterList = ({
 
   return (
     <div className="my-4">
+      <div className="flex justify-end gap-4 my-4">
+        <Button color="green" onClick={handleCheckCompleted}>
+          確認完了
+        </Button>
+        <Button color="indigo" onClick={() => setNotificationOpened(true)}>
+          担当者に連絡
+        </Button>
+      </div>
       <span className="text-red-700 text-sm m-4">
         ※記載の金額は、全て税抜となっております。
       </span>
@@ -200,12 +230,6 @@ export const AccountingMatterList = ({
           onSendMessage={handleSendMessage}
         />
       ) : null}
-      <div className="flex justify-center gap-4 my-4">
-        <Button onClick={handleCheckCompleted}>確認完了</Button>
-        <Button color="green" onClick={() => setNotificationOpened(true)}>
-          担当者に連絡
-        </Button>
-      </div>
     </div>
   );
 };

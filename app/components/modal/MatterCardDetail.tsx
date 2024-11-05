@@ -375,9 +375,11 @@ export const MatterCardDetailModal = ({
           });
         })}
       >
-        <span className="text-red-700 text-sm">
-          ※全て税抜金額でご記入ください。
-        </span>
+        {!matterInfo.is_fixed && (
+          <span className="text-red-700 text-sm">
+            ※全て税抜金額でご記入ください。
+          </span>
+        )}
         <div className="flex justify-end">
           {matterInfo.is_completed ? (
             <Badge color="green">経理確認完了</Badge>
@@ -776,10 +778,10 @@ export const MatterCardDetailModal = ({
               </Button>
             </Group>
             <Group justify="flex-end" mt="md">
-              <Button type="button" onClick={handleFixMatterInfo} color="red">
+              <Button type="button" onClick={handleFixMatterInfo}>
                 確定
               </Button>
-              <Button type="submit" color="green">
+              <Button type="submit" color="red">
                 更新
               </Button>
             </Group>
