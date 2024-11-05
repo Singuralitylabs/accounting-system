@@ -250,12 +250,15 @@ const NewMatterForm = () => {
         {...form.getInputProps("description")}
       />
 
-      <h2 className="mt-8 mb-4">取引先情報</h2>
+      <h2 className="mt-8">取引先情報</h2>
+      <span className="text-sm">
+        ※協会への支払いがある場合にご記入ください。
+      </span>
       <div>
         {businessList.map((businessInfo) => (
           <div
             key={businessInfo.id}
-            className="md:border-none flex border rounded-lg md:p-0 p-2 my-2 items-center"
+            className="md:border-none flex border rounded-lg md:p-0 p-2 my-2 items-center md:bg-slate-50 bg-green-50"
           >
             <div className="md:flex gap-4 w-full">
               <div className="sm:flex md:my-0 my-2 gap-4 w-full">
@@ -371,6 +374,7 @@ const NewMatterForm = () => {
             radius="sm"
             padding="lg"
             aria-label="コスト"
+            bg="gray.1"
           >
             <div className="flex justify-between w-full mb-2">
               <div>コスト{index + 1}</div>

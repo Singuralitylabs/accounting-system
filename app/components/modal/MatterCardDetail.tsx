@@ -431,16 +431,16 @@ export const MatterCardDetailModal = ({
           {...form.getInputProps("description")}
         />
 
-        {businessInfoInCardList.length > 0 ? (
+        {businessInfoInCardList.length > 0 && (
           <h2 className="mt-8 mb-4">取引先情報</h2>
-        ) : null}
+        )}
         {businessInfoInCardList.map((businessInfo) =>
           businessInfo.isRemoved ? (
             ""
           ) : (
             <div
               key={businessInfo.id}
-              className="md:border-none flex border rounded-lg md:p-0 p-2 my-2 items-center"
+              className="md:border-none flex border rounded-lg md:p-0 p-2 my-2 items-center md:bg-white bg-green-50"
             >
               <div className="md:flex gap-4 w-full">
                 <div className="sm:flex md:my-0 my-2 gap-4 w-full">
@@ -528,19 +528,19 @@ export const MatterCardDetailModal = ({
                   />
                 </div>
               </div>
-              {!matterInfo.is_fixed ? (
+              {!matterInfo.is_fixed && (
                 <button
                   className="p-2 hover:text-blue-500"
                   onClick={() => handleRemoveBusiness(businessInfo.id)}
                 >
                   <FaRegTrashAlt />
                 </button>
-              ) : null}
+              )}
             </div>
           )
         )}
 
-        {!matterInfo.is_fixed ? (
+        {!matterInfo.is_fixed && (
           <Button
             type="button"
             fullWidth
@@ -552,12 +552,10 @@ export const MatterCardDetailModal = ({
           >
             取引先追加
           </Button>
-        ) : null}
+        )}
 
-        {costInfoInCardList.length > 0 ? (
+        {costInfoInCardList.length > 0 && (
           <h2 className="mt-8 mb-4">コスト情報</h2>
-        ) : (
-          ""
         )}
         {costInfoInCardList?.map((cost, index) =>
           cost.isRemoved ? (
@@ -568,10 +566,11 @@ export const MatterCardDetailModal = ({
               className="sm:flex items-center mb-4"
               withBorder
               radius="sm"
-              padding="lg"
+              padding="sm"
               aria-label="コスト"
+              bg="gray.1"
             >
-              {!matterInfo.is_fixed ? (
+              {!matterInfo.is_fixed && (
                 <div className="flex justify-between w-full mb-2">
                   <div>コスト{index + 1}</div>
                   <div
@@ -581,7 +580,7 @@ export const MatterCardDetailModal = ({
                     <FaRegTrashAlt />
                   </div>
                 </div>
-              ) : null}
+              )}
               <div className="flex-grow">
                 <div className="flex pb-2">
                   <Group gap="sm" className="flex-grow w-full">
@@ -734,7 +733,7 @@ export const MatterCardDetailModal = ({
             </Card>
           )
         )}
-        {!matterInfo.is_fixed ? (
+        {!matterInfo.is_fixed && (
           <Button
             type="button"
             fullWidth
@@ -746,9 +745,9 @@ export const MatterCardDetailModal = ({
           >
             コスト追加
           </Button>
-        ) : null}
+        )}
 
-        {!matterInfo.is_fixed ? (
+        {!matterInfo.is_fixed && (
           <div className="flex justify-between mt-6">
             <Group justify="flex-end" mt="md">
               <Button
@@ -768,7 +767,7 @@ export const MatterCardDetailModal = ({
               </Button>
             </Group>
           </div>
-        ) : null}
+        )}
       </form>
     </Modal>
   );
