@@ -251,7 +251,7 @@ const NewMatterForm = () => {
 
       <h2 className="mt-8">取引先情報</h2>
       <span className="text-sm">
-        ※協会への支払いがある場合にご記入ください。
+        ※取引先から協会への報酬が発生する場合にご記入ください。
       </span>
       <div>
         {businessList.map((businessInfo, index) => (
@@ -259,10 +259,10 @@ const NewMatterForm = () => {
             key={businessInfo.id}
             className="md:flex md:border-none border rounded-lg md:p-0 p-2 my-2 items-center md:bg-slate-50 bg-green-50"
           >
-            <div className="md:hidden flex justify-between w-full mb-2">
+            <div className="md:hidden flex justify-between w-full m-2">
               <div>取引先{index + 1}</div>
               <button
-                className="p-2 hover:text-blue-500"
+                className="h-full mx-4 text-lg hover:cursor-pointer w-4 ml-auto items-center justify-center hover:text-blue-500"
                 onClick={() => handleRemoveBusiness(businessInfo.id)}
               >
                 <FaRegTrashAlt />
@@ -352,7 +352,7 @@ const NewMatterForm = () => {
               </div>
             </div>
             <button
-              className="hidden md:block p-2 hover:text-blue-500"
+              className="hidden text-lg hover:cursor-pointer w-4 ml-2 md:flex items-center justify-center hover:text-blue-500"
               onClick={() => handleRemoveBusiness(businessInfo.id)}
             >
               <FaRegTrashAlt />
@@ -374,6 +374,9 @@ const NewMatterForm = () => {
       </div>
 
       <h2 className="mt-8 mb-4">コスト情報</h2>
+      <span className="text-sm">
+        ※協会からの支払いが発生する場合にご記入ください。
+      </span>
       <div>
         {costList.map((cost, index) => (
           <div

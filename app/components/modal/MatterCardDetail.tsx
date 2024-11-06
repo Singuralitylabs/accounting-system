@@ -450,10 +450,10 @@ export const MatterCardDetailModal = ({
               className="md:flex md:border-none border rounded-lg md:p-0 p-2 my-2 items-center md:bg-white bg-green-50"
             >
               {!matterInfo.is_fixed && (
-                <div className="md:hidden flex justify-between w-full mb-2">
+                <div className="md:hidden flex justify-between w-full m-2">
                   <div>取引先{index + 1}</div>
                   <button
-                    className="p-2 hover:text-blue-500"
+                    className="h-full mx-4 text-lg hover:cursor-pointer w-4 ml-auto items-center justify-center hover:text-blue-500"
                     onClick={() => handleRemoveBusiness(businessInfo.id)}
                   >
                     <FaRegTrashAlt />
@@ -548,7 +548,7 @@ export const MatterCardDetailModal = ({
               </div>
               {!matterInfo.is_fixed && (
                 <button
-                  className="hidden md:block p-2 hover:text-blue-500"
+                  className="hidden text-lg hover:cursor-pointer w-4 ml-2 md:flex items-center justify-center hover:text-blue-500"
                   onClick={() => handleRemoveBusiness(businessInfo.id)}
                 >
                   <FaRegTrashAlt />
