@@ -7,6 +7,7 @@ import { MantineProvider, ColorSchemeScript } from "@mantine/core";
 import SupabaseProvider from "./components/providers/SupabaseProvider";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies, headers } from "next/headers";
+import { DatePickerProvider } from "./components/DatePickerProvider";
 
 export const metadata: Metadata = {
   title: "案件管理アプリ",
@@ -34,7 +35,7 @@ export default async function RootLayout({
         <SupabaseProvider>
           <MantineProvider>
             {session && <Header />}
-            {children}
+            <DatePickerProvider>{children}</DatePickerProvider>
             <Footer />
           </MantineProvider>
         </SupabaseProvider>

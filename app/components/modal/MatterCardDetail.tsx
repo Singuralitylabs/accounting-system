@@ -32,7 +32,7 @@ import { useForm } from "@mantine/form";
 import { useEffect, useState } from "react";
 import { FaRegTrashAlt } from "react-icons/fa";
 import { CiSquarePlus } from "react-icons/ci";
-import { DateInput } from "@mantine/dates";
+import { CustomDatePicker } from "../CustomDatePicker";
 
 type Props = {
   matterInfo: MatterType;
@@ -67,9 +67,6 @@ export const MatterCardDetailModal = ({
   opened,
   setOpened,
 }: Props) => {
-  const [startDate, setStartDate] = useState<Date | null>(
-    new Date(matterInfo.start_date!)
-  );
   const [costInfoIndex, setCostInfoIndex] = useState<number>(10000);
   const [costInfoInCardList, setCostInfoInCardList] = useState<
     CostInCardType[]
@@ -187,7 +184,7 @@ export const MatterCardDetailModal = ({
     matterInfo.title = updatedMatterInfo.title;
     matterInfo.category = updatedMatterInfo.category;
     matterInfo.team = updatedMatterInfo.team;
-    matterInfo.start_date = startDate?.toISOString() || null;
+    matterInfo.start_date = updatedMatterInfo.start_date;
     matterInfo.total_amount = totalAmount;
     matterInfo.business_count = businessInfoInCardList.filter(
       (business) => !business.isRemoved
@@ -417,17 +414,15 @@ export const MatterCardDetailModal = ({
             disabled={matterInfo.is_fixed!}
             {...form.getInputProps("team")}
           />
-          <DateInput
+          <CustomDatePicker
             label="案件開始日"
-            className="w-full"
             required
-            placeholder="案件を開始した日付をご入力ください。"
+            placeholder="案件開始日をご記入ください。"
             disabled={matterInfo.is_fixed!}
-            valueFormat="YYYY/MM/DD"
-            value={startDate}
-            onChange={(value) =>
-              value ? setStartDate(value) : setStartDate(null)
-            }
+            value={form.getValues().start_date}
+            onChange={(date) => form.setFieldValue("start_date", date || "")}
+            className="md:pt-0 pt-4 w-full"
+            showIcon
           />
         </div>
         <Textarea
@@ -498,51 +493,35 @@ export const MatterCardDetailModal = ({
                   />
                 </div>
                 <div className="sm:flex gap-4 w-full">
-                  <DateInput
-                    className="flex-grow sm:my-0 my-2 "
+                  <CustomDatePicker
                     placeholder="請求日をご記入ください。"
                     disabled={matterInfo.is_fixed!}
-                    value={
-                      businessInfo.invoice_date
-                        ? new Date(businessInfo.invoice_date)
-                        : null
-                    }
-                    valueFormat="YYYY/MM/DD"
-                    onChange={(event) => {
-                      const dateString = event
-                        ? event.toISOString().split("T")[0]
-                        : null;
+                    value={businessInfo.invoice_date}
+                    onChange={(date) => {
                       setBusinessInfoInCardList(
                         businessInfoInCardList.map((businessVal) =>
                           businessVal.id === businessInfo.id
-                            ? { ...businessVal, invoice_date: dateString }
+                            ? { ...businessVal, invoice_date: date }
                             : businessVal
                         )
                       );
                     }}
+                    className="flex-grow sm:my-0 my-2"
                   />
-                  <DateInput
-                    className="flex-grow"
+                  <CustomDatePicker
                     placeholder="振込期限をご記入ください。"
                     disabled={matterInfo.is_fixed!}
-                    value={
-                      businessInfo.period_date
-                        ? new Date(businessInfo.period_date!)
-                        : null
-                    }
-                    valueFormat="YYYY/MM/DD"
-                    onChange={(event) => {
-                      const dateString = event
-                        ? event.toISOString().split("T")[0]
-                        : null;
+                    value={businessInfo.period_date}
+                    onChange={(date) => {
                       setBusinessInfoInCardList(
                         businessInfoInCardList.map((businessVal) =>
                           businessVal.id === businessInfo.id
-                            ? { ...businessVal, period_date: dateString }
+                            ? { ...businessVal, period_date: date }
                             : businessVal
                         )
                       );
                     }}
+                    className="flex-grow sm:my-0 my-2"
                   />
                 </div>
               </div>
@@ -669,24 +648,20 @@ export const MatterCardDetailModal = ({
                       )
                     }
                   />
-                  <DateInput
-                    className="flex-grow sm:mb-0 mb-2"
+                  <CustomDatePicker
                     placeholder="支払い期限をご記入ください。"
                     disabled={matterInfo.is_fixed!}
-                    value={cost.period ? new Date(cost.period) : null}
-                    valueFormat="YYYY/MM/DD"
-                    onChange={(event) => {
-                      const dateString = event
-                        ? event.toISOString().split("T")[0]
-                        : null;
+                    value={cost.period}
+                    onChange={(date) => {
                       setCostInfoInCardList(
                         costInfoInCardList.map((costVal) =>
                           costVal.id === cost.id
-                            ? { ...costVal, period: dateString }
+                            ? { ...costVal, period: date }
                             : costVal
                         )
                       );
                     }}
+                    className="flex-grow sm:mb-0 mb-2"
                   />
                   <Select
                     className="flex-grow sm:mb-0 mb-2"

@@ -10,7 +10,6 @@ import {
   Textarea,
   TextInput,
 } from "@mantine/core";
-import { DateInput } from "@mantine/dates";
 import { useForm } from "@mantine/form";
 import { useState } from "react";
 import { CiSquarePlus } from "react-icons/ci";
@@ -26,6 +25,7 @@ import {
   insertCostInfo,
   insertMatterInfo,
 } from "../utils/supabaseServer";
+import { CustomDatePicker } from "./CustomDatePicker";
 
 const NewMatterForm = () => {
   const form = useForm({
@@ -230,15 +230,14 @@ const NewMatterForm = () => {
           key={form.key("team")}
           {...form.getInputProps("team")}
         />
-        <DateInput
-          withAsterisk
-          required
-          className="md:pt-0 pt-4 w-full"
+        <CustomDatePicker
           label="案件開始日"
+          required
           placeholder="案件開始日をご記入ください。"
-          valueFormat="YYYY/MM/DD"
-          key={form.key("start_date")}
-          {...form.getInputProps("start_date")}
+          value={form.getValues().start_date}
+          onChange={(date) => form.setFieldValue("start_date", date || "")}
+          className="md:pt-0 pt-4 w-full"
+          showIcon
         />
       </div>
 
@@ -306,49 +305,33 @@ const NewMatterForm = () => {
                 />
               </div>
               <div className="sm:flex gap-4 w-full">
-                <DateInput
-                  className="flex-grow sm:my-0 my-2 "
+                <CustomDatePicker
                   placeholder="請求日をご記入ください。"
-                  value={
-                    businessInfo.invoice_date
-                      ? new Date(businessInfo.invoice_date)
-                      : null
-                  }
-                  valueFormat="YYYY/MM/DD"
-                  onChange={(event) => {
-                    const dateString = event
-                      ? event.toISOString().split("T")[0]
-                      : null;
+                  value={businessInfo.invoice_date}
+                  onChange={(date) => {
                     setBusinessList(
                       businessList.map((businessVal) =>
                         businessVal.id === businessInfo.id
-                          ? { ...businessVal, invoice_date: dateString }
+                          ? { ...businessVal, invoice_date: date }
                           : businessVal
                       )
                     );
                   }}
+                  className="flex-grow sm:my-0 my-2"
                 />
-                <DateInput
-                  className="flex-grow"
+                <CustomDatePicker
                   placeholder="振込期限をご記入ください。"
-                  value={
-                    businessInfo.period_date
-                      ? new Date(businessInfo.period_date!)
-                      : null
-                  }
-                  valueFormat="YYYY/MM/DD"
-                  onChange={(event) => {
-                    const dateString = event
-                      ? event.toISOString().split("T")[0]
-                      : null;
+                  value={businessInfo.period_date}
+                  onChange={(date) => {
                     setBusinessList(
                       businessList.map((businessVal) =>
                         businessVal.id === businessInfo.id
-                          ? { ...businessVal, period_date: dateString }
+                          ? { ...businessVal, period_date: date }
                           : businessVal
                       )
                     );
                   }}
+                  className="flex-grow sm:my-0 my-2"
                 />
               </div>
             </div>
@@ -461,22 +444,19 @@ const NewMatterForm = () => {
                     )
                   }
                 />
-                <DateInput
-                  className="flex-grow sm:mb-0 mb-2"
+                <CustomDatePicker
                   placeholder="支払い期限をご記入ください。"
-                  valueFormat="YYYY/MM/DD"
-                  onChange={(event) => {
-                    const dateString = event
-                      ? event.toISOString().split("T")[0]
-                      : null;
+                  value={cost.period}
+                  onChange={(date) => {
                     setCostList(
                       costList.map((costVal) =>
                         costVal.id === cost.id
-                          ? { ...costVal, period: dateString }
+                          ? { ...costVal, period: date }
                           : costVal
                       )
                     );
                   }}
+                  className="flex-grow sm:mb-0 mb-2"
                 />
                 <Select
                   className="flex-grow sm:mb-0 mb-2"
