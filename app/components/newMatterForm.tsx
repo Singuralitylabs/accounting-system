@@ -170,7 +170,7 @@ const NewMatterForm = () => {
         if (businessError) throw new Error(businessError.message);
       }
 
-      alert(`${matterInfo.title}の新規登録を完了しました。`);
+      alert(`${matterInfo.title}の新規登録を完了しました。[案件ID:${newId}]`);
       form.reset();
       setCostList([]);
       setBusinessList([]);
