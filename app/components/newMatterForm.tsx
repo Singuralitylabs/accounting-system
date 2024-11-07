@@ -58,7 +58,7 @@ const NewMatterForm = () => {
         name: "",
         item: "",
         price: 0,
-        certificate: "請求書",
+        certificate: "",
         comment: null,
         inserted_at: "2024-01-01",
         matter_id: 0,
@@ -173,6 +173,7 @@ const NewMatterForm = () => {
       alert(`${matterInfo.title}の新規登録を完了しました。`);
       form.reset();
       setCostList([]);
+      setBusinessList([]);
     } catch (error) {
       alert(`${matterInfo.title}の新規登録に失敗しました。`);
       console.error(error);
@@ -286,9 +287,9 @@ const NewMatterForm = () => {
                   }
                 />
                 <NumberInput
-                  placeholder="¥0"
+                  placeholder="報酬額をご記入ください。"
                   className="flex-grow"
-                  value={businessInfo.amount!}
+                  value={businessInfo.amount! || ""}
                   prefix="¥"
                   allowNegative={false}
                   allowDecimal={false}
@@ -373,7 +374,7 @@ const NewMatterForm = () => {
         </Button>
       </div>
 
-      <h2 className="mt-8 mb-4">コスト情報</h2>
+      <h2 className="mt-8">コスト情報</h2>
       <span className="text-sm">
         ※協会からの支払いが発生する場合にご記入ください。
       </span>
@@ -386,23 +387,6 @@ const NewMatterForm = () => {
             <div className="lg:hidden flex justify-between w-full m-2">
               <div>コスト{index + 1}</div>
               <div className="flex gap-2">
-                <Checkbox
-                  label="源泉徴収あり"
-                  key={form.key("withholding")}
-                  {...form.getInputProps("withholding", { type: "checkbox" })}
-                  onChange={(value) =>
-                    setCostList(
-                      costList.map((costVal) =>
-                        costVal.id === cost.id
-                          ? {
-                              ...costVal,
-                              withholding: value.currentTarget.checked,
-                            }
-                          : costVal
-                      )
-                    )
-                  }
-                />
                 <button
                   className="h-full mx-4 text-lg hover:cursor-pointer w-4 ml-auto items-center justify-center hover:text-blue-500"
                   onClick={() => handleRemoveCost(cost.id)}
@@ -414,7 +398,7 @@ const NewMatterForm = () => {
             <div className="flex-1 lg:flex gap-2 min-w-0">
               <div className="sm:flex gap-2 lg:mb-0 mb-2 flex-1">
                 <TextInput
-                  placeholder="品名をご記入ください。"
+                  placeholder="コスト名をご記入ください。"
                   className="flex-grow sm:mb-0 mb-2"
                   value={cost.name}
                   onChange={(event) =>
@@ -422,6 +406,22 @@ const NewMatterForm = () => {
                       costList.map((costVal) =>
                         costVal.id === cost.id
                           ? { ...costVal, name: event.target.value }
+                          : costVal
+                      )
+                    )
+                  }
+                />
+                <Select
+                  className="flex-grow sm:mb-0 mb-2 sm:w-40"
+                  placeholder="品目を選択してください。"
+                  data={itemList}
+                  required
+                  value={cost.item}
+                  onChange={(value) =>
+                    setCostList(
+                      costList.map((costVal) =>
+                        costVal.id === cost.id
+                          ? { ...costVal, item: value || "" }
                           : costVal
                       )
                     )
@@ -443,26 +443,10 @@ const NewMatterForm = () => {
                 />
               </div>
               <div className="sm:flex gap-2 flex-1">
-                <Select
-                  className="flex-grow sm:mb-0 mb-2"
-                  placeholder="品目を選択ください。"
-                  data={itemList}
-                  required
-                  value={cost.item}
-                  onChange={(value) =>
-                    setCostList(
-                      costList.map((costVal) =>
-                        costVal.id === cost.id
-                          ? { ...costVal, item: value || "" }
-                          : costVal
-                      )
-                    )
-                  }
-                />
                 <NumberInput
-                  placeholder="¥0"
+                  placeholder="金額をご記入ください。"
                   className="flex-grow sm:mb-0 mb-2"
-                  value={cost.price}
+                  value={cost.price || ""}
                   prefix="¥"
                   allowNegative={false}
                   allowDecimal={false}
@@ -495,8 +479,8 @@ const NewMatterForm = () => {
                   }}
                 />
                 <Select
-                  className="flex-grow"
-                  placeholder="支払いの通知方法を選択ください。"
+                  className="flex-grow sm:mb-0 mb-2"
+                  placeholder="支払いの通知方法を選択してください。"
                   data={certificateList}
                   required
                   value={cost.certificate}
@@ -510,27 +494,28 @@ const NewMatterForm = () => {
                     )
                   }
                 />
+                <div className="flex items-center whitespace-nowrap">
+                  <Checkbox
+                    label="源泉徴収あり"
+                    key={form.key("withholding")}
+                    {...form.getInputProps("withholding", { type: "checkbox" })}
+                    onChange={(value) =>
+                      setCostList(
+                        costList.map((costVal) =>
+                          costVal.id === cost.id
+                            ? {
+                                ...costVal,
+                                withholding: value.currentTarget.checked,
+                              }
+                            : costVal
+                        )
+                      )
+                    }
+                  />
+                </div>
               </div>
             </div>
-            <div className="hidden lg:flex ml-4 items-center flex-shrink-0">
-              <Checkbox
-                label="源泉徴収あり"
-                className="whitespace-nowrap"
-                key={form.key("withholding")}
-                {...form.getInputProps("withholding", { type: "checkbox" })}
-                onChange={(value) =>
-                  setCostList(
-                    costList.map((costVal) =>
-                      costVal.id === cost.id
-                        ? {
-                            ...costVal,
-                            withholding: value.currentTarget.checked,
-                          }
-                        : costVal
-                    )
-                  )
-                }
-              />
+            <div className="hidden lg:flex">
               <button
                 className="text-lg hover:cursor-pointer w-4 ml-2 flex items-center justify-center hover:text-blue-500"
                 onClick={() => handleRemoveCost(cost.id)}
