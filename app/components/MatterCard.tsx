@@ -73,14 +73,11 @@ export function MatterCardsGrid({
             )}
           </div>
         </Group>
-        <Text className="">分類 :{matter.category}</Text>
-        <Text className="">チーム :{matter.team}</Text>
-        <Text className="">
-          合計請求額 :{formatCurrency(matter.total_amount)}
-        </Text>
-        <Text className="">
-          合計コスト :{formatCurrency(matter.total_cost)}
-        </Text>
+        <Text>案件ID :{matter.id}</Text>
+        <Text>分類 :{matter.category}</Text>
+        <Text>チーム :{matter.team}</Text>
+        <Text>合計請求額 :{formatCurrency(matter.total_amount)}</Text>
+        <Text>合計コスト :{formatCurrency(matter.total_cost)}</Text>
         <Text
           c="dimmed"
           size="xs"
