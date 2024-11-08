@@ -1,9 +1,4 @@
-import {
-  categoryList,
-  certificateList,
-  itemList,
-  teamList,
-} from "@/app/types/params";
+import { categoryList, teamList } from "@/app/types/params";
 import { BusinessType, CostType, MatterType } from "@/app/types/types";
 import {
   deleteBusinessInfo,
@@ -20,19 +15,18 @@ import {
 import {
   Modal,
   TextInput,
-  NumberInput,
   Select,
   Button,
   Group,
-  Checkbox,
   Badge,
   Textarea,
 } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useEffect, useState } from "react";
-import { FaRegTrashAlt } from "react-icons/fa";
 import { CiSquarePlus } from "react-icons/ci";
 import { CustomDatePicker } from "../CustomDatePicker";
+import BusinessBlock from "../BusinessBlock";
+import CostBlock from "../CostBlock";
 
 type Props = {
   matterInfo: MatterType;
@@ -53,13 +47,13 @@ type UpdatedMatterInfoType = {
 };
 
 type CostInCardType = {
-  isNew: boolean;
-  isRemoved: boolean;
+  isNew?: boolean;
+  isRemoved?: boolean;
 } & CostType;
 
 type BussinessInCardType = {
-  isNew: boolean;
-  isRemoved: boolean;
+  isNew?: boolean;
+  isRemoved?: boolean;
 } & BusinessType;
 
 export const MatterCardDetailModal = ({
@@ -436,107 +430,27 @@ export const MatterCardDetailModal = ({
         {businessInfoInCardList.length > 0 && (
           <h2 className="mt-8 mb-4">取引先情報</h2>
         )}
-        {businessInfoInCardList.map((businessInfo, index) =>
-          businessInfo.isRemoved ? (
-            ""
-          ) : (
-            <div
-              key={businessInfo.id}
-              className="md:flex md:border-none border rounded-lg md:p-0 p-2 my-2 items-center md:bg-white bg-green-50"
-            >
-              {!matterInfo.is_fixed && (
-                <div className="md:hidden flex justify-between w-full m-2">
-                  <div>取引先{index + 1}</div>
-                  <button
-                    className="h-full mx-4 text-lg hover:cursor-pointer w-4 ml-auto items-center justify-center hover:text-blue-500"
-                    onClick={() => handleRemoveBusiness(businessInfo.id)}
-                  >
-                    <FaRegTrashAlt />
-                  </button>
-                </div>
-              )}
-              <div className="md:flex gap-4 w-full">
-                <div className="sm:flex md:my-0 my-2 gap-4 w-full">
-                  <TextInput
-                    placeholder="取引先名をご記入ください。"
-                    className="flex-grow sm:my-0 my-2 "
-                    disabled={matterInfo.is_fixed!}
-                    value={businessInfo.name}
-                    onChange={(event) =>
-                      setBusinessInfoInCardList(
-                        businessInfoInCardList.map((businessVal) =>
-                          businessVal.id === businessInfo.id
-                            ? { ...businessVal, name: event.target.value }
-                            : businessVal
-                        )
-                      )
-                    }
-                  />
-                  <NumberInput
-                    placeholder="報酬額をご記入ください。"
-                    className="flex-grow"
-                    disabled={matterInfo.is_fixed!}
-                    value={businessInfo.amount! || ""}
-                    prefix="¥"
-                    allowNegative={false}
-                    allowDecimal={false}
-                    thousandSeparator=","
-                    onChange={(value) =>
-                      setBusinessInfoInCardList(
-                        businessInfoInCardList.map((businessVal) =>
-                          businessVal.id === businessInfo.id
-                            ? { ...businessVal, amount: Number(value) }
-                            : businessVal
-                        )
-                      )
-                    }
-                  />
-                </div>
-                <div className="sm:flex gap-4 w-full">
-                  <CustomDatePicker
-                    placeholder="請求日をご記入ください。"
-                    disabled={matterInfo.is_fixed!}
-                    value={businessInfo.invoice_date}
-                    onChange={(date) => {
-                      setBusinessInfoInCardList(
-                        businessInfoInCardList.map((businessVal) =>
-                          businessVal.id === businessInfo.id
-                            ? { ...businessVal, invoice_date: date }
-                            : businessVal
-                        )
-                      );
-                    }}
-                    className="flex-grow sm:my-0 my-2"
-                  />
-                  <CustomDatePicker
-                    placeholder="振込期限をご記入ください。"
-                    disabled={matterInfo.is_fixed!}
-                    value={businessInfo.period_date}
-                    onChange={(date) => {
-                      setBusinessInfoInCardList(
-                        businessInfoInCardList.map((businessVal) =>
-                          businessVal.id === businessInfo.id
-                            ? { ...businessVal, period_date: date }
-                            : businessVal
-                        )
-                      );
-                    }}
-                    className="flex-grow sm:my-0 my-2"
-                  />
-                </div>
-              </div>
-              {!matterInfo.is_fixed && (
-                <button
-                  className="hidden text-lg hover:cursor-pointer w-4 ml-2 md:flex items-center justify-center hover:text-blue-500"
-                  onClick={() => handleRemoveBusiness(businessInfo.id)}
-                >
-                  <FaRegTrashAlt />
-                </button>
-              )}
-            </div>
-          )
+        {businessInfoInCardList.map(
+          (businessInfo, index) =>
+            !businessInfo.isRemoved && (
+              <BusinessBlock
+                key={businessInfo.id}
+                businessInfo={businessInfo}
+                index={index}
+                isFixed={matterInfo.is_fixed!}
+                onRemoveBusiness={handleRemoveBusiness}
+                onBusinessUpdate={(updatedBusiness) => {
+                  setBusinessInfoInCardList(
+                    businessInfoInCardList.map((businessVal) =>
+                      businessVal.id === updatedBusiness.id
+                        ? updatedBusiness
+                        : businessVal
+                    )
+                  );
+                }}
+              />
+            )
         )}
-
         {!matterInfo.is_fixed && (
           <Button
             type="button"
@@ -554,164 +468,24 @@ export const MatterCardDetailModal = ({
         {costInfoInCardList.length > 0 && (
           <h2 className="mt-8 mb-4">コスト情報</h2>
         )}
-        {costInfoInCardList?.map((cost, index) =>
-          cost.isRemoved ? (
-            ""
-          ) : (
-            <div
-              key={cost.id}
-              className="lg:flex items-center my-2 lg:p-0 p-2 lg:border-none border rounded-lg lg:bg-white bg-slate-50"
-            >
-              {!matterInfo.is_fixed && (
-                <div className="lg:hidden flex justify-between w-full m-2">
-                  <div>コスト{index + 1}</div>
-                  <div className="flex gap-2">
-                    <button
-                      className="h-full mx-4 text-lg hover:cursor-pointer w-4 ml-auto items-center justify-center hover:text-blue-500"
-                      onClick={() => handleRemoveCost(cost.id)}
-                    >
-                      <FaRegTrashAlt />
-                    </button>
-                  </div>
-                </div>
-              )}
-              <div className="flex-grow lg:flex gap-2 min-w-0">
-                <div className="sm:flex gap-2 lg:mb-0 mb-2 flex-1">
-                  <TextInput
-                    placeholder="コスト名をご記入ください。"
-                    className="flex-grow sm:mb-0 mb-2"
-                    disabled={matterInfo.is_fixed!}
-                    value={cost.name}
-                    onChange={(event) =>
-                      setCostInfoInCardList(
-                        costInfoInCardList.map((costVal) =>
-                          costVal.id === cost.id
-                            ? { ...costVal, name: event.target.value }
-                            : costVal
-                        )
-                      )
-                    }
-                  />
-                  <Select
-                    className="flex-grow sm:mb-0 mb-2 sm:w-40"
-                    placeholder="品目を選択してください。"
-                    data={itemList}
-                    required
-                    disabled={matterInfo.is_fixed!}
-                    value={cost.item}
-                    onChange={(value) =>
-                      setCostInfoInCardList(
-                        costInfoInCardList.map((costVal) =>
-                          costVal.id === cost.id
-                            ? { ...costVal, item: value || "" }
-                            : costVal
-                        )
-                      )
-                    }
-                  />
-                  <TextInput
-                    placeholder="支払い先の名前をご記入ください。"
-                    className="flex-grow sm:mb-0 mb-2"
-                    disabled={matterInfo.is_fixed!}
-                    value={cost.payment_target}
-                    onChange={(event) =>
-                      setCostInfoInCardList(
-                        costInfoInCardList.map((costVal) =>
-                          costVal.id === cost.id
-                            ? {
-                                ...costVal,
-                                payment_target: event.target.value,
-                              }
-                            : costVal
-                        )
-                      )
-                    }
-                  />
-                </div>
-                <div className="sm:flex gap-2 sm:mb-0 mb-2 flex-1">
-                  <NumberInput
-                    placeholder="金額をご記入ください。"
-                    className="flex-grow sm:mb-0 mb-2"
-                    disabled={matterInfo.is_fixed!}
-                    value={cost.price || ""}
-                    prefix="¥"
-                    allowNegative={false}
-                    allowDecimal={false}
-                    thousandSeparator=","
-                    onChange={(value) =>
-                      setCostInfoInCardList(
-                        costInfoInCardList.map((costVal) =>
-                          costVal.id === cost.id
-                            ? { ...costVal, price: Number(value) }
-                            : costVal
-                        )
-                      )
-                    }
-                  />
-                  <CustomDatePicker
-                    placeholder="支払い期限をご記入ください。"
-                    disabled={matterInfo.is_fixed!}
-                    value={cost.period}
-                    onChange={(date) => {
-                      setCostInfoInCardList(
-                        costInfoInCardList.map((costVal) =>
-                          costVal.id === cost.id
-                            ? { ...costVal, period: date }
-                            : costVal
-                        )
-                      );
-                    }}
-                    className="flex-grow sm:mb-0 mb-2"
-                  />
-                  <Select
-                    className="flex-grow sm:mb-0 mb-2"
-                    placeholder="支払いの通知方法を選択してください。"
-                    data={certificateList}
-                    required
-                    disabled={matterInfo.is_fixed!}
-                    value={cost.certificate}
-                    onChange={(value) =>
-                      setCostInfoInCardList(
-                        costInfoInCardList.map((costVal) =>
-                          costVal.id === cost.id
-                            ? { ...costVal, certificate: value || "" }
-                            : costVal
-                        )
-                      )
-                    }
-                  />
-                  <div className="flex items-center">
-                    <Checkbox
-                      label="源泉徴収あり"
-                      className="whitespace-nowrap flex-shrink-0"
-                      disabled={matterInfo.is_fixed!}
-                      checked={cost.withholding}
-                      onChange={(value) =>
-                        setCostInfoInCardList(
-                          costInfoInCardList.map((costVal) =>
-                            costVal.id === cost.id
-                              ? {
-                                  ...costVal,
-                                  withholding: value.currentTarget.checked,
-                                }
-                              : costVal
-                          )
-                        )
-                      }
-                    />
-                  </div>
-                </div>
-              </div>
-              <div className="hidden lg:flex">
-                <button
-                  className="text-lg hover:cursor-pointer w-4 ml-2 flex items-center justify-center hover:text-blue-500"
-                  onClick={() => handleRemoveCost(cost.id)}
-                >
-                  <FaRegTrashAlt />
-                </button>
-              </div>
-            </div>
-          )
+        {costInfoInCardList.map(
+          (costInfo, index) =>
+            !costInfo.isRemoved && (
+              <CostBlock
+                key={costInfo.id}
+                costInfo={costInfo}
+                index={index}
+                isFixed={matterInfo.is_fixed!}
+                onRemoveCost={handleRemoveCost}
+                onCostUpdate={(updatedCost) => {
+                  setCostInfoInCardList(
+                    costInfoInCardList.map((costVal) =>
+                      costVal.id === updatedCost.id ? updatedCost : costVal
+                    )
+                  );
+                }}
+              />
+            )
         )}
         {!matterInfo.is_fixed && (
           <Button
