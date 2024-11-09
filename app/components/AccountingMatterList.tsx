@@ -3,7 +3,7 @@
 import { Button, Checkbox, Table } from "@mantine/core";
 import { useState } from "react";
 import { elementListInAccounting } from "../types/params";
-import { MatterInfoWithUserNameType, MatterType } from "../types/types";
+import { MatterInfoWithUserNameType } from "../types/types";
 import { MatterCardDetailModalForAccounting } from "./modal/MatterCardDetailForAccounting";
 import { FaCheck } from "react-icons/fa";
 import { updateMatterInfo } from "../utils/supabaseServer";
@@ -82,6 +82,11 @@ export const AccountingMatterList = ({
       for (const id of checkedMatterIdList) {
         const matterToNotify: MatterInfoWithUserNameType | undefined =
           matterList?.find((matter) => matter.id === id);
+        if (!matterToNotify) {
+          console.error(`案件ID${id}が見つかりません。`);
+          continue;
+        }
+
         const slackName = matterToNotify?.slack_id
           ? `<@${matterToNotify.slack_id}>`
           : matterToNotify?.user_name;
@@ -94,12 +99,10 @@ export const AccountingMatterList = ({
         if (slackResult.error) {
           throw new Error(slackResult.error);
         }
-        let updatedMatter: MatterType | undefined = matterList?.find(
-          (matter) => matter.id === id
-        );
-        if (updatedMatter) {
-          updatedMatter.is_fixed = false;
-          await updateMatterInfo(updatedMatter);
+        const { user_name, slack_id, ...updateData } = matterToNotify;
+        if (updateData) {
+          updateData.is_fixed = false;
+          await updateMatterInfo(updateData);
         } else {
           console.error(`案件ID${id}が見つかりません。`);
         }
