@@ -1,4 +1,3 @@
-import { categoryList, teamList } from "@/app/types/params";
 import { BusinessType, CostType, MatterType } from "@/app/types/types";
 import {
   deleteBusinessInfo,
@@ -12,21 +11,13 @@ import {
   updateCostInfo,
   updateMatterInfo,
 } from "@/app/utils/supabaseServer";
-import {
-  Modal,
-  TextInput,
-  Select,
-  Button,
-  Group,
-  Badge,
-  Textarea,
-} from "@mantine/core";
+import { Modal, Button, Group, Badge } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useEffect, useState } from "react";
 import { CiSquarePlus } from "react-icons/ci";
-import { CustomDatePicker } from "../CustomDatePicker";
 import BusinessBlock from "../BusinessBlock";
 import CostBlock from "../CostBlock";
+import MatterInfoBlock, { MatterFormValues } from "../MatterInfoBlock";
 
 type Props = {
   matterInfo: MatterType;
@@ -134,7 +125,7 @@ export const MatterCardDetailModal = ({
     }
   }, [opened, matterInfo.id]);
 
-  const form = useForm({
+  const form = useForm<MatterFormValues>({
     initialValues: {
       id: matterInfo.id,
       title: matterInfo.title,
@@ -147,6 +138,11 @@ export const MatterCardDetailModal = ({
       cost_count: matterInfo.cost_count,
       is_fixed: matterInfo.is_fixed,
       description: matterInfo.description,
+      user_id: matterInfo.user_id,
+      inserted_at: "",
+      updated_at: "",
+      is_completed: false,
+      accounting_memo: "",
     },
   });
 
@@ -379,56 +375,11 @@ export const MatterCardDetailModal = ({
             <Badge color="red">申請者編集中</Badge>
           )}
         </div>
-        <h2 className="mb-4">基本情報</h2>
-        <div className="sm:flex gap-4 w-full">
-          <TextInput
-            className="w-full"
-            withAsterisk
-            label="案件名"
-            placeholder="案件名をご記入ください。"
-            required
-            disabled={matterInfo.is_fixed!}
-            {...form.getInputProps("title")}
-          />
-          <Select
-            label="分類"
-            className="w-full"
-            placeholder="案件の分類をご記入ください。"
-            data={categoryList}
-            required
-            disabled={matterInfo.is_fixed!}
-            {...form.getInputProps("category")}
-          />
-          <Select
-            label="チーム"
-            className="w-full"
-            placeholder="案件を担当するチームを選択ください。"
-            data={teamList}
-            required
-            disabled={matterInfo.is_fixed!}
-            {...form.getInputProps("team")}
-          />
-          <CustomDatePicker
-            label="案件開始日"
-            required
-            placeholder="案件開始日をご記入ください。"
-            disabled={matterInfo.is_fixed!}
-            value={form.getValues().start_date}
-            onChange={(date) => form.setFieldValue("start_date", date || "")}
-            className="md:pt-0 pt-4 w-full"
-            showIcon
-          />
-        </div>
-        <Textarea
-          label="説明"
-          className="pt-4 w-full"
-          disabled={matterInfo.is_fixed!}
-          placeholder="案件に追加の説明があればご記入ください。"
-          {...form.getInputProps("description")}
-        />
+        <h2>基本情報</h2>
+        <MatterInfoBlock form={form} />
 
         {businessInfoInCardList.length > 0 && (
-          <h2 className="mt-8 mb-4">取引先情報</h2>
+          <h2 className="my-4">取引先情報</h2>
         )}
         {businessInfoInCardList.map(
           (businessInfo, index) =>

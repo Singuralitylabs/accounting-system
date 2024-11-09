@@ -1,11 +1,10 @@
 "use client";
 
 import { BusinessType, CostType, MatterType } from "@/app/types/types";
-import { Button, Group, Select, Textarea, TextInput } from "@mantine/core";
+import { Button, Group } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useState } from "react";
 import { CiSquarePlus } from "react-icons/ci";
-import { categoryList, teamList } from "../types/params";
 import {
   insertBusinessInfo,
   insertCostInfo,
@@ -13,24 +12,31 @@ import {
 } from "../utils/supabaseServer";
 import BusinessBlock from "./BusinessBlock";
 import CostBlock from "./CostBlock";
-import { CustomDatePicker } from "./CustomDatePicker";
+import { MatterFormValues, MatterInfoBlock } from "./MatterInfoBlock";
 
 const NewMatterForm = () => {
-  const form = useForm({
+  const initialFormValues: MatterFormValues = {
+    id: 0,
+    title: "",
+    category: "",
+    team: "",
+    start_date: "",
+    description: "",
+    is_fixed: false,
+    total_amount: null,
+    business_count: null,
+    total_cost: null,
+    cost_count: null,
+    user_id: 1,
+    inserted_at: "",
+    updated_at: "",
+    is_completed: false,
+    accounting_memo: null,
+  };
+
+  const form = useForm<MatterFormValues>({
     mode: "uncontrolled",
-    initialValues: {
-      id: 0,
-      title: "",
-      category: "",
-      team: "",
-      start_date: "",
-      description: "",
-      is_fixed: false,
-      is_completed: false,
-      user_id: 0,
-      inserted_at: "",
-      updated_at: "",
-    },
+    initialValues: initialFormValues,
   });
 
   const [costList, setCostList] = useState<CostType[]>([]);
@@ -160,8 +166,11 @@ const NewMatterForm = () => {
 
       alert(`${matterInfo.title}の新規登録を完了しました。[案件ID:${newId}]`);
       form.reset();
+      form.setValues(initialFormValues);
       setCostList([]);
       setBusinessList([]);
+      setCostIndex(1);
+      setBusinessIndex(1);
     } catch (error) {
       alert(`${matterInfo.title}の新規登録に失敗しました。`);
       console.error(error);
@@ -178,64 +187,19 @@ const NewMatterForm = () => {
           total_cost: 0,
           business_count: 0,
           cost_count: 0,
-          accounting_memo: "",
+          accounting_memo: null,
+          inserted_at: "",
+          is_completed: false,
+          updated_at: "",
+          user_id: 1,
         })
       )}
     >
       <span className="text-red-700 text-sm">
         ※全て税抜金額をご記入ください。
       </span>
-      <h2 className="my-4">基本情報</h2>
-      <div className="md:flex gap-4 w-full">
-        <TextInput
-          className="w-full"
-          withAsterisk
-          required
-          placeholder="案件名をご記入ください。"
-          label="案件名"
-          key={form.key("title")}
-          {...form.getInputProps("title")}
-        />
-        <Select
-          withAsterisk
-          required
-          className="md:pt-0 pt-4 w-full"
-          placeholder="案件に適した分類を選択して下さい。"
-          label="分類"
-          data={categoryList}
-          clearable
-          key={form.key("category")}
-          {...form.getInputProps("category")}
-        />
-        <Select
-          withAsterisk
-          required
-          className="md:pt-0 pt-4 w-full"
-          placeholder="案件担当のチームを選択して下さい。"
-          label="チーム"
-          data={teamList}
-          clearable
-          key={form.key("team")}
-          {...form.getInputProps("team")}
-        />
-        <CustomDatePicker
-          label="案件開始日"
-          required
-          placeholder="案件開始日をご記入ください。"
-          value={form.getValues().start_date}
-          onChange={(date) => form.setFieldValue("start_date", date || "")}
-          className="md:pt-0 pt-4 w-full"
-          showIcon
-        />
-      </div>
-
-      <Textarea
-        className="pt-4 w-full"
-        placeholder="案件に関して追加で説明があればご記入ください。"
-        label="説明"
-        key={form.key("description")}
-        {...form.getInputProps("description")}
-      />
+      <h2 className="mt-4">基本情報</h2>
+      <MatterInfoBlock form={form} bgColor="bg-slate-50" />
 
       <h2 className="mt-8">取引先情報</h2>
       <span className="text-sm">
