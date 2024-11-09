@@ -7,52 +7,62 @@ export async function middleware(req: NextRequest) {
   const res = NextResponse.next();
   const supabase = createMiddlewareClient({ req, res });
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
 
-  if (req.nextUrl.pathname === "/accounting") {
-    if (!session) {
+    const { pathname } = req.nextUrl;
+
+    const isProtectedRoute =
+      pathname === "/" ||
+      pathname.startsWith("/accounting") ||
+      pathname.startsWith("/new");
+
+    const isAuthRoute =
+      pathname.startsWith("/login") || pathname.startsWith("/auth/callback");
+
+    const isPublicFile =
+      pathname.match(/\.(js|css|ico|png|jpg|jpeg|svg|gif)$/) ||
+      pathname.startsWith("/_next") ||
+      pathname.startsWith("/api");
+
+    if (isPublicFile) {
+      return res;
+    }
+
+    if (pathname.startsWith("/auth/")) {
+      return res;
+    }
+
+    if (!session && isProtectedRoute) {
+      return NextResponse.redirect(new URL("/login", req.url));
+    }
+
+    if (session && pathname === "/accounting") {
+      try {
+        const { profileInfo } = await getProfileInfo();
+        if (
+          !profileInfo?.class ||
+          (profileInfo.class !== "accounting" && profileInfo.class !== "admin")
+        ) {
+          return NextResponse.redirect(new URL("/", req.url));
+        }
+      } catch (error) {
+        console.error("Profile fetch error:", error);
+        return NextResponse.redirect(new URL("/", req.url));
+      }
+    }
+
+    if (session && isAuthRoute) {
       return NextResponse.redirect(new URL("/", req.url));
     }
 
-    const { profileInfo: profileInfo } = await getProfileInfo();
-    if (
-      !profileInfo?.class ||
-      (profileInfo.class !== "accounting" && profileInfo.class !== "admin")
-    ) {
-      return NextResponse.redirect(new URL("/", req.url));
-    }
-  }
-
-  const { pathname } = req.nextUrl;
-
-  const isProtectedRoute =
-    pathname === "/" ||
-    pathname.startsWith("/accounting") ||
-    pathname.startsWith("/new");
-
-  const isAuthRoute =
-    pathname.startsWith("/login") || pathname.startsWith("/auth/callback");
-
-  const isPublicFile =
-    pathname.match(/\.(js|css|ico|png|jpg|jpeg|svg|gif)$/) ||
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/api");
-
-  if (isPublicFile) {
     return res;
-  }
-
-  if (!session && isProtectedRoute) {
+  } catch (error) {
+    console.error("Middleware error:", error);
     return NextResponse.redirect(new URL("/login", req.url));
   }
-
-  if (session && isAuthRoute) {
-    return NextResponse.redirect(new URL("/", req.url));
-  }
-
-  return res;
 }
 
 export const config = {
