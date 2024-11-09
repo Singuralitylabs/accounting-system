@@ -3,13 +3,6 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getProfileInfo } from "./app/utils/supabaseServer";
 
-const ALLOWED_DOMAIN = "future-tech-association.org";
-
-const isAllowedDomain = (email: string | undefined): boolean => {
-  if (!email) return false;
-  return email.endsWith(`@${ALLOWED_DOMAIN}`);
-};
-
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next();
   const supabase = createMiddlewareClient({ req, res });
@@ -17,11 +10,6 @@ export async function middleware(req: NextRequest) {
   const {
     data: { session },
   } = await supabase.auth.getSession();
-
-  if (session?.user.email && !isAllowedDomain(session.user.email)) {
-    await supabase.auth.signOut();
-    return NextResponse.redirect(new URL("/login", req.url));
-  }
 
   if (req.nextUrl.pathname === "/accounting") {
     if (!session) {
@@ -53,14 +41,6 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith("/api");
 
   if (isPublicFile) {
-    return res;
-  }
-
-  if (pathname.startsWith("/auth/callback")) {
-    if (session?.user.email && !isAllowedDomain(session.user.email)) {
-      await supabase.auth.signOut();
-      return NextResponse.redirect(new URL("/login", req.url));
-    }
     return res;
   }
 
