@@ -8,9 +8,9 @@ type Props = {
     isNew?: boolean;
     isRemoved?: boolean;
   };
+  formType: string;
   isFixed?: boolean;
   index: number;
-  bgColor?: string;
   onRemoveBusiness: (id: number) => void;
   onBusinessUpdate: (
     updatedBusiness: BusinessType & { isNew?: boolean; isRemoved?: boolean }
@@ -19,9 +19,9 @@ type Props = {
 
 const BusinessBlock = ({
   businessInfo,
+  formType,
   isFixed = false,
   index,
-  bgColor = "bg-white",
   onRemoveBusiness,
   onBusinessUpdate,
 }: Props) => {
@@ -29,10 +29,12 @@ const BusinessBlock = ({
     onBusinessUpdate({ ...businessInfo, ...updates });
   };
 
+  const mdBgColorClass = formType === "new" ? "md:bg-slate-50" : "md:bg-white";
+
   return (
     <div
       key={businessInfo.id}
-      className={`md:flex md:border-none border rounded-lg md:p-0 p-2 my-2 items-center md:${bgColor} bg-green-50`}
+      className={`border rounded-lg p-2 my-2 items-center bg-green-50 md:flex md:border-none md:p-0 ${mdBgColorClass}`}
     >
       {!isFixed && (
         <div className="md:hidden flex justify-between w-full m-2">
@@ -49,7 +51,7 @@ const BusinessBlock = ({
         <div className="sm:flex md:my-0 my-2 gap-4 w-full">
           <TextInput
             placeholder="取引先名をご記入ください。"
-            className="flex-grow sm:my-0 my-2 "
+            className="flex-grow sm:my-0 my-2"
             disabled={isFixed!}
             value={businessInfo.name}
             onChange={(e) => handleUpdate({ name: e.target.value })}

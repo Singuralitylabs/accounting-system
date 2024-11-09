@@ -209,8 +209,8 @@ const NewMatterForm = () => {
         <BusinessBlock
           key={businessInfo.id}
           businessInfo={businessInfo}
+          formType="new"
           index={index}
-          bgColor="bg-slate-50"
           onRemoveBusiness={handleRemoveBusiness}
           onBusinessUpdate={(updatedBusiness) => {
             setBusinessList(
@@ -243,8 +243,8 @@ const NewMatterForm = () => {
         <CostBlock
           key={costInfo.id}
           costInfo={costInfo}
+          formType="new"
           index={index}
-          bgColor="bg-slate-50"
           onRemoveCost={handleRemoveCost}
           onCostUpdate={(updatedCost) => {
             setCostList(

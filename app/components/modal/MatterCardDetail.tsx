@@ -387,6 +387,7 @@ export const MatterCardDetailModal = ({
               <BusinessBlock
                 key={businessInfo.id}
                 businessInfo={businessInfo}
+                formType="card"
                 index={index}
                 isFixed={matterInfo.is_fixed!}
                 onRemoveBusiness={handleRemoveBusiness}
@@ -425,6 +426,7 @@ export const MatterCardDetailModal = ({
               <CostBlock
                 key={costInfo.id}
                 costInfo={costInfo}
+                formType="card"
                 index={index}
                 isFixed={matterInfo.is_fixed!}
                 onRemoveCost={handleRemoveCost}
