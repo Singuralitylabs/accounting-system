@@ -1,4 +1,4 @@
-import NewMatterForm from "../components/newMatterForm";
+import NewMatterForm from "../components/NewMatterForm";
 import PageTitle from "../components/PageTitle";
 
 export const dynamic = "force-dynamic";
