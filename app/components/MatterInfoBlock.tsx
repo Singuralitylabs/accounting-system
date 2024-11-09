@@ -22,7 +22,7 @@ export type MatterFormValues = {
   accounting_memo: string | null;
 };
 
-type MatterInfoBlockProps = {
+type Props = {
   form: UseFormReturnType<MatterFormValues>;
   bgColor?: string;
   isFixedMode?: boolean;
@@ -32,7 +32,7 @@ export const MatterInfoBlock = ({
   form,
   bgColor = "bg-white",
   isFixedMode = false,
-}: MatterInfoBlockProps) => {
+}: Props) => {
   return (
     <div className={`p-4 rounded-lg ${bgColor}`}>
       <div className="md:flex gap-4 w-full">
