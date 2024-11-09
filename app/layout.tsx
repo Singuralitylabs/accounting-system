@@ -7,7 +7,7 @@ import { MantineProvider, ColorSchemeScript } from "@mantine/core";
 import SupabaseProvider from "./components/providers/SupabaseProvider";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies, headers } from "next/headers";
-import { DatePickerProvider } from "./components/DatePickerProvider";
+import { DatePickerProvider } from "./components/providers/DatePickerProvider";
 
 export const metadata: Metadata = {
   title: "案件管理アプリ",
