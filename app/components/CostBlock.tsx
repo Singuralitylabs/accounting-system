@@ -34,7 +34,6 @@ const CostBlock = ({
   return (
     <div
       key={costInfo.id}
-      // className={`lg:flex items-center my-2 lg:p-0 p-2 lg:border-none border rounded-lg lg:${bgColor} bg-slate-50`}
       className={`border rounded-lg p-2 my-2 items-center bg-slate-50 ${lgBgColor} lg:flex lg:border-none lg:p-0`}
     >
       {!isFixed && (
