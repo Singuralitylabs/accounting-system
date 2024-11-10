@@ -194,7 +194,11 @@ export const AccountingMatterList = ({
         <Table.Td className="whitespace-nowrap px-4 text-right">
           {matter.cost_count}
         </Table.Td>
-        <Table.Td className="whitespace-nowrap px-4 text-right">
+        <Table.Td
+          className={`whitespace-nowrap px-4 text-right ${
+            matter.unchecked_cost_count > 0 ? "text-red-600 font-bold" : ""
+          }`}
+        >
           {matter.unchecked_cost_count}
         </Table.Td>
         <Table.Td className="whitespace-nowrap px-4">
