@@ -190,6 +190,7 @@ const NewMatterForm = () => {
           accounting_memo: null,
           inserted_at: "",
           is_completed: false,
+          unchecked_cost_count: 0,
           updated_at: "",
           user_id: 1,
         })

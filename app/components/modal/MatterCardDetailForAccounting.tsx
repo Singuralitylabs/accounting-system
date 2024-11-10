@@ -135,24 +135,14 @@ export const MatterCardDetailModalForAccounting = ({
       alert("保存処理を中止しました。");
       return;
     }
-    await updateMatterInfo({
-      id: matterInfo.id,
-      title: matterInfo.title,
-      category: matterInfo.category,
-      team: matterInfo.team,
-      start_date: matterInfo.start_date,
-      description: matterInfo.description,
-      total_amount: matterInfo.total_amount,
-      business_count: matterInfo.business_count,
-      total_cost: matterInfo.total_cost,
-      cost_count: matterInfo.cost_count,
-      is_fixed: matterInfo.is_fixed,
-      is_completed: false,
-      user_id: matterInfo.user_id,
-      inserted_at: matterInfo.inserted_at,
-      updated_at: new Date().toISOString(),
-      accounting_memo: accountingMemo,
-    });
+
+    let { user_name, slack_id, ...updatedMatter } = matterInfo;
+    updatedMatter.unchecked_cost_count = costList.filter(
+      (cost) => !cost.is_completed
+    ).length;
+    updatedMatter.accounting_memo = accountingMemo;
+
+    await updateMatterInfo(updatedMatter);
 
     for (const business of businessList) {
       if (business) {
