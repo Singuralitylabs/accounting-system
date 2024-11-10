@@ -170,7 +170,11 @@ export const AccountingMatterList = ({
           )}
         </Table.Td>
         <Table.Td className="whitespace-nowrap px-4">{matter.id}</Table.Td>
-        <Table.Td className="whitespace-nowrap px-4">{matter.title}</Table.Td>
+        <Table.Td className="whitespace-nowrap px-4" title={matter.title}>
+          {matter.title.length > 15
+            ? `${matter.title.slice(0, 15)}...`
+            : matter.title}
+        </Table.Td>
         <Table.Td className="whitespace-nowrap px-4">
           {matter.user_name}
         </Table.Td>
@@ -190,6 +194,9 @@ export const AccountingMatterList = ({
         <Table.Td className="whitespace-nowrap px-4 text-right">
           {matter.cost_count}
         </Table.Td>
+        <Table.Td className="whitespace-nowrap px-4 text-right">
+          {matter.unchecked_cost_count}
+        </Table.Td>
         <Table.Td className="whitespace-nowrap px-4">
           <button
             onClick={() => handleShowMatterInfo(matter)}
@@ -204,21 +211,27 @@ export const AccountingMatterList = ({
 
   return (
     <div className="my-4">
-      <div className="flex justify-end gap-4 my-4">
-        <Button color="green" onClick={handleCheckCompleted}>
-          確認完了
-        </Button>
-        <Button color="indigo" onClick={() => setNotificationOpened(true)}>
-          担当者に連絡
-        </Button>
+      <div className="sticky top-4 bg-white z-10">
+        <div className="flex justify-end gap-4 my-4">
+          <Button color="green" onClick={handleCheckCompleted}>
+            確認完了
+          </Button>
+          <Button color="indigo" onClick={() => setNotificationOpened(true)}>
+            担当者に連絡
+          </Button>
+        </div>
       </div>
       <span className="text-red-700 text-sm m-4">
         ※記載の金額は、全て税抜となっております。
       </span>
-      <Table>
-        <Table.Thead>{tableHeads}</Table.Thead>
-        <Table.Tbody>{tableInfoList}</Table.Tbody>
-      </Table>
+
+      <div className="overflow-auto h-[calc(100vh-200px)]">
+        <Table stickyHeader>
+          <Table.Thead className="bg-white">{tableHeads}</Table.Thead>
+          <Table.Tbody>{tableInfoList}</Table.Tbody>
+        </Table>
+      </div>
+
       {detailOpened && detailMatterInfo ? (
         <MatterCardDetailModalForAccounting
           matterInfo={detailMatterInfo}
