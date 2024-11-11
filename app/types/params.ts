@@ -44,4 +44,5 @@ export const elementListInAccounting = [
   "合計コスト",
   "コスト数",
   "未払いコスト数",
+  "",
 ];
