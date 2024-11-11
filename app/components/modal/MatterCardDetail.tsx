@@ -379,7 +379,10 @@ export const MatterCardDetailModal = ({
           )}
         </div>
         <h2>基本情報</h2>
-        <MatterInfoBlock form={form} />
+        <MatterInfoBlock
+          form={form}
+          isFixedMode={matterInfo.is_fixed || false}
+        />
 
         {businessInfoInCardList.length > 0 && (
           <h2 className="my-4">取引先情報</h2>
