@@ -84,7 +84,7 @@ export const MatterCardDetailModal = ({
               withholding: costInfo.withholding,
               matter_id: costInfo.matter_id,
               comment: costInfo.comment,
-              is_completed: false,
+              is_completed: costInfo.is_completed,
               inserted_at: costInfo.inserted_at,
               updated_at: costInfo.updated_at,
               isNew: false,
@@ -112,7 +112,7 @@ export const MatterCardDetailModal = ({
               invoice_date: businessInfo.invoice_date,
               period_date: businessInfo.period_date,
               matter_id: matterInfo.id,
-              is_completed: false,
+              is_completed: businessInfo.is_completed,
               inserted_at: businessInfo.inserted_at,
               updated_at: businessInfo.updated_at,
               isNew: false,
@@ -184,6 +184,9 @@ export const MatterCardDetailModal = ({
       (cost) => !cost.isRemoved
     ).length;
     matterInfo.description = updatedMatterInfo.description;
+    matterInfo.unchecked_cost_count = costInfoInCardList.filter(
+      (cost) => !cost.is_completed
+    ).length;
 
     await updateMatterInfo(matterInfo);
 
