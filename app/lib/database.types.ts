@@ -125,6 +125,7 @@ export type Database = {
           title: string
           total_amount: number | null
           total_cost: number | null
+          unchecked_cost_count: number
           updated_at: string
           user_id: number
         }
@@ -143,6 +144,7 @@ export type Database = {
           title: string
           total_amount?: number | null
           total_cost?: number | null
+          unchecked_cost_count?: number
           updated_at?: string
           user_id: number
         }
@@ -161,6 +163,7 @@ export type Database = {
           title?: string
           total_amount?: number | null
           total_cost?: number | null
+          unchecked_cost_count?: number
           updated_at?: string
           user_id?: number
         }

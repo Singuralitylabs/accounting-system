@@ -6,8 +6,8 @@ import Link from "next/link";
 import React, { FC, Suspense, useEffect, useState } from "react";
 import { ProfilesType } from "../types/types";
 import { getProfileInfo } from "../utils/supabaseServer";
-import MobileHeader from "./mobile-header";
-import UserButton from "./user-button";
+import MobileHeader from "./MobileHeader";
+import UserButton from "./buttons/user-button";
 
 const Header: FC = () => {
   const [user, setUser] = useState<User | null>(null);
