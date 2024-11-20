@@ -1,4 +1,4 @@
-import { insertUserInfo } from "@/app/utils/supabaseServer";
+import { getProfileInfo, insertUserInfo } from "@/app/utils/supabaseServer";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
@@ -21,14 +21,21 @@ export async function GET(request: Request) {
       return NextResponse.redirect(`${requestUrl.origin}/auth-error`);
     }
 
-    const email = user.email || "";
-    const name = user.user_metadata.full_name || user.user_metadata.name;
+    const { profileInfo } = await getProfileInfo();
 
-    const { error: profileError } = await insertUserInfo({ user, name, email });
+    if (!profileInfo) {
+      const email = user.email || "";
+      const name = user.user_metadata.full_name || user.user_metadata.name;
 
-    if (profileError) {
-      console.error("Error creating/updating profile:", profileError);
-      // Continue with redirect even if profile update fails
+      const { error: profileError } = await insertUserInfo({
+        user,
+        name,
+        email,
+      });
+
+      if (profileError) {
+        console.error("Error creating profile:", profileError);
+      }
     }
   }
 
