@@ -107,12 +107,25 @@ export const insertUserInfo = async ({
 export const getAllMatterInfoList = async () => {
   const supabase = createServerComponentClient<Database>({ cookies });
 
-  const { data: matterList } = await supabase
+  const { data: matterList, error } = await supabase
     .from("matters")
-    .select("*, profiles!inner(*)")
+    .select(
+      `
+      *,
+      profiles!matters_user_id_fkey (
+        name,
+        slack_id
+      )
+    `
+    )
     .order("is_completed", { ascending: true })
     .order("is_fixed", { ascending: false })
     .order("id", { ascending: true });
+
+  if (error) {
+    console.error("Error fetching matters:", error);
+    return null;
+  }
 
   return matterList;
 };

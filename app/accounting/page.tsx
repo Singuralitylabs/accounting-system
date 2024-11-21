@@ -1,16 +1,15 @@
 import PageTitle from "../components/PageTitle";
 import { AccountingMatterList } from "../components/AccountingMatterList";
 import { getAllMatterInfoList } from "../utils/supabaseServer";
-import {
-  MatterInfoWithUserNameType,
-  MatterType,
-  ProfilesType,
-} from "../types/types";
+import { MatterInfoWithUserNameType, MatterType } from "../types/types";
 
 export const dynamic = "force-dynamic";
 
 type MatterTypeAndProfileType = MatterType & {
-  profiles: ProfilesType;
+  profiles: {
+    name: string;
+    slack_id: string | null;
+  } | null;
 };
 const AccountingMatterPage = async () => {
   const matterListWithProfile: MatterTypeAndProfileType[] | null =
@@ -22,8 +21,8 @@ const AccountingMatterPage = async () => {
         const { profiles, ...matterInfo } = matterWithProfile;
         return {
           ...matterInfo,
-          user_name: profiles.name,
-          slack_id: profiles.slack_id,
+          user_name: profiles!.name,
+          slack_id: profiles!.slack_id,
         };
       }
     ) ?? [];
