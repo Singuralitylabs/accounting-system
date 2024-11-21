@@ -82,7 +82,7 @@ export type Database = {
           period?: string | null
           price: number
           updated_at?: string
-          withholding: boolean
+          withholding?: boolean
         }
         Update: {
           certificate?: string
@@ -169,7 +169,7 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "matter_user_id_fkey"
+            foreignKeyName: "matters_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
@@ -191,7 +191,7 @@ export type Database = {
         Insert: {
           class?: string | null
           email: string
-          id?: never
+          id?: number
           inserted_at?: string
           name: string
           slack_id?: string | null
@@ -201,7 +201,7 @@ export type Database = {
         Update: {
           class?: string | null
           email?: string
-          id?: never
+          id?: number
           inserted_at?: string
           name?: string
           slack_id?: string | null

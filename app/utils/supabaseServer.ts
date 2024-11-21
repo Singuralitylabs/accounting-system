@@ -9,27 +9,46 @@ import { Database } from "../lib/database.types";
 import { MatterType } from "../types/types";
 
 export const getProfileInfo = async () => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  try {
+    const supabase = createServerComponentClient<Database>({ cookies });
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
 
-  if (!user || userError) {
-    return { error: new Error("ユーザー認証情報の取得に失敗しました。") };
+    if (!user || userError) {
+      console.error("User authentication failed:", userError);
+      return { error: new Error("ユーザー認証情報の取得に失敗しました。") };
+    }
+
+    const { data: profileInfo, error: profileError } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("user_id", user.id)
+      .single();
+
+    if (!profileInfo || profileError) {
+      console.error("Profile fetch failed:", profileError);
+      return { error: new Error("プロファイル情報の取得に失敗しました。") };
+    }
+
+    return {
+      profileInfo: {
+        id: profileInfo.id,
+        user_id: profileInfo.user_id,
+        email: profileInfo.email,
+        name: profileInfo.name,
+        slack_id: profileInfo.slack_id,
+        class: profileInfo.class,
+        inserted_at: profileInfo.inserted_at,
+        updated_at: profileInfo.updated_at,
+      },
+    };
+  } catch (error) {
+    console.error("Unexpected error in getProfileInfo:", error);
+    return { error: new Error("予期せぬエラーが発生しました。") };
   }
-
-  const { data: profileInfo, error: profileError } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("user_id", user.id)
-    .single();
-  if (!profileInfo || profileError) {
-    return { error: new Error("プロファイル情報の取得に失敗しました。") };
-  }
-
-  return { profileInfo };
 };
 
 export const getUserInfo = async (id: number) => {
@@ -54,41 +73,59 @@ export const insertUserInfo = async ({
 }) => {
   const supabase = createServerComponentClient<Database>({ cookies });
 
-  const { profileInfo: existingProfileInfo } = await getProfileInfo();
+  try {
+    const { error: insertError } = await supabase
+      .from("profiles")
+      .insert([
+        {
+          user_id: user.id,
+          email: email,
+          name: name,
+          class: "public",
+          inserted_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ])
+      .select()
+      .single();
 
-  const { error: profileError } = await supabase.from("profiles").upsert(
-    {
-      user_id: user.id,
-      email,
-      name,
-      class: existingProfileInfo?.class ?? "public",
-      updated_at: new Date().toISOString(),
-    },
-    {
-      onConflict: "user_id",
+    if (insertError) {
+      console.error(
+        `profilesテーブルへの${name}の追加処理で失敗しました。`,
+        insertError
+      );
+      return { error: insertError };
     }
-  );
 
-  if (profileError) {
-    console.error(
-      `profilesテーブルへの${name}の追加処理で失敗しました。`,
-      profileError
-    );
-    return { profileError };
+    return { error: null };
+  } catch (error) {
+    console.error("Unexpected error during insert:", error);
+    return { error };
   }
-
-  return { error: null };
 };
 
 export const getAllMatterInfoList = async () => {
   const supabase = createServerComponentClient<Database>({ cookies });
 
-  const { data: matterList } = await supabase
+  const { data: matterList, error } = await supabase
     .from("matters")
-    .select("*, profiles!inner(*)")
+    .select(
+      `
+      *,
+      profiles!matters_user_id_fkey (
+        name,
+        slack_id
+      )
+    `
+    )
     .order("is_completed", { ascending: true })
     .order("is_fixed", { ascending: false })
     .order("id", { ascending: true });
+
+  if (error) {
+    console.error("Error fetching matters:", error);
+    return null;
+  }
 
   return matterList;
 };
