@@ -31,11 +31,11 @@ create policy "business_select_policy" on business
             select 1 from matters
             join profiles on profiles.id = matters.user_id
             where matters.id = business.matter_id
-            and profiles.user_id = auth.uid()::text
+            and profiles.user_id = auth.uid()::uuid
         ) OR
         exists (
             select 1 from profiles 
-            where profiles.user_id = auth.uid()::text 
+            where profiles.user_id = auth.uid()::uuid 
             and profiles.class in ('admin', 'accounting')
         )
     );
@@ -48,7 +48,7 @@ create policy "business_insert_policy" on business
             select 1 from matters
             join profiles on profiles.id = matters.user_id
             where matters.id = business.matter_id
-            and profiles.user_id = auth.uid()::text
+            and profiles.user_id = auth.uid()::uuid
         )
     );
 
@@ -60,11 +60,11 @@ create policy "business_update_policy" on business
             select 1 from matters
             join profiles on profiles.id = matters.user_id
             where matters.id = business.matter_id
-            and profiles.user_id = auth.uid()::text
+            and profiles.user_id = auth.uid()::uuid
         ) OR 
         exists (
             select 1 from profiles 
-            where profiles.user_id = auth.uid()::text 
+            where profiles.user_id = auth.uid()::uuid 
             and profiles.class in ('admin', 'accounting')
         )
     );
@@ -77,11 +77,11 @@ create policy "business_delete_policy" on business
             select 1 from matters
             join profiles on profiles.id = matters.user_id
             where matters.id = business.matter_id
-            and profiles.user_id = auth.uid()::text
+            and profiles.user_id = auth.uid()::uuid
         ) OR 
         exists (
             select 1 from profiles 
-            where profiles.user_id = auth.uid()::text 
+            where profiles.user_id = auth.uid()::uuid 
             and profiles.class = 'admin'
         )
     );

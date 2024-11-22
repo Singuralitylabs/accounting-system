@@ -35,11 +35,11 @@ create policy "costs_select_policy" on costs
             select 1 from matters
             join profiles on profiles.id = matters.user_id
             where matters.id = costs.matter_id
-            and profiles.user_id = auth.uid()::text
+            and profiles.user_id = auth.uid()::uuid
         ) OR
         exists (
             select 1 from profiles 
-            where profiles.user_id = auth.uid()::text 
+            where profiles.user_id = auth.uid()::uuid
             and profiles.class in ('admin', 'accounting')
         )
     );
@@ -52,7 +52,7 @@ create policy "costs_insert_policy" on costs
             select 1 from matters
             join profiles on profiles.id = matters.user_id
             where matters.id = costs.matter_id
-            and profiles.user_id = auth.uid()::text
+            and profiles.user_id = auth.uid()::uuid
         )
     );
 
@@ -64,11 +64,11 @@ create policy "costs_update_policy" on costs
             select 1 from matters
             join profiles on profiles.id = matters.user_id
             where matters.id = costs.matter_id
-            and profiles.user_id = auth.uid()::text
+            and profiles.user_id = auth.uid()::uuid
         ) OR 
         exists (
             select 1 from profiles 
-            where profiles.user_id = auth.uid()::text 
+            where profiles.user_id = auth.uid()::uuid 
             and profiles.class in ('admin', 'accounting')
         )
     );
@@ -81,11 +81,11 @@ create policy "costs_delete_policy" on costs
             select 1 from matters
             join profiles on profiles.id = matters.user_id
             where matters.id = costs.matter_id
-            and profiles.user_id = auth.uid()::text
+            and profiles.user_id = auth.uid()::uuid
         ) OR 
         exists (
             select 1 from profiles 
-            where profiles.user_id = auth.uid()::text 
+            where profiles.user_id = auth.uid()::uuid
             and profiles.class = 'admin'
         )
     );
