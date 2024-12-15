@@ -112,9 +112,6 @@ const NewMatterForm = () => {
         );
         return;
       }
-      matterInfo.is_fixed = window.confirm(
-        `案件[${matterInfo.title}]を確定にしますか？\n確定後は経理の確認に入るため、変更できません。`
-      );
 
       const totalAmount = businessList.reduce((acc, business) => {
         return business.amount ? acc + business.amount : acc;
