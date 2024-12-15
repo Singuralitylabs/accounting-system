@@ -117,12 +117,14 @@ const CostBlock = ({
         </div>
       </div>
       <div className="hidden lg:flex">
-        <button
-          className="text-lg hover:cursor-pointer w-4 ml-2 flex items-center justify-center hover:text-blue-500"
-          onClick={() => onRemoveCost(costInfo.id)}
-        >
-          <FaRegTrashAlt />
-        </button>
+        {!isFixed && (
+          <button
+            className="text-lg hover:cursor-pointer w-4 ml-2 flex items-center justify-center hover:text-blue-500"
+            onClick={() => onRemoveCost(costInfo.id)}
+          >
+            <FaRegTrashAlt />
+          </button>
+        )}
       </div>
     </div>
   );
