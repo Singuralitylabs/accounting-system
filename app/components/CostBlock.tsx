@@ -52,6 +52,8 @@ const CostBlock = ({
       <div className="flex-grow lg:flex gap-2 min-w-0">
         <div className="sm:flex gap-2 lg:mb-0 mb-2 flex-1">
           <TextInput
+            label="コスト名"
+            required
             placeholder="コスト名をご記入ください。"
             className="flex-grow sm:mb-0 mb-2"
             disabled={isFixed!}
@@ -59,15 +61,18 @@ const CostBlock = ({
             onChange={(e) => handleUpdate({ name: e.target.value })}
           />
           <Select
+            label="品目"
+            required
             className="flex-grow sm:mb-0 mb-2 sm:w-40"
             placeholder="品目を選択してください。"
             data={itemList}
-            required
             disabled={isFixed!}
             value={costInfo.item}
             onChange={(value) => handleUpdate({ item: value || "" })}
           />
           <TextInput
+            label="支払い先"
+            required
             placeholder="支払い先の名前をご記入ください。"
             className="flex-grow sm:mb-0 mb-2"
             disabled={isFixed!}
@@ -77,6 +82,8 @@ const CostBlock = ({
         </div>
         <div className="sm:flex gap-2 sm:mb-0 mb-2 flex-1">
           <NumberInput
+            label="金額"
+            required
             placeholder="金額をご記入ください。"
             className="flex-grow sm:mb-0 mb-2"
             disabled={isFixed!}
@@ -88,6 +95,8 @@ const CostBlock = ({
             onChange={(value) => handleUpdate({ price: Number(value) })}
           />
           <CustomDatePicker
+            label="支払い期限"
+            required
             placeholder="支払い期限をご記入ください。"
             disabled={isFixed!}
             value={costInfo.period}
@@ -95,10 +104,11 @@ const CostBlock = ({
             className="flex-grow sm:mb-0 mb-2"
           />
           <Select
+            label="通知方法"
+            required
             className="flex-grow sm:mb-0 mb-2"
             placeholder="支払いの通知方法を選択してください。"
             data={certificateList}
-            required
             disabled={isFixed!}
             value={costInfo.certificate}
             onChange={(value) => handleUpdate({ certificate: value || "" })}
