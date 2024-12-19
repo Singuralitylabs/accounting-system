@@ -113,6 +113,39 @@ const NewMatterForm = () => {
         return;
       }
 
+      for (const business of businessList) {
+        if (
+          !business.name ||
+          !business.amount ||
+          !business.invoice_date ||
+          !business.period_date
+        ) {
+          alert(`取引先情報に空欄があるため、案件の作成を中止しました。`);
+          return;
+        }
+        const invoice_date = new Date(business.invoice_date);
+        const period_date = new Date(business.period_date);
+        if (invoice_date.getTime() > period_date.getTime()) {
+          alert(
+            `取引先情報の請求日が振込期限より後になっています。\n案件の作成を中止しました。`
+          );
+          return;
+        }
+      }
+      for (const cost of costList) {
+        if (
+          !cost.name ||
+          !cost.item ||
+          !cost.payment_target ||
+          !cost.price ||
+          !cost.period ||
+          !cost.certificate
+        ) {
+          alert(`コスト情報に空欄があるため、案件の作成を中止しました。`);
+          return;
+        }
+      }
+
       const totalAmount = businessList.reduce((acc, business) => {
         return business.amount ? acc + business.amount : acc;
       }, 0);
