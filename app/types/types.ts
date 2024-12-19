@@ -31,3 +31,13 @@ export type MatterInfoWithUserNameType = {
   user_name: string | null;
   slack_id: string | null;
 } & MatterType;
+
+export type CostInCardType = {
+  isNew?: boolean;
+  isRemoved?: boolean;
+} & CostType;
+
+export type BusinessInCardType = {
+  isNew?: boolean;
+  isRemoved?: boolean;
+} & BusinessType;

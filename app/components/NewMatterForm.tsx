@@ -5,11 +5,7 @@ import { Button, Group } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useState } from "react";
 import { CiSquarePlus } from "react-icons/ci";
-import {
-  insertBusinessInfo,
-  insertCostInfo,
-  insertMatterInfo,
-} from "../utils/supabaseServer";
+import insertMatter from "../utils/insertMatter";
 import BusinessBlock from "./BusinessBlock";
 import CostBlock from "./CostBlock";
 import { MatterFormValues, MatterInfoBlock } from "./MatterInfoBlock";
@@ -92,110 +88,54 @@ const NewMatterForm = () => {
     setBusinessList(businessList.filter((business) => business.id !== id));
   };
 
-  const handleAddMatterInfo = async (matterInfo: MatterType) => {
+  const handleAddMatterInfo = async () => {
+    const checkCreated = window.confirm(
+      `案件[${form.getValues().title}]を作成しますか？`
+    );
+    if (!checkCreated) {
+      alert(`案件[${form.getValues().title}]の作成を中止しました。`);
+      return;
+    }
+
     try {
-      const checkCreated = window.confirm(
-        `案件[${matterInfo.title}]を作成しますか？`
-      );
-      if (!checkCreated) {
-        alert(`案件[${matterInfo.title}]の作成を中止しました。`);
-        return;
+      const matterInfo: MatterType = {
+        id: 0,
+        title: form.getValues().title,
+        category: form.getValues().category,
+        team: form.getValues().team,
+        start_date: form.getValues().start_date,
+        description: form.getValues().description,
+        is_fixed: false,
+        is_completed: false,
+        user_id: 1,
+        accounting_memo: "",
+        total_amount: 0,
+        total_cost: 0,
+        cost_count: costList.length,
+        business_count: businessList.length,
+        unchecked_cost_count: costList.length,
+        inserted_at: "",
+        updated_at: "",
+      };
+
+      const ret = await insertMatter(matterInfo, businessList, costList);
+      if (ret) {
+        alert(`${matterInfo.title}の新規登録を完了しました。`);
+        form.reset();
+        form.setValues(initialFormValues);
+        setCostList([]);
+        setBusinessList([]);
+        setCostIndex(1);
+        setBusinessIndex(1);
       }
-      if (
-        !matterInfo.title ||
-        !matterInfo.category ||
-        !matterInfo.team ||
-        !matterInfo.start_date
-      ) {
-        alert(
-          `案件名、分類、チーム、案件開始日のいずれかが空欄のため、案件の作成を中止しました。`
-        );
-        return;
-      }
-      matterInfo.is_fixed = window.confirm(
-        `案件[${matterInfo.title}]を確定にしますか？\n確定後は経理の確認に入るため、変更できません。`
-      );
-
-      const totalAmount = businessList.reduce((acc, business) => {
-        return business.amount ? acc + business.amount : acc;
-      }, 0);
-      const totalCost = costList.reduce((acc, cost) => {
-        return cost.price ? acc + cost.price : acc;
-      }, 0);
-
-      const { newId, error: matterError } = await insertMatterInfo(
-        matterInfo.title,
-        matterInfo.category,
-        matterInfo.team,
-        matterInfo.start_date!,
-        matterInfo.is_fixed!,
-        totalAmount,
-        businessList.length,
-        totalCost,
-        costList.length,
-        matterInfo.description
-      );
-      if (matterError) throw new Error(matterError.message);
-      if (!newId) throw new Error("案件IDの取得に失敗しました。");
-
-      for (const cost of costList) {
-        const { error: costError } = await insertCostInfo(
-          cost.name,
-          cost.item,
-          cost.payment_target,
-          cost.price,
-          cost.period!,
-          cost.certificate,
-          cost.withholding,
-          newId,
-          cost.comment!
-        );
-        if (costError) throw new Error(costError.message);
-      }
-
-      for (const business of businessList) {
-        const { error: businessError } = await insertBusinessInfo(
-          business.name,
-          business.amount!,
-          business.invoice_date!,
-          business.period_date!,
-          newId
-        );
-        if (businessError) throw new Error(businessError.message);
-      }
-
-      alert(`${matterInfo.title}の新規登録を完了しました。[案件ID:${newId}]`);
-      form.reset();
-      form.setValues(initialFormValues);
-      setCostList([]);
-      setBusinessList([]);
-      setCostIndex(1);
-      setBusinessIndex(1);
     } catch (error) {
-      alert(`${matterInfo.title}の新規登録に失敗しました。`);
+      alert(`${form.getValues().title}の新規登録に失敗しました。`);
       console.error(error);
     }
   };
 
   return (
-    <form
-      className="p-4 w-auto"
-      onSubmit={form.onSubmit((values) =>
-        handleAddMatterInfo({
-          ...values,
-          total_amount: 0,
-          total_cost: 0,
-          business_count: 0,
-          cost_count: 0,
-          accounting_memo: null,
-          inserted_at: "",
-          is_completed: false,
-          unchecked_cost_count: 0,
-          updated_at: "",
-          user_id: 1,
-        })
-      )}
-    >
+    <form className="p-4 w-auto" onSubmit={form.onSubmit(handleAddMatterInfo)}>
       <span className="text-red-700 text-sm">
         ※全て税抜金額をご記入ください。
       </span>
