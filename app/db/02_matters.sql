@@ -74,7 +74,7 @@ CREATE POLICY "matters_update_policy" ON matters
         EXISTS (
             SELECT 1 FROM profiles
             WHERE profiles.user_id = auth.uid()::uuid
-            AND profiles.class = 'admin'
+            AND profiles.class IN ('admin', 'accounting')
         )
     );
 

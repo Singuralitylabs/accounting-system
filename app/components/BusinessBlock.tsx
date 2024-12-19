@@ -50,6 +50,8 @@ const BusinessBlock = ({
       <div className="md:flex gap-4 w-full">
         <div className="sm:flex md:my-0 my-2 gap-4 w-full">
           <TextInput
+            label="取引先名"
+            required
             placeholder="取引先名をご記入ください。"
             className="flex-grow sm:my-0 my-2"
             disabled={isFixed!}
@@ -57,6 +59,8 @@ const BusinessBlock = ({
             onChange={(e) => handleUpdate({ name: e.target.value })}
           />
           <NumberInput
+            label="報酬額"
+            required
             placeholder="報酬額をご記入ください。"
             className="flex-grow"
             disabled={isFixed!}
@@ -70,6 +74,8 @@ const BusinessBlock = ({
         </div>
         <div className="sm:flex gap-4 w-full">
           <CustomDatePicker
+            label="請求日"
+            required
             placeholder="請求日をご記入ください。"
             disabled={isFixed!}
             value={businessInfo.invoice_date}
@@ -77,6 +83,8 @@ const BusinessBlock = ({
             className="flex-grow sm:my-0 my-2"
           />
           <CustomDatePicker
+            label="振込期限"
+            required
             placeholder="振込期限をご記入ください。"
             disabled={isFixed!}
             value={businessInfo.period_date}
