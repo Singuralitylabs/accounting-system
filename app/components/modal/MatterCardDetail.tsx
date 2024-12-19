@@ -1,16 +1,15 @@
-import { BusinessType, CostType, MatterType } from "@/app/types/types";
 import {
-  deleteBusinessInfo,
+  BusinessInCardType,
+  CostInCardType,
+  MatterType,
+} from "@/app/types/types";
+import {
   deleteCostInfo,
   deleteMatterInfo,
   getUserBusinessInfoList,
   getUserCostInfoList,
-  insertBusinessInfo,
-  insertCostInfo,
-  updateBusinessInfo,
-  updateCostInfo,
-  updateMatterInfo,
 } from "@/app/utils/supabaseServer";
+import updateMatter from "@/app/utils/updateMatter";
 import { Modal, Button, Group, Badge } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useEffect, useState } from "react";
@@ -25,28 +24,6 @@ type Props = {
   setOpened: React.Dispatch<React.SetStateAction<boolean>>;
 };
 
-type UpdatedMatterInfoType = {
-  title: string;
-  team: string;
-  category: string;
-  start_date: string | null;
-  total_amount: number;
-  business_count: number;
-  total_cost: number;
-  cost_count: number;
-  description: string | null;
-};
-
-type CostInCardType = {
-  isNew?: boolean;
-  isRemoved?: boolean;
-} & CostType;
-
-type BussinessInCardType = {
-  isNew?: boolean;
-  isRemoved?: boolean;
-} & BusinessType;
-
 export const MatterCardDetailModal = ({
   matterInfo,
   opened,
@@ -57,7 +34,7 @@ export const MatterCardDetailModal = ({
     CostInCardType[]
   >([]);
   const [businessInfoInCardList, setBusinessInfoInCardList] = useState<
-    BussinessInCardType[]
+    BusinessInCardType[]
   >([]);
   const [businessInfoIndex, setBusinessInfoIndex] = useState<number>(10000);
   useEffect(() => {
@@ -151,120 +128,68 @@ export const MatterCardDetailModal = ({
     form.reset();
   };
 
-  const handleUpdateMatterInfo = async (
-    updatedMatterInfo: UpdatedMatterInfoType
-  ) => {
+  const handleUpdateMatterInfo = async () => {
     const checkUpdate = window.confirm(
-      `案件[${updatedMatterInfo.title}]を更新しますか？`
+      `案件[${form.values.title}]を更新しますか？`
     );
     if (!checkUpdate) {
       closeModal();
       return;
     }
 
-    const totalAmount = businessInfoInCardList.reduce((acc, business) => {
-      return business.amount && !business.isRemoved
-        ? acc + business.amount
-        : acc;
-    }, 0);
-    const totalCost = costInfoInCardList.reduce((acc, cost) => {
-      return cost.price && !cost.isRemoved ? acc + cost.price : acc;
-    }, 0);
+    matterInfo.title = form.values.title;
+    matterInfo.category = form.values.category;
+    matterInfo.team = form.values.team;
+    matterInfo.start_date = form.values.start_date;
+    matterInfo.description = form.values.description;
+    matterInfo.is_fixed = false;
 
-    matterInfo.title = updatedMatterInfo.title;
-    matterInfo.category = updatedMatterInfo.category;
-    matterInfo.team = updatedMatterInfo.team;
-    matterInfo.start_date = updatedMatterInfo.start_date;
-    matterInfo.total_amount = totalAmount;
-    matterInfo.business_count = businessInfoInCardList.filter(
-      (business) => !business.isRemoved
-    ).length;
-    matterInfo.total_cost = totalCost;
-    matterInfo.cost_count = costInfoInCardList.filter(
-      (cost) => !cost.isRemoved
-    ).length;
-    matterInfo.description = updatedMatterInfo.description;
-    matterInfo.unchecked_cost_count = costInfoInCardList.filter(
-      (cost) => !cost.is_completed
-    ).length;
-
-    await updateMatterInfo(matterInfo);
-
-    for (const costInfoInCard of costInfoInCardList) {
-      if (costInfoInCard.isNew && !costInfoInCard.isRemoved) {
-        await insertCostInfo(
-          costInfoInCard.name,
-          costInfoInCard.item,
-          costInfoInCard.payment_target,
-          costInfoInCard.price,
-          costInfoInCard.period ?? "",
-          costInfoInCard.certificate,
-          costInfoInCard.withholding,
-          costInfoInCard.matter_id,
-          costInfoInCard.comment ?? ""
-        );
-      } else if (costInfoInCard.isRemoved && !costInfoInCard.isNew) {
-        await deleteCostInfo(costInfoInCard.id);
-      } else if (!costInfoInCard.isNew && !costInfoInCard.isRemoved) {
-        await updateCostInfo(
-          costInfoInCard.id,
-          costInfoInCard.name,
-          costInfoInCard.item,
-          costInfoInCard.payment_target,
-          costInfoInCard.price,
-          costInfoInCard.period ?? "",
-          costInfoInCard.certificate,
-          costInfoInCard.withholding,
-          costInfoInCard.matter_id,
-          costInfoInCard.comment ?? "",
-          costInfoInCard.is_completed
-        );
+    try {
+      const ret = await updateMatter(
+        matterInfo,
+        businessInfoInCardList,
+        costInfoInCardList
+      );
+      if (ret) {
+        alert(`案件[${matterInfo.title}]を更新しました。`);
+        closeModal();
       }
+    } catch (err) {
+      alert(`案件[${matterInfo.title}]の更新に失敗しました。`);
+      console.error(`案件[${matterInfo.title}]の更新に失敗しました。`, err);
     }
-
-    for (const businessInfoInCard of businessInfoInCardList) {
-      if (businessInfoInCard.isNew && !businessInfoInCard.isRemoved) {
-        await insertBusinessInfo(
-          businessInfoInCard.name,
-          businessInfoInCard.amount!,
-          businessInfoInCard.invoice_date!,
-          businessInfoInCard.period_date!,
-          matterInfo.id
-        );
-      } else if (businessInfoInCard.isRemoved && !businessInfoInCard.isNew) {
-        await deleteBusinessInfo(businessInfoInCard.id);
-      } else if (!businessInfoInCard.isNew && !businessInfoInCard.isRemoved) {
-        await updateBusinessInfo(
-          businessInfoInCard.id,
-          businessInfoInCard.name,
-          businessInfoInCard.amount!,
-          businessInfoInCard.invoice_date!,
-          businessInfoInCard.period_date!,
-          matterInfo.id,
-          businessInfoInCard.is_completed
-        );
-      }
-    }
-
-    alert(`案件[${matterInfo.title}]を更新しました。`);
-    closeModal();
   };
 
   const handleFixMatterInfo = async () => {
-    matterInfo.is_fixed = window.confirm(
+    const isFixed = window.confirm(
       `案件[${matterInfo.title}]を確定にしますか？\n確定後は経理の確認に入るため、変更できません。`
     );
-    if (!matterInfo.is_fixed) {
+    if (!isFixed) {
       closeModal();
       return;
     }
+
+    matterInfo.title = form.values.title;
+    matterInfo.category = form.values.category;
+    matterInfo.team = form.values.team;
+    matterInfo.start_date = form.values.start_date;
+    matterInfo.description = form.values.description;
+    matterInfo.is_fixed = true;
+
     try {
-      await updateMatterInfo(matterInfo);
+      const ret = await updateMatter(
+        matterInfo,
+        businessInfoInCardList,
+        costInfoInCardList
+      );
+      if (ret) {
+        alert(`案件[${form.values.title}]を確定しました。`);
+        closeModal();
+      }
     } catch (err) {
-      console.error("案件の確定に失敗しました。", err);
+      alert(`案件[${form.values.title}]の確定に失敗しました。`);
+      console.error(`案件[${form.values.title}]の確定に失敗しました。`, err);
     }
-    alert(`案件[${matterInfo.title}]を確定しました。`);
-    closeModal();
   };
 
   const handleDeleteMatterInfo = async () => {
@@ -353,17 +278,7 @@ export const MatterCardDetailModal = ({
       title={matterInfo.title}
       size="100%"
     >
-      <form
-        onSubmit={form.onSubmit((updatedMatterInfo) => {
-          handleUpdateMatterInfo({
-            ...updatedMatterInfo,
-            total_amount: 0,
-            business_count: businessInfoInCardList.length,
-            total_cost: 0,
-            cost_count: costInfoInCardList.length,
-          });
-        })}
-      >
+      <form onSubmit={form.onSubmit(handleUpdateMatterInfo)}>
         {!matterInfo.is_fixed && (
           <span className="text-red-700 text-sm">
             ※全て税抜金額でご記入ください。
@@ -472,7 +387,16 @@ export const MatterCardDetailModal = ({
               </Button>
             </Group>
             <Group justify="flex-end" mt="md">
-              <Button type="button" onClick={handleFixMatterInfo}>
+              <Button
+                type="button"
+                onClick={() => {
+                  const validation = form.validate();
+                  if (validation.hasErrors) {
+                    return;
+                  }
+                  handleFixMatterInfo();
+                }}
+              >
                 確定
               </Button>
               <Button type="submit" color="red">
