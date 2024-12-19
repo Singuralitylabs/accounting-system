@@ -171,11 +171,11 @@ export const insertMatterInfo = async (
   category: string,
   team: string,
   start_date: string,
-  is_fixed: boolean,
   total_amount: number,
   business_count: number,
   total_cost: number,
   cost_count: number,
+  unchecked_cost_count: number,
   description: string | null
 ) => {
   const supabase = createServerComponentClient<Database>({ cookies });
@@ -199,7 +199,8 @@ export const insertMatterInfo = async (
         business_count: business_count,
         total_cost: total_cost,
         cost_count: cost_count,
-        is_fixed: is_fixed,
+        unchecked_cost_count: unchecked_cost_count,
+        is_fixed: false,
         is_completed: false,
         user_id: profileInfo.id,
         inserted_at: new Date().toISOString(),
