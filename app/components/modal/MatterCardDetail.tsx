@@ -137,20 +137,24 @@ export const MatterCardDetailModal = ({
       return;
     }
 
-    matterInfo.title = form.values.title;
-    matterInfo.category = form.values.category;
-    matterInfo.team = form.values.team;
-    matterInfo.start_date = form.values.start_date;
-    matterInfo.description = form.values.description;
-    matterInfo.is_fixed = false;
+    const updatedMatterInfo: MatterType = {
+      ...matterInfo,
+      title: form.values.title,
+      category: form.values.category,
+      team: form.values.team,
+      start_date: form.values.start_date,
+      description: form.values.description,
+      is_fixed: false,
+    };
 
     try {
       const ret = await updateMatter(
-        matterInfo,
+        updatedMatterInfo,
         businessInfoInCardList,
         costInfoInCardList
       );
       if (ret) {
+        Object.assign(matterInfo, updatedMatterInfo);
         alert(`案件[${matterInfo.title}]を更新しました。`);
         closeModal();
       }
@@ -186,8 +190,8 @@ export const MatterCardDetailModal = ({
         costInfoInCardList
       );
       if (ret) {
-        alert(`案件[${form.values.title}]を確定しました。`);
         Object.assign(matterInfo, updatedMatterInfo);
+        alert(`案件[${form.values.title}]を確定しました。`);
         closeModal();
       }
     } catch (err) {
