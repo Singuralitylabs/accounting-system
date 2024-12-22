@@ -10,9 +10,21 @@ const UserMatterPage = async () => {
   try {
     const matterList = await getUserMatterInfoList();
 
+    const unfixedMatterCount =
+      matterList !== null && matterList.length > 0
+        ? matterList?.filter((matter) => {
+            return matter.is_fixed === false;
+          }).length
+        : 0;
+
     return (
       <main>
         <PageTitle title="案件カード" />
+        {unfixedMatterCount > 0 && (
+          <div className="text-center py-4 text-red-500 text-xl">
+            経理に未申請の案件があります。忘れずご対応ください。
+          </div>
+        )}
         {matterList ? (
           <MatterCardsGrid matterList={matterList} />
         ) : (
