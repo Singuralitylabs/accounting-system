@@ -128,10 +128,12 @@ export const MatterCardDetailModal = ({
     form.reset();
   };
 
-  const handleUpdateMatterInfo = async () => {
-    const checkUpdate = window.confirm(
-      `案件[${form.values.title}]を更新しますか？`
-    );
+  const handleUpdateMatterInfo = async (isFixed: boolean) => {
+    const checkUpdate = isFixed
+      ? window.confirm(
+          `案件[${matterInfo.title}]を経理申請しますか？\n申請後に更新が必要となった場合、経理まで連絡が必要です。`
+        )
+      : window.confirm(`案件[${matterInfo.title}]を更新しますか？`);
     if (!checkUpdate) {
       closeModal();
       return;
@@ -144,7 +146,7 @@ export const MatterCardDetailModal = ({
       team: form.values.team,
       start_date: form.values.start_date,
       description: form.values.description,
-      is_fixed: false,
+      is_fixed: isFixed,
     };
 
     try {
@@ -155,48 +157,24 @@ export const MatterCardDetailModal = ({
       );
       if (ret) {
         Object.assign(matterInfo, updatedMatterInfo);
-        alert(`案件[${matterInfo.title}]を更新しました。`);
+        if (isFixed) {
+          alert(`案件[${form.values.title}]を経理申請しました。`);
+        } else {
+          alert(`案件[${form.values.title}]を更新しました。`);
+        }
         closeModal();
       }
     } catch (err) {
-      alert(`案件[${matterInfo.title}]の更新に失敗しました。`);
-      console.error(`案件[${matterInfo.title}]の更新に失敗しました。`, err);
-    }
-  };
-
-  const handleFixMatterInfo = async () => {
-    const isFixed = window.confirm(
-      `案件[${matterInfo.title}]を確定にしますか？\n確定後は経理の確認に入るため、変更できません。`
-    );
-    if (!isFixed) {
-      closeModal();
-      return;
-    }
-
-    const updatedMatterInfo: MatterType = {
-      ...matterInfo,
-      title: form.values.title,
-      category: form.values.category,
-      team: form.values.team,
-      start_date: form.values.start_date,
-      description: form.values.description,
-      is_fixed: true,
-    };
-
-    try {
-      const ret = await updateMatter(
-        updatedMatterInfo,
-        businessInfoInCardList,
-        costInfoInCardList
-      );
-      if (ret) {
-        Object.assign(matterInfo, updatedMatterInfo);
-        alert(`案件[${form.values.title}]を確定しました。`);
-        closeModal();
+      if (isFixed) {
+        alert(`案件[${form.values.title}]の経理申請に失敗しました。`);
+        console.error(
+          `案件[${form.values.title}]の経理申請に失敗しました。`,
+          err
+        );
+      } else {
+        alert(`案件[${form.values.title}]の更新に失敗しました。`);
+        console.error(`案件[${form.values.title}]の更新に失敗しました。`, err);
       }
-    } catch (err) {
-      alert(`案件[${form.values.title}]の確定に失敗しました。`);
-      console.error(`案件[${form.values.title}]の確定に失敗しました。`, err);
     }
   };
 
@@ -286,7 +264,7 @@ export const MatterCardDetailModal = ({
       title={matterInfo.title}
       size="100%"
     >
-      <form onSubmit={form.onSubmit(handleUpdateMatterInfo)}>
+      <form onSubmit={form.onSubmit(() => handleUpdateMatterInfo(false))}>
         {!matterInfo.is_fixed && (
           <span className="text-red-700 text-sm">
             ※全て税抜金額でご記入ください。
@@ -404,7 +382,7 @@ export const MatterCardDetailModal = ({
                   if (validation.hasErrors) {
                     return;
                   }
-                  handleFixMatterInfo();
+                  handleUpdateMatterInfo(true);
                 }}
               >
                 経理申請
