@@ -296,9 +296,9 @@ export const MatterCardDetailModal = ({
           {matterInfo.is_completed ? (
             <Badge color="green">経理確認完了</Badge>
           ) : matterInfo.is_fixed ? (
-            <Badge color="blue">経理確認待ち</Badge>
+            <Badge color="red">経理申請中</Badge>
           ) : (
-            <Badge color="red">申請者編集中</Badge>
+            <Badge color="blue">下書き</Badge>
           )}
         </div>
         <h2>基本情報</h2>
@@ -395,8 +395,10 @@ export const MatterCardDetailModal = ({
               </Button>
             </Group>
             <Group justify="flex-end" mt="md">
+              <Button type="submit">更新</Button>
               <Button
                 type="button"
+                color="red"
                 onClick={() => {
                   const validation = form.validate();
                   if (validation.hasErrors) {
@@ -405,10 +407,7 @@ export const MatterCardDetailModal = ({
                   handleFixMatterInfo();
                 }}
               >
-                確定
-              </Button>
-              <Button type="submit" color="red">
-                更新
+                経理申請
               </Button>
             </Group>
           </div>

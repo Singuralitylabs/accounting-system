@@ -231,7 +231,6 @@ const NewMatterForm = () => {
 
       <Group className="pt-8" justify="flex-end" mt="md">
         <Button
-          color="pink"
           type="button"
           onClick={() => {
             const validation = form.validate();
@@ -243,7 +242,7 @@ const NewMatterForm = () => {
         >
           下書き
         </Button>
-        <Button color="blue" type="submit">
+        <Button color="red" type="submit">
           経理申請
         </Button>
       </Group>
