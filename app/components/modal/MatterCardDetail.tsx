@@ -169,21 +169,25 @@ export const MatterCardDetailModal = ({
       return;
     }
 
-    matterInfo.title = form.values.title;
-    matterInfo.category = form.values.category;
-    matterInfo.team = form.values.team;
-    matterInfo.start_date = form.values.start_date;
-    matterInfo.description = form.values.description;
-    matterInfo.is_fixed = true;
+    const updatedMatterInfo: MatterType = {
+      ...matterInfo,
+      title: form.values.title,
+      category: form.values.category,
+      team: form.values.team,
+      start_date: form.values.start_date,
+      description: form.values.description,
+      is_fixed: true,
+    };
 
     try {
       const ret = await updateMatter(
-        matterInfo,
+        updatedMatterInfo,
         businessInfoInCardList,
         costInfoInCardList
       );
       if (ret) {
         alert(`案件[${form.values.title}]を確定しました。`);
+        Object.assign(matterInfo, updatedMatterInfo);
         closeModal();
       }
     } catch (err) {
