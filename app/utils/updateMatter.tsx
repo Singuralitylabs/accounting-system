@@ -21,7 +21,7 @@ export const updateMatter = async (
     !matterInfo.start_date
   ) {
     alert(
-      `案件名、分類、チーム、案件開始日のいずれかが空欄のため、案件の作成を中止しました。`
+      `案件名、分類、チーム、案件開始日のいずれかが空欄のため、案件の更新を中止しました。`
     );
     return false;
   }
@@ -33,14 +33,14 @@ export const updateMatter = async (
       !business.invoice_date ||
       !business.period_date
     ) {
-      alert(`取引先情報に空欄があるため、案件の作成を中止しました。`);
+      alert(`取引先情報に空欄があるため、案件の更新を中止しました。`);
       return false;
     }
     const invoice_date = new Date(business.invoice_date);
     const period_date = new Date(business.period_date);
     if (invoice_date.getTime() > period_date.getTime()) {
       alert(
-        `取引先情報の請求日が振込期限より後になっています。\n案件の作成を中止しました。`
+        `取引先情報の請求日が振込期限より後になっています。\n案件の更新を中止しました。`
       );
       return false;
     }
@@ -54,7 +54,7 @@ export const updateMatter = async (
       !cost.period ||
       !cost.certificate
     ) {
-      alert(`コスト情報に空欄があるため、案件の作成を中止しました。`);
+      alert(`コスト情報に空欄があるため、案件の更新を中止しました。`);
       return false;
     }
   }
@@ -78,58 +78,58 @@ export const updateMatter = async (
 
   await updateMatterInfo(matterInfo);
 
-  for (const costInfoInCard of costInfoList) {
-    if (costInfoInCard.isNew && !costInfoInCard.isRemoved) {
+  for (const costInfo of costInfoList) {
+    if (costInfo.isNew && !costInfo.isRemoved) {
       await insertCostInfo(
-        costInfoInCard.name,
-        costInfoInCard.item,
-        costInfoInCard.payment_target,
-        costInfoInCard.price,
-        costInfoInCard.period ?? "",
-        costInfoInCard.certificate,
-        costInfoInCard.withholding,
-        costInfoInCard.matter_id,
-        costInfoInCard.comment ?? ""
+        costInfo.name,
+        costInfo.item,
+        costInfo.payment_target,
+        costInfo.price,
+        costInfo.period ?? "",
+        costInfo.certificate,
+        costInfo.withholding,
+        costInfo.matter_id,
+        costInfo.comment ?? ""
       );
-    } else if (costInfoInCard.isRemoved && !costInfoInCard.isNew) {
-      await deleteCostInfo(costInfoInCard.id);
-    } else if (!costInfoInCard.isNew && !costInfoInCard.isRemoved) {
+    } else if (costInfo.isRemoved && !costInfo.isNew) {
+      await deleteCostInfo(costInfo.id);
+    } else if (!costInfo.isNew && !costInfo.isRemoved) {
       await updateCostInfo(
-        costInfoInCard.id,
-        costInfoInCard.name,
-        costInfoInCard.item,
-        costInfoInCard.payment_target,
-        costInfoInCard.price,
-        costInfoInCard.period ?? "",
-        costInfoInCard.certificate,
-        costInfoInCard.withholding,
-        costInfoInCard.matter_id,
-        costInfoInCard.comment ?? "",
-        costInfoInCard.is_completed
+        costInfo.id,
+        costInfo.name,
+        costInfo.item,
+        costInfo.payment_target,
+        costInfo.price,
+        costInfo.period ?? "",
+        costInfo.certificate,
+        costInfo.withholding,
+        costInfo.matter_id,
+        costInfo.comment ?? "",
+        costInfo.is_completed
       );
     }
   }
 
-  for (const businessInfoInCard of businessInfoList) {
-    if (businessInfoInCard.isNew && !businessInfoInCard.isRemoved) {
+  for (const businessInfo of businessInfoList) {
+    if (businessInfo.isNew && !businessInfo.isRemoved) {
       await insertBusinessInfo(
-        businessInfoInCard.name,
-        businessInfoInCard.amount!,
-        businessInfoInCard.invoice_date!,
-        businessInfoInCard.period_date!,
+        businessInfo.name,
+        businessInfo.amount!,
+        businessInfo.invoice_date!,
+        businessInfo.period_date!,
         matterInfo.id
       );
-    } else if (businessInfoInCard.isRemoved && !businessInfoInCard.isNew) {
-      await deleteBusinessInfo(businessInfoInCard.id);
-    } else if (!businessInfoInCard.isNew && !businessInfoInCard.isRemoved) {
+    } else if (businessInfo.isRemoved && !businessInfo.isNew) {
+      await deleteBusinessInfo(businessInfo.id);
+    } else if (!businessInfo.isNew && !businessInfo.isRemoved) {
       await updateBusinessInfo(
-        businessInfoInCard.id,
-        businessInfoInCard.name,
-        businessInfoInCard.amount!,
-        businessInfoInCard.invoice_date!,
-        businessInfoInCard.period_date!,
+        businessInfo.id,
+        businessInfo.name,
+        businessInfo.amount!,
+        businessInfo.invoice_date!,
+        businessInfo.period_date!,
         matterInfo.id,
-        businessInfoInCard.is_completed
+        businessInfo.is_completed
       );
     }
   }
