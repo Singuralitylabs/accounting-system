@@ -285,9 +285,7 @@ export const MatterCardDetailModal = ({
           isFixedMode={matterInfo.is_fixed || false}
         />
 
-        {businessInfoInCardList.length > 0 && (
-          <h2 className="my-4">取引先情報</h2>
-        )}
+        <h2 className="my-4">取引先情報</h2>
         {businessInfoInCardList.map(
           (businessInfo, index) =>
             !businessInfo.isRemoved && (
@@ -324,9 +322,7 @@ export const MatterCardDetailModal = ({
           </Button>
         )}
 
-        {costInfoInCardList.length > 0 && (
-          <h2 className="mt-8 mb-4">コスト情報</h2>
-        )}
+        <h2 className="mt-8 mb-4">コスト情報</h2>
         {costInfoInCardList.map(
           (costInfo, index) =>
             !costInfo.isRemoved && (
