@@ -27,6 +27,7 @@ export const updateMatter = async (
   }
 
   for (const business of businessInfoList) {
+    if (business.isRemoved) continue;
     if (
       !business.name ||
       !business.amount ||
@@ -46,6 +47,7 @@ export const updateMatter = async (
     }
   }
   for (const cost of costInfoList) {
+    if (cost.isRemoved) continue;
     if (
       !cost.name ||
       !cost.item ||
