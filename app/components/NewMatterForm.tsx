@@ -88,13 +88,23 @@ const NewMatterForm = () => {
     setBusinessList(businessList.filter((business) => business.id !== id));
   };
 
-  const handleAddMatterInfo = async () => {
-    const checkCreated = window.confirm(
-      `案件[${form.getValues().title}]を作成しますか？`
-    );
-    if (!checkCreated) {
-      alert(`案件[${form.getValues().title}]の作成を中止しました。`);
-      return;
+  const handleAddMatterInfo = async (is_fixed: boolean) => {
+    if (is_fixed) {
+      const checkCreated = window.confirm(
+        `案件[${form.getValues().title}]を経理申請しますか？`
+      );
+      if (!checkCreated) {
+        alert(`案件[${form.getValues().title}]の経理申請を中止しました。`);
+        return;
+      }
+    } else {
+      const checkCreated = window.confirm(
+        `案件[${form.getValues().title}]の下書きを作成しますか？`
+      );
+      if (!checkCreated) {
+        alert(`案件[${form.getValues().title}]の下書き作成を中止しました。`);
+        return;
+      }
     }
 
     try {
@@ -105,7 +115,7 @@ const NewMatterForm = () => {
         team: form.getValues().team,
         start_date: form.getValues().start_date,
         description: form.getValues().description,
-        is_fixed: false,
+        is_fixed: is_fixed,
         is_completed: false,
         user_id: 1,
         accounting_memo: "",
@@ -120,7 +130,11 @@ const NewMatterForm = () => {
 
       const ret = await insertMatter(matterInfo, businessList, costList);
       if (ret) {
-        alert(`${matterInfo.title}の新規登録を完了しました。`);
+        if (is_fixed) {
+          alert(`${matterInfo.title}の経理申請を完了しました。`);
+        } else {
+          alert(`${matterInfo.title}の下書き作成を完了しました。`);
+        }
         form.reset();
         form.setValues(initialFormValues);
         setCostList([]);
@@ -129,13 +143,20 @@ const NewMatterForm = () => {
         setBusinessIndex(1);
       }
     } catch (error) {
-      alert(`${form.getValues().title}の新規登録に失敗しました。`);
+      if (is_fixed) {
+        alert(`${form.getValues().title}の経理申請に失敗しました。`);
+      } else {
+        alert(`${form.getValues().title}の下書き作成に失敗しました。`);
+      }
       console.error(error);
     }
   };
 
   return (
-    <form className="p-4 w-auto" onSubmit={form.onSubmit(handleAddMatterInfo)}>
+    <form
+      className="p-4 w-auto"
+      onSubmit={form.onSubmit(() => handleAddMatterInfo(true))}
+    >
       <span className="text-red-700 text-sm">
         ※全て税抜金額をご記入ください。
       </span>
@@ -209,8 +230,21 @@ const NewMatterForm = () => {
       </Button>
 
       <Group className="pt-8" justify="flex-end" mt="md">
-        <Button color="pink" type="submit">
-          作成
+        <Button
+          color="pink"
+          type="button"
+          onClick={() => {
+            const validation = form.validate();
+            if (validation.hasErrors) {
+              return;
+            }
+            handleAddMatterInfo(false);
+          }}
+        >
+          下書き
+        </Button>
+        <Button color="blue" type="submit">
+          経理申請
         </Button>
       </Group>
     </form>
