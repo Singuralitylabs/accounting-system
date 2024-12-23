@@ -95,7 +95,7 @@ const BusinessBlock = ({
       </div>
       {!isFixed && (
         <button
-          className="hidden text-lg hover:cursor-pointer w-4 ml-2 md:flex items-center justify-center hover:text-blue-500"
+          className="hidden text-lg hover:cursor-pointer w-4 ml-2 md:flex items-center pb-3 md:self-end justify-center hover:text-blue-500"
           onClick={() => onRemoveBusiness(businessInfo.id)}
         >
           <FaRegTrashAlt />

@@ -143,11 +143,9 @@ export const AccountingMatterList = ({
       <Table.Tr
         key={matter.id}
         bg={
-          checkedMatterIdList.includes(matter.id)
-            ? "var(--mantine-color-blue-light)"
-            : matter.is_completed
+          matter.is_completed
             ? "var(--mantine-color-gray-light)"
-            : matter.is_fixed
+            : checkedMatterIdList.includes(matter.id)
             ? "var(--mantine-color-red-light)"
             : undefined
         }
