@@ -22,7 +22,9 @@ const UserMatterPage = async () => {
         <PageTitle title="案件カード" />
         {unfixedMatterCount > 0 && (
           <div className="text-center py-4 text-red-500 text-xl">
-            経理に未申請の案件があります。忘れずご対応ください。
+            経理に未申請の案件があります。
+            <br className="md:hidden" />
+            忘れずご対応ください。
           </div>
         )}
         {matterList ? (
