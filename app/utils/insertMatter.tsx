@@ -67,6 +67,7 @@ const insertMatter = async (
     matterInfo.category,
     matterInfo.team,
     matterInfo.start_date!,
+    matterInfo.is_fixed!,
     totalAmount,
     businessList.length,
     totalCost,

@@ -128,67 +128,53 @@ export const MatterCardDetailModal = ({
     form.reset();
   };
 
-  const handleUpdateMatterInfo = async () => {
-    const checkUpdate = window.confirm(
-      `案件[${form.values.title}]を更新しますか？`
-    );
+  const handleUpdateMatterInfo = async (isFixed: boolean) => {
+    const checkUpdate = isFixed
+      ? window.confirm(
+          `案件[${matterInfo.title}]を経理申請しますか？\n申請後に更新が必要となった場合、経理まで連絡が必要です。`
+        )
+      : window.confirm(`案件[${matterInfo.title}]を更新しますか？`);
     if (!checkUpdate) {
       closeModal();
       return;
     }
 
-    matterInfo.title = form.values.title;
-    matterInfo.category = form.values.category;
-    matterInfo.team = form.values.team;
-    matterInfo.start_date = form.values.start_date;
-    matterInfo.description = form.values.description;
-    matterInfo.is_fixed = false;
+    const updatedMatterInfo: MatterType = {
+      ...matterInfo,
+      title: form.values.title,
+      category: form.values.category,
+      team: form.values.team,
+      start_date: form.values.start_date,
+      description: form.values.description,
+      is_fixed: isFixed,
+    };
 
     try {
       const ret = await updateMatter(
-        matterInfo,
+        updatedMatterInfo,
         businessInfoInCardList,
         costInfoInCardList
       );
       if (ret) {
-        alert(`案件[${matterInfo.title}]を更新しました。`);
+        Object.assign(matterInfo, updatedMatterInfo);
+        if (isFixed) {
+          alert(`案件[${form.values.title}]を経理申請しました。`);
+        } else {
+          alert(`案件[${form.values.title}]を更新しました。`);
+        }
         closeModal();
       }
     } catch (err) {
-      alert(`案件[${matterInfo.title}]の更新に失敗しました。`);
-      console.error(`案件[${matterInfo.title}]の更新に失敗しました。`, err);
-    }
-  };
-
-  const handleFixMatterInfo = async () => {
-    const isFixed = window.confirm(
-      `案件[${matterInfo.title}]を確定にしますか？\n確定後は経理の確認に入るため、変更できません。`
-    );
-    if (!isFixed) {
-      closeModal();
-      return;
-    }
-
-    matterInfo.title = form.values.title;
-    matterInfo.category = form.values.category;
-    matterInfo.team = form.values.team;
-    matterInfo.start_date = form.values.start_date;
-    matterInfo.description = form.values.description;
-    matterInfo.is_fixed = true;
-
-    try {
-      const ret = await updateMatter(
-        matterInfo,
-        businessInfoInCardList,
-        costInfoInCardList
-      );
-      if (ret) {
-        alert(`案件[${form.values.title}]を確定しました。`);
-        closeModal();
+      if (isFixed) {
+        alert(`案件[${form.values.title}]の経理申請に失敗しました。`);
+        console.error(
+          `案件[${form.values.title}]の経理申請に失敗しました。`,
+          err
+        );
+      } else {
+        alert(`案件[${form.values.title}]の更新に失敗しました。`);
+        console.error(`案件[${form.values.title}]の更新に失敗しました。`, err);
       }
-    } catch (err) {
-      alert(`案件[${form.values.title}]の確定に失敗しました。`);
-      console.error(`案件[${form.values.title}]の確定に失敗しました。`, err);
     }
   };
 
@@ -278,7 +264,7 @@ export const MatterCardDetailModal = ({
       title={matterInfo.title}
       size="100%"
     >
-      <form onSubmit={form.onSubmit(handleUpdateMatterInfo)}>
+      <form onSubmit={form.onSubmit(() => handleUpdateMatterInfo(false))}>
         {!matterInfo.is_fixed && (
           <span className="text-red-700 text-sm">
             ※全て税抜金額でご記入ください。
@@ -288,9 +274,9 @@ export const MatterCardDetailModal = ({
           {matterInfo.is_completed ? (
             <Badge color="green">経理確認完了</Badge>
           ) : matterInfo.is_fixed ? (
-            <Badge color="blue">経理確認待ち</Badge>
+            <Badge color="red">経理申請中</Badge>
           ) : (
-            <Badge color="red">申請者編集中</Badge>
+            <Badge color="blue">下書き</Badge>
           )}
         </div>
         <h2>基本情報</h2>
@@ -299,9 +285,7 @@ export const MatterCardDetailModal = ({
           isFixedMode={matterInfo.is_fixed || false}
         />
 
-        {businessInfoInCardList.length > 0 && (
-          <h2 className="my-4">取引先情報</h2>
-        )}
+        <h2 className="my-4">取引先情報</h2>
         {businessInfoInCardList.map(
           (businessInfo, index) =>
             !businessInfo.isRemoved && (
@@ -338,9 +322,7 @@ export const MatterCardDetailModal = ({
           </Button>
         )}
 
-        {costInfoInCardList.length > 0 && (
-          <h2 className="mt-8 mb-4">コスト情報</h2>
-        )}
+        <h2 className="mt-8 mb-4">コスト情報</h2>
         {costInfoInCardList.map(
           (costInfo, index) =>
             !costInfo.isRemoved && (
@@ -387,20 +369,19 @@ export const MatterCardDetailModal = ({
               </Button>
             </Group>
             <Group justify="flex-end" mt="md">
+              <Button type="submit">更新</Button>
               <Button
                 type="button"
+                color="red"
                 onClick={() => {
                   const validation = form.validate();
                   if (validation.hasErrors) {
                     return;
                   }
-                  handleFixMatterInfo();
+                  handleUpdateMatterInfo(true);
                 }}
               >
-                確定
-              </Button>
-              <Button type="submit" color="red">
-                更新
+                経理申請
               </Button>
             </Group>
           </div>

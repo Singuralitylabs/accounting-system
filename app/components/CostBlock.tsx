@@ -113,7 +113,7 @@ const CostBlock = ({
             value={costInfo.certificate}
             onChange={(value) => handleUpdate({ certificate: value || "" })}
           />
-          <div className="flex items-center">
+          <div className="flex items-end pb-2">
             <Checkbox
               label="源泉徴収あり"
               className="whitespace-nowrap flex-shrink-0"
@@ -126,10 +126,10 @@ const CostBlock = ({
           </div>
         </div>
       </div>
-      <div className="hidden lg:flex">
+      <div className="hidden lg:flex lg:self-end pb-2">
         {!isFixed && (
           <button
-            className="text-lg hover:cursor-pointer w-4 ml-2 flex items-center justify-center hover:text-blue-500"
+            className="text-lg hover:cursor-pointer w-4 ml-2 flex items-end justify-center hover:text-blue-500 h-[38px]"
             onClick={() => onRemoveCost(costInfo.id)}
           >
             <FaRegTrashAlt />

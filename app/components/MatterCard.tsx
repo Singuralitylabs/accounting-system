@@ -67,9 +67,9 @@ export function MatterCardsGrid({
             {matter.is_completed ? (
               <Badge color="green">経理確認完了</Badge>
             ) : matter.is_fixed ? (
-              <Badge color="blue">経理確認待ち</Badge>
+              <Badge color="red">経理申請中</Badge>
             ) : (
-              <Badge color="red">申請者編集中</Badge>
+              <Badge color="blue">下書き</Badge>
             )}
           </div>
         </Group>
