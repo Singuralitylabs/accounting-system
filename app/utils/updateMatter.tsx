@@ -30,7 +30,7 @@ export const updateMatter = async (
     if (business.isRemoved) continue;
     if (
       !business.name ||
-      !business.amount ||
+      business.amount === null ||
       !business.invoice_date ||
       !business.period_date
     ) {
@@ -52,7 +52,7 @@ export const updateMatter = async (
       !cost.name ||
       !cost.item ||
       !cost.payment_target ||
-      !cost.price ||
+      cost.price === null ||
       !cost.period ||
       !cost.certificate
     ) {
