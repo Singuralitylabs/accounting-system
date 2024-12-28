@@ -10,6 +10,7 @@ import { updateMatterInfo } from "../utils/supabaseServer";
 import { NotificationMessage } from "./modal/NotificationMessage";
 import { notifications } from "@mantine/notifications";
 import { sendSlackNotification } from "../actions";
+import { useRouter } from "next/navigation";
 
 export const AccountingMatterList = ({
   matterList,
@@ -21,6 +22,7 @@ export const AccountingMatterList = ({
     useState<MatterInfoWithUserNameType | null>(null);
   const [detailOpened, setDetailOpened] = useState<boolean>(false);
   const [notificationOpened, setNotificationOpened] = useState<boolean>(false);
+  const router = useRouter();
 
   const formatCurrency = (amount: number | null) => {
     if (amount === null) return "-";
@@ -66,6 +68,7 @@ export const AccountingMatterList = ({
     }
     alert(`案件をチェック処理を完了しました。`);
     setCheckedMatterIdList([]);
+    router.refresh();
   };
 
   const handleSendMessage = async (message: string) => {
@@ -124,6 +127,7 @@ export const AccountingMatterList = ({
     } finally {
       setNotificationOpened(false);
       setCheckedMatterIdList([]);
+      router.refresh();
     }
   };
 
@@ -143,9 +147,11 @@ export const AccountingMatterList = ({
       <Table.Tr
         key={matter.id}
         bg={
-          matter.is_completed
+          checkedMatterIdList.includes(matter.id)
+            ? "var(--mantine-color-blue-light)"
+            : matter.is_completed
             ? "var(--mantine-color-gray-light)"
-            : checkedMatterIdList.includes(matter.id)
+            : matter.is_fixed
             ? "var(--mantine-color-red-light)"
             : undefined
         }

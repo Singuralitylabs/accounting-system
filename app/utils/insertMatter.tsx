@@ -25,7 +25,7 @@ const insertMatter = async (
   for (const business of businessList) {
     if (
       !business.name ||
-      !business.amount ||
+      business.amount === null ||
       !business.invoice_date ||
       !business.period_date
     ) {
@@ -46,7 +46,7 @@ const insertMatter = async (
       !cost.name ||
       !cost.item ||
       !cost.payment_target ||
-      !cost.price ||
+      cost.price === null ||
       !cost.period ||
       !cost.certificate
     ) {

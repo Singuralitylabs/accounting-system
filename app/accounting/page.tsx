@@ -16,18 +16,16 @@ const AccountingMatterPage = async () => {
     await getAllMatterInfoList();
 
   const matterList: MatterInfoWithUserNameType[] =
-    matterListWithProfile
-      ?.map((matterWithProfile: MatterTypeAndProfileType) => {
+    matterListWithProfile?.map(
+      (matterWithProfile: MatterTypeAndProfileType) => {
         const { profiles, ...matterInfo } = matterWithProfile;
         return {
           ...matterInfo,
           user_name: profiles!.name,
           slack_id: profiles!.slack_id,
         };
-      })
-      .filter((matter) => {
-        return matter.is_fixed;
-      }) ?? [];
+      }
+    ) ?? [];
 
   return (
     <main>

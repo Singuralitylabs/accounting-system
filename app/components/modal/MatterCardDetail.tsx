@@ -4,6 +4,7 @@ import {
   MatterType,
 } from "@/app/types/types";
 import {
+  deleteBusinessInfo,
   deleteCostInfo,
   deleteMatterInfo,
   getUserBusinessInfoList,
@@ -189,6 +190,9 @@ export const MatterCardDetailModal = ({
     }
     for (const costInfo of costInfoInCardList) {
       await deleteCostInfo(costInfo.id);
+    }
+    for (const businessInfo of businessInfoInCardList) {
+      await deleteBusinessInfo(businessInfo.id);
     }
     await deleteMatterInfo(matterInfo.id);
     alert(`案件[${matterInfo.title}]を削除しました。`);
