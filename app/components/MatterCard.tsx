@@ -1,9 +1,10 @@
 "use client";
 
 import { Card, Text, Badge, Group, Container, SimpleGrid } from "@mantine/core";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { MatterType } from "../types/types";
 import { MatterCardDetailModal } from "./modal/MatterCardDetail";
+import { useRouter } from "next/navigation";
 
 export function MatterCardsGrid({
   matterList,
@@ -12,6 +13,19 @@ export function MatterCardsGrid({
 }) {
   const [opened, setOpened] = useState(false);
   const [matterInfo, setMatterInfo] = useState<MatterType | null>(null);
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+
+  const refreshData = () => {
+    startTransition(() => {
+      router.refresh();
+    });
+  };
+
+  const handleModalClose = () => {
+    setOpened(false);
+    refreshData();
+  };
 
   if (!Array.isArray(matterList)) {
     return null;
@@ -95,13 +109,13 @@ export function MatterCardsGrid({
   return (
     <Container py="xl">
       <SimpleGrid cols={{ base: 1, sm: 2 }}>{cards}</SimpleGrid>
-      {opened && matterInfo ? (
+      {opened && matterInfo && (
         <MatterCardDetailModal
           matterInfo={matterInfo}
           opened={opened}
-          setOpened={setOpened}
+          setOpened={handleModalClose}
         />
-      ) : null}
+      )}
     </Container>
   );
 }

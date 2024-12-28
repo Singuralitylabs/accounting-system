@@ -99,7 +99,9 @@ const NewMatterForm = () => {
       }
     } else {
       const checkCreated = window.confirm(
-        `案件[${form.getValues().title}]の下書きを作成しますか？`
+        `案件[${
+          form.getValues().title
+        }]の下書きを作成しますか？\n作成した案件は経理申請扱いにはなりませんが、経理に共有はされます。`
       );
       if (!checkCreated) {
         alert(`案件[${form.getValues().title}]の下書き作成を中止しました。`);
@@ -133,7 +135,9 @@ const NewMatterForm = () => {
         if (is_fixed) {
           alert(`${matterInfo.title}の経理申請を完了しました。`);
         } else {
-          alert(`${matterInfo.title}の下書き作成を完了しました。`);
+          alert(
+            `${matterInfo.title}の下書き作成を完了しました。\n経理申請まで忘れずご対応をお願い致します。`
+          );
         }
         form.reset();
         form.setValues(initialFormValues);
