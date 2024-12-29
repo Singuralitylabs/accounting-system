@@ -46,3 +46,13 @@ export const elementListInAccounting = [
   "未払いコスト数",
   "",
 ];
+
+export const elementListOfUser = [
+  "ID",
+  "名前",
+  "メールアドレス",
+  "権限",
+  "slack ID",
+];
+
+export const classList = ["public", "accounting", "admin"];
