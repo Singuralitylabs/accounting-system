@@ -98,13 +98,23 @@ const MobileHeader: FC = () => {
             >
               新規作成
             </Link>
-            {profile?.class === "accounting" && (
+            {(profile?.class === "accounting" ||
+              profile?.class === "admin") && (
               <Link
                 href="/accounting"
                 className="block rounded px-3 py-2 text-white hover:bg-gray-500 text-right w-full"
                 onClick={toggleMenu}
               >
                 経理用一覧
+              </Link>
+            )}
+            {profile?.class === "admin" && (
+              <Link
+                href="/dashboard"
+                className="block rounded px-3 py-2 text-white hover:bg-gray-500 text-right w-full"
+                onClick={toggleMenu}
+              >
+                管理画面
               </Link>
             )}
             <button

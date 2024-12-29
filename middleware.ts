@@ -16,6 +16,7 @@ export async function middleware(req: NextRequest) {
 
     const isProtectedRoute =
       pathname === "/" ||
+      pathname.startsWith("/dashboard") ||
       pathname.startsWith("/accounting") ||
       pathname.startsWith("/new");
 
@@ -46,6 +47,18 @@ export async function middleware(req: NextRequest) {
           !profileInfo?.class ||
           (profileInfo.class !== "accounting" && profileInfo.class !== "admin")
         ) {
+          return NextResponse.redirect(new URL("/", req.url));
+        }
+      } catch (error) {
+        console.error("Profile fetch error:", error);
+        return NextResponse.redirect(new URL("/", req.url));
+      }
+    }
+
+    if (session && pathname === "/dashboard") {
+      try {
+        const { profileInfo } = await getProfileInfo();
+        if (!profileInfo?.class || profileInfo.class !== "admin") {
           return NextResponse.redirect(new URL("/", req.url));
         }
       } catch (error) {

@@ -33,8 +33,16 @@ CREATE POLICY "Users can insert own profile"
   TO authenticated
   WITH CHECK (auth.uid() = user_id);
 
-CREATE POLICY "Users can update own profile"
-  ON profiles
-  FOR UPDATE
-  TO authenticated
-  USING (auth.uid() = user_id);
+CREATE POLICY "Users can update own profile or admin can update any profile"
+ON profiles
+FOR UPDATE
+TO authenticated
+USING (
+  auth.uid() = user_id OR
+  EXISTS (
+    SELECT 1 
+    FROM profiles 
+    WHERE user_id = auth.uid() 
+    AND class = 'admin'
+  )
+);
