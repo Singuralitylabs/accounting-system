@@ -6,7 +6,7 @@ import {
 } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { Database } from "../lib/database.types";
-import { MatterType } from "../types/types";
+import { MatterType, ProfilesType } from "../types/types";
 
 export const getProfileInfo = async () => {
   try {
@@ -62,6 +62,17 @@ export const getUserInfo = async (id: number) => {
   return userInfo ? userInfo[0] : null;
 };
 
+export const getAllUserInfo = async () => {
+  const supabase = createServerComponentClient<Database>({ cookies });
+
+  const { data: userInfoList } = await supabase
+    .from("profiles")
+    .select("*")
+    .order("id", { ascending: true });
+
+  return userInfoList ? userInfoList : [];
+};
+
 export const insertUserInfo = async ({
   user,
   name,
@@ -100,6 +111,39 @@ export const insertUserInfo = async ({
     return { error: null };
   } catch (error) {
     console.error("Unexpected error during insert:", error);
+    return { error };
+  }
+};
+
+export const updateUserInfo = async ({
+  profile,
+}: {
+  profile: ProfilesType;
+}) => {
+  const supabase = createServerComponentClient<Database>({ cookies });
+
+  try {
+    const { error: updateError } = await supabase
+      .from("profiles")
+      .update({
+        slack_id: profile.slack_id,
+        class: profile.class,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", profile.id)
+      .select();
+
+    if (updateError) {
+      console.error(
+        `profilesテーブルへの${profile.id}の更新処理で失敗しました。`,
+        updateError
+      );
+      return { error: updateError };
+    }
+
+    return { error: null };
+  } catch (error) {
+    console.error("Unexpected error during update Profile:", error);
     return { error };
   }
 };

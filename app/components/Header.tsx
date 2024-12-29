@@ -71,12 +71,20 @@ const Header: FC = () => {
           >
             新規作成
           </Link>
-          {profile?.class === "accounting" && (
+          {(profile?.class === "accounting" || profile?.class === "admin") && (
             <Link
               href="/accounting"
               className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
             >
               経理用一覧
+            </Link>
+          )}
+          {profile?.class === "admin" && (
+            <Link
+              href="/dashboard"
+              className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
+            >
+              管理画面
             </Link>
           )}
         </div>
