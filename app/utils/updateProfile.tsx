@@ -2,8 +2,8 @@ import { ProfilesType } from "../types/types";
 import { updateUserInfo } from "./supabaseServer";
 
 export const updateProfile = async ({ profile }: { profile: ProfilesType }) => {
-  if (!profile.class || !profile.slack_id) {
-    alert(`権限またはslack IDが空欄のため、ユーザーの更新を中止しました。`);
+  if (!profile.class) {
+    alert(`権限が空欄のため、ユーザーの更新を中止しました。`);
     return false;
   }
 
@@ -14,6 +14,7 @@ export const updateProfile = async ({ profile }: { profile: ProfilesType }) => {
     return false;
   }
 
+  alert("ユーザー情報を保存しました。");
   return true;
 };
 

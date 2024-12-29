@@ -28,8 +28,6 @@ const UserList = ({ userList }: { userList: ProfilesType[] }) => {
         return;
       }
       await updateProfile({ profile: user });
-
-      alert("ユーザー情報を保存しました。");
     } catch (error) {
       console.error("ユーザー情報の保存に失敗しました:", error);
     }
