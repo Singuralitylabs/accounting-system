@@ -6,6 +6,13 @@ import { MatterType } from "../types/types";
 import { MatterCardDetailModal } from "./modal/MatterCardDetail";
 import { useRouter } from "next/navigation";
 import { MatterCard } from "./MatterCard";
+import {
+  deleteBusinessInfo,
+  deleteCostInfo,
+  deleteMatterInfo,
+  getUserBusinessInfoList,
+  getUserCostInfoList,
+} from "../utils/supabaseServer";
 
 export function MatterCardsGrid({
   matterList,
@@ -50,11 +57,39 @@ export function MatterCardsGrid({
     });
     setOpened(true);
   };
-  const deleteCard = (matter: MatterType) => {};
+
+  const deleteCard = (matter: MatterType) => {
+    const confirm = window.confirm(
+      "本当に削除しますか？\nこの操作は取り消せません。"
+    );
+    if (confirm) {
+      startTransition(async () => {
+        const { costInfoList, error } = await getUserCostInfoList(matter.id);
+        if (error) {
+          console.error("Error fetching costInfoList:", error);
+          return;
+        }
+        if (costInfoList) {
+          for (const costInfo of costInfoList) {
+            await deleteCostInfo(costInfo.id);
+          }
+        }
+        const { businessInfoList } = await getUserBusinessInfoList(matter.id);
+        if (businessInfoList) {
+          for (const businessInfo of businessInfoList) {
+            await deleteBusinessInfo(businessInfo.id);
+          }
+        }
+        await deleteMatterInfo(matter.id);
+        alert(`案件[${matter.title}]を削除しました。`);
+      });
+      refreshData();
+    }
+  };
 
   return (
-    <Container py="xl">
-      <SimpleGrid cols={{ base: 1, sm: 2 }}>
+    <div className="py-4 px-8">
+      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
         {matterList?.map((matter) => (
           <MatterCard
             matter={matter}
@@ -73,6 +108,6 @@ export function MatterCardsGrid({
           setIsNew={setIsNew}
         />
       )}
-    </Container>
+    </div>
   );
 }
