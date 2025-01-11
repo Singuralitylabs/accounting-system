@@ -69,9 +69,11 @@ export function MatterCard({
             </Menu.Target>
             <Menu.Dropdown>
               <Menu.Item onClick={() => onCopy(matter)}>コピー</Menu.Item>
-              <Menu.Item color="red" onClick={() => onDelete(matter)}>
-                削除
-              </Menu.Item>
+              {!matter.is_completed && !matter.is_fixed && (
+                <Menu.Item color="red" onClick={() => onDelete(matter)}>
+                  削除
+                </Menu.Item>
+              )}
             </Menu.Dropdown>
           </Menu>
         </div>
