@@ -138,4 +138,50 @@ export const updateMatter = async (
   return true;
 };
 
-export default updateMatter;
+const editMatterInfo = async (
+  matterInfo: MatterType,
+  businessInfoList: BusinessInCardType[],
+  costInfoList: CostInCardType[]
+) => {
+  const checkUpdate = matterInfo.is_fixed
+    ? window.confirm(
+        `案件[${matterInfo.title}]を経理申請しますか？\n申請後に更新が必要となった場合、経理まで連絡が必要です。`
+      )
+    : window.confirm(`案件[${matterInfo.title}]を更新しますか？`);
+  if (!checkUpdate) {
+    return false;
+  }
+
+  const updatedMatterInfo: MatterType = {
+    ...matterInfo,
+    title: matterInfo.title,
+    category: matterInfo.category,
+    team: matterInfo.team,
+    start_date: matterInfo.start_date,
+    description: matterInfo.description,
+    is_fixed: matterInfo.is_fixed,
+  };
+
+  try {
+    const ret = await updateMatter(matterInfo, businessInfoList, costInfoList);
+    if (ret) {
+      Object.assign(matterInfo, updatedMatterInfo);
+      if (matterInfo.is_fixed) {
+        alert(`案件[${matterInfo.title}]を経理申請しました。`);
+      } else {
+        alert(`案件[${matterInfo.title}]を更新しました。`);
+      }
+      return true;
+    }
+  } catch (err) {
+    if (matterInfo.is_fixed) {
+      alert(`案件[${matterInfo.title}]の経理申請に失敗しました。`);
+      console.error(`案件[${matterInfo.title}]の経理申請に失敗しました。`, err);
+    } else {
+      alert(`案件[${matterInfo.title}]の更新に失敗しました。`);
+      console.error(`案件[${matterInfo.title}]の更新に失敗しました。`, err);
+    }
+  }
+};
+
+export default editMatterInfo;

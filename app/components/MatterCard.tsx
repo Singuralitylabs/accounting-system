@@ -1,40 +1,37 @@
-"use client";
-
-import { Card, Text, Badge, Group, Container, SimpleGrid } from "@mantine/core";
-import { useState, useTransition } from "react";
+import {
+  Button,
+  Card,
+  Text,
+  Badge,
+  Group,
+  Menu,
+  ActionIcon,
+} from "@mantine/core";
+import { BsThreeDotsVertical } from "react-icons/bs";
 import { MatterType } from "../types/types";
-import { MatterCardDetailModal } from "./modal/MatterCardDetail";
-import { useRouter } from "next/navigation";
 
-export function MatterCardsGrid({
-  matterList,
+export function MatterCard({
+  matter,
+  onOpen,
+  onCopy,
+  onDelete,
 }: {
-  matterList: MatterType[] | null;
+  matter: MatterType;
+  onOpen: (matter: MatterType) => void;
+  onCopy: (matter: MatterType) => void;
+  onDelete: (matter: MatterType) => void;
 }) {
-  const [opened, setOpened] = useState(false);
-  const [matterInfo, setMatterInfo] = useState<MatterType | null>(null);
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
-
-  const refreshData = () => {
-    startTransition(() => {
-      router.refresh();
-    });
-  };
-
-  const handleModalClose = () => {
-    setOpened(false);
-    refreshData();
-  };
-
-  if (!Array.isArray(matterList)) {
-    return null;
-  }
-
-  const openCard = (matter: MatterType) => {
-    setMatterInfo(matter);
-    setOpened(true);
-  };
+  const formattedDate = new Date(matter.inserted_at).toLocaleDateString(
+    "ja-JP",
+    {
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "numeric",
+      minute: "numeric",
+      second: "numeric",
+    }
+  );
 
   const formatCurrency = (amount: number | null) => {
     if (amount === null || amount === undefined) return "-";
@@ -45,77 +42,60 @@ export function MatterCardsGrid({
     }).format(amount);
   };
 
-  const cards = matterList?.map((matter) => {
-    const formattedDate = new Date(matter.inserted_at).toLocaleDateString(
-      "ja-JP",
-      {
-        year: "numeric",
-        month: "numeric",
-        day: "numeric",
-        hour: "numeric",
-        minute: "numeric",
-        second: "numeric",
-      }
-    );
-
-    return (
-      <Card
-        key={matter.id}
-        p="md"
-        radius="md"
-        component="a"
-        className="hover:bg-transparent hover:cursor-pointer hover:bg-gray-100 border transition relative"
-        shadow="sm"
-        onClick={() => openCard(matter)}
-      >
-        <Group justify="space-between" align="flex-start">
-          <Text
-            fw={700}
-            size="lg"
-            mt={5}
-            className="truncate w-2/3 overflow-hidden whitespace-nowrap"
-          >
-            {matter.title}
-          </Text>
-          <div className="absolute top-5 right-5">
-            {matter.is_completed ? (
-              <Badge color="green">経理確認完了</Badge>
-            ) : matter.is_fixed ? (
-              <Badge color="red">経理申請中</Badge>
-            ) : (
-              <Badge color="blue">下書き</Badge>
-            )}
-          </div>
-        </Group>
-        <Text>案件ID :{matter.id}</Text>
-        <Text>分類 :{matter.category}</Text>
-        <Text>チーム :{matter.team}</Text>
-        <Text>合計請求額 :{formatCurrency(matter.total_amount)}</Text>
-        <Text>合計コスト :{formatCurrency(matter.total_cost)}</Text>
+  return (
+    <Card p="md" radius="md" className="border relative" shadow="sm">
+      <Group justify="space-between" align="flex-start">
         <Text
-          c="dimmed"
-          size="xs"
-          tt="uppercase"
           fw={700}
-          mt="md"
-          className="flex justify-end"
+          size="lg"
+          mt={5}
+          className="truncate w-2/3 overflow-hidden whitespace-nowrap"
         >
+          {matter.title}
+        </Text>
+        <div className="absolute top-4 right-2 flex items-center gap-2">
+          {matter.is_completed ? (
+            <Badge color="green">経理確認完了</Badge>
+          ) : matter.is_fixed ? (
+            <Badge color="red">経理申請中</Badge>
+          ) : (
+            <Badge color="blue">下書き</Badge>
+          )}
+          <Menu position="bottom-end" shadow="md">
+            <Menu.Target>
+              <ActionIcon variant="white" size="sm">
+                <BsThreeDotsVertical />
+              </ActionIcon>
+            </Menu.Target>
+            <Menu.Dropdown>
+              <Menu.Item onClick={() => onCopy(matter)}>コピー</Menu.Item>
+              {!matter.is_completed && !matter.is_fixed && (
+                <Menu.Item color="red" onClick={() => onDelete(matter)}>
+                  削除
+                </Menu.Item>
+              )}
+            </Menu.Dropdown>
+          </Menu>
+        </div>
+      </Group>
+      <Text>案件ID: {matter.id}</Text>
+      <Text>分類: {matter.category}</Text>
+      <Text>チーム: {matter.team}</Text>
+      <Text>合計請求額: {formatCurrency(matter.total_amount)}</Text>
+      <Text>合計コスト: {formatCurrency(matter.total_cost)}</Text>
+      <Group justify="flex-end" align="center" mt="md">
+        <Text c="dimmed" size="xs" tt="uppercase" fw={700}>
           作成日時：{formattedDate}
         </Text>
-      </Card>
-    );
-  });
-
-  return (
-    <Container py="xl">
-      <SimpleGrid cols={{ base: 1, sm: 2 }}>{cards}</SimpleGrid>
-      {opened && matterInfo && (
-        <MatterCardDetailModal
-          matterInfo={matterInfo}
-          opened={opened}
-          setOpened={handleModalClose}
-        />
-      )}
-    </Container>
+      </Group>
+      <Button
+        variant="outline"
+        className="mt-4"
+        onClick={() => onOpen(matter)}
+        size="sm"
+      >
+        開く
+      </Button>
+    </Card>
   );
 }

@@ -1,5 +1,5 @@
 import { headers } from "next/headers";
-import { MatterCardsGrid } from "./components/MatterCard";
+import { MatterCardsGrid } from "./components/MatterCardGrid";
 import PageTitle from "./components/PageTitle";
 import { getUserMatterInfoList } from "./utils/supabaseServer";
 
