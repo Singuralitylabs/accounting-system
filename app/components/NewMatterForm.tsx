@@ -3,12 +3,13 @@
 import { BusinessType, CostType, MatterType } from "@/app/types/types";
 import { Button, Group } from "@mantine/core";
 import { useForm } from "@mantine/form";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { CiSquarePlus } from "react-icons/ci";
-import insertMatter from "../utils/insertMatter";
 import BusinessBlock from "./BusinessBlock";
 import CostBlock from "./CostBlock";
 import { MatterFormValues, MatterInfoBlock } from "./MatterInfoBlock";
+import addMatterInfo from "../utils/addMatterInfo";
+import { useRouter } from "next/navigation";
 
 const NewMatterForm = () => {
   const initialFormValues: MatterFormValues = {
@@ -39,6 +40,14 @@ const NewMatterForm = () => {
   const [businessList, setBusinessList] = useState<BusinessType[]>([]);
   const [costIndex, setCostIndex] = useState<number>(1);
   const [businessIndex, setBusinessIndex] = useState<number>(1);
+  const router = useRouter();
+  const [_, startTransition] = useTransition();
+
+  const refreshData = () => {
+    startTransition(() => {
+      router.refresh();
+    });
+  };
 
   const handleAddCost = () => {
     setCostList([
@@ -89,70 +98,34 @@ const NewMatterForm = () => {
   };
 
   const handleAddMatterInfo = async (is_fixed: boolean) => {
-    if (is_fixed) {
-      const checkCreated = window.confirm(
-        `案件[${form.getValues().title}]を経理申請しますか？`
-      );
-      if (!checkCreated) {
-        alert(`案件[${form.getValues().title}]の経理申請を中止しました。`);
-        return;
-      }
-    } else {
-      const checkCreated = window.confirm(
-        `案件[${
-          form.getValues().title
-        }]の下書きを作成しますか？\n作成した案件は経理申請扱いにはなりませんが、経理に共有はされます。`
-      );
-      if (!checkCreated) {
-        alert(`案件[${form.getValues().title}]の下書き作成を中止しました。`);
-        return;
-      }
-    }
-
-    try {
-      const matterInfo: MatterType = {
-        id: 0,
-        title: form.getValues().title,
-        category: form.getValues().category,
-        team: form.getValues().team,
-        start_date: form.getValues().start_date,
-        description: form.getValues().description,
-        is_fixed: is_fixed,
-        is_completed: false,
-        user_id: 1,
-        accounting_memo: "",
-        total_amount: 0,
-        total_cost: 0,
-        cost_count: costList.length,
-        business_count: businessList.length,
-        unchecked_cost_count: costList.length,
-        inserted_at: "",
-        updated_at: "",
-      };
-
-      const ret = await insertMatter(matterInfo, businessList, costList);
-      if (ret) {
-        if (is_fixed) {
-          alert(`${matterInfo.title}の経理申請を完了しました。`);
-        } else {
-          alert(
-            `${matterInfo.title}の下書き作成を完了しました。\n経理申請まで忘れずご対応をお願い致します。`
-          );
-        }
-        form.reset();
-        form.setValues(initialFormValues);
-        setCostList([]);
-        setBusinessList([]);
-        setCostIndex(1);
-        setBusinessIndex(1);
-      }
-    } catch (error) {
-      if (is_fixed) {
-        alert(`${form.getValues().title}の経理申請に失敗しました。`);
-      } else {
-        alert(`${form.getValues().title}の下書き作成に失敗しました。`);
-      }
-      console.error(error);
+    const matterInfo: MatterType = {
+      id: 0,
+      title: form.getValues().title,
+      category: form.getValues().category,
+      team: form.getValues().team,
+      start_date: form.getValues().start_date,
+      description: form.getValues().description,
+      is_fixed: is_fixed,
+      is_completed: false,
+      user_id: 1,
+      accounting_memo: "",
+      total_amount: 0,
+      total_cost: 0,
+      cost_count: costList.length,
+      business_count: businessList.length,
+      unchecked_cost_count: costList.length,
+      inserted_at: "",
+      updated_at: "",
+    };
+    const ret = await addMatterInfo(matterInfo, businessList, costList);
+    if (ret) {
+      form.reset();
+      form.setValues(initialFormValues);
+      setCostList([]);
+      setBusinessList([]);
+      setCostIndex(1);
+      setBusinessIndex(1);
+      refreshData();
     }
   };
 

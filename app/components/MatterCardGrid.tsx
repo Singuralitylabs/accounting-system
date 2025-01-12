@@ -1,18 +1,12 @@
 "use client";
 
-import { Container, SimpleGrid } from "@mantine/core";
+import { SimpleGrid } from "@mantine/core";
 import { useState, useTransition } from "react";
 import { MatterType } from "../types/types";
 import { MatterCardDetailModal } from "./modal/MatterCardDetail";
 import { useRouter } from "next/navigation";
 import { MatterCard } from "./MatterCard";
-import {
-  deleteBusinessInfo,
-  deleteCostInfo,
-  deleteMatterInfo,
-  getUserBusinessInfoList,
-  getUserCostInfoList,
-} from "../utils/supabaseServer";
+import deleteMatter from "../utils/deleteMatter";
 
 export function MatterCardsGrid({
   matterList,
@@ -40,15 +34,16 @@ export function MatterCardsGrid({
     return null;
   }
 
-  const openCard = (matter: MatterType) => {
+  const handleOpenCard = (matter: MatterType) => {
     setMatterInfo(matter);
     setOpened(true);
   };
 
-  const copyCard = (matter: MatterType) => {
+  const handleCopyCard = (matter: MatterType) => {
     setIsNew(true);
     setMatterInfo({
       ...matter,
+      id: 0,
       title: `${matter.title} (コピー)`,
       is_completed: false,
       is_fixed: false,
@@ -58,33 +53,9 @@ export function MatterCardsGrid({
     setOpened(true);
   };
 
-  const deleteCard = (matter: MatterType) => {
-    const confirm = window.confirm(
-      "本当に削除しますか？\nこの操作は取り消せません。"
-    );
-    if (confirm) {
-      startTransition(async () => {
-        const { costInfoList, error } = await getUserCostInfoList(matter.id);
-        if (error) {
-          console.error("Error fetching costInfoList:", error);
-          return;
-        }
-        if (costInfoList) {
-          for (const costInfo of costInfoList) {
-            await deleteCostInfo(costInfo.id);
-          }
-        }
-        const { businessInfoList } = await getUserBusinessInfoList(matter.id);
-        if (businessInfoList) {
-          for (const businessInfo of businessInfoList) {
-            await deleteBusinessInfo(businessInfo.id);
-          }
-        }
-        await deleteMatterInfo(matter.id);
-        alert(`案件[${matter.title}]を削除しました。`);
-      });
-      refreshData();
-    }
+  const handleDeleteCard = async (matter: MatterType) => {
+    await deleteMatter(matter);
+    refreshData();
   };
 
   return (
@@ -93,9 +64,9 @@ export function MatterCardsGrid({
         {matterList?.map((matter) => (
           <MatterCard
             matter={matter}
-            onOpen={openCard}
-            onCopy={copyCard}
-            onDelete={deleteCard}
+            onOpen={handleOpenCard}
+            onCopy={handleCopyCard}
+            onDelete={handleDeleteCard}
           />
         ))}
       </SimpleGrid>

@@ -4,13 +4,9 @@ import {
   MatterType,
 } from "@/app/types/types";
 import {
-  deleteBusinessInfo,
-  deleteCostInfo,
-  deleteMatterInfo,
   getUserBusinessInfoList,
   getUserCostInfoList,
 } from "@/app/utils/supabaseServer";
-import updateMatter from "@/app/utils/updateMatter";
 import { Modal, Button, Group, Badge } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useEffect, useState } from "react";
@@ -18,7 +14,9 @@ import { CiSquarePlus } from "react-icons/ci";
 import BusinessBlock from "../BusinessBlock";
 import CostBlock from "../CostBlock";
 import MatterInfoBlock, { MatterFormValues } from "../MatterInfoBlock";
-import insertMatter from "@/app/utils/insertMatter";
+import deleteMatter from "@/app/utils/deleteMatter";
+import addMatterInfo from "@/app/utils/addMatterInfo";
+import editMatterInfo from "@/app/utils/editMatterInfo";
 
 type Props = {
   matterInfo: MatterType;
@@ -136,84 +134,37 @@ export const MatterCardDetailModal = ({
   };
 
   const handleAddMatterInfo = async (isFixed: boolean) => {
-    if (isFixed) {
-      const checkCreated = window.confirm(
-        `案件[${form.getValues().title}]を経理申請しますか？`
-      );
-      if (!checkCreated) {
-        alert(`案件[${form.getValues().title}]の経理申請を中止しました。`);
-        return;
-      }
-    } else {
-      const checkCreated = window.confirm(
-        `案件[${
-          form.getValues().title
-        }]の下書きを作成しますか？\n作成した案件は経理申請扱いにはなりませんが、経理に共有はされます。`
-      );
-      if (!checkCreated) {
-        alert(`案件[${form.getValues().title}]の下書き作成を中止しました。`);
-        return;
-      }
-    }
-
-    try {
-      const matterInfo: MatterType = {
-        id: 0,
-        title: form.getValues().title,
-        category: form.getValues().category,
-        team: form.getValues().team,
-        start_date: form.getValues().start_date,
-        description: form.getValues().description,
-        is_fixed: isFixed,
-        is_completed: false,
-        user_id: 1,
-        accounting_memo: "",
-        total_amount: 0,
-        total_cost: 0,
-        cost_count: costInfoInCardList.length,
-        business_count: businessInfoInCardList.length,
-        unchecked_cost_count: costInfoInCardList.length,
-        inserted_at: "",
-        updated_at: "",
-      };
-
-      const ret = await insertMatter(
-        matterInfo,
-        businessInfoInCardList,
-        costInfoInCardList
-      );
-      if (ret) {
-        if (isFixed) {
-          alert(`${matterInfo.title}の経理申請を完了しました。`);
-        } else {
-          alert(
-            `${matterInfo.title}の下書き作成を完了しました。\n経理申請まで忘れずご対応をお願い致します。`
-          );
-        }
-        form.reset();
-        closeModal();
-      }
-    } catch (error) {
-      if (isFixed) {
-        alert(`${form.getValues().title}の経理申請に失敗しました。`);
-      } else {
-        alert(`${form.getValues().title}の下書き作成に失敗しました。`);
-      }
-      console.error(error);
+    const matterInfo: MatterType = {
+      id: 0,
+      title: form.getValues().title,
+      category: form.getValues().category,
+      team: form.getValues().team,
+      start_date: form.getValues().start_date,
+      description: form.getValues().description,
+      is_fixed: isFixed,
+      is_completed: false,
+      user_id: 1,
+      accounting_memo: "",
+      total_amount: 0,
+      total_cost: 0,
+      cost_count: costInfoInCardList.length,
+      business_count: businessInfoInCardList.length,
+      unchecked_cost_count: costInfoInCardList.length,
+      inserted_at: "",
+      updated_at: "",
+    };
+    const ret = await addMatterInfo(
+      matterInfo,
+      businessInfoInCardList,
+      costInfoInCardList
+    );
+    if (ret) {
+      form.reset();
+      closeModal();
     }
   };
 
   const handleUpdateMatterInfo = async (isFixed: boolean) => {
-    const checkUpdate = isFixed
-      ? window.confirm(
-          `案件[${matterInfo.title}]を経理申請しますか？\n申請後に更新が必要となった場合、経理まで連絡が必要です。`
-        )
-      : window.confirm(`案件[${matterInfo.title}]を更新しますか？`);
-    if (!checkUpdate) {
-      closeModal();
-      return;
-    }
-
     const updatedMatterInfo: MatterType = {
       ...matterInfo,
       title: form.values.title,
@@ -224,52 +175,18 @@ export const MatterCardDetailModal = ({
       is_fixed: isFixed,
     };
 
-    try {
-      const ret = await updateMatter(
-        updatedMatterInfo,
-        businessInfoInCardList,
-        costInfoInCardList
-      );
-      if (ret) {
-        Object.assign(matterInfo, updatedMatterInfo);
-        if (isFixed) {
-          alert(`案件[${form.values.title}]を経理申請しました。`);
-        } else {
-          alert(`案件[${form.values.title}]を更新しました。`);
-        }
-        closeModal();
-      }
-    } catch (err) {
-      if (isFixed) {
-        alert(`案件[${form.values.title}]の経理申請に失敗しました。`);
-        console.error(
-          `案件[${form.values.title}]の経理申請に失敗しました。`,
-          err
-        );
-      } else {
-        alert(`案件[${form.values.title}]の更新に失敗しました。`);
-        console.error(`案件[${form.values.title}]の更新に失敗しました。`, err);
-      }
+    const ret = await editMatterInfo(
+      updatedMatterInfo,
+      businessInfoInCardList,
+      costInfoInCardList
+    );
+    if (ret) {
+      closeModal();
     }
   };
 
   const handleDeleteMatterInfo = async () => {
-    const checkDelete = window.confirm(
-      `案件[${matterInfo.title}]を削除してよろしいですか？`
-    );
-    if (!checkDelete) {
-      alert(`案件[${matterInfo.title}]の削除を中止しました。`);
-      closeModal();
-      return;
-    }
-    for (const costInfo of costInfoInCardList) {
-      await deleteCostInfo(costInfo.id);
-    }
-    for (const businessInfo of businessInfoInCardList) {
-      await deleteBusinessInfo(businessInfo.id);
-    }
-    await deleteMatterInfo(matterInfo.id);
-    alert(`案件[${matterInfo.title}]を削除しました。`);
+    await deleteMatter(matterInfo);
     closeModal();
   };
 
@@ -440,13 +357,15 @@ export const MatterCardDetailModal = ({
         {!matterInfo.is_fixed && (
           <div className="flex justify-between mt-6">
             <Group justify="flex-end" mt="md">
-              <Button
-                type="button"
-                color="gray"
-                onClick={handleDeleteMatterInfo}
-              >
-                削除
-              </Button>
+              {!isNew && (
+                <Button
+                  type="button"
+                  color="gray"
+                  onClick={handleDeleteMatterInfo}
+                >
+                  削除
+                </Button>
+              )}
             </Group>
             <Group justify="flex-end" mt="md">
               {isNew ? (
