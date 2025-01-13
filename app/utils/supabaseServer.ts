@@ -541,6 +541,7 @@ export const insertSelectOption = async (
     type_id: typeData.id,
     value,
     display_order,
+    is_active: true,
   });
 
   if (error) {
