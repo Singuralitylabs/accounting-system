@@ -26,23 +26,37 @@ const DashboardPage = async () => {
 
   return (
     <main className="p-4">
-      <PageTitle title="管理画面" />
       <UserList userList={userList} />
-      <Title order={2} className="py-4">
-        項目管理
-      </Title>
-      <div className="flex justify-between gap-4">
-        {!teamError ? (
-          <SelectOptionList optionClass="team" optionList={teamList} />
-        ) : (
-          <div>チーム情報の取得に失敗しました。</div>
-        )}
-        {!categoryError ? (
-          <SelectOptionList optionClass="category" optionList={categoryList} />
-        ) : (
-          <div>カテゴリ情報の取得に失敗しました。</div>
-        )}
-        <SelectOptionList optionClass="item" optionList={itemList} />
+      <div className="p-4">
+        <Title order={2} className="py-4">
+          項目管理
+        </Title>
+        <div className="flex justify-between gap-8">
+          <div className="flex-1">
+            {!teamError ? (
+              <SelectOptionList optionClass="team" optionList={teamList} />
+            ) : (
+              <div>チーム情報の取得に失敗しました。</div>
+            )}
+          </div>
+          <div className="flex-1">
+            {!categoryError ? (
+              <SelectOptionList
+                optionClass="category"
+                optionList={categoryList}
+              />
+            ) : (
+              <div>カテゴリ情報の取得に失敗しました。</div>
+            )}
+          </div>
+          <div className="flex-1">
+            {!itemError ? (
+              <SelectOptionList optionClass="item" optionList={itemList} />
+            ) : (
+              <div>アイテム情報の取得に失敗しました。</div>
+            )}
+          </div>
+        </div>
       </div>
     </main>
   );

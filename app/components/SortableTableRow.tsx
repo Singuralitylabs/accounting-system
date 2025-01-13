@@ -1,8 +1,9 @@
-import { Table, TextInput, Button, Group, Checkbox } from "@mantine/core";
+import { Table, TextInput } from "@mantine/core";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { SelectOptionType } from "../types/types";
 import { MdDragIndicator } from "react-icons/md";
+import { FaRegTrashAlt } from "react-icons/fa";
 
 interface Props {
   option: Pick<
@@ -14,15 +15,9 @@ interface Props {
     updates: { value: string } | { is_active: boolean }
   ) => void;
   onRemove: (id: number) => void;
-  onSave: (id: number) => void;
 }
 
-export function SortableTableRow({
-  option,
-  onUpdate,
-  onRemove,
-  onSave,
-}: Props) {
+export function SortableTableRow({ option, onUpdate, onRemove }: Props) {
   const {
     attributes,
     listeners,
@@ -57,14 +52,12 @@ export function SortableTableRow({
         />
       </Table.Td>
       <Table.Td>
-        <Group justify="left" className="flex">
-          <Button size="xs" color="green" onClick={() => onSave(option.id)}>
-            保存
-          </Button>
-          <Button size="xs" color="gray" onClick={() => onRemove(option.id)}>
-            削除
-          </Button>
-        </Group>
+        <button
+          className="text-lg hover:cursor-pointer w-4 flex items-center justify-center hover:text-blue-500 h-[38px]"
+          onClick={() => onRemove(option.id)}
+        >
+          <FaRegTrashAlt />
+        </button>
       </Table.Td>
     </Table.Tr>
   );

@@ -45,7 +45,7 @@ const SelectOptionList = ({
     optionClass === "team"
       ? "チーム"
       : optionClass === "category"
-      ? "カテゴリ"
+      ? "分類"
       : "品目";
 
   const sensors = useSensors(
@@ -95,65 +95,42 @@ const SelectOptionList = ({
   };
 
   const handleRemoveOption = async (id: number) => {
-    try {
-      const targetOption = updatedOptionList.find((option) => option.id === id);
-      const confirm = window.confirm(`${targetOption?.value}を削除しますか？`);
-      if (!confirm) return;
-
-      setUpdatedOptionList(
-        updatedOptionList.map((option) =>
-          option.id === id ? { ...option, is_active: false } : option
-        )
-      );
-
-      await updateSelectOption(
-        id,
-        targetOption?.value || "",
-        targetOption?.display_order || 0,
-        false
-      );
-    } catch (error) {
-      console.error(`${optionTitle}情報の削除に失敗しました。`, error);
-    }
+    setUpdatedOptionList(
+      updatedOptionList.map((option) =>
+        option.id === id ? { ...option, is_active: false } : option
+      )
+    );
   };
 
-  const handleSaveOption = async (id: number) => {
+  const handleSaveOption = async () => {
     try {
-      const targetOption = updatedOptionList.find((option) => option.id === id);
-      if (!targetOption?.value) {
-        alert("値を入力してください。");
-        return;
+      for (const option of updatedOptionList) {
+        if (!option.value && option.is_active) {
+          alert("未入力の欄があります。");
+          return;
+        }
       }
 
-      if (targetOption?.isNew) {
-        await insertSelectOption(
-          optionClass,
-          targetOption?.value,
-          targetOption?.display_order || updatedOptionList.length
-        );
-      } else {
-        await updateSelectOption(
-          id,
-          targetOption?.value,
-          targetOption?.display_order || updatedOptionList.length,
-          targetOption?.is_active || true
-        );
-      }
+      const confirm = window.confirm(`${optionTitle}の項目を更新しますか？`);
+      if (!confirm) return;
 
-      const otherOptions = updatedOptionList.filter(
-        (opt) => opt.id !== id && !opt.isNew
-      );
-
-      await Promise.all(
-        otherOptions.map((option) =>
-          updateSelectOption(
+      for (const option of updatedOptionList) {
+        if (option.isNew && !option.is_active) continue;
+        if (option.isNew) {
+          await insertSelectOption(
+            optionClass,
+            option.value,
+            option.display_order || updatedOptionList.length
+          );
+        } else {
+          await updateSelectOption(
             option.id,
             option.value,
-            option.display_order || 0,
-            option.is_active || true
-          )
-        )
-      );
+            option.display_order || updatedOptionList.length,
+            option.is_active!
+          );
+        }
+      }
     } catch (error) {
       console.error(`${optionTitle}情報の保存に失敗しました。`, error);
     }
@@ -161,9 +138,14 @@ const SelectOptionList = ({
 
   return (
     <div className="p-4 border-collapse border border-gray-500 bg-slate-50 rounded">
-      <Title order={3} className="pb-4">
-        {optionTitle}
-      </Title>
+      <div className="flex justify-between items-center">
+        <Title order={3} className="pb-4">
+          {optionTitle}
+        </Title>
+        <Button type="button" onClick={handleSaveOption}>
+          更新
+        </Button>
+      </div>
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -183,7 +165,6 @@ const SelectOptionList = ({
                     option={option}
                     onUpdate={handleUpdateTeamList}
                     onRemove={handleRemoveOption}
-                    onSave={handleSaveOption}
                   />
                 ))}
             </SortableContext>
