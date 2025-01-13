@@ -112,7 +112,6 @@ export type Database = {
       matters: {
         Row: {
           accounting_memo: string | null;
-          amount: number;
           business_count: number | null;
           category: string;
           cost_count: number | null;
@@ -132,7 +131,6 @@ export type Database = {
         };
         Insert: {
           accounting_memo?: string | null;
-          amount?: number;
           business_count?: number | null;
           category: string;
           cost_count?: number | null;
@@ -152,7 +150,6 @@ export type Database = {
         };
         Update: {
           accounting_memo?: string | null;
-          amount?: number;
           business_count?: number | null;
           category?: string;
           cost_count?: number | null;
@@ -215,32 +212,29 @@ export type Database = {
       };
       select_option_types: {
         Row: {
-          category: Database["public"]["Enums"]["information_category"];
+          category: string;
           created_at: string;
-          description: string | null;
           display_name: string;
           display_order: number | null;
-          id: number;
+          id: string;
           name: string;
           updated_at: string;
         };
         Insert: {
-          category: Database["public"]["Enums"]["information_category"];
+          category: string;
           created_at?: string;
-          description?: string | null;
           display_name: string;
           display_order?: number | null;
-          id?: number;
+          id?: string;
           name: string;
           updated_at?: string;
         };
         Update: {
-          category?: Database["public"]["Enums"]["information_category"];
+          category?: string;
           created_at?: string;
-          description?: string | null;
           display_name?: string;
           display_order?: number | null;
-          id?: number;
+          id?: string;
           name?: string;
           updated_at?: string;
         };
@@ -252,7 +246,7 @@ export type Database = {
           display_order: number | null;
           id: number;
           is_active: boolean | null;
-          type_id: number | null;
+          type_id: string | null;
           updated_at: string;
           value: string;
         };
@@ -261,7 +255,7 @@ export type Database = {
           display_order?: number | null;
           id?: number;
           is_active?: boolean | null;
-          type_id?: number | null;
+          type_id?: string | null;
           updated_at?: string;
           value: string;
         };
@@ -270,7 +264,7 @@ export type Database = {
           display_order?: number | null;
           id?: number;
           is_active?: boolean | null;
-          type_id?: number | null;
+          type_id?: string | null;
           updated_at?: string;
           value?: string;
         };

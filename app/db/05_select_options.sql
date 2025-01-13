@@ -20,7 +20,7 @@ create table select_option_types (
 -- 選択肢の値を管理するテーブル
 create table select_options (
     id serial primary key,
-    type_id integer references select_option_types(id) on delete cascade,
+    type_id uuid references select_option_types(id) on delete cascade,
     value varchar not null,
     display_order integer default 0,
     is_active boolean default true,
@@ -45,7 +45,7 @@ create policy "Admin can update any select options" on select_option_types
     for all using (
         exists (
             select 1 from profiles
-            where profiles.id = (auth.uid())::text::bigint
+            where profiles.user_id = auth.uid()::uuid
             and profiles.class = 'admin'
         )
     );
@@ -54,14 +54,14 @@ create policy "Admin can insert any select options" on select_options
     for all using (
         exists (
             select 1 from profiles
-            where profiles.id = (auth.uid())::text::bigint
+            where profiles.user_id = auth.uid()::uuid
             and profiles.class = 'admin'
         )
     );
 
 -- 初期データの投入
 insert into select_option_types (name, display_name, category, display_order) values
-    ('team', '担当チーム', 'basic_info', 1),
+    ('team', 'チーム', 'basic_info', 1),
     ('category', '分類', 'basic_info', 2),
     ('item', '品目', 'cost_info', 1),
     ('certificate', '通知方法', 'cost_info', 2);
