@@ -1,6 +1,5 @@
 import { Checkbox, NumberInput, Select, TextInput } from "@mantine/core";
 import { FaRegTrashAlt } from "react-icons/fa";
-import { certificateList, itemList } from "../types/params";
 import { CostType } from "../types/types";
 import { CustomDatePicker } from "./CustomDatePicker";
 
@@ -9,6 +8,8 @@ type Props = {
     isNew?: boolean;
     isRemoved?: boolean;
   };
+  itemList: string[];
+  certificateList: string[];
   formType: string;
   isFixed?: boolean;
   index: number;
@@ -20,6 +21,8 @@ type Props = {
 
 const CostBlock = ({
   costInfo,
+  itemList,
+  certificateList,
   formType,
   isFixed = false,
   index,

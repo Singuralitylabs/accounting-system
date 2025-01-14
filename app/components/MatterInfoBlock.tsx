@@ -1,6 +1,5 @@
 import { Select, TextInput, Textarea } from "@mantine/core";
 import { CustomDatePicker } from "./CustomDatePicker";
-import { categoryList, teamList } from "@/app/types/params";
 import { UseFormReturnType } from "@mantine/form";
 
 export type MatterFormValues = {
@@ -24,12 +23,16 @@ export type MatterFormValues = {
 
 type Props = {
   form: UseFormReturnType<MatterFormValues>;
+  teamList: string[];
+  categoryList: string[];
   bgColor?: string;
   isFixedMode?: boolean;
 };
 
 export const MatterInfoBlock = ({
   form,
+  teamList,
+  categoryList,
   bgColor = "bg-white",
   isFixedMode = false,
 }: Props) => {
