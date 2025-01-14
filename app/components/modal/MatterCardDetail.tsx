@@ -163,8 +163,8 @@ export const MatterCardDetailModal = ({
     };
     const ret = await addMatterInfo(
       matterInfo,
-      businessInfoInCardList,
-      costInfoInCardList
+      businessInfoInCardList.filter((businessInfo) => !businessInfo.isRemoved),
+      costInfoInCardList.filter((costInfo) => !costInfo.isRemoved)
     );
     if (ret) {
       form.reset();
@@ -185,8 +185,8 @@ export const MatterCardDetailModal = ({
 
     const ret = await editMatterInfo(
       updatedMatterInfo,
-      businessInfoInCardList,
-      costInfoInCardList
+      businessInfoInCardList.filter((businessInfo) => !businessInfo.isRemoved),
+      costInfoInCardList.filter((costInfo) => !costInfo.isRemoved)
     );
     if (ret) {
       closeModal();
