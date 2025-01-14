@@ -34,6 +34,10 @@ const CostBlock = ({
   };
   const lgBgColor = formType === "new" ? "lg:bg-slate-50" : "lg:bg-white";
 
+  if (!itemList.includes(costInfo.item)) itemList.push(costInfo.item);
+  if (!certificateList.includes(costInfo.certificate))
+    certificateList.push(costInfo.certificate);
+
   return (
     <div
       key={costInfo.id}
