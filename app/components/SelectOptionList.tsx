@@ -132,6 +132,7 @@ const SelectOptionList = ({
           );
         }
       }
+      alert(`${optionTitle}情報を更新しました。`);
     } catch (error) {
       console.error(`${optionTitle}情報の保存に失敗しました。`, error);
     }

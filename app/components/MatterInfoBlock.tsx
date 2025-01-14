@@ -36,6 +36,11 @@ export const MatterInfoBlock = ({
   bgColor = "bg-white",
   isFixedMode = false,
 }: Props) => {
+  if (!teamList.includes(form.getValues().team) && isFixedMode)
+    teamList.push(form.getValues().team);
+  if (!categoryList.includes(form.getValues().category) && isFixedMode)
+    categoryList.push(form.getValues().category);
+
   return (
     <div className={`p-4 rounded-lg ${bgColor}`}>
       <div className="md:flex gap-4 w-full">
