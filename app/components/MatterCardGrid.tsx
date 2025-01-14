@@ -73,6 +73,7 @@ export function MatterCardsGrid({
       <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
         {matterList?.map((matter) => (
           <MatterCard
+            key={matter.id}
             matter={matter}
             onOpen={handleOpenCard}
             onCopy={handleCopyCard}

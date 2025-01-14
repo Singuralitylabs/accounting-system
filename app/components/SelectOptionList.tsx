@@ -84,8 +84,9 @@ const SelectOptionList = ({
   };
 
   const handleAddOption = () => {
+    const newId = Math.max(...updatedOptionList.map((option) => option.id)) + 1;
     const newOption = {
-      id: updatedOptionList.length + 1,
+      id: newId,
       value: "",
       display_order: updatedOptionList.length + 1,
       is_active: true,

@@ -31,15 +31,15 @@ const DashboardPage = async () => {
         <Title order={2} className="py-4">
           項目管理
         </Title>
-        <div className="flex justify-between gap-8">
-          <div className="flex-1">
+        <div className="md:flex justify-between gap-8">
+          <div className="flex-1 pb-4">
             {!teamError ? (
               <SelectOptionList optionClass="team" optionList={teamList} />
             ) : (
               <div>チーム情報の取得に失敗しました。</div>
             )}
           </div>
-          <div className="flex-1">
+          <div className="flex-1 pb-4">
             {!categoryError ? (
               <SelectOptionList
                 optionClass="category"
@@ -49,7 +49,7 @@ const DashboardPage = async () => {
               <div>カテゴリ情報の取得に失敗しました。</div>
             )}
           </div>
-          <div className="flex-1">
+          <div className="flex-1 pb-4">
             {!itemError ? (
               <SelectOptionList optionClass="item" optionList={itemList} />
             ) : (
