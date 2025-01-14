@@ -20,6 +20,10 @@ import editMatterInfo from "@/app/utils/editMatterInfo";
 
 type Props = {
   matterInfo: MatterType;
+  teamList: string[];
+  categoryList: string[];
+  itemList: string[];
+  certificateList: string[];
   opened: boolean;
   setOpened: React.Dispatch<React.SetStateAction<boolean>>;
   isNew: boolean;
@@ -28,6 +32,10 @@ type Props = {
 
 export const MatterCardDetailModal = ({
   matterInfo,
+  teamList,
+  categoryList,
+  itemList,
+  certificateList,
   opened,
   setOpened,
   isNew,
@@ -279,6 +287,8 @@ export const MatterCardDetailModal = ({
         <h2>基本情報</h2>
         <MatterInfoBlock
           form={form}
+          teamList={teamList}
+          categoryList={categoryList}
           isFixedMode={matterInfo.is_fixed || false}
         />
 
@@ -326,6 +336,8 @@ export const MatterCardDetailModal = ({
               <CostBlock
                 key={costInfo.id}
                 costInfo={costInfo}
+                itemList={itemList}
+                certificateList={certificateList}
                 formType="card"
                 index={index}
                 isFixed={matterInfo.is_fixed!}

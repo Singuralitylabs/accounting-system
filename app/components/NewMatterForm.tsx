@@ -11,7 +11,19 @@ import { MatterFormValues, MatterInfoBlock } from "./MatterInfoBlock";
 import addMatterInfo from "../utils/addMatterInfo";
 import { useRouter } from "next/navigation";
 
-const NewMatterForm = () => {
+type Props = {
+  teamList: string[];
+  categoryList: string[];
+  itemList: string[];
+  certificateList: string[];
+};
+
+const NewMatterForm = ({
+  teamList,
+  categoryList,
+  itemList,
+  certificateList,
+}: Props) => {
   const initialFormValues: MatterFormValues = {
     id: 0,
     title: "",
@@ -138,7 +150,12 @@ const NewMatterForm = () => {
         ※全て税抜金額をご記入ください。
       </span>
       <h2 className="mt-4">基本情報</h2>
-      <MatterInfoBlock form={form} bgColor="bg-slate-50" />
+      <MatterInfoBlock
+        form={form}
+        teamList={teamList}
+        categoryList={categoryList}
+        bgColor="bg-slate-50"
+      />
 
       <h2 className="mt-8">取引先情報</h2>
       <span className="text-sm">
@@ -182,6 +199,8 @@ const NewMatterForm = () => {
         <CostBlock
           key={costInfo.id}
           costInfo={costInfo}
+          itemList={itemList}
+          certificateList={certificateList}
           formType="new"
           index={index}
           onRemoveCost={handleRemoveCost}

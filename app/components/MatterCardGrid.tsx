@@ -8,11 +8,21 @@ import { useRouter } from "next/navigation";
 import { MatterCard } from "./MatterCard";
 import deleteMatter from "../utils/deleteMatter";
 
+type Props = {
+  matterList: MatterType[] | null;
+  teamList: string[];
+  categoryList: string[];
+  itemList: string[];
+  certificateList: string[];
+};
+
 export function MatterCardsGrid({
   matterList,
-}: {
-  matterList: MatterType[] | null;
-}) {
+  teamList,
+  categoryList,
+  itemList,
+  certificateList,
+}: Props) {
   const [opened, setOpened] = useState(false);
   const [matterInfo, setMatterInfo] = useState<MatterType | null>(null);
   const [isNew, setIsNew] = useState(false);
@@ -73,6 +83,10 @@ export function MatterCardsGrid({
       {opened && matterInfo && (
         <MatterCardDetailModal
           matterInfo={matterInfo}
+          teamList={teamList}
+          categoryList={categoryList}
+          itemList={itemList}
+          certificateList={certificateList}
           opened={opened}
           setOpened={handleModalClose}
           isNew={isNew}
