@@ -107,4 +107,49 @@ const insertMatter = async (
   return true;
 };
 
-export default insertMatter;
+const addMatterInfo = async (
+  matterInfo: MatterType,
+  businessList: BusinessType[],
+  costList: CostType[]
+) => {
+  if (matterInfo.is_fixed) {
+    const checkCreated = window.confirm(
+      `案件[${matterInfo.title}]を経理申請しますか？`
+    );
+    if (!checkCreated) {
+      alert(`案件[${matterInfo.title}]の経理申請を中止しました。`);
+      return;
+    }
+  } else {
+    const checkCreated = window.confirm(
+      `案件[${matterInfo.title}]の下書きを作成しますか？\n作成した案件は経理申請扱いにはなりませんが、経理に共有はされます。`
+    );
+    if (!checkCreated) {
+      alert(`案件[${matterInfo.title}]の下書き作成を中止しました。`);
+      return;
+    }
+  }
+
+  try {
+    const ret = await insertMatter(matterInfo, businessList, costList);
+    if (ret) {
+      if (matterInfo.is_fixed) {
+        alert(`${matterInfo.title}の経理申請を完了しました。`);
+      } else {
+        alert(
+          `${matterInfo.title}の下書き作成を完了しました。\n経理申請まで忘れずご対応をお願い致します。`
+        );
+      }
+    }
+    return ret;
+  } catch (error) {
+    if (matterInfo.is_fixed) {
+      alert(`${matterInfo.title}の経理申請に失敗しました。`);
+    } else {
+      alert(`${matterInfo.title}の下書き作成に失敗しました。`);
+    }
+    console.error(error);
+  }
+};
+
+export default addMatterInfo;

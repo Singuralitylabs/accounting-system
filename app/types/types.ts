@@ -16,6 +16,9 @@ export type ProfilesType = ProfilesTable["Row"];
 type BusinessTable = Database["public"]["Tables"]["business"];
 export type BusinessType = BusinessTable["Row"];
 
+type SelectOptionTable = Database["public"]["Tables"]["select_options"];
+export type SelectOptionType = SelectOptionTable["Row"];
+
 export type SlackNotificationResponse = {
   success?: boolean;
   error?: string;

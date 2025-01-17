@@ -1,6 +1,5 @@
 import { Checkbox, NumberInput, Select, TextInput } from "@mantine/core";
 import { FaRegTrashAlt } from "react-icons/fa";
-import { certificateList, itemList } from "../types/params";
 import { CostType } from "../types/types";
 import { CustomDatePicker } from "./CustomDatePicker";
 
@@ -9,6 +8,8 @@ type Props = {
     isNew?: boolean;
     isRemoved?: boolean;
   };
+  itemList: string[];
+  certificateList: string[];
   formType: string;
   isFixed?: boolean;
   index: number;
@@ -20,6 +21,8 @@ type Props = {
 
 const CostBlock = ({
   costInfo,
+  itemList,
+  certificateList,
   formType,
   isFixed = false,
   index,
@@ -30,6 +33,11 @@ const CostBlock = ({
     onCostUpdate({ ...costInfo, ...updates });
   };
   const lgBgColor = formType === "new" ? "lg:bg-slate-50" : "lg:bg-white";
+
+  if (!itemList.includes(costInfo.item) && isFixed)
+    itemList.push(costInfo.item);
+  if (!certificateList.includes(costInfo.certificate) && isFixed)
+    certificateList.push(costInfo.certificate);
 
   return (
     <div

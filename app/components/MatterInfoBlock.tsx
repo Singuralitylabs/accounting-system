@@ -1,6 +1,5 @@
 import { Select, TextInput, Textarea } from "@mantine/core";
 import { CustomDatePicker } from "./CustomDatePicker";
-import { categoryList, teamList } from "@/app/types/params";
 import { UseFormReturnType } from "@mantine/form";
 
 export type MatterFormValues = {
@@ -24,15 +23,24 @@ export type MatterFormValues = {
 
 type Props = {
   form: UseFormReturnType<MatterFormValues>;
+  teamList: string[];
+  categoryList: string[];
   bgColor?: string;
   isFixedMode?: boolean;
 };
 
 export const MatterInfoBlock = ({
   form,
+  teamList,
+  categoryList,
   bgColor = "bg-white",
   isFixedMode = false,
 }: Props) => {
+  if (!teamList.includes(form.getValues().team) && isFixedMode)
+    teamList.push(form.getValues().team);
+  if (!categoryList.includes(form.getValues().category) && isFixedMode)
+    categoryList.push(form.getValues().category);
+
   return (
     <div className={`p-4 rounded-lg ${bgColor}`}>
       <div className="md:flex gap-4 w-full">

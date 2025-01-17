@@ -44,7 +44,7 @@ const UserList = ({ userList }: { userList: ProfilesType[] }) => {
   );
 
   return (
-    <div>
+    <div className="p-4">
       <Title order={2} className="pb-4">
         ユーザーリスト
       </Title>
