@@ -7,7 +7,7 @@ create type information_category as enum (
 
 -- 選択肢の種類を管理するテーブル
 create table select_option_types (
-    id serial primary key,
+    id uuid primary key default gen_random_uuid(),
     name varchar not null unique,
     display_name varchar not null,
     category information_category not null,
