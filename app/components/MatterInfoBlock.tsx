@@ -1,28 +1,10 @@
 import { Select, TextInput, Textarea } from "@mantine/core";
 import { CustomDatePicker } from "./CustomDatePicker";
 import { UseFormReturnType } from "@mantine/form";
-
-export type MatterFormValues = {
-  id: number;
-  title: string;
-  team: string;
-  category: string;
-  start_date: string | null;
-  total_amount: number | null;
-  business_count: number | null;
-  total_cost: number | null;
-  cost_count: number | null;
-  is_fixed: boolean | null;
-  description: string | null;
-  user_id: number;
-  inserted_at: string;
-  updated_at: string;
-  is_completed: boolean | null;
-  accounting_memo: string | null;
-};
+import { MatterType } from "../types/types";
 
 type Props = {
-  form: UseFormReturnType<MatterFormValues>;
+  form: UseFormReturnType<MatterType>;
   teamList: string[];
   categoryList: string[];
   bgColor?: string;

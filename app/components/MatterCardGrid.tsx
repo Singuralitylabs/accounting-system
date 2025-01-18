@@ -53,7 +53,6 @@ export function MatterCardsGrid({
     setIsNew(true);
     setMatterInfo({
       ...matter,
-      id: 0,
       title: `${matter.title} (コピー)`,
       is_completed: false,
       is_fixed: false,
