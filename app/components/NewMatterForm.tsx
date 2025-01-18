@@ -7,7 +7,7 @@ import { useState, useTransition } from "react";
 import { CiSquarePlus } from "react-icons/ci";
 import BusinessBlock from "./BusinessBlock";
 import CostBlock from "./CostBlock";
-import { MatterFormValues, MatterInfoBlock } from "./MatterInfoBlock";
+import { MatterInfoBlock } from "./MatterInfoBlock";
 import addMatterInfo from "../utils/addMatterInfo";
 import { useRouter } from "next/navigation";
 
@@ -24,7 +24,7 @@ const NewMatterForm = ({
   itemList,
   certificateList,
 }: Props) => {
-  const initialFormValues: MatterFormValues = {
+  const initialFormValues: MatterType = {
     id: 0,
     title: "",
     category: "",
@@ -41,17 +41,16 @@ const NewMatterForm = ({
     updated_at: "",
     is_completed: false,
     accounting_memo: null,
+    unchecked_cost_count: 0,
   };
 
-  const form = useForm<MatterFormValues>({
+  const form = useForm<MatterType>({
     mode: "uncontrolled",
     initialValues: initialFormValues,
   });
 
   const [costList, setCostList] = useState<CostType[]>([]);
   const [businessList, setBusinessList] = useState<BusinessType[]>([]);
-  const [costIndex, setCostIndex] = useState<number>(1);
-  const [businessIndex, setBusinessIndex] = useState<number>(1);
   const router = useRouter();
   const [_, startTransition] = useTransition();
 
@@ -62,43 +61,43 @@ const NewMatterForm = ({
   };
 
   const handleAddCost = () => {
+    const newId = Math.max(...costList.map((cost) => cost.id)) + 1;
     setCostList([
       ...costList,
       {
-        id: costIndex,
+        id: newId,
         name: "",
         item: "",
         price: 0,
         certificate: "",
         comment: null,
-        inserted_at: "2024-01-01",
+        inserted_at: "",
         matter_id: 0,
         payment_target: "",
         period: null,
-        updated_at: "2024-01-01",
+        updated_at: "",
         withholding: false,
         is_completed: false,
       },
     ]);
-    setCostIndex(costIndex + 1);
   };
 
   const handleAddBusiness = () => {
+    const newId = Math.max(...businessList.map((business) => business.id)) + 1;
     setBusinessList([
       ...businessList,
       {
-        id: businessIndex,
+        id: newId,
         name: "",
         amount: 0,
         invoice_date: null,
         period_date: null,
-        inserted_at: "2024-01-01",
+        inserted_at: "",
         matter_id: 0,
-        updated_at: "2024-01-01",
+        updated_at: "",
         is_completed: false,
       },
     ]);
-    setBusinessIndex(businessIndex + 1);
   };
 
   const handleRemoveCost = (id: number) => {
@@ -135,8 +134,6 @@ const NewMatterForm = ({
       form.setValues(initialFormValues);
       setCostList([]);
       setBusinessList([]);
-      setCostIndex(1);
-      setBusinessIndex(1);
       refreshData();
     }
   };

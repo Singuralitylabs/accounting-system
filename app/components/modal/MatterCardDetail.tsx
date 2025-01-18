@@ -41,14 +41,12 @@ export const MatterCardDetailModal = ({
   isNew,
   setIsNew,
 }: Props) => {
-  const [costInfoIndex, setCostInfoIndex] = useState<number>(10000);
   const [costInfoInCardList, setCostInfoInCardList] = useState<
     CostInCardType[]
   >([]);
   const [businessInfoInCardList, setBusinessInfoInCardList] = useState<
     BusinessInCardType[]
   >([]);
-  const [businessInfoIndex, setBusinessInfoIndex] = useState<number>(10000);
   useEffect(() => {
     if (opened) {
       const getCostInfo = async () => {
@@ -164,10 +162,11 @@ export const MatterCardDetailModal = ({
   };
 
   const handleAddCost = () => {
+    const newId = Math.max(...costInfoInCardList.map((cost) => cost.id)) + 1;
     setCostInfoInCardList([
       ...costInfoInCardList,
       {
-        id: costInfoIndex,
+        id: newId,
         name: "",
         item: "",
         price: 0,
@@ -184,14 +183,15 @@ export const MatterCardDetailModal = ({
         isRemoved: false,
       },
     ]);
-    setCostInfoIndex(costInfoIndex + 1);
   };
 
   const handleAddBusiness = () => {
+    const newId =
+      Math.max(...businessInfoInCardList.map((business) => business.id)) + 1;
     setBusinessInfoInCardList([
       ...businessInfoInCardList,
       {
-        id: businessInfoIndex,
+        id: newId,
         name: "",
         amount: 0,
         invoice_date: "",
@@ -204,7 +204,6 @@ export const MatterCardDetailModal = ({
         isRemoved: false,
       },
     ]);
-    setBusinessInfoIndex(businessInfoIndex + 1);
   };
 
   const handleRemoveCost = (id: number) => {
@@ -224,8 +223,6 @@ export const MatterCardDetailModal = ({
       })
     );
   };
-  console.log("businessInfoList", businessInfoInCardList);
-  console.log("costInfoList", costInfoInCardList);
 
   return (
     <Modal
