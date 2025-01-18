@@ -153,8 +153,8 @@ export const MatterCardDetailModal = ({
 
     const ret = await editMatterInfo(
       updatedMatterInfo,
-      businessInfoInCardList.filter((businessInfo) => !businessInfo.isRemoved),
-      costInfoInCardList.filter((costInfo) => !costInfo.isRemoved)
+      businessInfoInCardList,
+      costInfoInCardList
     );
     setIsLoading(false);
 
