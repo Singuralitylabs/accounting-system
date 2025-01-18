@@ -7,7 +7,7 @@ import {
   getUserBusinessInfoList,
   getUserCostInfoList,
 } from "@/app/utils/supabaseServer";
-import { Modal, Button, Group, Badge } from "@mantine/core";
+import { Modal, Button, Group, Badge, LoadingOverlay } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useEffect, useState } from "react";
 import { CiSquarePlus } from "react-icons/ci";
@@ -47,6 +47,8 @@ export const MatterCardDetailModal = ({
   const [businessInfoInCardList, setBusinessInfoInCardList] = useState<
     BusinessInCardType[]
   >([]);
+  const [isLoading, setIsLoading] = useState(false);
+
   useEffect(() => {
     if (opened) {
       const getCostInfo = async () => {
@@ -105,6 +107,7 @@ export const MatterCardDetailModal = ({
   };
 
   const handleAddMatterInfo = async (isFixed: boolean) => {
+    setIsLoading(true);
     const matterInfo: MatterType = {
       id: 0,
       title: form.getValues().title,
@@ -129,6 +132,7 @@ export const MatterCardDetailModal = ({
       businessInfoInCardList.filter((businessInfo) => !businessInfo.isRemoved),
       costInfoInCardList.filter((costInfo) => !costInfo.isRemoved)
     );
+    setIsLoading(false);
     if (ret) {
       form.reset();
       closeModal();
@@ -136,6 +140,7 @@ export const MatterCardDetailModal = ({
   };
 
   const handleUpdateMatterInfo = async (isFixed: boolean) => {
+    setIsLoading(true);
     const updatedMatterInfo: MatterType = {
       ...matterInfo,
       title: form.values.title,
@@ -151,13 +156,17 @@ export const MatterCardDetailModal = ({
       businessInfoInCardList.filter((businessInfo) => !businessInfo.isRemoved),
       costInfoInCardList.filter((costInfo) => !costInfo.isRemoved)
     );
+    setIsLoading(false);
+
     if (ret) {
       closeModal();
     }
   };
 
   const handleDeleteMatterInfo = async () => {
+    setIsLoading(true);
     await deleteMatter(matterInfo);
+    setIsLoading(false);
     closeModal();
   };
 
@@ -232,6 +241,7 @@ export const MatterCardDetailModal = ({
       size="100%"
     >
       <form onSubmit={form.onSubmit(() => handleUpdateMatterInfo(false))}>
+        <LoadingOverlay visible={isLoading} />
         <div className="flex justify-end">
           {isNew ? (
             <Badge color="pink">新規作成</Badge>

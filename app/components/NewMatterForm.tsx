@@ -1,7 +1,7 @@
 "use client";
 
 import { BusinessType, CostType, MatterType } from "@/app/types/types";
-import { Button, Group } from "@mantine/core";
+import { Button, Group, LoadingOverlay } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useState, useTransition } from "react";
 import { CiSquarePlus } from "react-icons/ci";
@@ -51,6 +51,7 @@ const NewMatterForm = ({
 
   const [costList, setCostList] = useState<CostType[]>([]);
   const [businessList, setBusinessList] = useState<BusinessType[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
   const [_, startTransition] = useTransition();
 
@@ -109,6 +110,7 @@ const NewMatterForm = ({
   };
 
   const handleAddMatterInfo = async (is_fixed: boolean) => {
+    setIsLoading(true);
     const matterInfo: MatterType = {
       id: 0,
       title: form.getValues().title,
@@ -136,6 +138,7 @@ const NewMatterForm = ({
       setBusinessList([]);
       refreshData();
     }
+    setIsLoading(false);
   };
 
   return (
@@ -143,6 +146,7 @@ const NewMatterForm = ({
       className="p-4 w-auto"
       onSubmit={form.onSubmit(() => handleAddMatterInfo(true))}
     >
+      <LoadingOverlay visible={isLoading} />
       <span className="text-red-700 text-sm">
         ※全て税抜金額をご記入ください。
       </span>
@@ -225,6 +229,7 @@ const NewMatterForm = ({
       <Group className="pt-8" justify="flex-end" mt="md">
         <Button
           type="button"
+          disabled={isLoading}
           onClick={() => {
             const validation = form.validate();
             if (validation.hasErrors) {
@@ -235,7 +240,7 @@ const NewMatterForm = ({
         >
           下書き
         </Button>
-        <Button color="red" type="submit">
+        <Button color="red" disabled={isLoading} type="submit">
           経理申請
         </Button>
       </Group>
