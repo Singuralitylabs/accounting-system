@@ -10,55 +10,10 @@ const insertMatter = async (
   businessList: BusinessType[],
   costList: CostType[]
 ) => {
-  if (
-    !matterInfo.title ||
-    !matterInfo.category ||
-    !matterInfo.team ||
-    !matterInfo.start_date
-  ) {
-    alert(
-      `案件名、分類、チーム、案件開始日のいずれかが空欄のため、案件の作成を中止しました。`
-    );
-    return false;
-  }
-
-  for (const business of businessList) {
-    if (
-      !business.name ||
-      business.amount === null ||
-      !business.invoice_date ||
-      !business.period_date
-    ) {
-      alert(`取引先情報に空欄があるため、案件の作成を中止しました。`);
-      return false;
-    }
-    const invoice_date = new Date(business.invoice_date);
-    const period_date = new Date(business.period_date);
-    if (invoice_date.getTime() > period_date.getTime()) {
-      alert(
-        `取引先情報の請求日が振込期限より後になっています。\n案件の作成を中止しました。`
-      );
-      return false;
-    }
-  }
-  for (const cost of costList) {
-    if (
-      !cost.name ||
-      !cost.item ||
-      !cost.payment_target ||
-      cost.price === null ||
-      !cost.period ||
-      !cost.certificate
-    ) {
-      alert(`コスト情報に空欄があるため、案件の作成を中止しました。`);
-      return false;
-    }
-  }
-
-  const totalAmount = businessList.reduce((acc, business) => {
+  matterInfo.total_amount = businessList.reduce((acc, business) => {
     return business.amount ? acc + business.amount : acc;
   }, 0);
-  const totalCost = costList.reduce((acc, cost) => {
+  matterInfo.total_cost = costList.reduce((acc, cost) => {
     return cost.price ? acc + cost.price : acc;
   }, 0);
 
@@ -68,10 +23,9 @@ const insertMatter = async (
     matterInfo.team,
     matterInfo.start_date!,
     matterInfo.is_fixed!,
-    totalAmount,
+    matterInfo.total_amount!,
     businessList.length,
-    totalCost,
-    costList.length,
+    matterInfo.total_cost!,
     costList.length,
     matterInfo.description
   );
@@ -127,6 +81,51 @@ const addMatterInfo = async (
     if (!checkCreated) {
       alert(`案件[${matterInfo.title}]の下書き作成を中止しました。`);
       return;
+    }
+  }
+
+  if (
+    !matterInfo.title ||
+    !matterInfo.category ||
+    !matterInfo.team ||
+    !matterInfo.start_date
+  ) {
+    alert(
+      `案件名、分類、チーム、案件開始日のいずれかが空欄のため、案件の作成を中止しました。`
+    );
+    return false;
+  }
+
+  for (const business of businessList) {
+    if (
+      !business.name ||
+      business.amount === null ||
+      !business.invoice_date ||
+      !business.period_date
+    ) {
+      alert(`取引先情報に空欄があるため、案件の作成を中止しました。`);
+      return false;
+    }
+    const invoice_date = new Date(business.invoice_date);
+    const period_date = new Date(business.period_date);
+    if (invoice_date.getTime() > period_date.getTime()) {
+      alert(
+        `取引先情報の請求日が振込期限より後になっています。\n案件の作成を中止しました。`
+      );
+      return false;
+    }
+  }
+  for (const cost of costList) {
+    if (
+      !cost.name ||
+      !cost.item ||
+      !cost.payment_target ||
+      cost.price === null ||
+      !cost.period ||
+      !cost.certificate
+    ) {
+      alert(`コスト情報に空欄があるため、案件の作成を中止しました。`);
+      return false;
     }
   }
 
