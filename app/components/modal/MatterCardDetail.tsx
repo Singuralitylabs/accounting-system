@@ -13,7 +13,7 @@ import { useEffect, useState } from "react";
 import { CiSquarePlus } from "react-icons/ci";
 import BusinessBlock from "../BusinessBlock";
 import CostBlock from "../CostBlock";
-import MatterInfoBlock, { MatterFormValues } from "../MatterInfoBlock";
+import MatterInfoBlock from "../MatterInfoBlock";
 import deleteMatter from "@/app/utils/deleteMatter";
 import addMatterInfo from "@/app/utils/addMatterInfo";
 import editMatterInfo from "@/app/utils/editMatterInfo";
@@ -63,19 +63,7 @@ export const MatterCardDetailModal = ({
         if (costInfoList) {
           setCostInfoInCardList(
             costInfoList.map((costInfo) => ({
-              id: costInfo.id,
-              name: costInfo.name,
-              item: costInfo.item,
-              payment_target: costInfo.payment_target,
-              price: costInfo.price,
-              period: costInfo.period,
-              certificate: costInfo.certificate,
-              withholding: costInfo.withholding,
-              matter_id: costInfo.matter_id,
-              comment: costInfo.comment,
-              is_completed: costInfo.is_completed,
-              inserted_at: costInfo.inserted_at,
-              updated_at: costInfo.updated_at,
+              ...costInfo,
               isNew: false,
               isRemoved: false,
             }))
@@ -95,15 +83,7 @@ export const MatterCardDetailModal = ({
         if (businessInfoList) {
           setBusinessInfoInCardList(
             businessInfoList.map((businessInfo) => ({
-              id: businessInfo.id,
-              name: businessInfo.name,
-              amount: businessInfo.amount,
-              invoice_date: businessInfo.invoice_date,
-              period_date: businessInfo.period_date,
-              matter_id: matterInfo.id,
-              is_completed: businessInfo.is_completed,
-              inserted_at: businessInfo.inserted_at,
-              updated_at: businessInfo.updated_at,
+              ...businessInfo,
               isNew: false,
               isRemoved: false,
             }))
@@ -114,24 +94,9 @@ export const MatterCardDetailModal = ({
     }
   }, [opened, matterInfo.id]);
 
-  const form = useForm<MatterFormValues>({
+  const form = useForm<MatterType>({
     initialValues: {
-      id: matterInfo.id,
-      title: matterInfo.title,
-      team: matterInfo.team,
-      category: matterInfo.category,
-      start_date: matterInfo.start_date,
-      total_amount: matterInfo.total_amount,
-      business_count: matterInfo.business_count,
-      total_cost: matterInfo.total_cost,
-      cost_count: matterInfo.cost_count,
-      is_fixed: matterInfo.is_fixed,
-      description: matterInfo.description,
-      user_id: matterInfo.user_id,
-      inserted_at: "",
-      updated_at: "",
-      is_completed: false,
-      accounting_memo: "",
+      ...matterInfo,
     },
   });
 
@@ -259,6 +224,8 @@ export const MatterCardDetailModal = ({
       })
     );
   };
+  console.log("businessInfoList", businessInfoInCardList);
+  console.log("costInfoList", costInfoInCardList);
 
   return (
     <Modal
