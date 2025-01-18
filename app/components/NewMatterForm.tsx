@@ -1,13 +1,13 @@
 "use client";
 
 import { BusinessType, CostType, MatterType } from "@/app/types/types";
-import { Button, Group } from "@mantine/core";
+import { Button, Group, LoadingOverlay } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useState, useTransition } from "react";
 import { CiSquarePlus } from "react-icons/ci";
 import BusinessBlock from "./BusinessBlock";
 import CostBlock from "./CostBlock";
-import { MatterFormValues, MatterInfoBlock } from "./MatterInfoBlock";
+import { MatterInfoBlock } from "./MatterInfoBlock";
 import addMatterInfo from "../utils/addMatterInfo";
 import { useRouter } from "next/navigation";
 
@@ -24,7 +24,7 @@ const NewMatterForm = ({
   itemList,
   certificateList,
 }: Props) => {
-  const initialFormValues: MatterFormValues = {
+  const initialFormValues: MatterType = {
     id: 0,
     title: "",
     category: "",
@@ -41,17 +41,17 @@ const NewMatterForm = ({
     updated_at: "",
     is_completed: false,
     accounting_memo: null,
+    unchecked_cost_count: 0,
   };
 
-  const form = useForm<MatterFormValues>({
+  const form = useForm<MatterType>({
     mode: "uncontrolled",
     initialValues: initialFormValues,
   });
 
   const [costList, setCostList] = useState<CostType[]>([]);
   const [businessList, setBusinessList] = useState<BusinessType[]>([]);
-  const [costIndex, setCostIndex] = useState<number>(1);
-  const [businessIndex, setBusinessIndex] = useState<number>(1);
+  const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
   const [_, startTransition] = useTransition();
 
@@ -62,43 +62,43 @@ const NewMatterForm = ({
   };
 
   const handleAddCost = () => {
+    const newId = Math.max(...costList.map((cost) => cost.id)) + 1;
     setCostList([
       ...costList,
       {
-        id: costIndex,
+        id: newId,
         name: "",
         item: "",
         price: 0,
         certificate: "",
         comment: null,
-        inserted_at: "2024-01-01",
+        inserted_at: "",
         matter_id: 0,
         payment_target: "",
         period: null,
-        updated_at: "2024-01-01",
+        updated_at: "",
         withholding: false,
         is_completed: false,
       },
     ]);
-    setCostIndex(costIndex + 1);
   };
 
   const handleAddBusiness = () => {
+    const newId = Math.max(...businessList.map((business) => business.id)) + 1;
     setBusinessList([
       ...businessList,
       {
-        id: businessIndex,
+        id: newId,
         name: "",
         amount: 0,
         invoice_date: null,
         period_date: null,
-        inserted_at: "2024-01-01",
+        inserted_at: "",
         matter_id: 0,
-        updated_at: "2024-01-01",
+        updated_at: "",
         is_completed: false,
       },
     ]);
-    setBusinessIndex(businessIndex + 1);
   };
 
   const handleRemoveCost = (id: number) => {
@@ -110,6 +110,7 @@ const NewMatterForm = ({
   };
 
   const handleAddMatterInfo = async (is_fixed: boolean) => {
+    setIsLoading(true);
     const matterInfo: MatterType = {
       id: 0,
       title: form.getValues().title,
@@ -135,10 +136,9 @@ const NewMatterForm = ({
       form.setValues(initialFormValues);
       setCostList([]);
       setBusinessList([]);
-      setCostIndex(1);
-      setBusinessIndex(1);
       refreshData();
     }
+    setIsLoading(false);
   };
 
   return (
@@ -146,6 +146,7 @@ const NewMatterForm = ({
       className="p-4 w-auto"
       onSubmit={form.onSubmit(() => handleAddMatterInfo(true))}
     >
+      <LoadingOverlay visible={isLoading} />
       <span className="text-red-700 text-sm">
         ※全て税抜金額をご記入ください。
       </span>
@@ -228,6 +229,7 @@ const NewMatterForm = ({
       <Group className="pt-8" justify="flex-end" mt="md">
         <Button
           type="button"
+          disabled={isLoading}
           onClick={() => {
             const validation = form.validate();
             if (validation.hasErrors) {
@@ -238,7 +240,7 @@ const NewMatterForm = ({
         >
           下書き
         </Button>
-        <Button color="red" type="submit">
+        <Button color="red" disabled={isLoading} type="submit">
           経理申請
         </Button>
       </Group>

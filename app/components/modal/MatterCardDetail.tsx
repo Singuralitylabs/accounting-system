@@ -7,13 +7,13 @@ import {
   getUserBusinessInfoList,
   getUserCostInfoList,
 } from "@/app/utils/supabaseServer";
-import { Modal, Button, Group, Badge } from "@mantine/core";
+import { Modal, Button, Group, Badge, LoadingOverlay } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useEffect, useState } from "react";
 import { CiSquarePlus } from "react-icons/ci";
 import BusinessBlock from "../BusinessBlock";
 import CostBlock from "../CostBlock";
-import MatterInfoBlock, { MatterFormValues } from "../MatterInfoBlock";
+import MatterInfoBlock from "../MatterInfoBlock";
 import deleteMatter from "@/app/utils/deleteMatter";
 import addMatterInfo from "@/app/utils/addMatterInfo";
 import editMatterInfo from "@/app/utils/editMatterInfo";
@@ -41,14 +41,14 @@ export const MatterCardDetailModal = ({
   isNew,
   setIsNew,
 }: Props) => {
-  const [costInfoIndex, setCostInfoIndex] = useState<number>(10000);
   const [costInfoInCardList, setCostInfoInCardList] = useState<
     CostInCardType[]
   >([]);
   const [businessInfoInCardList, setBusinessInfoInCardList] = useState<
     BusinessInCardType[]
   >([]);
-  const [businessInfoIndex, setBusinessInfoIndex] = useState<number>(10000);
+  const [isLoading, setIsLoading] = useState(false);
+
   useEffect(() => {
     if (opened) {
       const getCostInfo = async () => {
@@ -63,19 +63,7 @@ export const MatterCardDetailModal = ({
         if (costInfoList) {
           setCostInfoInCardList(
             costInfoList.map((costInfo) => ({
-              id: costInfo.id,
-              name: costInfo.name,
-              item: costInfo.item,
-              payment_target: costInfo.payment_target,
-              price: costInfo.price,
-              period: costInfo.period,
-              certificate: costInfo.certificate,
-              withholding: costInfo.withholding,
-              matter_id: costInfo.matter_id,
-              comment: costInfo.comment,
-              is_completed: costInfo.is_completed,
-              inserted_at: costInfo.inserted_at,
-              updated_at: costInfo.updated_at,
+              ...costInfo,
               isNew: false,
               isRemoved: false,
             }))
@@ -95,15 +83,7 @@ export const MatterCardDetailModal = ({
         if (businessInfoList) {
           setBusinessInfoInCardList(
             businessInfoList.map((businessInfo) => ({
-              id: businessInfo.id,
-              name: businessInfo.name,
-              amount: businessInfo.amount,
-              invoice_date: businessInfo.invoice_date,
-              period_date: businessInfo.period_date,
-              matter_id: matterInfo.id,
-              is_completed: businessInfo.is_completed,
-              inserted_at: businessInfo.inserted_at,
-              updated_at: businessInfo.updated_at,
+              ...businessInfo,
               isNew: false,
               isRemoved: false,
             }))
@@ -114,24 +94,9 @@ export const MatterCardDetailModal = ({
     }
   }, [opened, matterInfo.id]);
 
-  const form = useForm<MatterFormValues>({
+  const form = useForm<MatterType>({
     initialValues: {
-      id: matterInfo.id,
-      title: matterInfo.title,
-      team: matterInfo.team,
-      category: matterInfo.category,
-      start_date: matterInfo.start_date,
-      total_amount: matterInfo.total_amount,
-      business_count: matterInfo.business_count,
-      total_cost: matterInfo.total_cost,
-      cost_count: matterInfo.cost_count,
-      is_fixed: matterInfo.is_fixed,
-      description: matterInfo.description,
-      user_id: matterInfo.user_id,
-      inserted_at: "",
-      updated_at: "",
-      is_completed: false,
-      accounting_memo: "",
+      ...matterInfo,
     },
   });
 
@@ -142,6 +107,7 @@ export const MatterCardDetailModal = ({
   };
 
   const handleAddMatterInfo = async (isFixed: boolean) => {
+    setIsLoading(true);
     const matterInfo: MatterType = {
       id: 0,
       title: form.getValues().title,
@@ -166,6 +132,7 @@ export const MatterCardDetailModal = ({
       businessInfoInCardList.filter((businessInfo) => !businessInfo.isRemoved),
       costInfoInCardList.filter((costInfo) => !costInfo.isRemoved)
     );
+    setIsLoading(false);
     if (ret) {
       form.reset();
       closeModal();
@@ -173,6 +140,7 @@ export const MatterCardDetailModal = ({
   };
 
   const handleUpdateMatterInfo = async (isFixed: boolean) => {
+    setIsLoading(true);
     const updatedMatterInfo: MatterType = {
       ...matterInfo,
       title: form.values.title,
@@ -185,24 +153,29 @@ export const MatterCardDetailModal = ({
 
     const ret = await editMatterInfo(
       updatedMatterInfo,
-      businessInfoInCardList.filter((businessInfo) => !businessInfo.isRemoved),
-      costInfoInCardList.filter((costInfo) => !costInfo.isRemoved)
+      businessInfoInCardList,
+      costInfoInCardList
     );
+    setIsLoading(false);
+
     if (ret) {
       closeModal();
     }
   };
 
   const handleDeleteMatterInfo = async () => {
+    setIsLoading(true);
     await deleteMatter(matterInfo);
+    setIsLoading(false);
     closeModal();
   };
 
   const handleAddCost = () => {
+    const newId = Math.max(...costInfoInCardList.map((cost) => cost.id)) + 1;
     setCostInfoInCardList([
       ...costInfoInCardList,
       {
-        id: costInfoIndex,
+        id: newId,
         name: "",
         item: "",
         price: 0,
@@ -219,14 +192,15 @@ export const MatterCardDetailModal = ({
         isRemoved: false,
       },
     ]);
-    setCostInfoIndex(costInfoIndex + 1);
   };
 
   const handleAddBusiness = () => {
+    const newId =
+      Math.max(...businessInfoInCardList.map((business) => business.id)) + 1;
     setBusinessInfoInCardList([
       ...businessInfoInCardList,
       {
-        id: businessInfoIndex,
+        id: newId,
         name: "",
         amount: 0,
         invoice_date: "",
@@ -239,7 +213,6 @@ export const MatterCardDetailModal = ({
         isRemoved: false,
       },
     ]);
-    setBusinessInfoIndex(businessInfoIndex + 1);
   };
 
   const handleRemoveCost = (id: number) => {
@@ -268,6 +241,7 @@ export const MatterCardDetailModal = ({
       size="100%"
     >
       <form onSubmit={form.onSubmit(() => handleUpdateMatterInfo(false))}>
+        <LoadingOverlay visible={isLoading} />
         <div className="flex justify-end">
           {isNew ? (
             <Badge color="pink">新規作成</Badge>
