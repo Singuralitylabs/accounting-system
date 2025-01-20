@@ -31,7 +31,7 @@ type Props = {
   certificateList: string[];
 };
 
-export function MatterCardsGrid({
+export function MatterCardList({
   matterList,
   teamList,
   categoryList,
