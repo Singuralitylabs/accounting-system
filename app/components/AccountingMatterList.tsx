@@ -153,10 +153,10 @@ export const AccountingMatterList = ({
           checkedMatterIdList.includes(matter.id)
             ? "var(--mantine-color-blue-light)"
             : matter.is_completed
-            ? "var(--mantine-color-gray-light)"
+            ? "var(--mantine-color-green-light)"
             : matter.is_fixed
             ? "var(--mantine-color-red-light)"
-            : undefined
+            : "var(--mantine-color-blue-light)"
         }
       >
         <Table.Td>

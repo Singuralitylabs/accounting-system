@@ -1,14 +1,6 @@
-import {
-  Button,
-  Card,
-  Text,
-  Badge,
-  Group,
-  Menu,
-  ActionIcon,
-} from "@mantine/core";
-import { BsThreeDotsVertical } from "react-icons/bs";
+import { Button, Card, Text, Badge, Group } from "@mantine/core";
 import { MatterType } from "../types/types";
+import ThreedotsMenu from "./buttons/threedots-menu";
 
 export function MatterCard({
   matter,
@@ -61,21 +53,7 @@ export function MatterCard({
           ) : (
             <Badge color="blue">下書き</Badge>
           )}
-          <Menu position="bottom-end" shadow="md">
-            <Menu.Target>
-              <ActionIcon variant="white" size="sm">
-                <BsThreeDotsVertical />
-              </ActionIcon>
-            </Menu.Target>
-            <Menu.Dropdown>
-              <Menu.Item onClick={() => onCopy(matter)}>コピー</Menu.Item>
-              {!matter.is_completed && !matter.is_fixed && (
-                <Menu.Item color="red" onClick={() => onDelete(matter)}>
-                  削除
-                </Menu.Item>
-              )}
-            </Menu.Dropdown>
-          </Menu>
+          <ThreedotsMenu matter={matter} onCopy={onCopy} onDelete={onDelete} />
         </div>
       </Group>
       <Text>案件ID: {matter.id}</Text>

@@ -1,6 +1,6 @@
 "use client";
 
-import { ActionIcon, Menu, SimpleGrid, Table } from "@mantine/core";
+import { SimpleGrid, Table } from "@mantine/core";
 import { useState, useTransition } from "react";
 import { MatterType } from "../types/types";
 import { MatterCardDetailModal } from "./modal/MatterCardDetail";
@@ -10,7 +10,7 @@ import deleteMatter from "../utils/deleteMatter";
 import { FaList } from "react-icons/fa";
 import { BiGridAlt } from "react-icons/bi";
 import TableInfo from "./TableInfo";
-import { BsThreeDotsVertical } from "react-icons/bs";
+import ThreedotsMenu from "./buttons/threedots-menu";
 
 const itemListInUserMatter = [
   "ID",
@@ -118,21 +118,11 @@ export function MatterCardsGrid({
         </button>
       </Table.Td>
       <Table.Td className="flex justify-end">
-        <Menu position="bottom-end" shadow="md">
-          <Menu.Target>
-            <ActionIcon variant="transparent" size="sm">
-              <BsThreeDotsVertical />
-            </ActionIcon>
-          </Menu.Target>
-          <Menu.Dropdown>
-            <Menu.Item onClick={() => handleCopyCard(matter)}>コピー</Menu.Item>
-            {!matter.is_completed && !matter.is_fixed && (
-              <Menu.Item color="red" onClick={() => handleDeleteCard(matter)}>
-                削除
-              </Menu.Item>
-            )}
-          </Menu.Dropdown>
-        </Menu>
+        <ThreedotsMenu
+          matter={matter}
+          onCopy={handleCopyCard}
+          onDelete={handleDeleteCard}
+        />
       </Table.Td>
     </Table.Tr>
   ));
