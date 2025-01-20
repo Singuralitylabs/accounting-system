@@ -2,7 +2,6 @@
 
 import { Button, Checkbox, Table } from "@mantine/core";
 import { useState } from "react";
-import { elementListInAccounting } from "../types/params";
 import { MatterInfoWithUserNameType } from "../types/types";
 import { MatterCardDetailModalForAccounting } from "./modal/MatterCardDetailForAccounting";
 import { FaCheck } from "react-icons/fa";
@@ -12,6 +11,19 @@ import { notifications } from "@mantine/notifications";
 import { sendSlackNotification } from "../actions";
 import { useRouter } from "next/navigation";
 import TableInfo from "./TableInfo";
+
+const elementListInAccounting = [
+  "ID",
+  "案件名",
+  "担当者",
+  "チーム",
+  "分類",
+  "合計請求額",
+  "取引先数",
+  "合計コスト",
+  "コスト数",
+  "未払いコスト数",
+];
 
 export const AccountingMatterList = ({
   matterList,

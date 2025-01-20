@@ -7,11 +7,21 @@ import { MatterCardDetailModal } from "./modal/MatterCardDetail";
 import { useRouter } from "next/navigation";
 import { MatterCard } from "./MatterCard";
 import deleteMatter from "../utils/deleteMatter";
-import { itemListInUserMatter } from "../types/params";
 import { FaList } from "react-icons/fa";
 import { BiGridAlt } from "react-icons/bi";
 import TableInfo from "./TableInfo";
 import { BsThreeDotsVertical } from "react-icons/bs";
+
+const itemListInUserMatter = [
+  "ID",
+  "案件名",
+  "チーム",
+  "分類",
+  "合計請求額",
+  "取引先数",
+  "合計コスト",
+  "コスト数",
+];
 
 type Props = {
   matterList: MatterType[] | null;
