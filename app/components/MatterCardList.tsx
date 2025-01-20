@@ -1,7 +1,7 @@
 "use client";
 
 import { SimpleGrid, Table } from "@mantine/core";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { MatterType } from "../types/types";
 import { MatterCardDetailModal } from "./modal/MatterCardDetail";
 import { useRouter } from "next/navigation";
@@ -11,6 +11,7 @@ import { FaList } from "react-icons/fa";
 import { BiGridAlt } from "react-icons/bi";
 import TableInfo from "./TableInfo";
 import ThreedotsMenu from "./buttons/threedots-menu";
+import { useViewportSize } from "@mantine/hooks";
 
 const itemListInUserMatter = [
   "ID",
@@ -44,6 +45,14 @@ export function MatterCardList({
   const [switchDisplay, setSwitchDisplay] = useState(false);
   const router = useRouter();
   const [_, startTransition] = useTransition();
+  const { width } = useViewportSize();
+  const [isMobileView, setIsMobileView] = useState(false);
+
+  const MD_BREAKPOINT = 768;
+
+  useEffect(() => {
+    setIsMobileView(width < MD_BREAKPOINT);
+  }, [width]);
 
   const refreshData = () => {
     startTransition(() => {
@@ -129,7 +138,7 @@ export function MatterCardList({
 
   return (
     <div className="py-4 px-8">
-      <div className="flex justify-end pb-4 items-center">
+      <div className="hidden md:flex justify-end pb-4 items-center">
         <span className="px-2">表示形式</span>
         <button
           onClick={() => setSwitchDisplay(true)}
@@ -148,7 +157,7 @@ export function MatterCardList({
           <FaList />
         </button>
       </div>
-      {switchDisplay ? (
+      {isMobileView || switchDisplay ? (
         <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
           {matterList?.map((matter) => (
             <MatterCard
