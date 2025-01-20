@@ -1,7 +1,7 @@
 export const elementListInAccounting = [
-  "案件ID",
+  "ID",
   "案件名",
-  "担当者名",
+  "担当者",
   "チーム",
   "分類",
   "合計請求額",
@@ -9,11 +9,10 @@ export const elementListInAccounting = [
   "合計コスト",
   "コスト数",
   "未払いコスト数",
-  "",
 ];
 
 export const itemListInUserMatter = [
-  "案件ID",
+  "ID",
   "案件名",
   "チーム",
   "分類",

@@ -1,21 +1,26 @@
-import React from "react";
 import { MatterType } from "../types/types";
-import { ActionIcon, Badge, Menu, Table } from "@mantine/core";
-import { BsThreeDotsVertical } from "react-icons/bs";
+import { Table } from "@mantine/core";
 
 type Props = {
   matter: MatterType;
-  onOpenCard: (matter: MatterType) => void;
-  onCopyCard: (matter: MatterType) => void;
-  onDeleteCard: (matter: MatterType) => void;
+  username?: string;
+  itemList: string[];
 };
 
-const UserTableInfo = ({
-  matter,
-  onOpenCard,
-  onCopyCard,
-  onDeleteCard,
-}: Props) => {
+const matterInfoTable: { [key: string]: keyof MatterType | "username" } = {
+  ID: "id",
+  案件名: "title",
+  担当者: "username",
+  チーム: "team",
+  分類: "category",
+  合計請求額: "total_amount",
+  取引先数: "business_count",
+  合計コスト: "total_cost",
+  コスト数: "cost_count",
+  未払いコスト数: "unchecked_cost_count",
+};
+
+const TableInfo = ({ matter, username, itemList }: Props) => {
   const formatCurrency = (amount: number | null) => {
     if (amount === null) return "-";
     return new Intl.NumberFormat("ja-JP", {
@@ -26,73 +31,45 @@ const UserTableInfo = ({
     }).format(amount);
   };
 
+  const formatValue = (key: string, value: any) => {
+    if (key === "案件名" && typeof value === "string") {
+      return value.length > 15 ? `${value.slice(0, 15)}...` : value;
+    }
+    if (key === "合計請求額" || key === "合計コスト") {
+      return formatCurrency(value);
+    }
+    return value;
+  };
+
   return (
-    <Table.Tr
-      key={matter.id}
-      bg={
-        matter.is_completed
-          ? "var(--mantine-color-green-light)"
-          : matter.is_fixed
-          ? "var(--mantine-color-red-light)"
-          : "var(--mantine-color-blue-light)"
-      }
-    >
-      <Table.Td className="whitespace-nowrap px-4">
-        {matter.is_completed ? (
-          <Badge color="green">経理確認完了</Badge>
-        ) : matter.is_fixed ? (
-          <Badge color="red">経理申請中</Badge>
-        ) : (
-          <Badge color="blue">下書き</Badge>
-        )}
-      </Table.Td>
-      <Table.Td className="whitespace-nowrap px-4">{matter.id}</Table.Td>
-      <Table.Td className="whitespace-nowrap px-4" title={matter.title}>
-        {matter.title.length > 15
-          ? `${matter.title.slice(0, 15)}...`
-          : matter.title}
-      </Table.Td>
-      <Table.Td className="whitespace-nowrap px-4">{matter.team}</Table.Td>
-      <Table.Td className="whitespace-nowrap px-4">{matter.category}</Table.Td>
-      <Table.Td className="whitespace-nowrap px-4 text-right">
-        {formatCurrency(matter.total_amount)}
-      </Table.Td>
-      <Table.Td className="whitespace-nowrap px-4 text-right">
-        {matter.business_count}
-      </Table.Td>
-      <Table.Td className="whitespace-nowrap px-4 text-right">
-        {formatCurrency(matter.total_cost)}
-      </Table.Td>
-      <Table.Td className="whitespace-nowrap px-4 text-right">
-        {matter.cost_count}
-      </Table.Td>
-      <Table.Td className="whitespace-nowrap px-4">
-        <button
-          onClick={() => onOpenCard(matter)}
-          className="bg-blue-500 hover:bg-blue-700 px-2 rounded text-white"
-        >
-          開く
-        </button>
-      </Table.Td>
-      <Table.Td>
-        <Menu position="bottom-end" shadow="md">
-          <Menu.Target>
-            <ActionIcon variant="transparent" size="sm">
-              <BsThreeDotsVertical />
-            </ActionIcon>
-          </Menu.Target>
-          <Menu.Dropdown>
-            <Menu.Item onClick={() => onCopyCard(matter)}>コピー</Menu.Item>
-            {!matter.is_completed && !matter.is_fixed && (
-              <Menu.Item color="red" onClick={() => onDeleteCard(matter)}>
-                削除
-              </Menu.Item>
-            )}
-          </Menu.Dropdown>
-        </Menu>
-      </Table.Td>
-    </Table.Tr>
+    <>
+      {itemList.map((item) => {
+        const key = matterInfoTable[item];
+        if (!key) return <Table.Td>取得エラー</Table.Td>;
+
+        const value = key === "username" ? username : matter[key];
+        const formattedValue = formatValue(item, value);
+
+        return (
+          <Table.Td
+            key={item}
+            className={`whitespace-nowrap px-4 ${
+              typeof value === "number" ? "text-right" : ""
+            } ${
+              key === "unchecked_cost_count" &&
+              typeof value === "number" &&
+              value > 0
+                ? "text-red-600 font-bold"
+                : ""
+            }`}
+            title={item === "案件名" ? matter.title : undefined}
+          >
+            {formattedValue}
+          </Table.Td>
+        );
+      })}
+    </>
   );
 };
 
-export default UserTableInfo;
+export default TableInfo;

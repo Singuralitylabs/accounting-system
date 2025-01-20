@@ -11,6 +11,7 @@ import { NotificationMessage } from "./modal/NotificationMessage";
 import { notifications } from "@mantine/notifications";
 import { sendSlackNotification } from "../actions";
 import { useRouter } from "next/navigation";
+import TableInfo from "./TableInfo";
 
 export const AccountingMatterList = ({
   matterList,
@@ -23,16 +24,6 @@ export const AccountingMatterList = ({
   const [detailOpened, setDetailOpened] = useState<boolean>(false);
   const [notificationOpened, setNotificationOpened] = useState<boolean>(false);
   const router = useRouter();
-
-  const formatCurrency = (amount: number | null) => {
-    if (amount === null) return "-";
-    return new Intl.NumberFormat("ja-JP", {
-      style: "currency",
-      currency: "JPY",
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
 
   const handleShowMatterInfo = (matter: MatterInfoWithUserNameType) => {
     setDetailMatterInfo(matter);
@@ -173,38 +164,11 @@ export const AccountingMatterList = ({
             />
           )}
         </Table.Td>
-        <Table.Td className="whitespace-nowrap px-4">{matter.id}</Table.Td>
-        <Table.Td className="whitespace-nowrap px-4" title={matter.title}>
-          {matter.title.length > 15
-            ? `${matter.title.slice(0, 15)}...`
-            : matter.title}
-        </Table.Td>
-        <Table.Td className="whitespace-nowrap px-4">
-          {matter.user_name}
-        </Table.Td>
-        <Table.Td className="whitespace-nowrap px-4">{matter.team}</Table.Td>
-        <Table.Td className="whitespace-nowrap px-4">
-          {matter.category}
-        </Table.Td>
-        <Table.Td className="whitespace-nowrap px-4 text-right">
-          {formatCurrency(matter.total_amount)}
-        </Table.Td>
-        <Table.Td className="whitespace-nowrap px-4 text-right">
-          {matter.business_count}
-        </Table.Td>
-        <Table.Td className="whitespace-nowrap px-4 text-right">
-          {formatCurrency(matter.total_cost)}
-        </Table.Td>
-        <Table.Td className="whitespace-nowrap px-4 text-right">
-          {matter.cost_count}
-        </Table.Td>
-        <Table.Td
-          className={`whitespace-nowrap px-4 text-right ${
-            matter.unchecked_cost_count > 0 ? "text-red-600 font-bold" : ""
-          }`}
-        >
-          {matter.unchecked_cost_count}
-        </Table.Td>
+        <TableInfo
+          matter={matter}
+          username={matter.user_name!}
+          itemList={elementListInAccounting}
+        />
         <Table.Td className="whitespace-nowrap px-4">
           <button
             onClick={() => handleShowMatterInfo(matter)}
