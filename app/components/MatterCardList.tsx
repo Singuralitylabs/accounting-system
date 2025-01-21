@@ -7,11 +7,10 @@ import { MatterCardDetailModal } from "./modal/MatterCardDetail";
 import { useRouter } from "next/navigation";
 import { MatterCard } from "./MatterCard";
 import deleteMatter from "../utils/deleteMatter";
-import { FaList } from "react-icons/fa";
-import { BiGridAlt } from "react-icons/bi";
 import TableInfo from "./TableInfo";
 import ThreedotsMenu from "./buttons/threedots-menu";
 import { useViewportSize } from "@mantine/hooks";
+import DisplayMenu from "./buttons/display-menu";
 
 const itemListInUserMatter = [
   "ID",
@@ -140,25 +139,10 @@ export function MatterCardList({
 
   return (
     <div className="py-4 px-8">
-      <div className="hidden md:flex justify-end pb-4 items-center">
-        <span className="px-2">表示形式</span>
-        <button
-          onClick={() => setSwitchDisplay(true)}
-          className={`text-lg hover:cursor-pointer w-8 h-8 flex items-center ${
-            switchDisplay && `bg-gray-700 text-white`
-          } justify-center rounded`}
-        >
-          <BiGridAlt />
-        </button>
-        <button
-          onClick={() => setSwitchDisplay(false)}
-          className={`text-lg hover:cursor-pointer w-8 h-8 flex items-center ${
-            !switchDisplay && `bg-gray-700 text-white`
-          } justify-center rounded`}
-        >
-          <FaList />
-        </button>
-      </div>
+      <DisplayMenu
+        switchDisplay={switchDisplay}
+        onSwitchDisplay={setSwitchDisplay}
+      />
       {isMobileView || switchDisplay ? (
         <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
           {matterList?.map((matter) => (

@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Checkbox, Table } from "@mantine/core";
+import { Button, Checkbox, SimpleGrid, Table } from "@mantine/core";
 import { useState } from "react";
 import { MatterInfoWithUserNameType } from "../types/types";
 import { MatterCardDetailModalForAccounting } from "./modal/MatterCardDetailForAccounting";
@@ -11,6 +11,8 @@ import { notifications } from "@mantine/notifications";
 import { sendSlackNotification } from "../actions";
 import { useRouter } from "next/navigation";
 import TableInfo from "./TableInfo";
+import DisplayMenu from "./buttons/display-menu";
+import { MatterCardForAccounting } from "./MatterCardForAccounting";
 
 const elementListInAccounting = [
   "ID",
@@ -35,6 +37,7 @@ export const AccountingMatterList = ({
     useState<MatterInfoWithUserNameType | null>(null);
   const [detailOpened, setDetailOpened] = useState<boolean>(false);
   const [notificationOpened, setNotificationOpened] = useState<boolean>(false);
+  const [switchDisplay, setSwitchDisplay] = useState(false);
   const router = useRouter();
 
   const handleShowMatterInfo = (matter: MatterInfoWithUserNameType) => {
@@ -211,32 +214,47 @@ export const AccountingMatterList = ({
             担当者に連絡
           </Button>
         </div>
+        <DisplayMenu
+          switchDisplay={switchDisplay}
+          onSwitchDisplay={setSwitchDisplay}
+        />
+        <span className="text-red-700 text-sm m-4">
+          ※記載の金額は、全て税抜となっております。
+        </span>
       </div>
-      <span className="text-red-700 text-sm m-4">
-        ※記載の金額は、全て税抜となっております。
-      </span>
-
       <div className="overflow-auto h-[calc(100vh-200px)]">
-        <Table stickyHeader>
-          <Table.Thead className="bg-white">{tableHeads}</Table.Thead>
-          <Table.Tbody>{tableInfoList}</Table.Tbody>
-        </Table>
+        {switchDisplay ? (
+          <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
+            {matterList?.map((matter) => (
+              <MatterCardForAccounting
+                key={matter.id}
+                matter={matter}
+                onOpen={handleShowMatterInfo}
+              />
+            ))}
+          </SimpleGrid>
+        ) : (
+          <Table stickyHeader>
+            <Table.Thead className="bg-white">{tableHeads}</Table.Thead>
+            <Table.Tbody>{tableInfoList}</Table.Tbody>
+          </Table>
+        )}
       </div>
 
-      {detailOpened && detailMatterInfo ? (
+      {detailOpened && detailMatterInfo && (
         <MatterCardDetailModalForAccounting
           matterInfo={detailMatterInfo}
           opened={detailOpened}
           setOpened={setDetailOpened}
         />
-      ) : null}
-      {notificationOpened ? (
+      )}
+      {notificationOpened && (
         <NotificationMessage
           opened={notificationOpened}
           setOpened={setNotificationOpened}
           onSendMessage={handleSendMessage}
         />
-      ) : null}
+      )}
     </div>
   );
 };
