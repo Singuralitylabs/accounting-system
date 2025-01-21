@@ -67,26 +67,36 @@ export const AccountingMatterList = ({
       alert("案件の完了処理を中止しました。");
       return;
     }
-    for (const id of checkedMatterIdList) {
-      const matterInfo = matterList?.find((matter) => matter.id === id);
-      if (matterInfo) {
-        if (!matterInfo.is_fixed) {
-          alert(`${matterInfo.title}は下書きのため、完了できません。`);
-          continue;
+    try {
+      for (const id of checkedMatterIdList) {
+        const matterInfo = matterList?.find((matter) => matter.id === id);
+        if (matterInfo) {
+          if (!matterInfo.is_fixed) {
+            alert(`${matterInfo.title}は下書きのため、完了できません。`);
+            continue;
+          }
+          if (matterInfo.unchecked_cost_count > 0) {
+            const hasUncheckedCost = window.confirm(
+              `${matterInfo.title}には未払いコストがあります。完了してよろしいですか？`
+            );
+            if (!hasUncheckedCost) continue;
+          }
+          let { user_name, slack_id, ...updatedMatter } = matterInfo;
+          updatedMatter.is_completed = true;
+          await updateMatterInfo(updatedMatter);
+        } else {
+          alert(`ID[${id}]の案件の完了に失敗しました。`);
+          console.error(`案件ID${id}が見つかりません。`);
         }
-        if (matterInfo.unchecked_cost_count > 0) {
-          const hasUncheckedCost = window.confirm(
-            `${matterInfo.title}には未払いコストがあります。完了してよろしいですか？`
-          );
-          if (!hasUncheckedCost) continue;
-        }
-        let { user_name, slack_id, ...updatedMatter } = matterInfo;
-        updatedMatter.is_completed = true;
-        await updateMatterInfo(updatedMatter);
-      } else {
-        alert(`ID[${id}]の案件の完了に失敗しました。`);
-        console.error(`案件ID${id}が見つかりません。`);
       }
+    } catch (error) {
+      console.error("案件の完了処理エラー:", error);
+      notifications.show({
+        title: "エラー",
+        message: "案件の完了処理に失敗しました",
+        color: "red",
+      });
+      throw error;
     }
     alert(`案件のチェック処理を完了しました。`);
     setCheckedMatterIdList([]);
