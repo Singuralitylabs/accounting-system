@@ -1,15 +1,12 @@
 import { Button, Card, Text, Badge, Group } from "@mantine/core";
-import { MatterType } from "../types/types";
-import ThreedotsMenu from "./buttons/threedots-menu";
+import { MatterInfoWithUserNameType } from "../types/types";
 
 type Props = {
-  matter: MatterType;
-  onOpen: (matter: MatterType) => void;
-  onCopy: (matter: MatterType) => void;
-  onDelete: (matter: MatterType) => void;
+  matter: MatterInfoWithUserNameType;
+  onOpen: (matter: MatterInfoWithUserNameType) => void;
 };
 
-export function MatterCard({ matter, onOpen, onCopy, onDelete }: Props) {
+export function MatterCardForAccounting({ matter, onOpen }: Props) {
   const formattedDate = new Date(matter.inserted_at).toLocaleDateString(
     "ja-JP",
     {
@@ -50,14 +47,20 @@ export function MatterCard({ matter, onOpen, onCopy, onDelete }: Props) {
           ) : (
             <Badge color="blue">下書き</Badge>
           )}
-          <ThreedotsMenu matter={matter} onCopy={onCopy} onDelete={onDelete} />
         </div>
       </Group>
       <Text>案件ID: {matter.id}</Text>
+      <Text>担当者: {matter.user_name}</Text>
       <Text>分類: {matter.category}</Text>
       <Text>チーム: {matter.team}</Text>
       <Text>合計請求額: {formatCurrency(matter.total_amount)}</Text>
       <Text>合計コスト: {formatCurrency(matter.total_cost)}</Text>
+      <Text
+        c={`${matter.unchecked_cost_count > 0 && "red"}`}
+        fw={`${matter.unchecked_cost_count > 0 ? 700 : 500}`}
+      >
+        未チェックコスト数: {matter.unchecked_cost_count}
+      </Text>
       <Group justify="flex-end" align="center" mt="md">
         <Text c="dimmed" size="xs" tt="uppercase" fw={700}>
           作成日時：{formattedDate}
@@ -69,7 +72,7 @@ export function MatterCard({ matter, onOpen, onCopy, onDelete }: Props) {
         onClick={() => onOpen(matter)}
         size="sm"
       >
-        開く
+        詳細
       </Button>
     </Card>
   );

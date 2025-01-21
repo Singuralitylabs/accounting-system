@@ -2,9 +2,11 @@
 
 import { Table, Title, TextInput, Button, Group, Select } from "@mantine/core";
 import { ProfilesType } from "../types/types";
-import { classList, elementListOfUser } from "../types/params";
 import { useState } from "react";
 import updateProfile from "../utils/updateProfile";
+
+const elementListOfUser = ["ID", "名前", "メールアドレス", "権限", "slack ID"];
+const classList = ["public", "accounting", "admin"];
 
 const UserList = ({ userList }: { userList: ProfilesType[] }) => {
   const [updatedUserList, setUpdatedUserList] =

@@ -1,0 +1,181 @@
+"use client";
+
+import { SimpleGrid, Table } from "@mantine/core";
+import { useEffect, useState, useTransition } from "react";
+import { MatterType } from "../types/types";
+import { MatterCardDetailModal } from "./modal/MatterCardDetail";
+import { useRouter } from "next/navigation";
+import { MatterCard } from "./MatterCard";
+import deleteMatter from "../utils/deleteMatter";
+import TableInfo from "./TableInfo";
+import ThreedotsMenu from "./buttons/threedots-menu";
+import { useViewportSize } from "@mantine/hooks";
+import DisplayMenu from "./buttons/display-menu";
+
+const itemListInUserMatter = [
+  "ID",
+  "案件名",
+  "チーム",
+  "分類",
+  "合計請求額",
+  "取引先数",
+  "合計コスト",
+  "コスト数",
+];
+
+type Props = {
+  matterList: MatterType[] | null;
+  teamList: string[];
+  categoryList: string[];
+  itemList: string[];
+  certificateList: string[];
+};
+
+export function MatterCardList({
+  matterList,
+  teamList,
+  categoryList,
+  itemList,
+  certificateList,
+}: Props) {
+  const [opened, setOpened] = useState(false);
+  const [matterInfo, setMatterInfo] = useState<MatterType | null>(null);
+  const [isNew, setIsNew] = useState(false);
+  const [switchDisplay, setSwitchDisplay] = useState(false);
+  const router = useRouter();
+  const [_, startTransition] = useTransition();
+  const { width } = useViewportSize();
+  const [isMobileView, setIsMobileView] = useState(false);
+
+  const MD_BREAKPOINT = 768;
+
+  useEffect(() => {
+    setIsMobileView(width < MD_BREAKPOINT);
+  }, [width]);
+
+  const refreshData = () => {
+    startTransition(() => {
+      router.refresh();
+    });
+  };
+
+  const handleModalClose = () => {
+    setOpened(false);
+    refreshData();
+  };
+
+  if (!Array.isArray(matterList)) {
+    return null;
+  }
+
+  const handleOpenCard = (matter: MatterType) => {
+    setMatterInfo(matter);
+    setOpened(true);
+  };
+
+  const handleCopyCard = (matter: MatterType) => {
+    setIsNew(true);
+    setMatterInfo({
+      ...matter,
+      title: `${matter.title} (コピー)`,
+      is_completed: false,
+      is_fixed: false,
+      inserted_at: new Date().toISOString(),
+      accounting_memo: "",
+    });
+    setOpened(true);
+  };
+
+  const handleDeleteCard = async (matter: MatterType) => {
+    await deleteMatter(matter);
+    refreshData();
+  };
+
+  const tableHeads = (
+    <Table.Tr key={itemListInUserMatter[0]}>
+      {itemListInUserMatter.map((item, index) => (
+        <Table.Th key={index} className="whitespace-nowrap px-4 text-center">
+          {item}
+        </Table.Th>
+      ))}
+      <Table.Th></Table.Th>
+      <Table.Th></Table.Th>
+    </Table.Tr>
+  );
+
+  const tableInfoList = matterList?.map((matter) => (
+    <Table.Tr
+      key={matter.id}
+      bg={
+        matter.is_completed
+          ? "var(--mantine-color-green-light)"
+          : matter.is_fixed
+          ? "var(--mantine-color-red-light)"
+          : "var(--mantine-color-blue-light)"
+      }
+    >
+      <TableInfo
+        key={matter.id}
+        matter={matter}
+        itemList={itemListInUserMatter}
+      />
+      <Table.Td className="whitespace-nowrap px-4">
+        <button
+          onClick={() => handleOpenCard(matter)}
+          className="bg-blue-500 hover:bg-blue-700 px-2 rounded text-white w-full"
+        >
+          開く
+        </button>
+      </Table.Td>
+      <Table.Td className="flex justify-end">
+        <ThreedotsMenu
+          matter={matter}
+          onCopy={handleCopyCard}
+          onDelete={handleDeleteCard}
+        />
+      </Table.Td>
+    </Table.Tr>
+  ));
+
+  return (
+    <div className="py-4 px-8">
+      <DisplayMenu
+        switchDisplay={switchDisplay}
+        onSwitchDisplay={setSwitchDisplay}
+      />
+      {isMobileView || switchDisplay ? (
+        <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
+          {matterList?.map((matter) => (
+            <MatterCard
+              key={matter.id}
+              matter={matter}
+              onOpen={handleOpenCard}
+              onCopy={handleCopyCard}
+              onDelete={handleDeleteCard}
+            />
+          ))}
+        </SimpleGrid>
+      ) : (
+        <div className="overflow-auto h-[calc(100vh-200px)]">
+          <Table stickyHeader>
+            <Table.Thead className="bg-white">{tableHeads}</Table.Thead>
+            <Table.Tbody>{tableInfoList}</Table.Tbody>
+          </Table>
+        </div>
+      )}
+      {opened && matterInfo && (
+        <MatterCardDetailModal
+          matterInfo={matterInfo}
+          teamList={teamList}
+          categoryList={categoryList}
+          itemList={itemList}
+          certificateList={certificateList}
+          opened={opened}
+          setOpened={handleModalClose}
+          isNew={isNew}
+          setIsNew={setIsNew}
+        />
+      )}
+    </div>
+  );
+}

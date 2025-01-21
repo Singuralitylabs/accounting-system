@@ -1,5 +1,5 @@
 import { headers } from "next/headers";
-import { MatterCardsGrid } from "./components/MatterCardGrid";
+import { MatterCardList } from "./components/MatterCardList";
 import PageTitle from "./components/PageTitle";
 import {
   getSelectOptions,
@@ -36,7 +36,7 @@ const UserMatterPage = async () => {
           </div>
         )}
         {matterList ? (
-          <MatterCardsGrid
+          <MatterCardList
             matterList={matterList}
             teamList={teamList.map((team) => team.value)}
             categoryList={categoryList.map((category) => category.value)}
