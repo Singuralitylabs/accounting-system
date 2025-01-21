@@ -1,7 +1,7 @@
 "use client";
 
 import { Button, Checkbox, SimpleGrid, Table } from "@mantine/core";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { MatterInfoWithUserNameType } from "../types/types";
 import { MatterCardDetailModalForAccounting } from "./modal/MatterCardDetailForAccounting";
 import { FaCheck } from "react-icons/fa";
@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import TableInfo from "./TableInfo";
 import DisplayMenu from "./buttons/display-menu";
 import { MatterCardForAccounting } from "./MatterCardForAccounting";
+import { useViewportSize } from "@mantine/hooks";
 
 const elementListInAccounting = [
   "ID",
@@ -38,6 +39,15 @@ export const AccountingMatterList = ({
   const [detailOpened, setDetailOpened] = useState<boolean>(false);
   const [notificationOpened, setNotificationOpened] = useState<boolean>(false);
   const [switchDisplay, setSwitchDisplay] = useState(false);
+  const { width } = useViewportSize();
+  const [isMobileView, setIsMobileView] = useState(false);
+
+  const MD_BREAKPOINT = 768;
+
+  useEffect(() => {
+    setIsMobileView(width < MD_BREAKPOINT);
+  }, [width]);
+
   const router = useRouter();
 
   const handleShowMatterInfo = (matter: MatterInfoWithUserNameType) => {
@@ -206,7 +216,7 @@ export const AccountingMatterList = ({
   return (
     <div className="my-4">
       <div className="sticky top-4 bg-white z-10">
-        <div className="flex justify-end gap-4 my-4">
+        <div className="flex justify-end gap-4 my-4 px-4">
           <Button color="green" onClick={handleCheckCompleted}>
             確認完了
           </Button>
@@ -214,16 +224,20 @@ export const AccountingMatterList = ({
             担当者に連絡
           </Button>
         </div>
-        <DisplayMenu
-          switchDisplay={switchDisplay}
-          onSwitchDisplay={setSwitchDisplay}
-        />
-        <span className="text-red-700 text-sm m-4">
-          ※記載の金額は、全て税抜となっております。
-        </span>
+        <div className="flex justify-between items-center">
+          <span className="text-red-700 text-sm m-4">
+            ※記載の金額は、全て税抜となっております。
+          </span>
+          <div className="hidden md:flex justify-end px-4">
+            <DisplayMenu
+              switchDisplay={switchDisplay}
+              onSwitchDisplay={setSwitchDisplay}
+            />
+          </div>
+        </div>
       </div>
       <div className="overflow-auto h-[calc(100vh-200px)]">
-        {switchDisplay ? (
+        {isMobileView || switchDisplay ? (
           <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
             {matterList?.map((matter) => (
               <MatterCardForAccounting
