@@ -58,8 +58,14 @@ export const AccountingMatterList = ({
       const matterInfo = matterList?.find((matter) => matter.id === id);
       if (matterInfo) {
         if (!matterInfo.is_fixed) {
-          alert(`ID[${id}]の案件は未確定のため、完了できません。`);
+          alert(`${matterInfo.title}は下書きのため、完了できません。`);
           continue;
+        }
+        if (matterInfo.unchecked_cost_count > 0) {
+          const hasUncheckedCost = window.confirm(
+            `${matterInfo.title}には未払いコストがあります。完了してよろしいですか？`
+          );
+          if (!hasUncheckedCost) continue;
         }
         let { user_name, slack_id, ...updatedMatter } = matterInfo;
         updatedMatter.is_completed = true;
@@ -69,7 +75,7 @@ export const AccountingMatterList = ({
         console.error(`案件ID${id}が見つかりません。`);
       }
     }
-    alert(`案件をチェック処理を完了しました。`);
+    alert(`案件のチェック処理を完了しました。`);
     setCheckedMatterIdList([]);
     router.refresh();
   };
@@ -151,7 +157,7 @@ export const AccountingMatterList = ({
         key={matter.id}
         bg={
           checkedMatterIdList.includes(matter.id)
-            ? "var(--mantine-color-blue-light)"
+            ? "var(--mantine-color-red-5)"
             : matter.is_completed
             ? "var(--mantine-color-green-light)"
             : matter.is_fixed
