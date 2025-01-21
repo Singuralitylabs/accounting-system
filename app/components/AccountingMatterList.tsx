@@ -148,6 +148,7 @@ export const AccountingMatterList = ({
           {element}
         </Table.Th>
       ))}
+      <Table.Th></Table.Th>
     </Table.Tr>
   );
 
