@@ -99,6 +99,8 @@ export function MatterCardList({
           {item}
         </Table.Th>
       ))}
+      <Table.Th></Table.Th>
+      <Table.Th></Table.Th>
     </Table.Tr>
   );
 
