@@ -1,12 +1,26 @@
 import { Button, Card, Text, Badge, Group } from "@mantine/core";
 import { MatterInfoWithUserNameType } from "../types/types";
+import { useEffect, useState } from "react";
 
 type Props = {
   matter: MatterInfoWithUserNameType;
+  isChecked: boolean;
   onOpen: (matter: MatterInfoWithUserNameType) => void;
+  onCheck: (id: number) => void;
 };
 
-export function MatterCardForAccounting({ matter, onOpen }: Props) {
+export function MatterCardForAccounting({
+  matter,
+  isChecked,
+  onOpen,
+  onCheck,
+}: Props) {
+  const [isSelected, setIsSelected] = useState(false);
+
+  useEffect(() => {
+    setIsSelected(isChecked);
+  }, [isChecked]);
+
   const formattedDate = new Date(matter.inserted_at).toLocaleDateString(
     "ja-JP",
     {
@@ -28,8 +42,28 @@ export function MatterCardForAccounting({ matter, onOpen }: Props) {
     }).format(amount);
   };
 
+  const handleCardClick = (e: React.MouseEvent) => {
+    if (
+      (e.target as HTMLElement).closest(".detail-button-wrapper") ||
+      matter.is_completed
+    ) {
+      return;
+    }
+    setIsSelected(!isSelected);
+    onCheck(matter.id);
+  };
+
   return (
-    <Card p="md" radius="md" className="border relative" shadow="sm">
+    <Card
+      p="md"
+      radius="md"
+      className={`border relative ${isSelected && "border-blue-700"} ${
+        !matter.is_completed &&
+        "hover:shadow-lg hover:border-blue-300 hover:cursor-pointer"
+      }`}
+      shadow="sm"
+      onClick={handleCardClick}
+    >
       <Group justify="space-between" align="flex-start">
         <Text
           fw={700}
@@ -66,14 +100,17 @@ export function MatterCardForAccounting({ matter, onOpen }: Props) {
           作成日時：{formattedDate}
         </Text>
       </Group>
-      <Button
-        variant="outline"
-        className="mt-4"
-        onClick={() => onOpen(matter)}
-        size="sm"
-      >
-        詳細
-      </Button>
+      <div className="detail-button-wrapper w-full">
+        <Button
+          variant="outline"
+          className="mt-4"
+          fullWidth
+          onClick={() => onOpen(matter)}
+          size="sm"
+        >
+          詳細
+        </Button>
+      </div>
     </Card>
   );
 }

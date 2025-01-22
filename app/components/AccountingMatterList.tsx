@@ -1,10 +1,9 @@
 "use client";
 
-import { Button, Checkbox, SimpleGrid, Table } from "@mantine/core";
+import { Button, SimpleGrid, Table } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { MatterInfoWithUserNameType } from "../types/types";
 import { MatterCardDetailModalForAccounting } from "./modal/MatterCardDetailForAccounting";
-import { FaCheck } from "react-icons/fa";
 import { updateMatterInfo } from "../utils/supabaseServer";
 import { NotificationMessage } from "./modal/NotificationMessage";
 import { notifications } from "@mantine/notifications";
@@ -14,6 +13,7 @@ import TableInfo from "./TableInfo";
 import DisplayMenu from "./buttons/display-menu";
 import { MatterCardForAccounting } from "./MatterCardForAccounting";
 import { useViewportSize } from "@mantine/hooks";
+import AccountingCheckbox from "./buttons/accounting-checkbox";
 
 const elementListInAccounting = [
   "ID",
@@ -53,6 +53,14 @@ export const AccountingMatterList = ({
   const handleShowMatterInfo = (matter: MatterInfoWithUserNameType) => {
     setDetailMatterInfo(matter);
     setDetailOpened(true);
+  };
+
+  const handleCheckCard = (id: number) => {
+    setCheckedMatterIdList(
+      checkedMatterIdList.includes(id)
+        ? checkedMatterIdList.filter((matterId) => matterId !== id)
+        : [...checkedMatterIdList, id]
+    );
   };
 
   const handleCheckCompleted = async () => {
@@ -190,21 +198,12 @@ export const AccountingMatterList = ({
         }
       >
         <Table.Td>
-          {matter.is_completed ? (
-            <FaCheck />
-          ) : (
-            <Checkbox
-              aria-label="案件チェック"
-              checked={checkedMatterIdList.includes(matter.id)}
-              onChange={(event) =>
-                setCheckedMatterIdList(
-                  event.currentTarget.checked
-                    ? [...checkedMatterIdList, matter.id]
-                    : checkedMatterIdList.filter((id) => id !== matter.id)
-                )
-              }
-            />
-          )}
+          <AccountingCheckbox
+            id={matter.id}
+            isCompleted={matter.is_completed!}
+            matterIdList={checkedMatterIdList}
+            setMatterIdList={setCheckedMatterIdList}
+          />
         </Table.Td>
         <TableInfo
           matter={matter}
@@ -253,7 +252,9 @@ export const AccountingMatterList = ({
               <MatterCardForAccounting
                 key={matter.id}
                 matter={matter}
+                isChecked={checkedMatterIdList.includes(matter.id)}
                 onOpen={handleShowMatterInfo}
+                onCheck={() => handleCheckCard(matter.id)}
               />
             ))}
           </SimpleGrid>
