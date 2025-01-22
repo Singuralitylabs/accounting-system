@@ -1,11 +1,11 @@
 import { Metadata } from "next";
 import { Footer } from "./components/Footer";
-import Header from "./components/Header";
 import "./globals.css";
 import "@mantine/core/styles.css";
 import { MantineProvider, ColorSchemeScript } from "@mantine/core";
 import SupabaseProvider from "./components/providers/SupabaseProvider";
 import { DatePickerProvider } from "./components/providers/DatePickerProvider";
+import AuthProvider from "./components/auth/AuthProvider";
 
 export const metadata: Metadata = {
   title: "案件管理アプリ",
@@ -27,9 +27,10 @@ export default async function RootLayout({
       <body>
         <SupabaseProvider>
           <MantineProvider>
-            <Header />
-            <DatePickerProvider>{children}</DatePickerProvider>
-            <Footer />
+            <AuthProvider>
+              <DatePickerProvider>{children}</DatePickerProvider>
+              <Footer />
+            </AuthProvider>
           </MantineProvider>
         </SupabaseProvider>
       </body>

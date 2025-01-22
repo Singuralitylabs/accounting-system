@@ -5,55 +5,51 @@ import { User } from "@supabase/supabase-js";
 import Link from "next/link";
 import React, { FC, Suspense, useEffect, useState } from "react";
 import { ProfilesType } from "../types/types";
-import { getProfileInfo } from "../utils/supabaseServer";
+import { getProfileInfoById } from "../utils/supabaseServer";
 import MobileHeader from "./MobileHeader";
 import UserButton from "./buttons/user-button";
+import { useRouter } from "next/navigation";
 
-const Header: FC = () => {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [profile, setProfile] = useState<ProfilesType | null>(null);
+interface HeaderProps {
+  initialUser: User | null;
+  initialProfile: ProfilesType | null;
+}
+
+const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
+  const [user, setUser] = useState<User | null>(initialUser);
+  const [profile, setProfile] = useState<ProfilesType | null>(initialProfile);
   const supabase = createClientComponentClient();
+  const router = useRouter();
 
   useEffect(() => {
-    const getUser = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (session?.user) {
-        setUser(session.user);
-        const { profileInfo } = await getProfileInfo();
-        if (profileInfo) {
-          setProfile(profileInfo);
-        }
-      }
-      setLoading(false);
-    };
-
-    getUser();
-
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
         setUser(session.user);
-        const { profileInfo } = await getProfileInfo();
+        const { profileInfo } = await getProfileInfoById(session.user.id);
         if (profileInfo) {
           setProfile(profileInfo);
         }
+      } else {
+        setUser(null);
+        setProfile(null);
       }
     });
 
     return () => subscription.unsubscribe();
   }, [supabase]);
 
-  if (loading) {
-    return null;
-  }
-
   if (!user) {
     return null;
   }
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setProfile(null);
+    router.push("/login");
+  };
 
   return (
     <header className="bg-gray-800 p-4">
@@ -94,7 +90,7 @@ const Header: FC = () => {
           </Suspense>
         </div>
       </nav>
-      <MobileHeader />
+      <MobileHeader profile={profile} onSignOut={handleSignOut} />
     </header>
   );
 };
