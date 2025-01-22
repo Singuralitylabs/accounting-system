@@ -5,8 +5,6 @@ import "./globals.css";
 import "@mantine/core/styles.css";
 import { MantineProvider, ColorSchemeScript } from "@mantine/core";
 import SupabaseProvider from "./components/providers/SupabaseProvider";
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
-import { cookies, headers } from "next/headers";
 import { DatePickerProvider } from "./components/providers/DatePickerProvider";
 
 export const metadata: Metadata = {
@@ -21,11 +19,6 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  headers();
-  const supabase = createServerComponentClient({ cookies });
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
   return (
     <html lang="ja">
       <head>
@@ -34,7 +27,7 @@ export default async function RootLayout({
       <body>
         <SupabaseProvider>
           <MantineProvider>
-            {session && <Header />}
+            <Header />
             <DatePickerProvider>{children}</DatePickerProvider>
             <Footer />
           </MantineProvider>
