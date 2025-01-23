@@ -41,7 +41,7 @@ export function MatterCardList({
   const [opened, setOpened] = useState(false);
   const [matterInfo, setMatterInfo] = useState<MatterType | null>(null);
   const [isNew, setIsNew] = useState(false);
-  const [switchDisplay, setSwitchDisplay] = useState(false);
+  const [switchDisplay, setSwitchDisplay] = useState(true);
   const router = useRouter();
   const [_, startTransition] = useTransition();
   const { width } = useViewportSize();
