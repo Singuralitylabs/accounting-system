@@ -224,7 +224,7 @@ export const AccountingMatterList = ({
 
   return (
     <div className="my-4">
-      <div className="sticky top-4 bg-white z-10">
+      <div className="sticky top-4 bg-white z-[5]">
         <div className="flex justify-end gap-4 my-4 px-4">
           <Button color="green" onClick={handleCheckCompleted}>
             確認完了
@@ -247,17 +247,19 @@ export const AccountingMatterList = ({
       </div>
       <div className="overflow-auto h-[calc(100vh-200px)]">
         {isMobileView || switchDisplay ? (
-          <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
-            {matterList?.map((matter) => (
-              <MatterCardForAccounting
-                key={matter.id}
-                matter={matter}
-                isChecked={checkedMatterIdList.includes(matter.id)}
-                onOpen={handleShowMatterInfo}
-                onCheck={() => handleCheckCard(matter.id)}
-              />
-            ))}
-          </SimpleGrid>
+          <div className="py-4 px-8">
+            <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
+              {matterList?.map((matter) => (
+                <MatterCardForAccounting
+                  key={matter.id}
+                  matter={matter}
+                  isChecked={checkedMatterIdList.includes(matter.id)}
+                  onOpen={handleShowMatterInfo}
+                  onCheck={() => handleCheckCard(matter.id)}
+                />
+              ))}
+            </SimpleGrid>
+          </div>
         ) : (
           <Table stickyHeader>
             <Table.Thead className="bg-white">{tableHeads}</Table.Thead>

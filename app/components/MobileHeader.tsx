@@ -30,7 +30,7 @@ const MobileHeader: FC<Props> = ({ profile, onSignOut }) => {
       </div>
       <div className="relative md:hidden flex justify-end">
         {isMenuOpen && (
-          <div className="absolute bg-gray-700 w-32 text-right ml-auto top-0 z-10">
+          <div className="absolute bg-gray-700 w-32 text-right ml-auto top-0 z-[15]">
             <Link
               href="/"
               className="block rounded px-3 py-2 text-white hover:bg-gray-500 text-right w-full"

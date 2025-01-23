@@ -138,23 +138,25 @@ export function MatterCardList({
   ));
 
   return (
-    <div className="py-4 px-8">
+    <div>
       <DisplayMenu
         switchDisplay={switchDisplay}
         onSwitchDisplay={setSwitchDisplay}
       />
       {isMobileView || switchDisplay ? (
-        <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
-          {matterList?.map((matter) => (
-            <MatterCard
-              key={matter.id}
-              matter={matter}
-              onOpen={handleOpenCard}
-              onCopy={handleCopyCard}
-              onDelete={handleDeleteCard}
-            />
-          ))}
-        </SimpleGrid>
+        <div className="py-4 px-8">
+          <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
+            {matterList?.map((matter) => (
+              <MatterCard
+                key={matter.id}
+                matter={matter}
+                onOpen={handleOpenCard}
+                onCopy={handleCopyCard}
+                onDelete={handleDeleteCard}
+              />
+            ))}
+          </SimpleGrid>
+        </div>
       ) : (
         <div className="overflow-auto h-[calc(100vh-200px)]">
           <Table stickyHeader>
