@@ -11,13 +11,16 @@ export default async function AuthProvider({
   const supabase = createServerComponentClient({ cookies });
 
   try {
+    // 警告: getSession()の使用はセキュリティリスクを伴いますが、
+    // パフォーマンス最適化のために意図的に使用しています。
+    // 本番環境で問題が発生した場合はgetUser()に切り替えることを検討してください。
     const {
-      data: { user },
-    } = await supabase.auth.getUser();
+      data: { session },
+    } = await supabase.auth.getSession();
 
     let profile = null;
-    if (user) {
-      const { profileInfo } = await getProfileInfoById(user.id);
+    if (session?.user) {
+      const { profileInfo } = await getProfileInfoById(session.user.id);
       if (profileInfo) {
         profile = profileInfo;
       }
@@ -25,7 +28,7 @@ export default async function AuthProvider({
 
     return (
       <>
-        <Header initialUser={user} initialProfile={profile} />
+        <Header initialSession={session} initialProfile={profile} />
         {children}
       </>
     );
