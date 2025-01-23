@@ -1,10 +1,9 @@
 "use client";
 
-import { Button, Checkbox, SimpleGrid, Table } from "@mantine/core";
+import { Button, SimpleGrid, Table } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { MatterInfoWithUserNameType } from "../types/types";
 import { MatterCardDetailModalForAccounting } from "./modal/MatterCardDetailForAccounting";
-import { FaCheck } from "react-icons/fa";
 import { updateMatterInfo } from "../utils/supabaseServer";
 import { NotificationMessage } from "./modal/NotificationMessage";
 import { notifications } from "@mantine/notifications";
@@ -14,6 +13,7 @@ import TableInfo from "./TableInfo";
 import DisplayMenu from "./buttons/display-menu";
 import { MatterCardForAccounting } from "./MatterCardForAccounting";
 import { useViewportSize } from "@mantine/hooks";
+import AccountingCheckbox from "./buttons/accounting-checkbox";
 
 const elementListInAccounting = [
   "ID",
@@ -55,6 +55,14 @@ export const AccountingMatterList = ({
     setDetailOpened(true);
   };
 
+  const handleCheckCard = (id: number) => {
+    setCheckedMatterIdList(
+      checkedMatterIdList.includes(id)
+        ? checkedMatterIdList.filter((matterId) => matterId !== id)
+        : [...checkedMatterIdList, id]
+    );
+  };
+
   const handleCheckCompleted = async () => {
     if (checkedMatterIdList.length === 0) {
       alert("完了にする案件にチェックを入れてください。");
@@ -67,26 +75,36 @@ export const AccountingMatterList = ({
       alert("案件の完了処理を中止しました。");
       return;
     }
-    for (const id of checkedMatterIdList) {
-      const matterInfo = matterList?.find((matter) => matter.id === id);
-      if (matterInfo) {
-        if (!matterInfo.is_fixed) {
-          alert(`${matterInfo.title}は下書きのため、完了できません。`);
-          continue;
+    try {
+      for (const id of checkedMatterIdList) {
+        const matterInfo = matterList?.find((matter) => matter.id === id);
+        if (matterInfo) {
+          if (!matterInfo.is_fixed) {
+            alert(`${matterInfo.title}は下書きのため、完了できません。`);
+            continue;
+          }
+          if (matterInfo.unchecked_cost_count > 0) {
+            const hasUncheckedCost = window.confirm(
+              `${matterInfo.title}には未払いコストがあります。完了してよろしいですか？`
+            );
+            if (!hasUncheckedCost) continue;
+          }
+          let { user_name, slack_id, ...updatedMatter } = matterInfo;
+          updatedMatter.is_completed = true;
+          await updateMatterInfo(updatedMatter);
+        } else {
+          alert(`ID[${id}]の案件の完了に失敗しました。`);
+          console.error(`案件ID${id}が見つかりません。`);
         }
-        if (matterInfo.unchecked_cost_count > 0) {
-          const hasUncheckedCost = window.confirm(
-            `${matterInfo.title}には未払いコストがあります。完了してよろしいですか？`
-          );
-          if (!hasUncheckedCost) continue;
-        }
-        let { user_name, slack_id, ...updatedMatter } = matterInfo;
-        updatedMatter.is_completed = true;
-        await updateMatterInfo(updatedMatter);
-      } else {
-        alert(`ID[${id}]の案件の完了に失敗しました。`);
-        console.error(`案件ID${id}が見つかりません。`);
       }
+    } catch (error) {
+      console.error("案件の完了処理エラー:", error);
+      notifications.show({
+        title: "エラー",
+        message: "案件の完了処理に失敗しました",
+        color: "red",
+      });
+      throw error;
     }
     alert(`案件のチェック処理を完了しました。`);
     setCheckedMatterIdList([]);
@@ -180,21 +198,12 @@ export const AccountingMatterList = ({
         }
       >
         <Table.Td>
-          {matter.is_completed ? (
-            <FaCheck />
-          ) : (
-            <Checkbox
-              aria-label="案件チェック"
-              checked={checkedMatterIdList.includes(matter.id)}
-              onChange={(event) =>
-                setCheckedMatterIdList(
-                  event.currentTarget.checked
-                    ? [...checkedMatterIdList, matter.id]
-                    : checkedMatterIdList.filter((id) => id !== matter.id)
-                )
-              }
-            />
-          )}
+          <AccountingCheckbox
+            id={matter.id}
+            isCompleted={matter.is_completed!}
+            matterIdList={checkedMatterIdList}
+            setMatterIdList={setCheckedMatterIdList}
+          />
         </Table.Td>
         <TableInfo
           matter={matter}
@@ -215,7 +224,7 @@ export const AccountingMatterList = ({
 
   return (
     <div className="my-4">
-      <div className="sticky top-4 bg-white z-10">
+      <div className="sticky top-4 bg-white z-[5]">
         <div className="flex justify-end gap-4 my-4 px-4">
           <Button color="green" onClick={handleCheckCompleted}>
             確認完了
@@ -238,15 +247,19 @@ export const AccountingMatterList = ({
       </div>
       <div className="overflow-auto h-[calc(100vh-200px)]">
         {isMobileView || switchDisplay ? (
-          <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
-            {matterList?.map((matter) => (
-              <MatterCardForAccounting
-                key={matter.id}
-                matter={matter}
-                onOpen={handleShowMatterInfo}
-              />
-            ))}
-          </SimpleGrid>
+          <div className="py-4 px-8">
+            <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
+              {matterList?.map((matter) => (
+                <MatterCardForAccounting
+                  key={matter.id}
+                  matter={matter}
+                  isChecked={checkedMatterIdList.includes(matter.id)}
+                  onOpen={handleShowMatterInfo}
+                  onCheck={() => handleCheckCard(matter.id)}
+                />
+              ))}
+            </SimpleGrid>
+          </div>
         ) : (
           <Table stickyHeader>
             <Table.Thead className="bg-white">{tableHeads}</Table.Thead>

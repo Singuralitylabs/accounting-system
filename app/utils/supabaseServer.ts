@@ -51,15 +51,28 @@ export const getProfileInfo = async () => {
   }
 };
 
-export const getUserInfo = async (id: number) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+export const getProfileInfoById = async (userId: string) => {
+  try {
+    const supabase = createServerComponentClient<Database>({ cookies });
 
-  const { data: userInfo } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", id);
+    const { data: profileInfo, error: profileError } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("user_id", userId)
+      .single();
 
-  return userInfo ? userInfo[0] : null;
+    if (!profileInfo || profileError) {
+      console.error("Profile fetch failed:", profileError);
+      return { error: new Error("プロファイル情報の取得に失敗しました。") };
+    }
+
+    return {
+      profileInfo,
+    };
+  } catch (error) {
+    console.error("Unexpected error in getProfileInfo:", error);
+    return { error: new Error("予期せぬエラーが発生しました。") };
+  }
 };
 
 export const getAllUserInfo = async () => {
