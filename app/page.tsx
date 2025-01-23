@@ -1,4 +1,3 @@
-import { headers } from "next/headers";
 import { MatterCardList } from "./components/MatterCardList";
 import PageTitle from "./components/PageTitle";
 import {
@@ -6,10 +5,7 @@ import {
   getUserMatterInfoList,
 } from "./utils/supabaseServer";
 
-export const dynamic = "force-dynamic";
-
 const UserMatterPage = async () => {
-  headers();
   try {
     const matterList = await getUserMatterInfoList();
 

@@ -2,8 +2,6 @@ import NewMatterForm from "../components/NewMatterForm";
 import PageTitle from "../components/PageTitle";
 import { getSelectOptions } from "../utils/supabaseServer";
 
-export const dynamic = "force-dynamic";
-
 const NewMatterPage = async () => {
   const { options: teamList } = await getSelectOptions("team");
   const { options: categoryList } = await getSelectOptions("category");

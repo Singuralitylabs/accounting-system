@@ -1,5 +1,4 @@
 import { Title } from "@mantine/core";
-import PageTitle from "../components/PageTitle";
 import SelectOptionList from "../components/SelectOptionList";
 import UserList from "../components/UserList";
 import { getAllUserInfo, getSelectOptions } from "../utils/supabaseServer";

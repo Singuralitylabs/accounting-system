@@ -3,8 +3,6 @@ import { AccountingMatterList } from "../components/AccountingMatterList";
 import { getAllMatterInfoList } from "../utils/supabaseServer";
 import { MatterInfoWithUserNameType, MatterType } from "../types/types";
 
-export const dynamic = "force-dynamic";
-
 type MatterTypeAndProfileType = MatterType & {
   profiles: {
     name: string;
