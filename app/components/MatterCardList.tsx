@@ -11,6 +11,8 @@ import TableInfo from "./TableInfo";
 import ThreedotsMenu from "./buttons/threedots-menu";
 import { useViewportSize } from "@mantine/hooks";
 import DisplayMenu from "./buttons/display-menu";
+import { useAtomValue } from "jotai";
+import { optionsAtom } from "../atoms/optionsAtom";
 
 const itemListInUserMatter = [
   "ID",
@@ -23,29 +25,18 @@ const itemListInUserMatter = [
   "コスト数",
 ];
 
-type Props = {
-  matterList: MatterType[] | null;
-  teamList: string[];
-  categoryList: string[];
-  itemList: string[];
-  certificateList: string[];
-};
-
-export function MatterCardList({
-  matterList,
-  teamList,
-  categoryList,
-  itemList,
-  certificateList,
-}: Props) {
+export function MatterCardList({ matterList }: { matterList: MatterType[] }) {
   const [opened, setOpened] = useState(false);
   const [matterInfo, setMatterInfo] = useState<MatterType | null>(null);
   const [isNew, setIsNew] = useState(false);
-  const [switchDisplay, setSwitchDisplay] = useState(false);
+  const [switchDisplay, setSwitchDisplay] = useState(true);
   const router = useRouter();
   const [_, startTransition] = useTransition();
   const { width } = useViewportSize();
   const [isMobileView, setIsMobileView] = useState(false);
+
+  const { teamList, categoryList, itemList, certificateList } =
+    useAtomValue(optionsAtom);
 
   const MD_BREAKPOINT = 768;
 
