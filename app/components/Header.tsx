@@ -1,59 +1,79 @@
 "use client";
 
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
-import { User } from "@supabase/supabase-js";
+import { Session } from "@supabase/supabase-js";
 import Link from "next/link";
 import React, { FC, Suspense, useEffect, useState } from "react";
 import { ProfilesType } from "../types/types";
-import { getProfileInfo } from "../utils/supabaseServer";
+import { getProfileInfoById } from "../utils/supabaseServer";
 import MobileHeader from "./MobileHeader";
 import UserButton from "./buttons/user-button";
+import { useRouter } from "next/navigation";
 
-const Header: FC = () => {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [profile, setProfile] = useState<ProfilesType | null>(null);
+interface HeaderProps {
+  initialSession: Session | null;
+  initialProfile: ProfilesType | null;
+}
+
+interface CacheEntry {
+  data: ProfilesType;
+  timestamp: number;
+}
+
+const CACHE_DURATION = 1000 * 60 * 30;
+
+const Header: FC<HeaderProps> = ({ initialSession, initialProfile }) => {
+  const [session, setSession] = useState<Session | null>(initialSession);
+  const [profile, setProfile] = useState<ProfilesType | null>(initialProfile);
+  const [profileCache, setProfileCache] = useState<Record<string, CacheEntry>>(
+    {}
+  );
   const supabase = createClientComponentClient();
+  const router = useRouter();
+
+  const isValidCache = (entry: CacheEntry) => {
+    return Date.now() - entry.timestamp < CACHE_DURATION;
+  };
 
   useEffect(() => {
-    const getUser = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (session?.user) {
-        setUser(session.user);
-        const { profileInfo } = await getProfileInfo();
-        if (profileInfo) {
-          setProfile(profileInfo);
-        }
-      }
-      setLoading(false);
-    };
-
-    getUser();
-
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        setUser(session.user);
-        const { profileInfo } = await getProfileInfo();
-        if (profileInfo) {
-          setProfile(profileInfo);
+      if (session) {
+        setSession(session);
+
+        const cacheEntry = profileCache[session.user.id];
+        if (!cacheEntry || !isValidCache(cacheEntry)) {
+          const { profileInfo } = await getProfileInfoById(session.user.id);
+          if (profileInfo) {
+            setProfile(profileInfo);
+            setProfileCache((prev) => ({
+              ...prev,
+              [session.user.id]: { data: profileInfo, timestamp: Date.now() },
+            }));
+          }
+        } else {
+          setProfile(cacheEntry.data);
         }
+      } else {
+        setSession(null);
+        setProfile(null);
       }
     });
 
     return () => subscription.unsubscribe();
   }, [supabase]);
 
-  if (loading) {
+  if (!session) {
     return null;
   }
 
-  if (!user) {
-    return null;
-  }
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setSession(null);
+    setProfile(null);
+    router.push("/login");
+  };
 
   return (
     <header className="bg-gray-800 p-4">
@@ -94,7 +114,7 @@ const Header: FC = () => {
           </Suspense>
         </div>
       </nav>
-      <MobileHeader />
+      <MobileHeader profile={profile} onSignOut={handleSignOut} />
     </header>
   );
 };

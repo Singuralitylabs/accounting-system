@@ -10,20 +10,10 @@ import CostBlock from "./CostBlock";
 import { MatterInfoBlock } from "./MatterInfoBlock";
 import addMatterInfo from "../utils/addMatterInfo";
 import { useRouter } from "next/navigation";
+import { useAtomValue } from "jotai";
+import { optionsAtom } from "../atoms/optionsAtom";
 
-type Props = {
-  teamList: string[];
-  categoryList: string[];
-  itemList: string[];
-  certificateList: string[];
-};
-
-const NewMatterForm = ({
-  teamList,
-  categoryList,
-  itemList,
-  certificateList,
-}: Props) => {
+const NewMatterForm = () => {
   const initialFormValues: MatterType = {
     id: 0,
     title: "",
@@ -43,6 +33,9 @@ const NewMatterForm = ({
     accounting_memo: null,
     unchecked_cost_count: 0,
   };
+
+  const { teamList, categoryList, itemList, certificateList } =
+    useAtomValue(optionsAtom);
 
   const form = useForm<MatterType>({
     mode: "uncontrolled",

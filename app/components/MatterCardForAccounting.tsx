@@ -1,15 +1,26 @@
 import { Button, Card, Text, Badge, Group } from "@mantine/core";
-import { MatterType } from "../types/types";
-import ThreedotsMenu from "./buttons/threedots-menu";
+import { MatterInfoWithUserNameType } from "../types/types";
+import { useEffect, useState } from "react";
 
 type Props = {
-  matter: MatterType;
-  onOpen: (matter: MatterType) => void;
-  onCopy: (matter: MatterType) => void;
-  onDelete: (matter: MatterType) => void;
+  matter: MatterInfoWithUserNameType;
+  isChecked: boolean;
+  onOpen: (matter: MatterInfoWithUserNameType) => void;
+  onCheck: (id: number) => void;
 };
 
-export function MatterCard({ matter, onOpen, onCopy, onDelete }: Props) {
+export function MatterCardForAccounting({
+  matter,
+  isChecked,
+  onOpen,
+  onCheck,
+}: Props) {
+  const [isSelected, setIsSelected] = useState(false);
+
+  useEffect(() => {
+    setIsSelected(isChecked);
+  }, [isChecked]);
+
   const formattedDate = new Date(matter.inserted_at).toLocaleDateString(
     "ja-JP",
     {
@@ -31,8 +42,28 @@ export function MatterCard({ matter, onOpen, onCopy, onDelete }: Props) {
     }).format(amount);
   };
 
+  const handleCardClick = (e: React.MouseEvent) => {
+    if (
+      (e.target as HTMLElement).closest(".detail-button-wrapper") ||
+      matter.is_completed
+    ) {
+      return;
+    }
+    setIsSelected(!isSelected);
+    onCheck(matter.id);
+  };
+
   return (
-    <Card p="md" radius="md" className="border relative" shadow="sm">
+    <Card
+      p="md"
+      radius="md"
+      className={`border relative ${isSelected && "border-blue-700"} ${
+        !matter.is_completed &&
+        "hover:shadow-lg hover:border-blue-300 hover:cursor-pointer"
+      }`}
+      shadow="sm"
+      onClick={handleCardClick}
+    >
       <Group justify="space-between" align="flex-start">
         <Text
           fw={700}
@@ -50,27 +81,36 @@ export function MatterCard({ matter, onOpen, onCopy, onDelete }: Props) {
           ) : (
             <Badge color="blue">下書き</Badge>
           )}
-          <ThreedotsMenu matter={matter} onCopy={onCopy} onDelete={onDelete} />
         </div>
       </Group>
       <Text>案件ID: {matter.id}</Text>
+      <Text>担当者: {matter.user_name}</Text>
       <Text>分類: {matter.category}</Text>
       <Text>チーム: {matter.team}</Text>
       <Text>合計請求額: {formatCurrency(matter.total_amount)}</Text>
       <Text>合計コスト: {formatCurrency(matter.total_cost)}</Text>
+      <Text
+        c={`${matter.unchecked_cost_count > 0 && "red"}`}
+        fw={`${matter.unchecked_cost_count > 0 ? 700 : 500}`}
+      >
+        未チェックコスト数: {matter.unchecked_cost_count}
+      </Text>
       <Group justify="flex-end" align="center" mt="md">
         <Text c="dimmed" size="xs" tt="uppercase" fw={700}>
           作成日時：{formattedDate}
         </Text>
       </Group>
-      <Button
-        variant="outline"
-        className="mt-4"
-        onClick={() => onOpen(matter)}
-        size="sm"
-      >
-        開く
-      </Button>
+      <div className="detail-button-wrapper w-full">
+        <Button
+          variant="outline"
+          className="mt-4"
+          fullWidth
+          onClick={() => onOpen(matter)}
+          size="sm"
+        >
+          詳細
+        </Button>
+      </div>
     </Card>
   );
 }

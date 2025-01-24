@@ -21,8 +21,10 @@ import {
   Checkbox,
   Button,
   Textarea,
+  LoadingOverlay,
 } from "@mantine/core";
-import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, useTransition } from "react";
 
 const formatCurrency = (amount: number | null) => {
   if (amount === null || amount === undefined) return "-";
@@ -72,7 +74,7 @@ const LabelText = ({
       <Text size="sm" fw={500} c="dimmed">
         {label}
       </Text>
-      {value ? <Text className="border p-4 rounded">{value}</Text> : ""}
+      {value && <Text className="p-4">{value}</Text>}
     </Stack>
   );
 };
@@ -91,6 +93,10 @@ export const MatterCardDetailModalForAccounting = ({
   const [costList, setCostList] = useState<CostType[]>([]);
   const [businessList, setBusinessList] = useState<BusinessType[]>([]);
   const [accountingMemo, setAccountingMemo] = useState<string | null>("");
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const router = useRouter();
+  const [_, startTransition] = useTransition();
+
   useEffect(() => {
     if (opened) {
       const getBusinessInfo = async () => {
@@ -126,7 +132,14 @@ export const MatterCardDetailModalForAccounting = ({
   }, [opened, matterInfo.id]);
 
   const closeModal = () => {
+    refreshData();
     setOpened(false);
+  };
+
+  const refreshData = () => {
+    startTransition(() => {
+      router.refresh();
+    });
   };
 
   const handleCheckMatterInfo = async () => {
@@ -136,45 +149,76 @@ export const MatterCardDetailModalForAccounting = ({
       return;
     }
 
-    let { user_name, slack_id, ...updatedMatter } = matterInfo;
-    updatedMatter.unchecked_cost_count = costList.filter(
-      (cost) => !cost.is_completed
-    ).length;
-    updatedMatter.accounting_memo = accountingMemo;
+    try {
+      setIsLoading(true);
+      let { user_name, slack_id, ...updatedMatter } = matterInfo;
+      updatedMatter.unchecked_cost_count = costList.filter(
+        (cost) => !cost.is_completed
+      ).length;
+      updatedMatter.accounting_memo = accountingMemo;
 
-    await updateMatterInfo(updatedMatter);
+      await updateMatterInfo(updatedMatter);
 
-    for (const business of businessList) {
-      if (business) {
-        await updateBusinessInfo(
-          business.id,
-          business.name,
-          business.amount!,
-          business.invoice_date!,
-          business.period_date!,
-          business.matter_id,
-          business.is_completed
-        );
+      for (const business of businessList) {
+        if (business) {
+          await updateBusinessInfo(
+            business.id,
+            business.name,
+            business.amount!,
+            business.invoice_date!,
+            business.period_date!,
+            business.matter_id,
+            business.is_completed
+          );
+        }
       }
-    }
-    for (const cost of costList) {
-      if (cost) {
-        await updateCostInfo(
-          cost.id,
-          cost.name,
-          cost.item,
-          cost.payment_target,
-          cost.price,
-          cost.period!,
-          cost.certificate,
-          cost.withholding,
-          cost.matter_id,
-          cost.comment!,
-          cost.is_completed
-        );
+      for (const cost of costList) {
+        if (cost) {
+          await updateCostInfo(
+            cost.id,
+            cost.name,
+            cost.item,
+            cost.payment_target,
+            cost.price,
+            cost.period!,
+            cost.certificate,
+            cost.withholding,
+            cost.matter_id,
+            cost.comment!,
+            cost.is_completed
+          );
+        }
       }
+      setIsLoading(false);
+      closeModal();
+    } catch (err) {
+      console.error("Error updating matterInfo:", err);
+      alert("保存処理に失敗しました。");
+      return;
     }
-    closeModal();
+  };
+
+  const handleRevertMatterInfo = async () => {
+    const isReverted = window.confirm(`経理申請中に戻しますか？`);
+    if (!isReverted) {
+      alert("経理申請中に戻す処理を中止しました。");
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      let { user_name, slack_id, ...updatedMatter } = matterInfo;
+      updatedMatter.is_completed = false;
+
+      await updateMatterInfo(updatedMatter);
+      alert(`${updatedMatter.title}を経理申請中に戻しました。`);
+      setIsLoading(false);
+      closeModal();
+    } catch (err) {
+      console.error("Error updating matterInfo:", err);
+      alert("経理申請中に戻す処理に失敗しました。");
+      return;
+    }
   };
 
   return (
@@ -185,6 +229,7 @@ export const MatterCardDetailModalForAccounting = ({
       size="100%"
     >
       <div className="w-full">
+        <LoadingOverlay visible={isLoading} />
         <div className="flex justify-end">
           {matterInfo.is_completed ? (
             <Badge color="green">経理確認完了</Badge>
@@ -224,6 +269,7 @@ export const MatterCardDetailModalForAccounting = ({
                   <Checkbox
                     aria-label="受取済み"
                     checked={business.is_completed}
+                    disabled={matterInfo.is_completed!}
                     onChange={(event) =>
                       setBusinessList(
                         businessList.map((businessInfo) => {
@@ -289,6 +335,7 @@ export const MatterCardDetailModalForAccounting = ({
                   <Checkbox
                     aria-label="支払い済み"
                     checked={cost.is_completed}
+                    disabled={matterInfo.is_completed!}
                     onChange={(event) =>
                       setCostList(
                         costList.map((costInfo) => {
@@ -356,14 +403,6 @@ export const MatterCardDetailModalForAccounting = ({
                       </Stack>
                     </Group>
                   </div>
-                  <div className="items-center">
-                    <Stack gap="xs" className="flex-grow">
-                      <Text size="sm" fw={500} c="dimmed">
-                        コメント
-                      </Text>
-                      <Text>{cost.comment}</Text>
-                    </Stack>
-                  </div>
                 </div>
               </Card>
             </Grid.Col>
@@ -389,7 +428,18 @@ export const MatterCardDetailModalForAccounting = ({
               保存
             </Button>
           </div>
-        ) : null}
+        ) : (
+          <div className="my-4 w-full">
+            <Button
+              fullWidth
+              color="red"
+              className="w-full"
+              onClick={handleRevertMatterInfo}
+            >
+              申請中に戻す
+            </Button>
+          </div>
+        )}
       </div>
     </Modal>
   );

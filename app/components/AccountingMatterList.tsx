@@ -1,16 +1,32 @@
 "use client";
 
-import { Button, Checkbox, Table } from "@mantine/core";
-import { useState } from "react";
-import { elementListInAccounting } from "../types/params";
+import { Button, SimpleGrid, Table } from "@mantine/core";
+import { useEffect, useState } from "react";
 import { MatterInfoWithUserNameType } from "../types/types";
 import { MatterCardDetailModalForAccounting } from "./modal/MatterCardDetailForAccounting";
-import { FaCheck } from "react-icons/fa";
 import { updateMatterInfo } from "../utils/supabaseServer";
 import { NotificationMessage } from "./modal/NotificationMessage";
 import { notifications } from "@mantine/notifications";
 import { sendSlackNotification } from "../actions";
 import { useRouter } from "next/navigation";
+import TableInfo from "./TableInfo";
+import DisplayMenu from "./buttons/display-menu";
+import { MatterCardForAccounting } from "./MatterCardForAccounting";
+import { useViewportSize } from "@mantine/hooks";
+import AccountingCheckbox from "./buttons/accounting-checkbox";
+
+const elementListInAccounting = [
+  "ID",
+  "案件名",
+  "担当者",
+  "チーム",
+  "分類",
+  "合計請求額",
+  "取引先数",
+  "合計コスト",
+  "コスト数",
+  "未払いコスト数",
+];
 
 export const AccountingMatterList = ({
   matterList,
@@ -22,21 +38,29 @@ export const AccountingMatterList = ({
     useState<MatterInfoWithUserNameType | null>(null);
   const [detailOpened, setDetailOpened] = useState<boolean>(false);
   const [notificationOpened, setNotificationOpened] = useState<boolean>(false);
-  const router = useRouter();
+  const [switchDisplay, setSwitchDisplay] = useState(false);
+  const { width } = useViewportSize();
+  const [isMobileView, setIsMobileView] = useState(false);
 
-  const formatCurrency = (amount: number | null) => {
-    if (amount === null) return "-";
-    return new Intl.NumberFormat("ja-JP", {
-      style: "currency",
-      currency: "JPY",
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
+  const MD_BREAKPOINT = 768;
+
+  useEffect(() => {
+    setIsMobileView(width < MD_BREAKPOINT);
+  }, [width]);
+
+  const router = useRouter();
 
   const handleShowMatterInfo = (matter: MatterInfoWithUserNameType) => {
     setDetailMatterInfo(matter);
     setDetailOpened(true);
+  };
+
+  const handleCheckCard = (id: number) => {
+    setCheckedMatterIdList(
+      checkedMatterIdList.includes(id)
+        ? checkedMatterIdList.filter((matterId) => matterId !== id)
+        : [...checkedMatterIdList, id]
+    );
   };
 
   const handleCheckCompleted = async () => {
@@ -51,22 +75,38 @@ export const AccountingMatterList = ({
       alert("案件の完了処理を中止しました。");
       return;
     }
-    for (const id of checkedMatterIdList) {
-      const matterInfo = matterList?.find((matter) => matter.id === id);
-      if (matterInfo) {
-        if (!matterInfo.is_fixed) {
-          alert(`ID[${id}]の案件は未確定のため、完了できません。`);
-          continue;
+    try {
+      for (const id of checkedMatterIdList) {
+        const matterInfo = matterList?.find((matter) => matter.id === id);
+        if (matterInfo) {
+          if (!matterInfo.is_fixed) {
+            alert(`${matterInfo.title}は下書きのため、完了できません。`);
+            continue;
+          }
+          if (matterInfo.unchecked_cost_count > 0) {
+            const hasUncheckedCost = window.confirm(
+              `${matterInfo.title}には未払いコストがあります。完了してよろしいですか？`
+            );
+            if (!hasUncheckedCost) continue;
+          }
+          let { user_name, slack_id, ...updatedMatter } = matterInfo;
+          updatedMatter.is_completed = true;
+          await updateMatterInfo(updatedMatter);
+        } else {
+          alert(`ID[${id}]の案件の完了に失敗しました。`);
+          console.error(`案件ID${id}が見つかりません。`);
         }
-        let { user_name, slack_id, ...updatedMatter } = matterInfo;
-        updatedMatter.is_completed = true;
-        await updateMatterInfo(updatedMatter);
-      } else {
-        alert(`ID[${id}]の案件の完了に失敗しました。`);
-        console.error(`案件ID${id}が見つかりません。`);
       }
+    } catch (error) {
+      console.error("案件の完了処理エラー:", error);
+      notifications.show({
+        title: "エラー",
+        message: "案件の完了処理に失敗しました",
+        color: "red",
+      });
+      throw error;
     }
-    alert(`案件をチェック処理を完了しました。`);
+    alert(`案件のチェック処理を完了しました。`);
     setCheckedMatterIdList([]);
     router.refresh();
   };
@@ -139,6 +179,7 @@ export const AccountingMatterList = ({
           {element}
         </Table.Th>
       ))}
+      <Table.Th></Table.Th>
     </Table.Tr>
   );
 
@@ -148,63 +189,27 @@ export const AccountingMatterList = ({
         key={matter.id}
         bg={
           checkedMatterIdList.includes(matter.id)
-            ? "var(--mantine-color-blue-light)"
+            ? "var(--mantine-color-red-5)"
             : matter.is_completed
-            ? "var(--mantine-color-gray-light)"
+            ? "var(--mantine-color-green-light)"
             : matter.is_fixed
             ? "var(--mantine-color-red-light)"
-            : undefined
+            : "var(--mantine-color-blue-light)"
         }
       >
         <Table.Td>
-          {matter.is_completed ? (
-            <FaCheck />
-          ) : (
-            <Checkbox
-              aria-label="案件チェック"
-              checked={checkedMatterIdList.includes(matter.id)}
-              onChange={(event) =>
-                setCheckedMatterIdList(
-                  event.currentTarget.checked
-                    ? [...checkedMatterIdList, matter.id]
-                    : checkedMatterIdList.filter((id) => id !== matter.id)
-                )
-              }
-            />
-          )}
+          <AccountingCheckbox
+            id={matter.id}
+            isCompleted={matter.is_completed!}
+            matterIdList={checkedMatterIdList}
+            setMatterIdList={setCheckedMatterIdList}
+          />
         </Table.Td>
-        <Table.Td className="whitespace-nowrap px-4">{matter.id}</Table.Td>
-        <Table.Td className="whitespace-nowrap px-4" title={matter.title}>
-          {matter.title.length > 15
-            ? `${matter.title.slice(0, 15)}...`
-            : matter.title}
-        </Table.Td>
-        <Table.Td className="whitespace-nowrap px-4">
-          {matter.user_name}
-        </Table.Td>
-        <Table.Td className="whitespace-nowrap px-4">{matter.team}</Table.Td>
-        <Table.Td className="whitespace-nowrap px-4">
-          {matter.category}
-        </Table.Td>
-        <Table.Td className="whitespace-nowrap px-4 text-right">
-          {formatCurrency(matter.total_amount)}
-        </Table.Td>
-        <Table.Td className="whitespace-nowrap px-4 text-right">
-          {matter.business_count}
-        </Table.Td>
-        <Table.Td className="whitespace-nowrap px-4 text-right">
-          {formatCurrency(matter.total_cost)}
-        </Table.Td>
-        <Table.Td className="whitespace-nowrap px-4 text-right">
-          {matter.cost_count}
-        </Table.Td>
-        <Table.Td
-          className={`whitespace-nowrap px-4 text-right ${
-            matter.unchecked_cost_count > 0 ? "text-red-600 font-bold" : ""
-          }`}
-        >
-          {matter.unchecked_cost_count}
-        </Table.Td>
+        <TableInfo
+          matter={matter}
+          username={matter.user_name!}
+          itemList={elementListInAccounting}
+        />
         <Table.Td className="whitespace-nowrap px-4">
           <button
             onClick={() => handleShowMatterInfo(matter)}
@@ -219,8 +224,8 @@ export const AccountingMatterList = ({
 
   return (
     <div className="my-4">
-      <div className="sticky top-4 bg-white z-10">
-        <div className="flex justify-end gap-4 my-4">
+      <div className="sticky top-4 bg-white z-[5]">
+        <div className="flex justify-end gap-4 my-4 px-4">
           <Button color="green" onClick={handleCheckCompleted}>
             確認完了
           </Button>
@@ -228,32 +233,55 @@ export const AccountingMatterList = ({
             担当者に連絡
           </Button>
         </div>
+        <div className="flex justify-between items-center">
+          <span className="text-red-700 text-sm m-4">
+            ※記載の金額は、全て税抜となっております。
+          </span>
+          <div className="hidden md:flex justify-end px-4">
+            <DisplayMenu
+              switchDisplay={switchDisplay}
+              onSwitchDisplay={setSwitchDisplay}
+            />
+          </div>
+        </div>
       </div>
-      <span className="text-red-700 text-sm m-4">
-        ※記載の金額は、全て税抜となっております。
-      </span>
-
       <div className="overflow-auto h-[calc(100vh-200px)]">
-        <Table stickyHeader>
-          <Table.Thead className="bg-white">{tableHeads}</Table.Thead>
-          <Table.Tbody>{tableInfoList}</Table.Tbody>
-        </Table>
+        {isMobileView || switchDisplay ? (
+          <div className="py-4 px-8">
+            <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
+              {matterList?.map((matter) => (
+                <MatterCardForAccounting
+                  key={matter.id}
+                  matter={matter}
+                  isChecked={checkedMatterIdList.includes(matter.id)}
+                  onOpen={handleShowMatterInfo}
+                  onCheck={() => handleCheckCard(matter.id)}
+                />
+              ))}
+            </SimpleGrid>
+          </div>
+        ) : (
+          <Table stickyHeader>
+            <Table.Thead className="bg-white">{tableHeads}</Table.Thead>
+            <Table.Tbody>{tableInfoList}</Table.Tbody>
+          </Table>
+        )}
       </div>
 
-      {detailOpened && detailMatterInfo ? (
+      {detailOpened && detailMatterInfo && (
         <MatterCardDetailModalForAccounting
           matterInfo={detailMatterInfo}
           opened={detailOpened}
           setOpened={setDetailOpened}
         />
-      ) : null}
-      {notificationOpened ? (
+      )}
+      {notificationOpened && (
         <NotificationMessage
           opened={notificationOpened}
           setOpened={setNotificationOpened}
           onSendMessage={handleSendMessage}
         />
-      ) : null}
+      )}
     </div>
   );
 };
