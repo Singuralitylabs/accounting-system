@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import PageTitle from "./components/PageTitle";
-import { LoadingSpinner } from "./components/providers/LoadingSpinner";
 import DynamicMatterList from "./components/dynamic/DynamicMatterList";
+import { LoadingSpinner } from "./components/LoadingSpinner";
 
 const UserMatterPage = () => {
   return (

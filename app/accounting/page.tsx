@@ -1,7 +1,7 @@
 import PageTitle from "../components/PageTitle";
 import { Suspense } from "react";
 import DynamicAccouting from "../components/dynamic/DynamicAccounting";
-import { LoadingSpinner } from "../components/providers/LoadingSpinner";
+import { LoadingSpinner } from "../components/LoadingSpinner";
 
 const AccountingMatterPage = () => {
   return (
