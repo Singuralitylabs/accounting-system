@@ -4,8 +4,6 @@ import { redirect } from "next/navigation";
 import { SignIn } from "../components/auth/auth-components";
 import PageTitle from "../components/PageTitle";
 
-export const dynamic = "force-dynamic";
-
 const Login = async () => {
   const cookieStore = cookies();
   const supabase = createServerComponentClient({
@@ -20,14 +18,14 @@ const Login = async () => {
   }
 
   return (
-    <div>
+    <main>
       <PageTitle title="ログイン" />
       <div className="flex justify-center items-center">
         <div className="flex justify-center h-12 items-center bg-blue-600 text-lg rounded text-white w-32 text-center my-4 hover:cursor-pointer hover:bg-blue-300">
           <SignIn />
         </div>
       </div>
-    </div>
+    </main>
   );
 };
 

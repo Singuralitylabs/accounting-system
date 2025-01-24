@@ -1,7 +1,11 @@
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import Header from "../Header";
-import { getProfileInfoById } from "@/app/utils/supabaseServer";
+import {
+  getProfileInfoById,
+  getSelectOptions,
+} from "@/app/utils/supabaseServer";
+import { InitialOptionsLoader } from "../providers/InitialOptionalLoader";
 
 export default async function AuthProvider({
   children,
@@ -19,15 +23,35 @@ export default async function AuthProvider({
     } = await supabase.auth.getSession();
 
     let profile = null;
+    let initialOptions = null;
     if (session?.user) {
       const { profileInfo } = await getProfileInfoById(session.user.id);
       if (profileInfo) {
         profile = profileInfo;
       }
+
+      const { options: teamList } = await getSelectOptions("team");
+      const { options: categoryList } = await getSelectOptions("category");
+      const { options: itemList } = await getSelectOptions("item");
+      const { options: certificateList } = await getSelectOptions(
+        "certificate"
+      );
+
+      initialOptions = {
+        teamList: teamList.map((team) => team.value),
+        categoryList: categoryList.map((category) => category.value),
+        itemList: itemList.map((item) => item.value),
+        certificateList: certificateList.map(
+          (certificate) => certificate.value
+        ),
+      };
     }
 
     return (
       <>
+        {initialOptions && (
+          <InitialOptionsLoader initialOptions={initialOptions} />
+        )}
         <Header initialSession={session} initialProfile={profile} />
         {children}
       </>

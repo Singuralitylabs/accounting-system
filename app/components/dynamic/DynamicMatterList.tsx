@@ -1,8 +1,5 @@
 import { MatterType } from "@/app/types/types";
-import {
-  getSelectOptions,
-  getUserMatterInfoList,
-} from "@/app/utils/supabaseServer";
+import { getUserMatterInfoList } from "@/app/utils/supabaseServer";
 import { MatterCardList } from "../MatterCardList";
 
 const DynamicMatterList = async () => {
@@ -16,11 +13,6 @@ const DynamicMatterList = async () => {
           }).length
         : 0;
 
-    const { options: teamList } = await getSelectOptions("team");
-    const { options: categoryList } = await getSelectOptions("category");
-    const { options: itemList } = await getSelectOptions("item");
-    const { options: certificateList } = await getSelectOptions("certificate");
-
     return (
       <main>
         {unfixedMatterCount > 0 && (
@@ -31,15 +23,7 @@ const DynamicMatterList = async () => {
           </div>
         )}
         {matterList ? (
-          <MatterCardList
-            matterList={matterList}
-            teamList={teamList.map((team) => team.value)}
-            categoryList={categoryList.map((category) => category.value)}
-            itemList={itemList.map((item) => item.value)}
-            certificateList={certificateList.map(
-              (certificate) => certificate.value
-            )}
-          />
+          <MatterCardList matterList={matterList} />
         ) : (
           <div>案件の取得に失敗しました。</div>
         )}

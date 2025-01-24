@@ -44,3 +44,10 @@ export type BusinessInCardType = {
   isNew?: boolean;
   isRemoved?: boolean;
 } & BusinessType;
+
+export interface SelectOptions {
+  teamList: string[];
+  categoryList: string[];
+  itemList: string[];
+  certificateList: string[];
+}
