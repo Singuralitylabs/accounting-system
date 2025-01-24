@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Table, Title } from "@mantine/core";
+import { Button, LoadingOverlay, Table, Title } from "@mantine/core";
 import { SelectOptionType } from "../types/types";
 import { useState } from "react";
 import {
@@ -40,6 +40,7 @@ const SelectOptionList = ({
       isNew: boolean;
     })[]
   >(optionList.map((option) => ({ ...option, isNew: false })));
+  const [isLoading, setIsLoading] = useState(false);
 
   const optionTitle =
     optionClass === "team"
@@ -105,6 +106,7 @@ const SelectOptionList = ({
 
   const handleSaveOption = async () => {
     try {
+      setIsLoading(true);
       for (const option of updatedOptionList) {
         if (!option.value && option.is_active) {
           alert("未入力の欄があります。");
@@ -133,6 +135,7 @@ const SelectOptionList = ({
         }
       }
       alert(`${optionTitle}情報を更新しました。`);
+      setIsLoading(false);
     } catch (error) {
       console.error(`${optionTitle}情報の保存に失敗しました。`, error);
     }
@@ -184,6 +187,7 @@ const SelectOptionList = ({
           {optionTitle}追加
         </Button>
       </DndContext>
+      <LoadingOverlay visible={isLoading} />
     </div>
   );
 };

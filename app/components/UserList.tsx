@@ -1,6 +1,14 @@
 "use client";
 
-import { Table, Title, TextInput, Button, Group, Select } from "@mantine/core";
+import {
+  Table,
+  Title,
+  TextInput,
+  Button,
+  Group,
+  Select,
+  LoadingOverlay,
+} from "@mantine/core";
 import { ProfilesType } from "../types/types";
 import { useState } from "react";
 import updateProfile from "../utils/updateProfile";
@@ -11,6 +19,7 @@ const classList = ["public", "accounting", "admin"];
 const UserList = ({ userList }: { userList: ProfilesType[] }) => {
   const [updatedUserList, setUpdatedUserList] =
     useState<ProfilesType[]>(userList);
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleUpdateUserList = (
     userId: number,
@@ -25,11 +34,13 @@ const UserList = ({ userList }: { userList: ProfilesType[] }) => {
 
   const handleSave = async (userId: number) => {
     try {
+      setIsLoading(true);
       const user = updatedUserList.find((user) => user.id === userId);
       if (!user) {
         return;
       }
       await updateProfile({ profile: user });
+      setIsLoading(false);
     } catch (error) {
       console.error("ユーザー情報の保存に失敗しました:", error);
     }
@@ -93,6 +104,7 @@ const UserList = ({ userList }: { userList: ProfilesType[] }) => {
           ))}
         </Table.Tbody>
       </Table>
+      <LoadingOverlay visible={isLoading} />
     </div>
   );
 };
