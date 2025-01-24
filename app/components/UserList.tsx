@@ -1,25 +1,23 @@
 "use client";
 
-import {
-  Table,
-  Title,
-  TextInput,
-  Button,
-  Group,
-  Select,
-  LoadingOverlay,
-} from "@mantine/core";
+import { Table, Title, LoadingOverlay } from "@mantine/core";
 import { ProfilesType } from "../types/types";
 import { useState } from "react";
 import updateProfile from "../utils/updateProfile";
+import { useViewportSize } from "@mantine/hooks";
+import UserCard from "./UserCard";
+import UserTable from "./UserTable";
 
 const elementListOfUser = ["ID", "名前", "メールアドレス", "権限", "slack ID"];
-const classList = ["public", "accounting", "admin"];
+export const classList = ["public", "accounting", "admin"];
 
 const UserList = ({ userList }: { userList: ProfilesType[] }) => {
   const [updatedUserList, setUpdatedUserList] =
     useState<ProfilesType[]>(userList);
   const [isLoading, setIsLoading] = useState(false);
+
+  const { width } = useViewportSize();
+  const isMobile = width < 768;
 
   const handleUpdateUserList = (
     userId: number,
@@ -61,49 +59,30 @@ const UserList = ({ userList }: { userList: ProfilesType[] }) => {
       <Title order={2} className="pb-4">
         ユーザーリスト
       </Title>
-      <Table>
-        <Table.Thead>{tableHeads}</Table.Thead>
-        <Table.Tbody>
-          {updatedUserList.map((user) => (
-            <Table.Tr key={user.id}>
-              <Table.Td>{user.id}</Table.Td>
-              <Table.Td>{user.name}</Table.Td>
-              <Table.Td>{user.email}</Table.Td>
-              <Table.Td>
-                <Select
-                  data={classList}
-                  value={user.class || ""}
-                  onChange={(value) =>
-                    handleUpdateUserList(user.id, { class: value })
-                  }
-                />
-              </Table.Td>
-              <Table.Td>
-                <TextInput
-                  value={user.slack_id || ""}
-                  onChange={(e) =>
-                    handleUpdateUserList(user.id, {
-                      slack_id: e.currentTarget.value,
-                    })
-                  }
-                  size="xs"
-                />
-              </Table.Td>
-              <Table.Td>
-                <Group justify="center">
-                  <Button
-                    size="xs"
-                    color="green"
-                    onClick={() => handleSave(user.id)}
-                  >
-                    保存
-                  </Button>
-                </Group>
-              </Table.Td>
-            </Table.Tr>
-          ))}
-        </Table.Tbody>
-      </Table>
+      {!isMobile ? (
+        <Table>
+          <Table.Thead>{tableHeads}</Table.Thead>
+          <Table.Tbody>
+            {updatedUserList.map((user) => (
+              <UserTable
+                key={user.id}
+                userInfo={user}
+                onUpdateUserList={handleUpdateUserList}
+                onSaveUser={handleSave}
+              />
+            ))}
+          </Table.Tbody>
+        </Table>
+      ) : (
+        updatedUserList.map((user) => (
+          <UserCard
+            key={user.id}
+            userInfo={user}
+            onUpdateUserList={handleUpdateUserList}
+            onSaveUser={handleSave}
+          />
+        ))
+      )}
       <LoadingOverlay visible={isLoading} />
     </div>
   );
