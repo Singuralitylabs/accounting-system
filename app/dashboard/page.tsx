@@ -1,6 +1,6 @@
 import { Suspense } from "react";
-import { LoadingSpinner } from "../components/providers/LoadingSpinner";
 import DynamicDashboard from "../components/dynamic/DynamicDashboard";
+import { LoadingSpinner } from "../components/LoadingSpinner";
 
 const DashboardPage = () => {
   return (

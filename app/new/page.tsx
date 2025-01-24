@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import PageTitle from "../components/PageTitle";
-import { LoadingSpinner } from "../components/providers/LoadingSpinner";
 import NewMatterForm from "../components/NewMatterForm";
+import { LoadingSpinner } from "../components/LoadingSpinner";
 
 const NewMatterPage = () => {
   return (
