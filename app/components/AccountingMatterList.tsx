@@ -14,18 +14,19 @@ import DisplayMenu from "./buttons/display-menu";
 import { MatterCardForAccounting } from "./MatterCardForAccounting";
 import { useViewportSize } from "@mantine/hooks";
 import AccountingCheckbox from "./buttons/accounting-checkbox";
+import FilterableTableHeader from "./FilterableTableHeader";
 
-const elementListInAccounting = [
-  "ID",
-  "案件名",
-  "担当者",
-  "チーム",
-  "分類",
-  "合計請求額",
-  "取引先数",
-  "合計コスト",
-  "コスト数",
-  "未払いコスト数",
+const headerConfig = [
+  { label: "ID", key: "id" },
+  { label: "案件名", key: "title" },
+  { label: "担当者", key: "user_name" },
+  { label: "チーム", key: "team" },
+  { label: "分類", key: "category" },
+  { label: "合計請求額", key: "total_amount" },
+  { label: "取引先数", key: "business_count" },
+  { label: "合計コスト", key: "total_cost" },
+  { label: "コスト数", key: "cost_count" },
+  { label: "未払いコスト数", key: "unchecked_cost_count" },
 ];
 
 export const AccountingMatterList = ({
@@ -41,6 +42,7 @@ export const AccountingMatterList = ({
   const [switchDisplay, setSwitchDisplay] = useState(false);
   const { width } = useViewportSize();
   const [isMobileView, setIsMobileView] = useState(false);
+  const [filters, setFilters] = useState<Record<string, Set<string>>>({});
 
   const MD_BREAKPOINT = 768;
 
@@ -171,19 +173,55 @@ export const AccountingMatterList = ({
     }
   };
 
+  const filteredMatterList = matterList?.filter((matter) => {
+    return Object.entries(filters).every(([key, values]) => {
+      if (values.size === 0) return true;
+      const value = matter[key as keyof MatterInfoWithUserNameType];
+      return value && values.has(value.toString());
+    });
+  });
+
+  const handleFilterChange = (
+    key: keyof MatterInfoWithUserNameType,
+    values: Set<string>
+  ) => {
+    setFilters((prev) => ({
+      ...prev,
+      [key]: values,
+    }));
+  };
+
+  const getUniqueValues = (key: string) => {
+    return Array.from(
+      new Set(
+        (matterList || [])
+          .map((matter) => {
+            const value = matter[key as keyof MatterInfoWithUserNameType];
+            return value ? value.toString() : "";
+          })
+          .filter(Boolean)
+      )
+    ).sort();
+  };
+
   const tableHeads = (
-    <Table.Tr key={elementListInAccounting[0]}>
+    <Table.Tr>
       <Table.Th></Table.Th>
-      {elementListInAccounting.map((element, index) => (
-        <Table.Th key={index} className="whitespace-nowrap px-4 text-center">
-          {element}
-        </Table.Th>
+      {headerConfig.map(({ label, key }) => (
+        <FilterableTableHeader
+          key={key}
+          label={label}
+          filterKey={key as keyof MatterInfoWithUserNameType}
+          uniqueValues={getUniqueValues(key)}
+          activeFilters={filters[key] || new Set()}
+          onFilterChange={handleFilterChange}
+        />
       ))}
       <Table.Th></Table.Th>
     </Table.Tr>
   );
 
-  const tableInfoList = matterList?.map((matter) => {
+  const tableInfoList = filteredMatterList?.map((matter) => {
     return (
       <Table.Tr
         key={matter.id}
@@ -208,7 +246,7 @@ export const AccountingMatterList = ({
         <TableInfo
           matter={matter}
           username={matter.user_name!}
-          itemList={elementListInAccounting}
+          itemList={headerConfig.map((config) => config.label)}
         />
         <Table.Td className="whitespace-nowrap px-4">
           <button
