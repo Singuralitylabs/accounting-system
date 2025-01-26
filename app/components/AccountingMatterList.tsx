@@ -4,16 +4,16 @@ import { Button, SimpleGrid, Table } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { MatterInfoWithUserNameType } from "../types/types";
 import { MatterCardDetailModalForAccounting } from "./modal/MatterCardDetailForAccounting";
-import { updateMatterInfo } from "../utils/supabaseServer";
 import { NotificationMessage } from "./modal/NotificationMessage";
 import { useRouter } from "next/navigation";
 import DisplayMenu from "./buttons/display-menu";
 import { MatterCardForAccounting } from "./MatterCardForAccounting";
 import { useViewportSize } from "@mantine/hooks";
-import checkMatterInfoList from "../utils/checkMatterInfoList";
 import sendMessageToSlack from "../utils/slack/sendMessageToSlack";
 import AccoutingTableHeader from "./AccoutingTableHeader";
 import AccountingTablebody from "./AccountingTablebody";
+import checkMatterInfoList from "../utils/supabase/checkMatterInfoList";
+import { updateMatterInfo } from "../utils/supabase/supabaseServer";
 
 export const AccountingMatterList = ({
   matterList,

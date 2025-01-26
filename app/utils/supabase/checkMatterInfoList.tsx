@@ -1,6 +1,6 @@
 import { notifications } from "@mantine/notifications";
 import { updateMatterInfo } from "./supabaseServer";
-import { MatterInfoWithUserNameType } from "../types/types";
+import { MatterInfoWithUserNameType } from "@/app/types/types";
 
 const checkMatterInfoList = async (
   matterInfoList: MatterInfoWithUserNameType[]

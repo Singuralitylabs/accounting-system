@@ -4,7 +4,7 @@ import Header from "../Header";
 import {
   getProfileInfoById,
   getSelectOptions,
-} from "@/app/utils/supabaseServer";
+} from "@/app/utils/supabase/supabaseServer";
 import { InitialOptionsLoader } from "../providers/InitialOptionalLoader";
 
 export default async function AuthProvider({

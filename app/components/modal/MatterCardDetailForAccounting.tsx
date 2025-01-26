@@ -9,7 +9,7 @@ import {
   updateBusinessInfo,
   updateCostInfo,
   updateMatterInfo,
-} from "@/app/utils/supabaseServer";
+} from "@/app/utils/supabase/supabaseServer";
 import {
   Modal,
   Group,
