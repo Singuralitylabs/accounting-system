@@ -6,8 +6,6 @@ import {
 import {
   getUserBusinessInfoList,
   getUserCostInfoList,
-  updateBusinessInfo,
-  updateCostInfo,
   updateMatterInfo,
 } from "@/app/utils/supabase/supabaseServer";
 import {
@@ -23,6 +21,7 @@ import { useEffect, useState, useTransition } from "react";
 import LabelText from "../LabelText";
 import BusinessBlockForAccounting from "../BusinessBlockForAccounting";
 import CostBlockForAccounting from "../CostBlockForAccounting";
+import { updateMatter } from "@/app/utils/supabase/editMatterInfo";
 
 type Props = {
   matterInfo: MatterInfoWithUserNameType;
@@ -97,43 +96,18 @@ export const MatterCardDetailModalForAccounting = ({
     try {
       setIsLoading(true);
       let { user_name, slack_id, ...updatedMatter } = matterInfo;
-      updatedMatter.unchecked_cost_count = costList.filter(
-        (cost) => !cost.is_completed
-      ).length;
       updatedMatter.accounting_memo = accountingMemo;
 
-      await updateMatterInfo(updatedMatter);
+      await updateMatter(
+        updatedMatter,
+        businessList.map((business) => ({
+          ...business,
+          isNew: false,
+          isRemoved: false,
+        })),
+        costList.map((cost) => ({ ...cost, isNew: false, isRemoved: false }))
+      );
 
-      for (const business of businessList) {
-        if (business) {
-          await updateBusinessInfo(
-            business.id,
-            business.name,
-            business.amount!,
-            business.invoice_date!,
-            business.period_date!,
-            business.matter_id,
-            business.is_completed
-          );
-        }
-      }
-      for (const cost of costList) {
-        if (cost) {
-          await updateCostInfo(
-            cost.id,
-            cost.name,
-            cost.item,
-            cost.payment_target,
-            cost.price,
-            cost.period!,
-            cost.certificate,
-            cost.withholding,
-            cost.matter_id,
-            cost.comment!,
-            cost.is_completed
-          );
-        }
-      }
       setIsLoading(false);
       closeModal();
     } catch (err) {
