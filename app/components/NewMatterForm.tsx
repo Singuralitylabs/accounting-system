@@ -55,7 +55,10 @@ const NewMatterForm = () => {
   };
 
   const handleAddCost = () => {
-    const newId = Math.max(...costList.map((cost) => cost.id)) + 1;
+    const newId =
+      costList.length === 0
+        ? 1
+        : Math.max(...costList.map((cost) => cost.id)) + 1;
     setCostList([
       ...costList,
       {
@@ -77,7 +80,11 @@ const NewMatterForm = () => {
   };
 
   const handleAddBusiness = () => {
-    const newId = Math.max(...businessList.map((business) => business.id)) + 1;
+    const newId =
+      businessList.length === 0
+        ? 1
+        : Math.max(...businessList.map((business) => business.id)) + 1;
+
     setBusinessList([
       ...businessList,
       {
