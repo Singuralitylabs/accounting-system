@@ -5,7 +5,7 @@ import { Session } from "@supabase/supabase-js";
 import Link from "next/link";
 import React, { FC, Suspense, useEffect, useState } from "react";
 import { ProfilesType } from "../types/types";
-import { getProfileInfoById } from "../utils/supabaseServer";
+import { getProfileInfoById } from "../utils/supabase/supabaseServer";
 import MobileHeader from "./MobileHeader";
 import UserButton from "./buttons/user-button";
 import { useRouter } from "next/navigation";

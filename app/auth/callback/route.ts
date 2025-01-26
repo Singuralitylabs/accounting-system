@@ -1,4 +1,7 @@
-import { getProfileInfo, insertUserInfo } from "@/app/utils/supabaseServer";
+import {
+  getProfileInfo,
+  insertUserInfo,
+} from "@/app/utils/supabase/supabaseServer";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";

@@ -5,8 +5,8 @@ import {
   User,
 } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
-import { Database } from "../lib/database.types";
-import { MatterType, ProfilesType } from "../types/types";
+import { Database } from "../../lib/database.types";
+import { MatterType, ProfilesType } from "../../types/types";
 
 export const getProfileInfo = async () => {
   try {

@@ -1,5 +1,6 @@
 import { MatterType } from "../types/types";
 import { Table } from "@mantine/core";
+import { formatCurrency } from "../utils/formatter";
 
 type Props = {
   matter: MatterType;
@@ -21,16 +22,6 @@ const matterInfoTable: { [key: string]: keyof MatterType | "username" } = {
 };
 
 const TableInfo = ({ matter, username, itemList }: Props) => {
-  const formatCurrency = (amount: number | null) => {
-    if (amount === null) return "-";
-    return new Intl.NumberFormat("ja-JP", {
-      style: "currency",
-      currency: "JPY",
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
-
   const formatValue = (key: string, value: any) => {
     if (key === "案件名" && typeof value === "string") {
       return value.length > 15 ? `${value.slice(0, 15)}...` : value;

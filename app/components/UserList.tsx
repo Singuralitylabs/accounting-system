@@ -3,7 +3,7 @@
 import { Table, Title, LoadingOverlay } from "@mantine/core";
 import { ProfilesType } from "../types/types";
 import { useState } from "react";
-import updateProfile from "../utils/updateProfile";
+import updateProfile from "../utils/supabase/updateProfile";
 import { useViewportSize } from "@mantine/hooks";
 import UserCard from "./UserCard";
 import UserTable from "./UserTable";

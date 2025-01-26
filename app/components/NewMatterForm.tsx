@@ -8,7 +8,7 @@ import { CiSquarePlus } from "react-icons/ci";
 import BusinessBlock from "./BusinessBlock";
 import CostBlock from "./CostBlock";
 import { MatterInfoBlock } from "./MatterInfoBlock";
-import addMatterInfo from "../utils/addMatterInfo";
+import addMatterInfo from "../utils/supabase/addMatterInfo";
 import { useRouter } from "next/navigation";
 import { useAtomValue } from "jotai";
 import { optionsAtom } from "../atoms/optionsAtom";

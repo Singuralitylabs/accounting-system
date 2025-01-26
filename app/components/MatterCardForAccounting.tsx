@@ -1,6 +1,7 @@
 import { Button, Card, Text, Badge, Group } from "@mantine/core";
 import { MatterInfoWithUserNameType } from "../types/types";
 import { useEffect, useState } from "react";
+import { formatCurrency, formatTimeToJp } from "../utils/formatter";
 
 type Props = {
   matter: MatterInfoWithUserNameType;
@@ -20,27 +21,6 @@ export function MatterCardForAccounting({
   useEffect(() => {
     setIsSelected(isChecked);
   }, [isChecked]);
-
-  const formattedDate = new Date(matter.inserted_at).toLocaleDateString(
-    "ja-JP",
-    {
-      year: "numeric",
-      month: "numeric",
-      day: "numeric",
-      hour: "numeric",
-      minute: "numeric",
-      second: "numeric",
-    }
-  );
-
-  const formatCurrency = (amount: number | null) => {
-    if (amount === null || amount === undefined) return "-";
-    return new Intl.NumberFormat("ja-JP", {
-      style: "currency",
-      currency: "JPY",
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
 
   const handleCardClick = (e: React.MouseEvent) => {
     if (
@@ -97,7 +77,7 @@ export function MatterCardForAccounting({
       </Text>
       <Group justify="flex-end" align="center" mt="md">
         <Text c="dimmed" size="xs" tt="uppercase" fw={700}>
-          作成日時：{formattedDate}
+          作成日時：{formatTimeToJp(matter.inserted_at)}
         </Text>
       </Group>
       <div className="detail-button-wrapper w-full">
