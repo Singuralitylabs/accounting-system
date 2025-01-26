@@ -171,7 +171,10 @@ export const MatterCardDetailModal = ({
   };
 
   const handleAddCost = () => {
-    const newId = Math.max(...costInfoInCardList.map((cost) => cost.id)) + 1;
+    const newId =
+      costInfoInCardList.length === 0
+        ? 1
+        : Math.max(...costInfoInCardList.map((cost) => cost.id)) + 1;
     setCostInfoInCardList([
       ...costInfoInCardList,
       {
@@ -196,7 +199,10 @@ export const MatterCardDetailModal = ({
 
   const handleAddBusiness = () => {
     const newId =
-      Math.max(...businessInfoInCardList.map((business) => business.id)) + 1;
+      businessInfoInCardList.length === 0
+        ? 1
+        : Math.max(...businessInfoInCardList.map((business) => business.id)) +
+          1;
     setBusinessInfoInCardList([
       ...businessInfoInCardList,
       {
