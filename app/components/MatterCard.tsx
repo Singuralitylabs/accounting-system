@@ -1,6 +1,7 @@
 import { Button, Card, Text, Badge, Group } from "@mantine/core";
 import { MatterType } from "../types/types";
 import ThreedotsMenu from "./buttons/threedots-menu";
+import { formatCurrency, formatTimeToJp } from "../utils/formatter";
 
 type Props = {
   matter: MatterType;
@@ -10,27 +11,6 @@ type Props = {
 };
 
 export function MatterCard({ matter, onOpen, onCopy, onDelete }: Props) {
-  const formattedDate = new Date(matter.inserted_at).toLocaleDateString(
-    "ja-JP",
-    {
-      year: "numeric",
-      month: "numeric",
-      day: "numeric",
-      hour: "numeric",
-      minute: "numeric",
-      second: "numeric",
-    }
-  );
-
-  const formatCurrency = (amount: number | null) => {
-    if (amount === null || amount === undefined) return "-";
-    return new Intl.NumberFormat("ja-JP", {
-      style: "currency",
-      currency: "JPY",
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
-
   return (
     <Card p="md" radius="md" className="border relative" shadow="sm">
       <Group justify="space-between" align="flex-start">
@@ -60,7 +40,7 @@ export function MatterCard({ matter, onOpen, onCopy, onDelete }: Props) {
       <Text>合計コスト: {formatCurrency(matter.total_cost)}</Text>
       <Group justify="flex-end" align="center" mt="md">
         <Text c="dimmed" size="xs" tt="uppercase" fw={700}>
-          作成日時：{formattedDate}
+          作成日時：{formatTimeToJp(matter.inserted_at)}
         </Text>
       </Group>
       <Button

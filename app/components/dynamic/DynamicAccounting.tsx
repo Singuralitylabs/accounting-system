@@ -1,5 +1,5 @@
 import { MatterInfoWithUserNameType, MatterType } from "@/app/types/types";
-import { getAllMatterInfoList } from "@/app/utils/supabaseServer";
+import { getAllMatterInfoList } from "@/app/utils/supabase/supabaseServer";
 import { AccountingMatterList } from "../AccountingMatterList";
 
 type MatterTypeAndProfileType = MatterType & {

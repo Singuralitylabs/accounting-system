@@ -1,4 +1,4 @@
-import { ProfilesType } from "../types/types";
+import { ProfilesType } from "../../types/types";
 import { updateUserInfo } from "./supabaseServer";
 
 export const updateProfile = async ({ profile }: { profile: ProfilesType }) => {

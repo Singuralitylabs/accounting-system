@@ -6,7 +6,7 @@ import {
 import {
   getUserBusinessInfoList,
   getUserCostInfoList,
-} from "@/app/utils/supabaseServer";
+} from "@/app/utils/supabase/supabaseServer";
 import { Modal, Button, Group, Badge, LoadingOverlay } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useEffect, useState } from "react";
@@ -14,9 +14,9 @@ import { CiSquarePlus } from "react-icons/ci";
 import BusinessBlock from "../BusinessBlock";
 import CostBlock from "../CostBlock";
 import MatterInfoBlock from "../MatterInfoBlock";
-import deleteMatter from "@/app/utils/deleteMatter";
-import addMatterInfo from "@/app/utils/addMatterInfo";
-import editMatterInfo from "@/app/utils/editMatterInfo";
+import deleteMatter from "@/app/utils/supabase/deleteMatter";
+import addMatterInfo from "@/app/utils/supabase/addMatterInfo";
+import editMatterInfo from "@/app/utils/supabase/editMatterInfo";
 
 type Props = {
   matterInfo: MatterType;
@@ -171,7 +171,10 @@ export const MatterCardDetailModal = ({
   };
 
   const handleAddCost = () => {
-    const newId = Math.max(...costInfoInCardList.map((cost) => cost.id)) + 1;
+    const newId =
+      costInfoInCardList.length === 0
+        ? 1
+        : Math.max(...costInfoInCardList.map((cost) => cost.id)) + 1;
     setCostInfoInCardList([
       ...costInfoInCardList,
       {
@@ -196,7 +199,10 @@ export const MatterCardDetailModal = ({
 
   const handleAddBusiness = () => {
     const newId =
-      Math.max(...businessInfoInCardList.map((business) => business.id)) + 1;
+      businessInfoInCardList.length === 0
+        ? 1
+        : Math.max(...businessInfoInCardList.map((business) => business.id)) +
+          1;
     setBusinessInfoInCardList([
       ...businessInfoInCardList,
       {

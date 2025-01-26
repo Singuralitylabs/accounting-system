@@ -5,8 +5,8 @@ import {
   User,
 } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
-import { Database } from "../lib/database.types";
-import { MatterType, ProfilesType } from "../types/types";
+import { Database } from "../../lib/database.types";
+import { MatterType, ProfilesType } from "../../types/types";
 
 export const getProfileInfo = async () => {
   try {
@@ -256,7 +256,7 @@ export const insertMatterInfo = async (
         business_count: business_count,
         total_cost: total_cost,
         cost_count: cost_count,
-        unchecked_cost_count: 0,
+        unchecked_cost_count: cost_count,
         is_fixed: is_fixed,
         is_completed: false,
         user_id: profileInfo.id,

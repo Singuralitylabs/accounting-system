@@ -1,4 +1,4 @@
-import { BusinessType, CostType, MatterType } from "../types/types";
+import { BusinessType, CostType, MatterType } from "@/app/types/types";
 import {
   insertBusinessInfo,
   insertCostInfo,

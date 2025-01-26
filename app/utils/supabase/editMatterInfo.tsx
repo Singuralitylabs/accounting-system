@@ -1,4 +1,8 @@
-import { BusinessInCardType, CostInCardType, MatterType } from "../types/types";
+import {
+  BusinessInCardType,
+  CostInCardType,
+  MatterType,
+} from "../../types/types";
 import {
   deleteBusinessInfo,
   deleteCostInfo,

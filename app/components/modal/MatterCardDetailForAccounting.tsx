@@ -6,78 +6,22 @@ import {
 import {
   getUserBusinessInfoList,
   getUserCostInfoList,
-  updateBusinessInfo,
-  updateCostInfo,
   updateMatterInfo,
-} from "@/app/utils/supabaseServer";
+} from "@/app/utils/supabase/supabaseServer";
 import {
   Modal,
-  Group,
-  Card,
   Badge,
-  Text,
-  Stack,
   Grid,
-  Checkbox,
   Button,
   Textarea,
   LoadingOverlay,
 } from "@mantine/core";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
-
-const formatCurrency = (amount: number | null) => {
-  if (amount === null || amount === undefined) return "-";
-  return new Intl.NumberFormat("ja-JP", {
-    style: "currency",
-    currency: "JPY",
-    minimumFractionDigits: 0,
-  }).format(amount);
-};
-
-const formatDate = (date: string | null) => {
-  if (!date) return "-";
-  try {
-    const d = new Date(date);
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${year}/${month}/${day}`;
-  } catch {
-    return "-";
-  }
-};
-
-type LabelTextPropsType = {
-  label: string;
-  children: React.ReactNode;
-  isCurrency?: boolean;
-  isDate?: boolean;
-};
-
-const LabelText = ({
-  label,
-  children,
-  isCurrency = false,
-  isDate = false,
-}: LabelTextPropsType) => {
-  const value =
-    typeof children === "number" && isCurrency
-      ? formatCurrency(children)
-      : typeof children === "string" && isDate
-      ? formatDate(children)
-      : isCurrency && isDate
-      ? "-"
-      : children;
-  return (
-    <Stack gap="xs" className="w-full md:pt-0 pt-4">
-      <Text size="sm" fw={500} c="dimmed">
-        {label}
-      </Text>
-      {value && <Text className="p-4">{value}</Text>}
-    </Stack>
-  );
-};
+import LabelText from "../LabelText";
+import BusinessBlockForAccounting from "../BusinessBlockForAccounting";
+import CostBlockForAccounting from "../CostBlockForAccounting";
+import { updateMatter } from "@/app/utils/supabase/editMatterInfo";
 
 type Props = {
   matterInfo: MatterInfoWithUserNameType;
@@ -152,43 +96,18 @@ export const MatterCardDetailModalForAccounting = ({
     try {
       setIsLoading(true);
       let { user_name, slack_id, ...updatedMatter } = matterInfo;
-      updatedMatter.unchecked_cost_count = costList.filter(
-        (cost) => !cost.is_completed
-      ).length;
       updatedMatter.accounting_memo = accountingMemo;
 
-      await updateMatterInfo(updatedMatter);
+      await updateMatter(
+        updatedMatter,
+        businessList.map((business) => ({
+          ...business,
+          isNew: false,
+          isRemoved: false,
+        })),
+        costList.map((cost) => ({ ...cost, isNew: false, isRemoved: false }))
+      );
 
-      for (const business of businessList) {
-        if (business) {
-          await updateBusinessInfo(
-            business.id,
-            business.name,
-            business.amount!,
-            business.invoice_date!,
-            business.period_date!,
-            business.matter_id,
-            business.is_completed
-          );
-        }
-      }
-      for (const cost of costList) {
-        if (cost) {
-          await updateCostInfo(
-            cost.id,
-            cost.name,
-            cost.item,
-            cost.payment_target,
-            cost.price,
-            cost.period!,
-            cost.certificate,
-            cost.withholding,
-            cost.matter_id,
-            cost.comment!,
-            cost.is_completed
-          );
-        }
-      }
       setIsLoading(false);
       closeModal();
     } catch (err) {
@@ -256,65 +175,12 @@ export const MatterCardDetailModalForAccounting = ({
         <Grid gutter="md">
           {businessList?.map((business) => (
             <Grid.Col key={business.id} span={{ base: 12, md: 6, lg: 4 }}>
-              <Card
-                key={business.id}
-                className="items-center mb-2 relative"
-                withBorder
-                radius="sm"
-                padding="sm"
-                aria-label="コスト"
-                bg="green.0"
-              >
-                <div className="flex gap-2 items-center absolute top-2 right-2">
-                  <Checkbox
-                    aria-label="受取済み"
-                    checked={business.is_completed}
-                    disabled={matterInfo.is_completed!}
-                    onChange={(event) =>
-                      setBusinessList(
-                        businessList.map((businessInfo) => {
-                          return businessInfo.id === business.id
-                            ? {
-                                ...business,
-                                is_completed: event.currentTarget.checked,
-                              }
-                            : businessInfo;
-                        })
-                      )
-                    }
-                  />
-                  <span>確認完了</span>
-                </div>
-
-                <div className="flex-grow flex pb-2 pt-8">
-                  <Group gap="sm" className="flex-grow w-full">
-                    <Stack gap="xs" className="flex-grow">
-                      <Text size="sm" fw={500} c="dimmed">
-                        取引先名
-                      </Text>
-                      <Text>{business.name}</Text>
-                    </Stack>
-                    <Stack gap="xs" className="flex-grow">
-                      <Text size="sm" fw={500} c="dimmed">
-                        請求額
-                      </Text>
-                      <Text>{formatCurrency(business.amount)}</Text>
-                    </Stack>
-                    <Stack gap="xs" className="flex-grow">
-                      <Text size="sm" fw={500} c="dimmed">
-                        請求日
-                      </Text>
-                      <Text>{formatDate(business.invoice_date)}</Text>
-                    </Stack>
-                    <Stack gap="xs" className="flex-grow">
-                      <Text size="sm" fw={500} c="dimmed">
-                        振込期限
-                      </Text>
-                      <Text>{formatDate(business.period_date)}</Text>
-                    </Stack>
-                  </Group>
-                </div>
-              </Card>
+              <BusinessBlockForAccounting
+                business={business}
+                businessList={businessList}
+                setBusinessList={setBusinessList}
+                isCompleted={matterInfo.is_completed!}
+              />
             </Grid.Col>
           ))}
         </Grid>
@@ -322,89 +188,12 @@ export const MatterCardDetailModalForAccounting = ({
         <Grid gutter="md">
           {costList?.map((cost) => (
             <Grid.Col key={cost.id} span={{ base: 12, md: 6, lg: 4 }}>
-              <Card
-                key={cost.id}
-                className="mb-4 relative"
-                withBorder
-                radius="sm"
-                padding="sm"
-                aria-label="コスト"
-                bg="gray.0"
-              >
-                <div className="flex gap-2 items-center absolute top-2 right-2">
-                  <Checkbox
-                    aria-label="支払い済み"
-                    checked={cost.is_completed}
-                    disabled={matterInfo.is_completed!}
-                    onChange={(event) =>
-                      setCostList(
-                        costList.map((costInfo) => {
-                          return costInfo.id === cost.id
-                            ? {
-                                ...cost,
-                                is_completed: event.currentTarget.checked,
-                              }
-                            : costInfo;
-                        })
-                      )
-                    }
-                  />
-                  <span>支払い完了</span>
-                </div>
-
-                <div className="flex-grow pt-8">
-                  <div className="flex pb-2">
-                    <Group gap="sm" className="flex-grow w-full">
-                      <Stack gap="xs" className="flex-grow">
-                        <Text size="sm" fw={500} c="dimmed">
-                          コスト名
-                        </Text>
-                        <Text>{cost.name}</Text>
-                      </Stack>
-                      <Stack gap="xs" className="flex-grow">
-                        <Text size="sm" fw={500} c="dimmed">
-                          品目
-                        </Text>
-                        <Text>{cost.item}</Text>
-                      </Stack>
-                      <Stack gap="xs" className="flex-grow">
-                        <Text size="sm" fw={500} c="dimmed">
-                          価格
-                        </Text>
-                        <Text>{formatCurrency(cost.price)}</Text>
-                      </Stack>
-                    </Group>
-                  </div>
-                  <div className="items-center pb-2">
-                    <Group gap="sm" className="flex-grow">
-                      <Stack gap="xs" className="flex-grow">
-                        <Text size="sm" fw={500} c="dimmed">
-                          支払い期限
-                        </Text>
-                        <Text>{formatDate(cost.period)}</Text>
-                      </Stack>
-                      <Stack gap="xs" className="flex-grow">
-                        <Text size="sm" fw={500} c="dimmed">
-                          支払い先
-                        </Text>
-                        <Text>{cost.payment_target}</Text>
-                      </Stack>
-                      <Stack gap="xs" className="flex-grow">
-                        <Text size="sm" fw={500} c="dimmed">
-                          申請方法
-                        </Text>
-                        <Text>{cost.certificate}</Text>
-                      </Stack>
-                      <Stack gap="xs" className="flex-grow">
-                        <Text size="sm" fw={500} c="dimmed">
-                          源泉徴収
-                        </Text>
-                        <Text>{cost.withholding ? "あり" : "なし"}</Text>
-                      </Stack>
-                    </Group>
-                  </div>
-                </div>
-              </Card>
+              <CostBlockForAccounting
+                cost={cost}
+                costList={costList}
+                setCostList={setCostList}
+                isCompleted={matterInfo.is_completed!}
+              />
             </Grid.Col>
           ))}
         </Grid>
@@ -417,8 +206,8 @@ export const MatterCardDetailModalForAccounting = ({
           disabled={matterInfo.is_completed!}
           onChange={(event) => setAccountingMemo(event.currentTarget.value)}
         />
-        {!matterInfo.is_completed ? (
-          <div className="my-4 w-full">
+        <div className="my-4">
+          {!matterInfo.is_completed ? (
             <Button
               fullWidth
               color="green"
@@ -427,9 +216,7 @@ export const MatterCardDetailModalForAccounting = ({
             >
               保存
             </Button>
-          </div>
-        ) : (
-          <div className="my-4 w-full">
+          ) : (
             <Button
               fullWidth
               color="red"
@@ -438,8 +225,8 @@ export const MatterCardDetailModalForAccounting = ({
             >
               申請中に戻す
             </Button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </Modal>
   );

@@ -6,7 +6,7 @@ import { MatterType } from "../types/types";
 import { MatterCardDetailModal } from "./modal/MatterCardDetail";
 import { useRouter } from "next/navigation";
 import { MatterCard } from "./MatterCard";
-import deleteMatter from "../utils/deleteMatter";
+import deleteMatter from "../utils/supabase/deleteMatter";
 import TableInfo from "./TableInfo";
 import ThreedotsMenu from "./buttons/threedots-menu";
 import { useViewportSize } from "@mantine/hooks";

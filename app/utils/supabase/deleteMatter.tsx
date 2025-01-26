@@ -1,4 +1,4 @@
-import { MatterType } from "../types/types";
+import { MatterType } from "../../types/types";
 import {
   deleteBusinessInfo,
   deleteCostInfo,
