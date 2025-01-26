@@ -3,6 +3,7 @@ import {
   CostType,
   MatterInfoWithUserNameType,
 } from "@/app/types/types";
+import { formatCurrency, formatDateToJp } from "@/app/utils/formatter";
 import {
   getUserBusinessInfoList,
   getUserCostInfoList,
@@ -26,28 +27,6 @@ import {
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 
-const formatCurrency = (amount: number | null) => {
-  if (amount === null || amount === undefined) return "-";
-  return new Intl.NumberFormat("ja-JP", {
-    style: "currency",
-    currency: "JPY",
-    minimumFractionDigits: 0,
-  }).format(amount);
-};
-
-const formatDate = (date: string | null) => {
-  if (!date) return "-";
-  try {
-    const d = new Date(date);
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${year}/${month}/${day}`;
-  } catch {
-    return "-";
-  }
-};
-
 type LabelTextPropsType = {
   label: string;
   children: React.ReactNode;
@@ -65,7 +44,7 @@ const LabelText = ({
     typeof children === "number" && isCurrency
       ? formatCurrency(children)
       : typeof children === "string" && isDate
-      ? formatDate(children)
+      ? formatDateToJp(children)
       : isCurrency && isDate
       ? "-"
       : children;
@@ -304,13 +283,13 @@ export const MatterCardDetailModalForAccounting = ({
                       <Text size="sm" fw={500} c="dimmed">
                         請求日
                       </Text>
-                      <Text>{formatDate(business.invoice_date)}</Text>
+                      <Text>{formatDateToJp(business.invoice_date)}</Text>
                     </Stack>
                     <Stack gap="xs" className="flex-grow">
                       <Text size="sm" fw={500} c="dimmed">
                         振込期限
                       </Text>
-                      <Text>{formatDate(business.period_date)}</Text>
+                      <Text>{formatDateToJp(business.period_date)}</Text>
                     </Stack>
                   </Group>
                 </div>
@@ -381,7 +360,7 @@ export const MatterCardDetailModalForAccounting = ({
                         <Text size="sm" fw={500} c="dimmed">
                           支払い期限
                         </Text>
-                        <Text>{formatDate(cost.period)}</Text>
+                        <Text>{formatDateToJp(cost.period)}</Text>
                       </Stack>
                       <Stack gap="xs" className="flex-grow">
                         <Text size="sm" fw={500} c="dimmed">
