@@ -10,7 +10,7 @@ import {
 import { IoMdArrowDropdown } from "react-icons/io";
 import { MatterInfoWithUserNameType } from "../types/types";
 
-type FilterableHeaderProps = {
+type Props = {
   label: string;
   filterKey: keyof MatterInfoWithUserNameType;
   uniqueValues: string[];
@@ -27,7 +27,7 @@ const FilterableTableHeader = ({
   uniqueValues,
   activeFilters,
   onFilterChange,
-}: FilterableHeaderProps) => {
+}: Props) => {
   const [opened, setOpened] = useState(false);
 
   const handleFilterChange = (value: string) => {

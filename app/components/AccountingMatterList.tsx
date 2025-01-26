@@ -6,28 +6,14 @@ import { MatterInfoWithUserNameType } from "../types/types";
 import { MatterCardDetailModalForAccounting } from "./modal/MatterCardDetailForAccounting";
 import { updateMatterInfo } from "../utils/supabaseServer";
 import { NotificationMessage } from "./modal/NotificationMessage";
-import { notifications } from "@mantine/notifications";
-import { sendSlackNotification } from "../actions";
 import { useRouter } from "next/navigation";
-import TableInfo from "./TableInfo";
 import DisplayMenu from "./buttons/display-menu";
 import { MatterCardForAccounting } from "./MatterCardForAccounting";
 import { useViewportSize } from "@mantine/hooks";
-import AccountingCheckbox from "./buttons/accounting-checkbox";
-import FilterableTableHeader from "./FilterableTableHeader";
-
-const headerConfig = [
-  { label: "ID", key: "id" },
-  { label: "案件名", key: "title" },
-  { label: "担当者", key: "user_name" },
-  { label: "チーム", key: "team" },
-  { label: "分類", key: "category" },
-  { label: "合計請求額", key: "total_amount" },
-  { label: "取引先数", key: "business_count" },
-  { label: "合計コスト", key: "total_cost" },
-  { label: "コスト数", key: "cost_count" },
-  { label: "未払いコスト数", key: "unchecked_cost_count" },
-];
+import checkMatterInfoList from "../utils/checkMatterInfoList";
+import sendMessageToSlack from "../utils/slack/sendMessageToSlack";
+import AccoutingTableHeader from "./AccoutingTableHeader";
+import AccountingTablebody from "./AccountingTablebody";
 
 export const AccountingMatterList = ({
   matterList,
@@ -66,49 +52,12 @@ export const AccountingMatterList = ({
   };
 
   const handleCheckCompleted = async () => {
-    if (checkedMatterIdList.length === 0) {
-      alert("完了にする案件にチェックを入れてください。");
-      return;
-    }
-    const isCompleted = window.confirm(
-      `${checkedMatterIdList.length}件の案件を完了にしますか？`
+    const checkedMatterList = matterList?.filter((matter) =>
+      checkedMatterIdList.includes(matter.id)
     );
-    if (!isCompleted) {
-      alert("案件の完了処理を中止しました。");
-      return;
+    if (checkedMatterList) {
+      await checkMatterInfoList(checkedMatterList);
     }
-    try {
-      for (const id of checkedMatterIdList) {
-        const matterInfo = matterList?.find((matter) => matter.id === id);
-        if (matterInfo) {
-          if (!matterInfo.is_fixed) {
-            alert(`${matterInfo.title}は下書きのため、完了できません。`);
-            continue;
-          }
-          if (matterInfo.unchecked_cost_count > 0) {
-            const hasUncheckedCost = window.confirm(
-              `${matterInfo.title}には未払いコストがあります。完了してよろしいですか？`
-            );
-            if (!hasUncheckedCost) continue;
-          }
-          let { user_name, slack_id, ...updatedMatter } = matterInfo;
-          updatedMatter.is_completed = true;
-          await updateMatterInfo(updatedMatter);
-        } else {
-          alert(`ID[${id}]の案件の完了に失敗しました。`);
-          console.error(`案件ID${id}が見つかりません。`);
-        }
-      }
-    } catch (error) {
-      console.error("案件の完了処理エラー:", error);
-      notifications.show({
-        title: "エラー",
-        message: "案件の完了処理に失敗しました",
-        color: "red",
-      });
-      throw error;
-    }
-    alert(`案件のチェック処理を完了しました。`);
     setCheckedMatterIdList([]);
     router.refresh();
   };
@@ -123,54 +72,34 @@ export const AccountingMatterList = ({
       return;
     }
 
-    try {
-      for (const id of checkedMatterIdList) {
-        const matterToNotify: MatterInfoWithUserNameType | undefined =
-          matterList?.find((matter) => matter.id === id);
-        if (!matterToNotify) {
-          console.error(`案件ID${id}が見つかりません。`);
-          continue;
-        }
-
-        const slackName = matterToNotify?.slack_id
-          ? `<@${matterToNotify.slack_id}>`
-          : matterToNotify?.user_name;
-        const body =
-          `案件：${matterToNotify?.title}\n` +
-          `担当者：${slackName}\n` +
-          message;
-        const slackResult = await sendSlackNotification(body);
-
-        if (slackResult.error) {
-          throw new Error(slackResult.error);
-        }
-        const { user_name, slack_id, ...updateData } = matterToNotify;
-        if (updateData) {
-          updateData.is_fixed = false;
-          await updateMatterInfo(updateData);
-        } else {
-          console.error(`案件ID${id}が見つかりません。`);
-        }
+    for (const id of checkedMatterIdList) {
+      const matterToNotify: MatterInfoWithUserNameType | undefined =
+        matterList?.find((matter) => matter.id === id);
+      if (!matterToNotify) {
+        console.error(`案件ID${id}が見つかりません。`);
+        continue;
       }
 
-      notifications.show({
-        title: "通知成功",
-        message: "担当者への通知が完了しました",
-        color: "green",
-      });
-    } catch (error) {
-      console.error("通知送信エラー:", error);
-      notifications.show({
-        title: "エラー",
-        message: "通知の送信に失敗しました",
-        color: "red",
-      });
-      throw error;
-    } finally {
-      setNotificationOpened(false);
-      setCheckedMatterIdList([]);
-      router.refresh();
+      const ret = await sendMessageToSlack(
+        matterToNotify.slack_id!,
+        matterToNotify.user_name!,
+        matterToNotify.title,
+        message
+      );
+      if (!ret) return;
+
+      const { user_name, slack_id, ...matterInfo } = matterToNotify;
+      if (matterInfo) {
+        matterInfo.is_fixed = false;
+        await updateMatterInfo(matterInfo);
+      } else {
+        console.error(`案件ID${id}が見つかりません。`);
+      }
     }
+
+    setNotificationOpened(false);
+    setCheckedMatterIdList([]);
+    router.refresh();
   };
 
   const filteredMatterList = matterList?.filter((matter) => {
@@ -179,85 +108,6 @@ export const AccountingMatterList = ({
       const value = matter[key as keyof MatterInfoWithUserNameType];
       return value && values.has(value.toString());
     });
-  });
-
-  const handleFilterChange = (
-    key: keyof MatterInfoWithUserNameType,
-    values: Set<string>
-  ) => {
-    setFilters((prev) => ({
-      ...prev,
-      [key]: values,
-    }));
-  };
-
-  const getUniqueValues = (key: string) => {
-    return Array.from(
-      new Set(
-        (matterList || [])
-          .map((matter) => {
-            const value = matter[key as keyof MatterInfoWithUserNameType];
-            return value ? value.toString() : "";
-          })
-          .filter(Boolean)
-      )
-    ).sort();
-  };
-
-  const tableHeads = (
-    <Table.Tr>
-      <Table.Th></Table.Th>
-      {headerConfig.map(({ label, key }) => (
-        <FilterableTableHeader
-          key={key}
-          label={label}
-          filterKey={key as keyof MatterInfoWithUserNameType}
-          uniqueValues={getUniqueValues(key)}
-          activeFilters={filters[key] || new Set()}
-          onFilterChange={handleFilterChange}
-        />
-      ))}
-      <Table.Th></Table.Th>
-    </Table.Tr>
-  );
-
-  const tableInfoList = filteredMatterList?.map((matter) => {
-    return (
-      <Table.Tr
-        key={matter.id}
-        bg={
-          checkedMatterIdList.includes(matter.id)
-            ? "var(--mantine-color-red-5)"
-            : matter.is_completed
-            ? "var(--mantine-color-green-light)"
-            : matter.is_fixed
-            ? "var(--mantine-color-red-light)"
-            : "var(--mantine-color-blue-light)"
-        }
-      >
-        <Table.Td>
-          <AccountingCheckbox
-            id={matter.id}
-            isCompleted={matter.is_completed!}
-            matterIdList={checkedMatterIdList}
-            setMatterIdList={setCheckedMatterIdList}
-          />
-        </Table.Td>
-        <TableInfo
-          matter={matter}
-          username={matter.user_name!}
-          itemList={headerConfig.map((config) => config.label)}
-        />
-        <Table.Td className="whitespace-nowrap px-4">
-          <button
-            onClick={() => handleShowMatterInfo(matter)}
-            className="bg-gray-700 hover:bg-gray-500 px-2 rounded text-white"
-          >
-            詳細
-          </button>
-        </Table.Td>
-      </Table.Tr>
-    );
   });
 
   return (
@@ -300,8 +150,26 @@ export const AccountingMatterList = ({
           </div>
         ) : (
           <Table stickyHeader>
-            <Table.Thead className="bg-white">{tableHeads}</Table.Thead>
-            <Table.Tbody>{tableInfoList}</Table.Tbody>
+            <Table.Thead className="bg-white">
+              {
+                <AccoutingTableHeader
+                  matterList={matterList!}
+                  filters={filters}
+                  setFilters={setFilters}
+                />
+              }
+            </Table.Thead>
+            <Table.Tbody>
+              {filteredMatterList?.map((matter) => (
+                <AccountingTablebody
+                  matter={matter}
+                  isChecked={checkedMatterIdList.includes(matter.id)}
+                  checkedMatterIdList={checkedMatterIdList}
+                  setCheckedMatterIdList={setCheckedMatterIdList}
+                  onShowMatterInfo={handleShowMatterInfo}
+                />
+              ))}
+            </Table.Tbody>
           </Table>
         )}
       </div>
