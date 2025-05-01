@@ -127,4 +127,6 @@ https://matter-controller.vercel.app/
 
 ## お問い合わせ
 
-本アプリケーションに関するお問い合わせは、未来技術推進協会の管理者までお願いします。
+本アプリケーションに関するお問い合わせは、下記までお願いいたします。
+
+info@future-tech-association.org
