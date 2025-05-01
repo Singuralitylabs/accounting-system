@@ -1,37 +1,132 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 案件管理アプリケーション
 
-## Getting Started
+![FutureTech Logo](/public/futuretech_logo.svg)
 
-First, run the development server:
+## アプリケーション概要
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+本アプリケーションは、未来技術推進協会のための案件管理システムです。案件の作成から経理申請、確認までの一連のフローをウェブアプリケーションで効率化します。
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+案件管理アプリ（未来技術推進協会のドメイン以外はログイン不可）
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+https://matter-controller.vercel.app/
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 主な機能
 
-## Learn More
+### 📋 案件管理
 
-To learn more about Next.js, take a look at the following resources:
+- 案件情報の登録・編集・削除
+- 案件のコピー作成
+- 案件の経理申請
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 💼 取引先管理
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- 取引先情報の登録・編集
+- 取引先ごとの報酬額管理
+- 請求日・振込期限の管理
 
-## Deploy on Vercel
+### 💰 コスト管理
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- コスト情報の登録・編集
+- 支払い先・支払い期限の管理
+- 源泉徴収の有無の設定
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-# portal-site
+### 📊 経理処理
+
+- 案件一覧の確認
+- 取引先の確認完了チェック
+- コストの支払い完了チェック
+- 案件の完了処理
+
+### 📢 通知機能
+
+- Slack による案件担当者への通知
+
+### 👥 ユーザー管理
+
+- ユーザー権限の設定
+- Slack ID の登録
+
+## 利用の流れ
+
+### 一般ユーザー向け
+
+1. **ログイン**
+
+   - Google 認証で未来技術推進協会のアカウントでログインします
+
+2. **案件作成**
+
+   - 「新規作成」から案件を登録します
+   - 基本情報（案件名、分類、チーム、案件開始日、説明）を入力します
+   - 取引先情報（取引先からの報酬）を必要に応じて登録します
+   - コスト情報（案件に関わる支出）を必要に応じて登録します
+
+3. **案件の管理**
+
+   - トップページで自分の案件一覧を確認できます
+   - カード表示とテーブル表示を切り替えられます
+   - 案件をクリックして詳細を確認・編集できます
+
+4. **経理申請**
+   - 案件情報入力後、「経理申請」ボタンで経理担当者に申請します
+   - 申請後は編集できなくなります（経理担当者から戻された場合は再編集可能）
+
+### 経理担当者向け
+
+1. **案件確認**
+
+   - 「経理用一覧」で全ユーザーの案件を確認できます
+   - フィルターを使って特定の条件の案件を絞り込めます
+
+2. **案件の詳細確認・承認**
+
+   - 取引先情報の確認チェック
+   - コスト情報の支払い完了チェック
+   - 経理メモの追加
+   - 案件の完了処理
+
+3. **担当者への通知**
+   - 確認事項があれば、Slack で担当者に通知できます
+   - 通知すると案件は下書き状態に戻り、担当者が再編集できるようになります
+
+### 管理者向け
+
+1. **ユーザー管理**
+
+   - ユーザーの権限設定（一般/経理担当者/管理者）
+   - Slack ID の設定
+
+2. **マスタデータ管理**
+   - チーム、分類、品目などの選択肢を編集できます
+
+## 用語説明
+
+- **案件**: 協会が取り組むプロジェクトや業務
+- **取引先**: 案件に関連する外部企業や個人（協会への支払元）
+- **コスト**: 案件に関わる支出（協会からの支払先）
+- **下書き**: 経理申請前の編集可能な状態
+- **経理申請中**: 経理担当者の確認待ち状態
+- **経理確認完了**: 経理担当者が確認完了した状態
+
+## 権限について
+
+- **一般ユーザー**: 自分の案件の作成・管理ができます
+- **経理担当者**: 全ての案件を確認・編集できます
+- **管理者**: 全ての機能を利用できます（ユーザー管理含む）
+
+## 開発者向け情報
+
+本アプリケーションは以下の技術を使用しています：
+
+- Next.js（React フレームワーク）
+- TypeScript
+- Tailwind CSS、Mantine UI（デザインシステム）
+- Supabase（データベース・認証）
+
+開発環境のセットアップや詳細な技術情報については、[docs/](./docs/) ディレクトリの各種設計書をご参照ください。
+
+## お問い合わせ
+
+本アプリケーションに関するお問い合わせは、下記までお願いいたします。
+
+info@future-tech-association.org
