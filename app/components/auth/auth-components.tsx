@@ -17,12 +17,12 @@ export const SignIn = () => {
   const handleSignIn = async () => {
     try {
       const {
-        data: { session },
-      } = await supabase.auth.getSession();
+        data: { user },
+      } = await supabase.auth.getUser();
 
-      if (session) {
-        // 既存セッションがある場合のドメインチェック
-        if (session.user.email && !isAllowedDomain(session.user.email)) {
+      if (user) {
+        // 既存ユーザーがいる場合のドメインチェック
+        if (user.email && !isAllowedDomain(user.email)) {
           await supabase.auth.signOut();
           alert(`${ALLOWED_DOMAIN}のメールアドレスのみログイン可能です。`);
           return;
@@ -35,13 +35,6 @@ export const SignIn = () => {
         provider: "google",
         options: {
           redirectTo: `${window.location.origin}/auth/callback`,
-          queryParams: {
-            access_type: "offline",
-            prompt: "consent",
-            // Googleのログインで表示するドメインを制限
-            // ただし、これはUIの制限であり、完全な制限ではありません
-            hd: ALLOWED_DOMAIN,
-          },
         },
       });
 
@@ -57,10 +50,10 @@ export const SignIn = () => {
 
   const checkDomainAfterRedirect = async () => {
     const {
-      data: { session },
-    } = await supabase.auth.getSession();
+      data: { user },
+    } = await supabase.auth.getUser();
 
-    if (session?.user.email && !isAllowedDomain(session.user.email)) {
+    if (user?.email && !isAllowedDomain(user.email)) {
       await supabase.auth.signOut();
       alert(`${ALLOWED_DOMAIN}のメールアドレスのみログイン可能です。`);
       router.push("/");
@@ -73,5 +66,16 @@ export const SignIn = () => {
     }
   }, []);
 
-  return <button onClick={handleSignIn}>Google認証</button>;
+  return (
+    <button 
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        handleSignIn();
+      }}
+      className="flex justify-center h-12 items-center bg-blue-600 text-lg rounded text-white w-32 text-center my-4 hover:cursor-pointer hover:bg-blue-300"
+    >
+      Google認証
+    </button>
+  );
 };
