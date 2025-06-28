@@ -58,6 +58,7 @@
 | start_date           | date                     | NULL                                                  | 案件開始日         |
 | is_fixed             | boolean                  | DEFAULT false                                         | 経理申請済みフラグ |
 | is_completed         | boolean                  | DEFAULT false                                         | 経理確認完了フラグ |
+| has_updates          | boolean                  | DEFAULT false                                         | 申請後更新フラグ   |
 | total_cost           | numeric(15,2)            | DEFAULT 0                                             | 合計コスト         |
 | cost_count           | integer                  | DEFAULT 0                                             | コスト数           |
 | total_amount         | numeric(15,2)            | DEFAULT 0                                             | 合計請求額         |
@@ -65,12 +66,14 @@
 | accounting_memo      | text                     | NULL                                                  | 経理メモ           |
 | unchecked_cost_count | integer                  | NOT NULL, DEFAULT 0                                   | 未払いコスト数     |
 | user_id              | bigint                   | NOT NULL, FOREIGN KEY (profiles.id)                   | ユーザー ID        |
+| parent_matter_id     | bigint                   | NULL, FOREIGN KEY (matters.id)                        | 親案件 ID          |
 | inserted_at          | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 作成日時           |
 | updated_at           | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 更新日時           |
 
 インデックス:
 
 - user_id
+- parent_matter_id
 
 ### 3.3 costs テーブル
 
@@ -199,7 +202,7 @@ USING (
 ### 5.2 matters テーブル
 
 ```sql
--- 自身の案件または経理担当者/管理者が参照可能
+-- 自身の案件または経理担当者/管理者/同チームのチームリーダーが参照可能
 CREATE POLICY "matters_select_policy" ON matters
     FOR SELECT
     TO authenticated
@@ -213,6 +216,12 @@ CREATE POLICY "matters_select_policy" ON matters
             SELECT 1 FROM profiles
             WHERE profiles.user_id = auth.uid()::uuid
             AND profiles.class IN ('admin', 'accounting')
+        ) OR
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.user_id = auth.uid()::uuid
+            AND profiles.class = 'team_leader'
+            AND profiles.team = matters.team
         )
     );
 
@@ -229,6 +238,7 @@ CREATE POLICY "matters_insert_policy" ON matters
     );
 
 -- 自身の案件または経理担当者/管理者が更新可能
+-- 経理申請済の案件も編集可能にする（has_updatesフラグを設定）
 CREATE POLICY "matters_update_policy" ON matters
     FOR UPDATE
     TO authenticated
@@ -444,12 +454,12 @@ CREATE POLICY "Admin can insert any select options" ON select_options
 ```sql
 -- 更新時のタイムスタンプ更新関数
 CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER AS $
 BEGIN
     NEW.updated_at = timezone('Asia/Tokyo'::text, now());
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$ LANGUAGE plpgsql;
 
 -- テーブルごとのトリガー設定
 CREATE TRIGGER update_profiles_updated_at
@@ -473,13 +483,48 @@ CREATE TRIGGER update_business_updated_at
     EXECUTE PROCEDURE update_updated_at_column();
 ```
 
+### 6.2 案件更新検知トリガー
+
+経理申請済み案件が更新された場合に、has_updates フラグを true に設定するトリガー
+
+```sql
+-- 案件更新検知関数
+CREATE OR REPLACE FUNCTION detect_matter_updates()
+RETURNS TRIGGER AS $
+BEGIN
+    -- 経理申請済みで、かつ経理確認未完了の案件が更新された場合
+    IF OLD.is_fixed = TRUE AND NEW.is_fixed = TRUE AND NEW.is_completed = FALSE THEN
+        -- 更新フラグをONにする
+        NEW.has_updates = TRUE;
+    END IF;
+    RETURN NEW;
+END;
+$ LANGUAGE plpgsql;
+
+-- トリガー設定
+CREATE TRIGGER detect_matters_updates
+    BEFORE UPDATE ON matters
+    FOR EACH ROW
+    EXECUTE PROCEDURE detect_matter_updates();
+```
+
+### 6.3 売上金額チェックトリガー
+
+経理申請時に売上金額が 0 の場合に警告を表示するトリガー（アプリケーション側で実装）
+
+```sql
+-- この機能はアプリケーション側で実装
+-- データベース側ではトリガーではなく、アプリケーションロジックで対応
+```
+
 ## 7. ER 図
 
 ```mermaid
 erDiagram
     profiles ||--o{ matters : "creates"
-    matters ||--o{ costs : "has"
+    matters ||--o{ costs : "contains"
     matters ||--o{ business : "has"
+    matters ||--o{ matters : "is parent of"
     select_option_types ||--o{ select_options : "has"
 
     profiles {
@@ -502,6 +547,7 @@ erDiagram
         date start_date
         boolean is_fixed
         boolean is_completed
+        boolean has_updates
         numeric total_cost
         integer cost_count
         numeric total_amount
@@ -509,6 +555,7 @@ erDiagram
         text accounting_memo
         integer unchecked_cost_count
         bigint user_id FK
+        bigint parent_matter_id FK
         timestamp inserted_at
         timestamp updated_at
     }
@@ -561,4 +608,55 @@ erDiagram
         timestamp created_at
         timestamp updated_at
     }
+```
+
+## 8. 初期データ
+
+### 8.1 選択肢マスタ
+
+```sql
+-- 選択肢の種類
+INSERT INTO select_option_types (name, display_name, category, display_order) VALUES
+    ('team', 'チーム', 'basic_info', 1),
+    ('category', '分類', 'basic_info', 2),
+    ('item', '品目', 'cost_info', 1),
+    ('certificate', '通知方法', 'cost_info', 2);
+
+-- チーム選択肢
+INSERT INTO select_options (type_id, value, display_order) VALUES
+    ((SELECT id FROM select_option_types WHERE name = 'team'), 'シンラボ', 1),
+    ((SELECT id FROM select_option_types WHERE name = 'team'), 'SDGs', 2),
+    ((SELECT id FROM select_option_types WHERE name = 'team'), '広報', 3),
+    ((SELECT id FROM select_option_types WHERE name = 'team'), 'AI事業創出', 4),
+    ((SELECT id FROM select_option_types WHERE name = 'team'), 'ハロスク', 5),
+    ((SELECT id FROM select_option_types WHERE name = 'team'), '事務局', 6);
+
+-- 案件分類選択肢
+INSERT INTO select_options (type_id, value, display_order) VALUES
+    ((SELECT id FROM select_option_types WHERE name = 'category'), '会員費', 1),
+    ((SELECT id FROM select_option_types WHERE name = 'category'), '受託案件', 2),
+    ((SELECT id FROM select_option_types WHERE name = 'category'), '認定ファシリ', 3),
+    ((SELECT id FROM select_option_types WHERE name = 'category'), '研修・検定', 4),
+    ((SELECT id FROM select_option_types WHERE name = 'category'), 'ボードゲーム', 5),
+    ((SELECT id FROM select_option_types WHERE name = 'category'), 'イベント', 6),
+    ((SELECT id FROM select_option_types WHERE name = 'category'), 'ハロスク', 7),
+    ((SELECT id FROM select_option_types WHERE name = 'category'), 'その他', 8);
+
+-- 費目選択肢
+INSERT INTO select_options (type_id, value, display_order) VALUES
+    ((SELECT id FROM select_option_types WHERE name = 'item'), 'システム料', 1),
+    ((SELECT id FROM select_option_types WHERE name = 'item'), '施設利用料', 2),
+    ((SELECT id FROM select_option_types WHERE name = 'item'), '外注費', 3),
+    ((SELECT id FROM select_option_types WHERE name = 'item'), '備品購入', 4),
+    ((SELECT id FROM select_option_types WHERE name = 'item'), 'メンバー報酬', 5),
+    ((SELECT id FROM select_option_types WHERE name = 'item'), 'シンラボ活動費', 6),
+    ((SELECT id FROM select_option_types WHERE name = 'item'), '広告宣伝費', 7),
+    ((SELECT id FROM select_option_types WHERE name = 'item'), '教育・研修', 8),
+    ((SELECT id FROM select_option_types WHERE name = 'item'), '営業費', 9),
+    ((SELECT id FROM select_option_types WHERE name = 'item'), 'その他', 10);
+
+-- 証憑選択肢
+INSERT INTO select_options (type_id, value, display_order) VALUES
+    ((SELECT id FROM select_option_types WHERE name = 'certificate'), '請求書', 1),
+    ((SELECT id FROM select_option_types WHERE name = 'certificate'), '領収書', 2);
 ```
