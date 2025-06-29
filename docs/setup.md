@@ -179,10 +179,11 @@ SLACK_WEBHOOK_URL=your-slack-webhook-url
 ```
 
 📋 **環境変数のセキュリティについて**:
+
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: **秘匿情報** - 公開リポジトリや共有ドキュメントに記載しないでください
 - `SUPABASE_SERVICE_ROLE_KEY`: **秘匿情報** - サーバー側でのみ使用し、決して公開しないでください
 - `GOOGLE_CLIENT_SECRET`: **秘匿情報** - 必ず秘匿してください
-- `SLACK_WEBHOOK_URL`: **秘匿情報** - Slackワークスペースの機密情報です
+- `SLACK_WEBHOOK_URL`: **秘匿情報** - Slack ワークスペースの機密情報です
 - `PROJECT_ID`: **公開可能** - プロジェクトの識別子であり、公開されても問題ありません
 
 ### 5. データベーススキーマの作成
@@ -418,8 +419,9 @@ matter-controller/
 │       ├── 05_select_options.sql
 │       └── 06_sample_data.sql
 └── docs/
-    ├── setup.md              # このファイル
-    └── sql-queries.md        # 便利なSQLクエリ集
+    ├── setup.md           # 開発環境構築手順（本ファイル）
+    ├── specification.md   # 詳細設計書
+    └── database.md        # データベース設計書
 ```
 
 ---
