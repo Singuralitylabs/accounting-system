@@ -1,7 +1,7 @@
 "use client";
 
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
-import { Session } from "@supabase/supabase-js";
+import { User } from "@supabase/supabase-js";
 import Link from "next/link";
 import React, { FC, Suspense, useEffect, useState } from "react";
 import { ProfilesType } from "../types/types";
@@ -11,7 +11,7 @@ import UserButton from "./buttons/user-button";
 import { useRouter } from "next/navigation";
 
 interface HeaderProps {
-  initialSession: Session | null;
+  initialUser: User | null;
   initialProfile: ProfilesType | null;
 }
 
@@ -22,8 +22,8 @@ interface CacheEntry {
 
 const CACHE_DURATION = 1000 * 60 * 30;
 
-const Header: FC<HeaderProps> = ({ initialSession, initialProfile }) => {
-  const [session, setSession] = useState<Session | null>(initialSession);
+const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
+  const [user, setUser] = useState<User | null>(initialUser);
   const [profile, setProfile] = useState<ProfilesType | null>(initialProfile);
   const [profileCache, setProfileCache] = useState<Record<string, CacheEntry>>(
     {}
@@ -39,38 +39,46 @@ const Header: FC<HeaderProps> = ({ initialSession, initialProfile }) => {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session) {
-        setSession(session);
+      if (session?.user) {
+        // セッションがある場合は、getUser()で再検証
+        const { data: { user: validatedUser } } = await supabase.auth.getUser();
+        
+        if (validatedUser) {
+          setUser(validatedUser);
 
-        const cacheEntry = profileCache[session.user.id];
-        if (!cacheEntry || !isValidCache(cacheEntry)) {
-          const { profileInfo } = await getProfileInfoById(session.user.id);
-          if (profileInfo) {
-            setProfile(profileInfo);
-            setProfileCache((prev) => ({
-              ...prev,
-              [session.user.id]: { data: profileInfo, timestamp: Date.now() },
-            }));
+          const cacheEntry = profileCache[validatedUser.id];
+          if (!cacheEntry || !isValidCache(cacheEntry)) {
+            const { profileInfo } = await getProfileInfoById(validatedUser.id);
+            if (profileInfo) {
+              setProfile(profileInfo);
+              setProfileCache((prev) => ({
+                ...prev,
+                [validatedUser.id]: { data: profileInfo, timestamp: Date.now() },
+              }));
+            }
+          } else {
+            setProfile(cacheEntry.data);
           }
         } else {
-          setProfile(cacheEntry.data);
+          setUser(null);
+          setProfile(null);
         }
       } else {
-        setSession(null);
+        setUser(null);
         setProfile(null);
       }
     });
 
     return () => subscription.unsubscribe();
-  }, [supabase]);
+  }, [supabase, profileCache]);
 
-  if (!session) {
+  if (!user) {
     return null;
   }
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
-    setSession(null);
+    setUser(null);
     setProfile(null);
     router.push("/login");
   };

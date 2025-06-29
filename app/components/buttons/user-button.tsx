@@ -13,20 +13,26 @@ const UserButton = () => {
   const router = useRouter();
 
   useEffect(() => {
-    const getUser = async () => {
+    const getUserData = async () => {
       const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      setUser(session?.user ?? null);
+        data: { user: currentUser },
+      } = await supabase.auth.getUser();
+      setUser(currentUser ?? null);
       setLoading(false);
     };
 
-    getUser();
+    getUserData();
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        // セッションがある場合は、getUser()で再検証
+        const { data: { user: validatedUser } } = await supabase.auth.getUser();
+        setUser(validatedUser ?? null);
+      } else {
+        setUser(null);
+      }
     });
 
     return () => subscription.unsubscribe();

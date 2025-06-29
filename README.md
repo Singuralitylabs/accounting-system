@@ -143,7 +143,7 @@ https://matter-controller.vercel.app/
 - Tailwind CSS、Mantine UI（デザインシステム）
 - Supabase（データベース・認証）
 
-開発環境のセットアップや詳細な技術情報については、[docs/](./docs/) ディレクトリの各種設計書をご参照ください。
+**🚀 開発環境構築の詳細手順については、[docs/setup.md](./docs/setup.md) をご確認ください。**
 
 ## お問い合わせ
 
