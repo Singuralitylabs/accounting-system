@@ -33,7 +33,7 @@ export const updateMatter = async (
   matterInfo.cost_count = costInfoList.filter((cost) => !cost.isRemoved).length;
 
   matterInfo.unchecked_cost_count = costInfoList.filter(
-    (cost) => !cost.is_completed
+    (cost) => !cost.isRemoved && (!cost.is_completed || cost.isNew)
   ).length;
 
   await updateMatterInfo(matterInfo);
@@ -99,13 +99,21 @@ export const updateMatter = async (
 const editMatterInfo = async (
   matterInfo: MatterType,
   businessInfoList: BusinessInCardType[],
-  costInfoList: CostInCardType[]
+  costInfoList: CostInCardType[],
+  originalIsFixed?: boolean
 ) => {
-  const checkUpdate = matterInfo.is_fixed
-    ? window.confirm(
-        `案件[${matterInfo.title}]を経理申請しますか？\n申請後に更新が必要となった場合、経理まで連絡が必要です。`
-      )
-    : window.confirm(`案件[${matterInfo.title}]を更新しますか？`);
+  const isNewApplication = !originalIsFixed && matterInfo.is_fixed;
+  const isPostSubmissionUpdate = originalIsFixed && matterInfo.is_fixed;
+  
+  let confirmMessage = `案件[${matterInfo.title}]を更新しますか？`;
+  
+  if (isNewApplication) {
+    confirmMessage = `案件[${matterInfo.title}]を経理申請しますか？\n申請後に更新が必要となった場合、経理まで連絡が必要です。`;
+  } else if (isPostSubmissionUpdate) {
+    confirmMessage = `案件[${matterInfo.title}]を更新しますか？更新内容は経理に通知されます。`;
+  }
+  
+  const checkUpdate = window.confirm(confirmMessage);
   if (!checkUpdate) {
     return false;
   }

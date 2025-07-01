@@ -29,6 +29,8 @@ const BusinessBlock = ({
     onBusinessUpdate({ ...businessInfo, ...updates });
   };
 
+  // 申請済みの案件でも、新規追加された項目は編集可能
+  const isItemDisabled = isFixed && !businessInfo.isNew;
   const mdBgColorClass = formType === "new" ? "md:bg-slate-50" : "md:bg-white";
 
   return (
@@ -36,7 +38,7 @@ const BusinessBlock = ({
       key={businessInfo.id}
       className={`border rounded-lg p-2 my-2 items-center bg-green-50 md:flex md:border-none md:p-0 ${mdBgColorClass}`}
     >
-      {!isFixed && (
+      {!isItemDisabled && (
         <div className="md:hidden flex justify-between w-full m-2">
           <div>取引先{index + 1}</div>
           <button
@@ -54,7 +56,7 @@ const BusinessBlock = ({
             required
             placeholder="取引先名をご記入ください。"
             className="flex-grow sm:my-0 my-2"
-            disabled={isFixed!}
+            disabled={isItemDisabled}
             value={businessInfo.name}
             onChange={(e) => handleUpdate({ name: e.target.value })}
           />
@@ -63,7 +65,7 @@ const BusinessBlock = ({
             required
             placeholder="報酬額をご記入ください。"
             className="flex-grow"
-            disabled={isFixed!}
+            disabled={isItemDisabled}
             value={businessInfo.amount!}
             prefix="¥"
             allowNegative={false}
@@ -77,7 +79,7 @@ const BusinessBlock = ({
             label="請求日"
             required
             placeholder="請求日をご記入ください。"
-            disabled={isFixed!}
+            disabled={isItemDisabled}
             value={businessInfo.invoice_date}
             onChange={(date) => handleUpdate({ invoice_date: date })}
             className="flex-grow sm:my-0 my-2"
@@ -86,14 +88,14 @@ const BusinessBlock = ({
             label="振込期限"
             required
             placeholder="振込期限をご記入ください。"
-            disabled={isFixed!}
+            disabled={isItemDisabled}
             value={businessInfo.period_date}
             onChange={(date) => handleUpdate({ period_date: date })}
             className="flex-grow sm:my-0 my-2"
           />
         </div>
       </div>
-      {!isFixed && (
+      {!isItemDisabled && (
         <button
           className="hidden text-lg hover:cursor-pointer w-4 ml-2 md:flex items-center pb-3 md:self-end justify-center hover:text-blue-500"
           onClick={() => onRemoveBusiness(businessInfo.id)}

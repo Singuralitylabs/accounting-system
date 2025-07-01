@@ -32,6 +32,9 @@ const CostBlock = ({
   const handleUpdate = (updates: Partial<CostType>) => {
     onCostUpdate({ ...costInfo, ...updates });
   };
+
+  // 申請済みの案件でも、新規追加された項目は編集可能
+  const isItemDisabled = isFixed && !costInfo.isNew;
   const lgBgColor = formType === "new" ? "lg:bg-slate-50" : "lg:bg-white";
 
   if (!itemList.includes(costInfo.item) && isFixed)
@@ -44,7 +47,7 @@ const CostBlock = ({
       key={costInfo.id}
       className={`border rounded-lg p-2 my-2 items-center bg-slate-50 ${lgBgColor} lg:flex lg:border-none lg:p-0`}
     >
-      {!isFixed && (
+      {!isItemDisabled && (
         <div className="lg:hidden flex justify-between w-full m-2">
           <div>コスト{index + 1}</div>
           <div className="flex gap-2">
@@ -64,7 +67,7 @@ const CostBlock = ({
             required
             placeholder="コスト名をご記入ください。"
             className="flex-grow sm:mb-0 mb-2"
-            disabled={isFixed!}
+            disabled={isItemDisabled}
             value={costInfo.name}
             onChange={(e) => handleUpdate({ name: e.target.value })}
           />
@@ -74,7 +77,7 @@ const CostBlock = ({
             className="flex-grow sm:mb-0 mb-2 sm:w-40"
             placeholder="品目を選択してください。"
             data={itemList}
-            disabled={isFixed!}
+            disabled={isItemDisabled}
             value={costInfo.item}
             onChange={(value) => handleUpdate({ item: value || "" })}
           />
@@ -83,7 +86,7 @@ const CostBlock = ({
             required
             placeholder="支払い先の名前をご記入ください。"
             className="flex-grow sm:mb-0 mb-2"
-            disabled={isFixed!}
+            disabled={isItemDisabled}
             value={costInfo.payment_target}
             onChange={(e) => handleUpdate({ payment_target: e.target.value })}
           />
@@ -94,7 +97,7 @@ const CostBlock = ({
             required
             placeholder="金額をご記入ください。"
             className="flex-grow sm:mb-0 mb-2"
-            disabled={isFixed!}
+            disabled={isItemDisabled}
             value={costInfo.price}
             prefix="¥"
             allowNegative={false}
@@ -106,7 +109,7 @@ const CostBlock = ({
             label="支払い期限"
             required
             placeholder="支払い期限をご記入ください。"
-            disabled={isFixed!}
+            disabled={isItemDisabled}
             value={costInfo.period}
             onChange={(date) => handleUpdate({ period: date })}
             className="flex-grow sm:mb-0 mb-2"
@@ -117,7 +120,7 @@ const CostBlock = ({
             className="flex-grow sm:mb-0 mb-2"
             placeholder="支払いの通知方法を選択してください。"
             data={certificateList}
-            disabled={isFixed!}
+            disabled={isItemDisabled}
             value={costInfo.certificate}
             onChange={(value) => handleUpdate({ certificate: value || "" })}
           />
@@ -125,7 +128,7 @@ const CostBlock = ({
             <Checkbox
               label="源泉徴収あり"
               className="whitespace-nowrap flex-shrink-0"
-              disabled={isFixed!}
+              disabled={isItemDisabled}
               checked={costInfo.withholding}
               onChange={(e) =>
                 handleUpdate({ withholding: e.currentTarget.checked })
@@ -135,7 +138,7 @@ const CostBlock = ({
         </div>
       </div>
       <div className="hidden lg:flex lg:self-end pb-2">
-        {!isFixed && (
+        {!isItemDisabled && (
           <button
             className="text-lg hover:cursor-pointer w-4 ml-2 flex items-end justify-center hover:text-blue-500 h-[38px]"
             onClick={() => onRemoveCost(costInfo.id)}

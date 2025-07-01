@@ -154,7 +154,8 @@ export const MatterCardDetailModal = ({
     const ret = await editMatterInfo(
       updatedMatterInfo,
       businessInfoInCardList,
-      costInfoInCardList
+      costInfoInCardList,
+      matterInfo.is_fixed || false
     );
     setIsLoading(false);
 
@@ -246,7 +247,11 @@ export const MatterCardDetailModal = ({
       title={matterInfo.title}
       size="100%"
     >
-      <form onSubmit={form.onSubmit(() => handleUpdateMatterInfo(false))}>
+      <form
+        onSubmit={form.onSubmit(() =>
+          handleUpdateMatterInfo(matterInfo.is_fixed || false)
+        )}
+      >
         <LoadingOverlay visible={isLoading} />
         <div className="flex justify-end">
           {isNew ? (
@@ -295,19 +300,17 @@ export const MatterCardDetailModal = ({
               />
             )
         )}
-        {!matterInfo.is_fixed && (
-          <Button
-            type="button"
-            fullWidth
-            className="mt-4"
-            color="dark"
-            variant="outline"
-            rightSection={<CiSquarePlus />}
-            onClick={handleAddBusiness}
-          >
-            取引先追加
-          </Button>
-        )}
+        <Button
+          type="button"
+          fullWidth
+          className="mt-4"
+          color="dark"
+          variant="outline"
+          rightSection={<CiSquarePlus />}
+          onClick={handleAddBusiness}
+        >
+          取引先追加
+        </Button>
 
         <h2 className="mt-8 mb-4">コスト情報</h2>
         {costInfoInCardList.map(
@@ -332,35 +335,33 @@ export const MatterCardDetailModal = ({
               />
             )
         )}
-        {!matterInfo.is_fixed && (
-          <Button
-            type="button"
-            fullWidth
-            className="mt-4"
-            color="dark"
-            variant="outline"
-            rightSection={<CiSquarePlus />}
-            onClick={handleAddCost}
-          >
-            コスト追加
-          </Button>
-        )}
+        <Button
+          type="button"
+          fullWidth
+          className="mt-4"
+          color="dark"
+          variant="outline"
+          rightSection={<CiSquarePlus />}
+          onClick={handleAddCost}
+        >
+          コスト追加
+        </Button>
 
-        {!matterInfo.is_fixed && (
-          <div className="flex justify-between mt-6">
-            <Group justify="flex-end" mt="md">
-              {!isNew && (
-                <Button
-                  type="button"
-                  color="gray"
-                  onClick={handleDeleteMatterInfo}
-                >
-                  削除
-                </Button>
-              )}
-            </Group>
-            <Group justify="flex-end" mt="md">
-              {isNew ? (
+        <div className="flex justify-between mt-6">
+          <Group justify="flex-end" mt="md">
+            {!isNew && !matterInfo.is_fixed && (
+              <Button
+                type="button"
+                color="gray"
+                onClick={handleDeleteMatterInfo}
+              >
+                削除
+              </Button>
+            )}
+          </Group>
+          <Group justify="flex-end" mt="md">
+            {isNew ? (
+              <>
                 <Button
                   onClick={() => {
                     const validation = form.validate();
@@ -372,27 +373,47 @@ export const MatterCardDetailModal = ({
                 >
                   下書き作成
                 </Button>
-              ) : (
-                <Button type="submit">更新</Button>
-              )}
-              <Button
-                type="button"
-                color="red"
-                onClick={() => {
-                  const validation = form.validate();
-                  if (validation.hasErrors) {
-                    return;
-                  }
-                  isNew
-                    ? handleAddMatterInfo(true)
-                    : handleUpdateMatterInfo(true);
-                }}
-              >
-                経理申請
-              </Button>
-            </Group>
-          </div>
-        )}
+                <Button
+                  type="button"
+                  color="red"
+                  onClick={() => {
+                    const validation = form.validate();
+                    if (validation.hasErrors) {
+                      return;
+                    }
+                    handleAddMatterInfo(true);
+                  }}
+                >
+                  経理申請
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  type="submit"
+                  color={matterInfo.is_fixed ? "red" : undefined}
+                >
+                  {matterInfo.is_fixed ? "経理申請後の更新" : "更新"}
+                </Button>
+                {!matterInfo.is_fixed && (
+                  <Button
+                    type="button"
+                    color="red"
+                    onClick={() => {
+                      const validation = form.validate();
+                      if (validation.hasErrors) {
+                        return;
+                      }
+                      handleUpdateMatterInfo(true);
+                    }}
+                  >
+                    経理申請
+                  </Button>
+                )}
+              </>
+            )}
+          </Group>
+        </div>
       </form>
     </Modal>
   );
