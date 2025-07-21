@@ -104,15 +104,16 @@ const editMatterInfo = async (
 ) => {
   const isNewApplication = !originalIsFixed && matterInfo.is_fixed;
   const isPostSubmissionUpdate = originalIsFixed && matterInfo.is_fixed;
-  
+
   let confirmMessage = `案件[${matterInfo.title}]を更新しますか？`;
-  
+
   if (isNewApplication) {
     confirmMessage = `案件[${matterInfo.title}]を経理申請しますか？\n申請後に更新が必要となった場合、経理まで連絡が必要です。`;
   } else if (isPostSubmissionUpdate) {
     confirmMessage = `案件[${matterInfo.title}]を更新しますか？更新内容は経理に通知されます。`;
+    matterInfo.has_updates = true;
   }
-  
+
   const checkUpdate = window.confirm(confirmMessage);
   if (!checkUpdate) {
     return false;

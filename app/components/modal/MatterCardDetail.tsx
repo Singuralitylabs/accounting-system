@@ -117,6 +117,7 @@ export const MatterCardDetailModal = ({
       description: form.getValues().description,
       is_fixed: isFixed,
       is_completed: false,
+      has_updates: false,
       user_id: 1,
       accounting_memo: "",
       total_amount: 0,
