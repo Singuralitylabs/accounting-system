@@ -259,6 +259,7 @@ export const insertMatterInfo = async (
         unchecked_cost_count: cost_count,
         is_fixed: is_fixed,
         is_completed: false,
+        has_updates: false,
         user_id: profileInfo.id,
         inserted_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -286,14 +287,15 @@ export const updateMatterInfo = async (matterInfo: MatterType) => {
   const { data: status, error } = await supabase
     .from("matters")
     .update(matterInfo)
-    .eq("id", matterInfo.id);
+    .eq("id", matterInfo.id)
+    .select();
 
   if (error) {
     console.error(
       `${matterInfo.title}の案件情報の更新処理で失敗しました。`,
       error
     );
-    return;
+    return { status: null, error };
   }
 
   return { status, error };
