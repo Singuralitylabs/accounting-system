@@ -129,6 +129,20 @@ const addMatterInfo = async (
     }
   }
 
+  const totalCompensation = businessList.reduce(
+    (sum, business) => sum + (business.amount || 0),
+    0
+  );
+  if (totalCompensation === 0) {
+    const checkCreated = window.confirm(
+      "取引先情報の報酬額の合計が0円です。このまま作成して良いでしょうか？"
+    );
+    if (!checkCreated) {
+      alert("経理申請を中止しました。");
+      return;
+    }
+  }
+
   try {
     const ret = await insertMatter(matterInfo, businessList, costList);
     if (ret) {
