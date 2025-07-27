@@ -15,6 +15,7 @@ import {
   Button,
   Textarea,
   LoadingOverlay,
+  Checkbox,
 } from "@mantine/core";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
@@ -36,6 +37,7 @@ export const MatterCardDetailModalForAccounting = ({
 }: Props) => {
   const [costList, setCostList] = useState<CostType[]>([]);
   const [businessList, setBusinessList] = useState<BusinessType[]>([]);
+  const [checkhasUpdates, setCheckhasUpdates] = useState<boolean>(false);
   const [accountingMemo, setAccountingMemo] = useState<string | null>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const router = useRouter();
@@ -97,6 +99,7 @@ export const MatterCardDetailModalForAccounting = ({
       setIsLoading(true);
       let { user_name, slack_id, ...updatedMatter } = matterInfo;
       updatedMatter.accounting_memo = accountingMemo;
+      updatedMatter.has_updates = !checkhasUpdates;
 
       await updateMatter(
         updatedMatter,
@@ -149,13 +152,28 @@ export const MatterCardDetailModalForAccounting = ({
     >
       <div className="w-full">
         <LoadingOverlay visible={isLoading} />
-        <div className="flex justify-end">
+        <div className="flex justify-end mb-1">
           {matterInfo.is_completed ? (
             <Badge color="green">経理確認完了</Badge>
           ) : matterInfo.is_fixed ? (
-            <Badge color="blue">経理確認待ち</Badge>
+            <Badge color="red">経理確認待ち</Badge>
           ) : (
-            <Badge color="red">申請者編集中</Badge>
+            <Badge color="blue">申請者編集中</Badge>
+          )}
+        </div>
+        <div className="flex justify-end items-center gap-2">
+          {matterInfo.has_updates && (
+            <>
+              <Checkbox
+                label="更新確認"
+                color="orange"
+                size="sm"
+                checked={checkhasUpdates}
+                onChange={(event) =>
+                  setCheckhasUpdates(event.currentTarget.checked)
+                }
+              />
+            </>
           )}
         </div>
         <h2 className="my-4">基本情報</h2>
