@@ -1,7 +1,7 @@
 "use client";
 
 import { BusinessType, CostType, MatterType } from "@/app/types/types";
-import { Button, Group, LoadingOverlay } from "@mantine/core";
+import { Button, Group, LoadingOverlay, Tooltip } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useState, useTransition } from "react";
 import { CiSquarePlus } from "react-icons/ci";
@@ -229,22 +229,32 @@ const NewMatterForm = () => {
       </Button>
 
       <Group className="pt-8" justify="flex-end" mt="md">
-        <Button
-          type="button"
-          disabled={isLoading}
-          onClick={() => {
-            const validation = form.validate();
-            if (validation.hasErrors) {
-              return;
-            }
-            handleAddMatterInfo(false);
-          }}
+        <Tooltip
+          color="indigo"
+          label="経理に共有されますが、チェック対象外のため、案件内容を変更できます。後日、経理申請を行う必要があります。"
         >
-          下書き
-        </Button>
-        <Button color="red" disabled={isLoading} type="submit">
-          経理申請
-        </Button>
+          <Button
+            type="button"
+            disabled={isLoading}
+            onClick={() => {
+              const validation = form.validate();
+              if (validation.hasErrors) {
+                return;
+              }
+              handleAddMatterInfo(false);
+            }}
+          >
+            下書き
+          </Button>
+        </Tooltip>
+        <Tooltip
+          color="red"
+          label="経理のチェック対象となります。申請後は取引先情報・コスト情報の新規追加のみ可能です。それ以外の変更が必要な場合には、経理に連絡する必要があります。"
+        >
+          <Button color="red" disabled={isLoading} type="submit">
+            経理申請
+          </Button>
+        </Tooltip>
       </Group>
     </form>
   );
