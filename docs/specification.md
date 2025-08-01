@@ -13,6 +13,7 @@
 ### 1.3 対象ユーザー
 
 - 一般ユーザー: 案件作成・管理を行うメンバー
+- チームリーダー: 自分のチームの案件を管理するメンバー
 - 経理担当者: 案件の確認・承認を行うユーザー
 - 管理者: システム全体の管理を行うユーザー
 
@@ -73,6 +74,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 #### 4.1.3 権限
 
 - public: 一般ユーザー（自身の案件のみ操作可能）
+- teamleader: チームリーダー（自分のチームの案件閲覧が可能）
 - accounting: 経理担当者（全案件の確認・編集が可能）
 - admin: 管理者（全機能にアクセス可能、ユーザー管理も可能）
 
@@ -287,7 +289,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 #### 4.10.3 機能
 
 - チームごとのフィルタリング
-- 案件詳細表示
+- 案件詳細表示（閲覧のみ、編集不可）
 - チーム全体の収支集計
 
 #### 4.10.4 画面
@@ -425,16 +427,17 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 ### 5.2 画面一覧
 
-| 画面 ID | 画面名                 | URL         | 対象ユーザー       |
-| ------- | ---------------------- | ----------- | ------------------ |
-| S001    | ログイン画面           | /login      | 全ユーザー         |
-| S002    | 案件一覧画面           | /           | 全ユーザー         |
-| S003    | 新規案件作成画面       | /new        | 全ユーザー         |
-| S004    | 案件詳細モーダル       | -           | 全ユーザー         |
-| S005    | 経理用案件一覧画面     | /accounting | 経理担当者・管理者 |
-| S006    | 経理用案件詳細モーダル | -           | 経理担当者・管理者 |
-| S007    | 通知内容入力モーダル   | -           | 経理担当者・管理者 |
-| S008    | 管理画面               | /dashboard  | 管理者             |
+| 画面 ID | 画面名                 | URL         | 対象ユーザー           |
+| ------- | ---------------------- | ----------- | ---------------------- |
+| S001    | ログイン画面           | /login      | 全ユーザー             |
+| S002    | 案件一覧画面           | /           | 全ユーザー             |
+| S003    | 新規案件作成画面       | /new        | 全ユーザー             |
+| S004    | 案件詳細モーダル       | -           | 全ユーザー             |
+| S005    | チーム案件一覧画面     | /team       | チームリーダー・管理者 |
+| S006    | 経理用案件一覧画面     | /accounting | 経理担当者・管理者     |
+| S007    | 経理用案件詳細モーダル | -           | 経理担当者・管理者     |
+| S008    | 通知内容入力モーダル   | -           | 経理担当者・管理者     |
+| S009    | 管理画面               | /dashboard  | 管理者                 |
 
 ### 5.3 画面詳細
 
@@ -520,7 +523,34 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
     - コスト追加ボタン
   - 操作ボタン（更新、経理申請、削除）
 
-#### 5.3.5 経理用案件一覧画面 (S005)
+#### 5.3.5 チーム案件一覧画面 (S005)
+
+- URL: /team
+- 構成要素
+  - ページタイトル「チーム案件一覧」
+  - 表示形式切替ボタン（カード/テーブル）
+  - 案件カード（カード表示時）
+    - 案件名
+    - 案件 ID
+    - 担当者名
+    - 分類
+    - 合計請求額
+    - 合計コスト
+    - 作成日時
+    - 状態バッジ
+    - 詳細ボタン
+  - 案件テーブル（テーブル表示時）
+    - 案件 ID
+    - 案件名
+    - 担当者名
+    - 分類
+    - 合計請求額
+    - 取引先数
+    - 合計コスト
+    - コスト数
+    - 詳細ボタン
+
+#### 5.3.6 経理用案件一覧画面 (S006)
 
 - URL: /accounting
 - 構成要素
@@ -555,7 +585,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
     - 詳細ボタン
   - フィルタリングポップアップ（各列）
 
-#### 5.3.6 経理用案件詳細モーダル (S006)
+#### 5.3.7 経理用案件詳細モーダル (S007)
 
 - 構成要素
   - モーダルタイトル（案件名）
@@ -575,20 +605,21 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
   - 経理メモ入力エリア
   - 操作ボタン（保存、申請中に戻す）
 
-#### 5.3.7 通知内容入力モーダル (S007)
+#### 5.3.8 通知内容入力モーダル (S008)
 
 - 構成要素
   - モーダルタイトル「案件担当者への通知内容」
   - メッセージ入力エリア
   - slack 通知ボタン
 
-#### 5.3.8 管理画面 (S008)
+#### 5.3.9 管理画面 (S009)
 
 - URL: /dashboard
 - 構成要素
   - ユーザーリストセクション
-    - ユーザー情報（ID、名前、メール、権限、Slack ID）
-    - 権限選択ドロップダウン
+    - ユーザー情報（ID、名前、メール、権限、チーム、Slack ID）
+    - 権限選択ドロップダウン（public/teamleader/accounting/admin）
+    - チーム選択ドロップダウン（teamleader の場合必須）
     - Slack ID 入力フィールド
     - 保存ボタン
   - マスタデータ管理セクション
@@ -644,6 +675,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 | updateUserInfo          | ユーザー情報の更新                 | {profile}                             | {error}                   |
 | getAllMatterInfoList    | 全案件情報の取得                   | -                                     | MatterType[]              |
 | getUserMatterInfoList   | ユーザーの案件情報の取得           | -                                     | MatterType[]              |
+| getTeamMatterInfoList   | チームの案件情報の取得             | -                                     | MatterType[]              |
 | insertMatterInfo        | 案件情報の登録                     | (title, category, team, ...)          | {newId, error}            |
 | updateMatterInfo        | 案件情報の更新                     | matterInfo: MatterType                | {status, error}           |
 | deleteMatterInfo        | 案件情報の削除                     | id: number                            | {status, error}           |
@@ -682,6 +714,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 - 未来技術推進協会のドメイン(`future-tech-association.org`)のみログイン可能
 - ミドルウェアによる保護されたルートの制御
   - /, /new: 認証済みユーザーのみアクセス可能
+  - /team: チームリーダー・管理者のみアクセス可能
   - /accounting: 経理担当者・管理者のみアクセス可能
   - /dashboard: 管理者のみアクセス可能
 
@@ -689,6 +722,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 - Row Level Security (RLS)によるデータアクセス制御
   - 一般ユーザー: 自身の案件のみアクセス可能
+  - チームリーダー: 自分のチームの案件にアクセス可能
   - 経理担当者: 全案件のアクセス・更新が可能
   - 管理者: 全データのアクセス・更新・削除が可能
 - ユーザー権限に基づく UI 制御
