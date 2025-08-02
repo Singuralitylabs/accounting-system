@@ -70,7 +70,6 @@ export const MatterCardDetailModal = ({
           );
         }
       };
-      getCostInfo();
       const getBusinessInfo = async () => {
         const { businessInfoList, error } = await getUserBusinessInfoList(
           matterInfo.id
@@ -90,7 +89,10 @@ export const MatterCardDetailModal = ({
           );
         }
       };
-      getBusinessInfo();
+      setIsLoading(true);
+      Promise.all([getBusinessInfo(), getCostInfo()]).finally(() => {
+        setIsLoading(false);
+      });
     }
   }, [opened, matterInfo.id]);
 
@@ -394,7 +396,7 @@ export const MatterCardDetailModal = ({
                   type="submit"
                   color={matterInfo.is_fixed ? "red" : undefined}
                 >
-                  {matterInfo.is_fixed ? "経理申請後の更新" : "更新"}
+                  更新
                 </Button>
                 {!matterInfo.is_fixed && (
                   <Button

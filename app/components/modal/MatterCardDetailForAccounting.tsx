@@ -58,7 +58,6 @@ export const MatterCardDetailModalForAccounting = ({
           setBusinessList(businessInfoList);
         }
       };
-      getBusinessInfo();
 
       const getCostInfo = async () => {
         const { costInfoList, error } = await getUserCostInfoList(
@@ -73,7 +72,10 @@ export const MatterCardDetailModalForAccounting = ({
           setCostList(costInfoList);
         }
       };
-      getCostInfo();
+      setIsLoading(true);
+      Promise.all([getBusinessInfo(), getCostInfo()]).finally(() => {
+        setIsLoading(false);
+      });
     }
   }, [opened, matterInfo.id]);
 
