@@ -1,6 +1,8 @@
 import { Button, Select, Stack, Text, TextInput } from "@mantine/core";
 import { ProfilesType } from "../types/types";
 import { classList } from "./UserList";
+import { useEffect, useState } from "react";
+import { getSelectOptions } from "../utils/supabase/supabaseServer";
 
 type Props = {
   userInfo: ProfilesType;
@@ -9,6 +11,18 @@ type Props = {
 };
 
 const UserCard = ({ userInfo, onUpdateUserList, onSaveUser }: Props) => {
+  const [teamOptions, setTeamOptions] = useState<string[]>([]);
+
+  useEffect(() => {
+    const fetchTeamOptions = async () => {
+      const { options } = await getSelectOptions("team");
+      if (options) {
+        setTeamOptions(options.map((option) => option.value));
+      }
+    };
+    fetchTeamOptions();
+  }, []);
+
   return (
     <div className="py-4 border-b border-gray-200">
       <Stack>
@@ -42,9 +56,24 @@ const UserCard = ({ userInfo, onUpdateUserList, onSaveUser }: Props) => {
           <Select
             data={classList}
             value={userInfo.class || ""}
-            onChange={(value) =>
-              onUpdateUserList(userInfo.id, { class: value })
-            }
+            onChange={(value) => {
+              const updates: Partial<ProfilesType> = { class: value };
+              onUpdateUserList(userInfo.id, updates);
+            }}
+            className="mt-1"
+          />
+        </div>
+
+        <div>
+          <Text size="sm" fw={500} c="dimmed">
+            チーム
+          </Text>
+          <Select
+            data={teamOptions}
+            value={userInfo.team || ""}
+            onChange={(value) => onUpdateUserList(userInfo.id, { team: value })}
+            placeholder={"チームを選択"}
+            size="xs"
             className="mt-1"
           />
         </div>

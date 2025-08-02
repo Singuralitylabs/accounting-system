@@ -40,6 +40,7 @@ export const getProfileInfo = async () => {
         email: profileInfo.email,
         name: profileInfo.name,
         slack_id: profileInfo.slack_id,
+        team: profileInfo.team,
         class: profileInfo.class,
         inserted_at: profileInfo.inserted_at,
         updated_at: profileInfo.updated_at,
@@ -141,6 +142,7 @@ export const updateUserInfo = async ({
       .update({
         slack_id: profile.slack_id,
         class: profile.class,
+        team: profile.team,
         updated_at: new Date().toISOString(),
       })
       .eq("id", profile.id)
@@ -206,6 +208,46 @@ export const getUserMatterInfoList = async () => {
 
   if (matterError) {
     console.error("案件情報の取得に失敗しました:", matterError);
+    return null;
+  }
+
+  return matterList;
+};
+
+export const getTeamMatterInfoList = async () => {
+  const supabase = createServerComponentClient<Database>({ cookies });
+
+  const { profileInfo, error } = await getProfileInfo();
+  if (error || !profileInfo) {
+    console.error("profiles情報の取得処理で失敗しました。", error);
+    return null;
+  }
+
+  if (
+    !["teamleader", "admin"].includes(profileInfo.class!) ||
+    !profileInfo.team
+  ) {
+    return null;
+  }
+
+  const { data: matterList, error: matterError } = await supabase
+    .from("matters")
+    .select(
+      `
+      *,
+      profiles!matters_user_id_fkey (
+        name,
+        slack_id
+      )
+    `
+    )
+    .eq("team", profileInfo.team)
+    .order("is_completed", { ascending: true })
+    .order("is_fixed", { ascending: false })
+    .order("id", { ascending: true });
+
+  if (matterError) {
+    console.error("チーム案件情報の取得に失敗しました:", matterError);
     return null;
   }
 
