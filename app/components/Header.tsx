@@ -41,8 +41,10 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
         // セッションがある場合は、getUser()で再検証
-        const { data: { user: validatedUser } } = await supabase.auth.getUser();
-        
+        const {
+          data: { user: validatedUser },
+        } = await supabase.auth.getUser();
+
         if (validatedUser) {
           setUser(validatedUser);
 
@@ -53,7 +55,10 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
               setProfile(profileInfo);
               setProfileCache((prev) => ({
                 ...prev,
-                [validatedUser.id]: { data: profileInfo, timestamp: Date.now() },
+                [validatedUser.id]: {
+                  data: profileInfo,
+                  timestamp: Date.now(),
+                },
               }));
             }
           } else {
@@ -99,6 +104,14 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
           >
             新規作成
           </Link>
+          {(profile?.class === "teamleader" || profile?.class === "admin") && (
+            <Link
+              href="/team"
+              className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
+            >
+              チーム案件一覧
+            </Link>
+          )}
           {(profile?.class === "accounting" || profile?.class === "admin") && (
             <Link
               href="/accounting"

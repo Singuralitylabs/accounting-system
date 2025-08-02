@@ -18,6 +18,7 @@ export async function middleware(req: NextRequest) {
       pathname === "/" ||
       pathname.startsWith("/dashboard") ||
       pathname.startsWith("/accounting") ||
+      pathname.startsWith("/team") ||
       pathname.startsWith("/new");
 
     const isAuthRoute =
@@ -46,6 +47,21 @@ export async function middleware(req: NextRequest) {
         if (
           !profileInfo?.class ||
           (profileInfo.class !== "accounting" && profileInfo.class !== "admin")
+        ) {
+          return NextResponse.redirect(new URL("/", req.url));
+        }
+      } catch (error) {
+        console.error("Profile fetch error:", error);
+        return NextResponse.redirect(new URL("/", req.url));
+      }
+    }
+
+    if (user && pathname === "/team") {
+      try {
+        const { profileInfo } = await getProfileInfo();
+        if (
+          !profileInfo?.class ||
+          !["teamleader", "admin"].includes(profileInfo.class)
         ) {
           return NextResponse.redirect(new URL("/", req.url));
         }

@@ -41,6 +41,14 @@ create policy "costs_select_policy" on costs
             select 1 from profiles 
             where profiles.user_id = auth.uid()::uuid
             and profiles.class in ('admin', 'accounting')
+        ) OR
+        exists (
+            select 1 from matters
+            join profiles on profiles.user_id = auth.uid()::uuid
+            where matters.id = costs.matter_id
+            and profiles.class = 'teamleader'
+            and profiles.team is not null
+            and profiles.team = matters.team
         )
     );
 

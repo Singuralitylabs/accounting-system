@@ -200,6 +200,7 @@ export type Database = {
           inserted_at: string;
           name: string;
           slack_id: string | null;
+          team: string | null;
           updated_at: string;
           user_id: string;
         };
@@ -210,6 +211,7 @@ export type Database = {
           inserted_at?: string;
           name: string;
           slack_id?: string | null;
+          team?: string | null;
           updated_at?: string;
           user_id: string;
         };
@@ -220,6 +222,7 @@ export type Database = {
           inserted_at?: string;
           name?: string;
           slack_id?: string | null;
+          team?: string | null;
           updated_at?: string;
           user_id?: string;
         };
