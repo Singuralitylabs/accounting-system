@@ -1,7 +1,7 @@
 "use client";
 
 import { SimpleGrid, Table } from "@mantine/core";
-import { useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { MatterType } from "../types/types";
 import { MatterCardDetailModal } from "./modal/MatterCardDetail";
 import { useRouter } from "next/navigation";
@@ -44,27 +44,27 @@ export function MatterCardList({ matterList }: { matterList: MatterType[] }) {
     setIsMobileView(width < MD_BREAKPOINT);
   }, [width]);
 
-  const refreshData = () => {
+  const refreshData = useCallback(() => {
     startTransition(() => {
       router.refresh();
     });
-  };
+  }, [router]);
 
-  const handleModalClose = () => {
+  const handleModalClose = useCallback(() => {
     setOpened(false);
     refreshData();
-  };
+  }, [refreshData]);
 
   if (!Array.isArray(matterList)) {
     return null;
   }
 
-  const handleOpenCard = (matter: MatterType) => {
+  const handleOpenCard = useCallback((matter: MatterType) => {
     setMatterInfo(matter);
     setOpened(true);
-  };
+  }, []);
 
-  const handleCopyCard = (matter: MatterType) => {
+  const handleCopyCard = useCallback((matter: MatterType) => {
     setIsNew(true);
     setMatterInfo({
       ...matter,
@@ -75,14 +75,14 @@ export function MatterCardList({ matterList }: { matterList: MatterType[] }) {
       accounting_memo: "",
     });
     setOpened(true);
-  };
+  }, []);
 
-  const handleDeleteCard = async (matter: MatterType) => {
+  const handleDeleteCard = useCallback(async (matter: MatterType) => {
     await deleteMatter(matter);
     refreshData();
-  };
+  }, [refreshData]);
 
-  const tableHeads = (
+  const tableHeads = useMemo(() => (
     <Table.Tr key={itemListInUserMatter[0]}>
       {itemListInUserMatter.map((item, index) => (
         <Table.Th key={index} className="whitespace-nowrap px-4 text-center">
@@ -92,41 +92,42 @@ export function MatterCardList({ matterList }: { matterList: MatterType[] }) {
       <Table.Th></Table.Th>
       <Table.Th></Table.Th>
     </Table.Tr>
-  );
+  ), []);
 
-  const tableInfoList = matterList?.map((matter) => (
-    <Table.Tr
-      key={matter.id}
-      bg={
-        matter.is_completed
-          ? "var(--mantine-color-green-light)"
-          : matter.is_fixed
-          ? "var(--mantine-color-red-light)"
-          : "var(--mantine-color-blue-light)"
-      }
-    >
-      <TableInfo
+  const tableInfoList = useMemo(() => 
+    matterList?.map((matter) => (
+      <Table.Tr
         key={matter.id}
-        matter={matter}
-        itemList={itemListInUserMatter}
-      />
-      <Table.Td className="whitespace-nowrap px-4">
-        <button
-          onClick={() => handleOpenCard(matter)}
-          className="bg-blue-500 hover:bg-blue-700 px-2 rounded text-white w-full"
-        >
-          開く
-        </button>
-      </Table.Td>
-      <Table.Td className="flex justify-end">
-        <ThreedotsMenu
+        bg={
+          matter.is_completed
+            ? "var(--mantine-color-green-light)"
+            : matter.is_fixed
+            ? "var(--mantine-color-red-light)"
+            : "var(--mantine-color-blue-light)"
+        }
+      >
+        <TableInfo
+          key={matter.id}
           matter={matter}
-          onCopy={handleCopyCard}
-          onDelete={handleDeleteCard}
+          itemList={itemListInUserMatter}
         />
-      </Table.Td>
-    </Table.Tr>
-  ));
+        <Table.Td className="whitespace-nowrap px-4">
+          <button
+            onClick={() => handleOpenCard(matter)}
+            className="bg-blue-500 hover:bg-blue-700 px-2 rounded text-white w-full"
+          >
+            開く
+          </button>
+        </Table.Td>
+        <Table.Td className="flex justify-end">
+          <ThreedotsMenu
+            matter={matter}
+            onCopy={handleCopyCard}
+            onDelete={handleDeleteCard}
+          />
+        </Table.Td>
+      </Table.Tr>
+    )), [matterList, handleOpenCard, handleCopyCard, handleDeleteCard]);
 
   return (
     <div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { Button, SimpleGrid, Table } from "@mantine/core";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { MatterInfoWithUserNameType } from "../types/types";
 import { MatterCardDetailModalForAccounting } from "./modal/MatterCardDetailForAccounting";
 import { NotificationMessage } from "./modal/NotificationMessage";
@@ -38,20 +38,20 @@ export const AccountingMatterList = ({
 
   const router = useRouter();
 
-  const handleShowMatterInfo = (matter: MatterInfoWithUserNameType) => {
+  const handleShowMatterInfo = useCallback((matter: MatterInfoWithUserNameType) => {
     setDetailMatterInfo(matter);
     setDetailOpened(true);
-  };
+  }, []);
 
-  const handleCheckCard = (id: number) => {
+  const handleCheckCard = useCallback((id: number) => {
     setCheckedMatterIdList(
       checkedMatterIdList.includes(id)
         ? checkedMatterIdList.filter((matterId) => matterId !== id)
         : [...checkedMatterIdList, id]
     );
-  };
+  }, [checkedMatterIdList]);
 
-  const handleCheckCompleted = async () => {
+  const handleCheckCompleted = useCallback(async () => {
     const checkedMatterList = matterList?.filter((matter) =>
       checkedMatterIdList.includes(matter.id)
     );
@@ -60,9 +60,9 @@ export const AccountingMatterList = ({
     }
     setCheckedMatterIdList([]);
     router.refresh();
-  };
+  }, [matterList, checkedMatterIdList, router]);
 
-  const handleSendMessage = async (message: string) => {
+  const handleSendMessage = useCallback(async (message: string) => {
     if (checkedMatterIdList.length === 0) {
       alert("送信対象となる案件にチェックを入れてください。");
       return;
@@ -100,15 +100,16 @@ export const AccountingMatterList = ({
     setNotificationOpened(false);
     setCheckedMatterIdList([]);
     router.refresh();
-  };
+  }, [checkedMatterIdList, matterList, router]);
 
-  const filteredMatterList = matterList?.filter((matter) => {
-    return Object.entries(filters).every(([key, values]) => {
-      if (values.size === 0) return true;
-      const value = matter[key as keyof MatterInfoWithUserNameType];
-      return value && values.has(value.toString());
-    });
-  });
+  const filteredMatterList = useMemo(() => 
+    matterList?.filter((matter) => {
+      return Object.entries(filters).every(([key, values]) => {
+        if (values.size === 0) return true;
+        const value = matter[key as keyof MatterInfoWithUserNameType];
+        return value && values.has(value.toString());
+      });
+    }), [matterList, filters]);
 
   return (
     <div className="my-4">
