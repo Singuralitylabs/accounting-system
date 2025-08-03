@@ -633,3 +633,204 @@ export const updateSelectOption = async (
 
   return true;
 };
+
+// バルク操作関数
+
+export const bulkUpsertCostInfo = async (
+  costs: Array<{
+    id?: number;
+    name: string;
+    item: string;
+    payment_target: string;
+    price: number;
+    period: string | null;
+    certificate: string;
+    withholding: boolean;
+    matter_id: number;
+    comment: string | null;
+    is_completed?: boolean;
+    isNew?: boolean;
+    isRemoved?: boolean;
+  }>,
+  matterId: number
+) => {
+  const supabase = createServerComponentClient<Database>({ cookies });
+  
+  // 新規作成用
+  const newCosts = costs.filter(c => c.isNew && !c.isRemoved);
+  // 更新用  
+  const updateCosts = costs.filter(c => !c.isNew && !c.isRemoved);
+  // 削除用
+  const deleteCosts = costs.filter(c => c.isRemoved && !c.isNew);
+  
+  const operations = [];
+  
+  // バルクINSERT
+  if (newCosts.length > 0) {
+    const insertData = newCosts.map(cost => ({
+      name: cost.name,
+      item: cost.item,
+      payment_target: cost.payment_target,
+      price: cost.price,
+      period: cost.period === "" ? null : cost.period,
+      certificate: cost.certificate,
+      withholding: cost.withholding,
+      matter_id: matterId,
+      comment: cost.comment ?? "",
+      is_completed: false
+    }));
+    
+    operations.push(
+      supabase.from("costs").insert(insertData)
+    );
+  }
+  
+  // バルクUPDATE
+  if (updateCosts.length > 0) {
+    const updatePromises = updateCosts.map(cost => {
+      if (!cost.id) {
+        throw new Error('更新対象のコストIDが見つかりません');
+      }
+      
+      const formattedPeriod = cost.period
+        ? new Date(cost.period).toISOString().split("T")[0]
+        : null;
+        
+      return supabase
+        .from("costs")
+        .update({
+          name: cost.name,
+          item: cost.item,
+          payment_target: cost.payment_target,
+          price: cost.price,
+          period: formattedPeriod,
+          certificate: cost.certificate,
+          withholding: cost.withholding,
+          matter_id: matterId,
+          comment: cost.comment ?? "",
+          is_completed: cost.is_completed ?? false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", cost.id);
+    });
+    operations.push(...updatePromises);
+  }
+  
+  // バルクDELETE
+  if (deleteCosts.length > 0) {
+    const deleteIds = deleteCosts.map(c => c.id).filter(id => id !== undefined);
+    if (deleteIds.length > 0) {
+      operations.push(
+        supabase.from("costs").delete().in('id', deleteIds)
+      );
+    }
+  }
+  
+  // 全て並列実行
+  if (operations.length > 0) {
+    const results = await Promise.all(operations);
+    const errors = results.filter(result => result.error).map(result => result.error);
+    
+    if (errors.length > 0) {
+      console.error('コスト情報のバルク操作でエラーが発生しました:', errors);
+      throw new Error('コスト情報の更新に失敗しました');
+    }
+  }
+  
+  return true;
+};
+
+export const bulkUpsertBusinessInfo = async (
+  businesses: Array<{
+    id?: number;
+    name: string;
+    amount: number | null;
+    invoice_date: string | null;
+    period_date: string | null;
+    matter_id: number;
+    is_completed?: boolean;
+    isNew?: boolean;
+    isRemoved?: boolean;
+  }>,
+  matterId: number
+) => {
+  const supabase = createServerComponentClient<Database>({ cookies });
+  
+  // 新規作成用
+  const newBusinesses = businesses.filter(b => b.isNew && !b.isRemoved);
+  // 更新用  
+  const updateBusinesses = businesses.filter(b => !b.isNew && !b.isRemoved);
+  // 削除用
+  const deleteBusinesses = businesses.filter(b => b.isRemoved && !b.isNew);
+  
+  const operations = [];
+  
+  // バルクINSERT
+  if (newBusinesses.length > 0) {
+    const insertData = newBusinesses.map(business => ({
+      name: business.name,
+      amount: business.amount!,
+      invoice_date: business.invoice_date!,
+      period_date: business.period_date!,
+      matter_id: matterId,
+      is_completed: false
+    }));
+    
+    operations.push(
+      supabase.from("business").insert(insertData)
+    );
+  }
+  
+  // バルクUPDATE
+  if (updateBusinesses.length > 0) {
+    const updatePromises = updateBusinesses.map(business => {
+      if (!business.id) {
+        throw new Error('更新対象のビジネスIDが見つかりません');
+      }
+      
+      const formattedInvoice = business.invoice_date
+        ? new Date(business.invoice_date).toISOString().split("T")[0]
+        : null;
+      const formattedPeriod = business.period_date
+        ? new Date(business.period_date).toISOString().split("T")[0]
+        : null;
+        
+      return supabase
+        .from("business")
+        .update({
+          name: business.name,
+          amount: business.amount!,
+          invoice_date: formattedInvoice,
+          period_date: formattedPeriod,
+          matter_id: matterId,
+          is_completed: business.is_completed ?? false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", business.id);
+    });
+    operations.push(...updatePromises);
+  }
+  
+  // バルクDELETE
+  if (deleteBusinesses.length > 0) {
+    const deleteIds = deleteBusinesses.map(b => b.id).filter(id => id !== undefined);
+    if (deleteIds.length > 0) {
+      operations.push(
+        supabase.from("business").delete().in('id', deleteIds)
+      );
+    }
+  }
+  
+  // 全て並列実行
+  if (operations.length > 0) {
+    const results = await Promise.all(operations);
+    const errors = results.filter(result => result.error).map(result => result.error);
+    
+    if (errors.length > 0) {
+      console.error('ビジネス情報のバルク操作でエラーが発生しました:', errors);
+      throw new Error('ビジネス情報の更新に失敗しました');
+    }
+  }
+  
+  return true;
+};
