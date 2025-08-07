@@ -19,6 +19,7 @@ import CostBlockForAccounting from "../CostBlockForAccounting";
 import {
   useMatterDetail,
   useRevertToFixed,
+  useRevertToDraft,
   useCheckCompletedSingle,
   useSaveAccountingMemo,
 } from "@/app/hooks/useMatterData";
@@ -45,14 +46,21 @@ export const MatterCardDetailModalForAccounting = ({
     opened
   );
   const revertToFixedMutation = useRevertToFixed();
+  const revertToDraftMutation = useRevertToDraft();
   const checkCompletedSingleMutation = useCheckCompletedSingle();
   const saveAccountingMemoMutation = useSaveAccountingMemo();
 
   // データマッピング用の共通関数
-  const updateStateFromData = (responseData: { costs: CostType[], businesses: BusinessType[] } | undefined) => {
+  const updateStateFromData = (
+    responseData: { costs: CostType[]; businesses: BusinessType[] } | undefined
+  ) => {
     if (responseData) {
       setCostList(
-        responseData.costs.map((cost) => ({ ...cost, isNew: false, isRemoved: false }))
+        responseData.costs.map((cost) => ({
+          ...cost,
+          isNew: false,
+          isRemoved: false,
+        }))
       );
       setBusinessList(
         responseData.businesses.map((business) => ({
@@ -148,6 +156,26 @@ export const MatterCardDetailModalForAccounting = ({
     }
   };
 
+  const handleBackToDraft = async () => {
+    const isRevert = window.confirm(`下書きに戻しますか？`);
+
+    if (!isRevert) {
+      return;
+    }
+
+    try {
+      await revertToDraftMutation.mutateAsync({
+        matterInfo,
+        accountingMemo: accountingMemo || undefined,
+        clearHasUpdates: false,
+      });
+      closeModal();
+    } catch (error) {
+      console.error("下書きに戻すのに失敗しました:", error);
+      alert("下書きに戻すのに失敗しました。");
+    }
+  };
+
   if (error) {
     return (
       <Modal opened={opened} onClose={closeModal} title="エラー">
@@ -167,6 +195,7 @@ export const MatterCardDetailModalForAccounting = ({
         visible={
           isLoading ||
           revertToFixedMutation.isPending ||
+          revertToDraftMutation.isPending ||
           checkCompletedSingleMutation.isPending ||
           saveAccountingMemoMutation.isPending
         }
@@ -246,20 +275,23 @@ export const MatterCardDetailModalForAccounting = ({
       <div className="my-4">
         {!matterInfo.is_completed ? (
           <div className="flex gap-2">
-            <Button fullWidth color="blue" onClick={handleSaveMatterInfo}>
+            <Button fullWidth color="indigo" onClick={handleSaveMatterInfo}>
               保存
             </Button>
-            <Button fullWidth color="green" onClick={handleCheckCompleted}>
-              確認完了
-            </Button>
+            {matterInfo.is_fixed && (
+              <Button fullWidth color="blue" onClick={handleBackToDraft}>
+                下書きに戻す
+              </Button>
+            )}
+            {matterInfo.is_fixed && (
+              <Button fullWidth color="green" onClick={handleCheckCompleted}>
+                確認完了
+              </Button>
+            )}
           </div>
         ) : (
-          <Button
-            fullWidth
-            color="red"
-            onClick={handleBackToFixedMatter}
-          >
-            申請中に戻す
+          <Button fullWidth color="red" onClick={handleBackToFixedMatter}>
+            経理申請中に戻す
           </Button>
         )}
       </div>
