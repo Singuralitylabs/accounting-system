@@ -443,3 +443,54 @@ export const useRevertToFixed = () => {
     }
   });
 };
+
+// 下書きに戻す処理
+export const useRevertToDraft = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (data: {
+      matterInfo: MatterInfoWithUserNameType,
+      accountingMemo?: string,
+      clearHasUpdates?: boolean
+    }) => {
+      const { updateMatterInfo } = await import('../utils/supabase/supabaseServer');
+      
+      const matterToUpdate: MatterType = {
+        id: data.matterInfo.id,
+        title: data.matterInfo.title,
+        category: data.matterInfo.category,
+        team: data.matterInfo.team,
+        start_date: data.matterInfo.start_date,
+        description: data.matterInfo.description,
+        total_amount: data.matterInfo.total_amount,
+        business_count: data.matterInfo.business_count,
+        total_cost: data.matterInfo.total_cost,
+        cost_count: data.matterInfo.cost_count,
+        unchecked_cost_count: data.matterInfo.unchecked_cost_count,
+        is_fixed: false, // 下書きに戻す
+        is_completed: false, // 確認完了を取り消し
+        has_updates: data.clearHasUpdates ? false : data.matterInfo.has_updates,
+        user_id: data.matterInfo.user_id,
+        accounting_memo: data.accountingMemo || data.matterInfo.accounting_memo,
+        inserted_at: data.matterInfo.inserted_at,
+        updated_at: data.matterInfo.updated_at,
+      };
+      
+      const result = await updateMatterInfo(matterToUpdate);
+      
+      if (result.error) {
+        throw new Error(`データベース更新に失敗しました: ${result.error.message}`);
+      }
+      
+      return result;
+    },
+    onSuccess: () => {
+      // 全ての案件一覧を無効化
+      queryClient.invalidateQueries({ queryKey: ['matters'] });
+    },
+    onError: (error) => {
+      console.error('下書きに戻すエラー:', error);
+    }
+  });
+};
