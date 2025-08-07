@@ -3,20 +3,19 @@ import {
   CostInCardType,
   MatterType,
 } from "@/app/types/types";
-import {
-  getUserBusinessInfoList,
-  getUserCostInfoList,
-} from "@/app/utils/supabase/supabaseServer";
 import { Modal, Button, Group, Badge, LoadingOverlay } from "@mantine/core";
 import { useForm } from "@mantine/form";
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { CiSquarePlus } from "react-icons/ci";
 import BusinessBlock from "../BusinessBlock";
 import CostBlock from "../CostBlock";
 import MatterInfoBlock from "../MatterInfoBlock";
-import deleteMatter from "@/app/utils/supabase/deleteMatter";
-import addMatterInfo from "@/app/utils/supabase/addMatterInfo";
-import editMatterInfo from "@/app/utils/supabase/editMatterInfo";
+import { 
+  useMatterDetail, 
+  useUpdateMatter, 
+  useCreateMatter,
+  useDeleteMatter
+} from "@/app/hooks/useMatterData";
 
 type Props = {
   matterInfo: MatterType;
@@ -41,58 +40,31 @@ export const MatterCardDetailModal = ({
   isNew,
   setIsNew,
 }: Props) => {
-  const [costInfoInCardList, setCostInfoInCardList] = useState<
-    CostInCardType[]
-  >([]);
-  const [businessInfoInCardList, setBusinessInfoInCardList] = useState<
-    BusinessInCardType[]
-  >([]);
-  const [isLoading, setIsLoading] = useState(false);
+  // React Queryを使用してデータ取得
+  const { data, isLoading, error } = useMatterDetail(matterInfo.id, opened && !isNew);
+  const updateMatterMutation = useUpdateMatter();
+  const createMatterMutation = useCreateMatter();
+  const deleteMatterMutation = useDeleteMatter();
 
+  // React Queryから取得したデータを使用、新規作成時は空配列
+  const [costInfoInCardList, setCostInfoInCardList] = useState<CostInCardType[]>([]);
+  const [businessInfoInCardList, setBusinessInfoInCardList] = useState<BusinessInCardType[]>([]);
+
+  // データが取得できた場合にstateを更新
   useEffect(() => {
-    if (opened) {
-      const getCostInfo = async () => {
-        const { costInfoList, error } = await getUserCostInfoList(
-          matterInfo.id
-        );
-
-        if (error) {
-          console.error("Error fetching costInfoList:", error);
-          return <div>コスト情報の取得に失敗しました。</div>;
-        }
-        if (costInfoList) {
-          setCostInfoInCardList(
-            costInfoList.map((costInfo) => ({
-              ...costInfo,
-              isNew: false,
-              isRemoved: false,
-            }))
-          );
-        }
-      };
-      getCostInfo();
-      const getBusinessInfo = async () => {
-        const { businessInfoList, error } = await getUserBusinessInfoList(
-          matterInfo.id
-        );
-
-        if (error) {
-          console.error("Error fetching businessInfoList:", error);
-          return <div>取引先情報の取得に失敗しました。</div>;
-        }
-        if (businessInfoList) {
-          setBusinessInfoInCardList(
-            businessInfoList.map((businessInfo) => ({
-              ...businessInfo,
-              isNew: false,
-              isRemoved: false,
-            }))
-          );
-        }
-      };
-      getBusinessInfo();
+    if (data && !isNew) {
+      setCostInfoInCardList(data.costs);
+      setBusinessInfoInCardList(data.businesses);
+    } else if (isNew) {
+      setCostInfoInCardList([]);
+      setBusinessInfoInCardList([]);
     }
-  }, [opened, matterInfo.id]);
+  }, [data, isNew]);
+
+  // エラーハンドリング
+  if (error && !isNew) {
+    console.error("Error fetching matter details:", error);
+  }
 
   const form = useForm<MatterType>({
     initialValues: {
@@ -107,7 +79,6 @@ export const MatterCardDetailModal = ({
   };
 
   const handleAddMatterInfo = async (isFixed: boolean) => {
-    setIsLoading(true);
     const matterInfo: MatterType = {
       id: 0,
       title: form.getValues().title,
@@ -128,20 +99,24 @@ export const MatterCardDetailModal = ({
       inserted_at: "",
       updated_at: "",
     };
-    const ret = await addMatterInfo(
-      matterInfo,
-      businessInfoInCardList.filter((businessInfo) => !businessInfo.isRemoved),
-      costInfoInCardList.filter((costInfo) => !costInfo.isRemoved)
-    );
-    setIsLoading(false);
-    if (ret) {
+    
+    try {
+      await createMatterMutation.mutateAsync({
+        matterInfo,
+        businessInfoList: businessInfoInCardList.filter((businessInfo) => !businessInfo.isRemoved),
+        costInfoList: costInfoInCardList.filter((costInfo) => !costInfo.isRemoved)
+      });
       form.reset();
       closeModal();
+    } catch (error) {
+      console.error('案件作成に失敗しました:', error);
     }
   };
 
   const handleUpdateMatterInfo = async (isFixed: boolean) => {
-    setIsLoading(true);
+    // 経理申請後の更新かどうかを判定
+    const isPostSubmissionUpdate = matterInfo.is_fixed && isFixed;
+    
     const updatedMatterInfo: MatterType = {
       ...matterInfo,
       title: form.values.title,
@@ -150,26 +125,28 @@ export const MatterCardDetailModal = ({
       start_date: form.values.start_date,
       description: form.values.description,
       is_fixed: isFixed,
+      has_updates: isPostSubmissionUpdate ? true : matterInfo.has_updates, // 経理申請後の更新ならtrue
     };
 
-    const ret = await editMatterInfo(
-      updatedMatterInfo,
-      businessInfoInCardList,
-      costInfoInCardList,
-      matterInfo.is_fixed || false
-    );
-    setIsLoading(false);
-
-    if (ret) {
+    try {
+      await updateMatterMutation.mutateAsync({
+        matterInfo: updatedMatterInfo,
+        businessInfoList: businessInfoInCardList,
+        costInfoList: costInfoInCardList
+      });
       closeModal();
+    } catch (error) {
+      console.error('案件更新に失敗しました:', error);
     }
   };
 
   const handleDeleteMatterInfo = async () => {
-    setIsLoading(true);
-    await deleteMatter(matterInfo);
-    setIsLoading(false);
-    closeModal();
+    try {
+      await deleteMatterMutation.mutateAsync(matterInfo);
+      closeModal();
+    } catch (error) {
+      console.error('案件削除に失敗しました:', error);
+    }
   };
 
   const handleAddCost = () => {
@@ -253,7 +230,7 @@ export const MatterCardDetailModal = ({
           handleUpdateMatterInfo(matterInfo.is_fixed || false)
         )}
       >
-        <LoadingOverlay visible={isLoading} />
+        <LoadingOverlay visible={isLoading || updateMatterMutation.isPending || createMatterMutation.isPending || deleteMatterMutation.isPending} />
         <div className="flex justify-end">
           {isNew ? (
             <Badge color="pink">新規作成</Badge>
@@ -394,7 +371,7 @@ export const MatterCardDetailModal = ({
                   type="submit"
                   color={matterInfo.is_fixed ? "red" : undefined}
                 >
-                  {matterInfo.is_fixed ? "経理申請後の更新" : "更新"}
+                  更新
                 </Button>
                 {!matterInfo.is_fixed && (
                   <Button

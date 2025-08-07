@@ -4,12 +4,8 @@ import {
   MatterType,
 } from "../../types/types";
 import {
-  deleteBusinessInfo,
-  deleteCostInfo,
-  insertBusinessInfo,
-  insertCostInfo,
-  updateBusinessInfo,
-  updateCostInfo,
+  bulkUpsertBusinessInfo,
+  bulkUpsertCostInfo,
   updateMatterInfo,
 } from "./supabaseServer";
 
@@ -36,63 +32,14 @@ export const updateMatter = async (
     (cost) => !cost.isRemoved && (!cost.is_completed || cost.isNew)
   ).length;
 
+  // まず matter 情報を更新
   await updateMatterInfo(matterInfo);
 
-  for (const costInfo of costInfoList) {
-    if (costInfo.isNew && !costInfo.isRemoved) {
-      await insertCostInfo(
-        costInfo.name,
-        costInfo.item,
-        costInfo.payment_target,
-        costInfo.price,
-        costInfo.period ?? "",
-        costInfo.certificate,
-        costInfo.withholding,
-        costInfo.matter_id,
-        costInfo.comment ?? ""
-      );
-    } else if (costInfo.isRemoved && !costInfo.isNew) {
-      await deleteCostInfo(costInfo.id);
-    } else if (!costInfo.isNew && !costInfo.isRemoved) {
-      await updateCostInfo(
-        costInfo.id,
-        costInfo.name,
-        costInfo.item,
-        costInfo.payment_target,
-        costInfo.price,
-        costInfo.period ?? "",
-        costInfo.certificate,
-        costInfo.withholding,
-        costInfo.matter_id,
-        costInfo.comment ?? "",
-        costInfo.is_completed
-      );
-    }
-  }
-
-  for (const businessInfo of businessInfoList) {
-    if (businessInfo.isNew && !businessInfo.isRemoved) {
-      await insertBusinessInfo(
-        businessInfo.name,
-        businessInfo.amount!,
-        businessInfo.invoice_date!,
-        businessInfo.period_date!,
-        matterInfo.id
-      );
-    } else if (businessInfo.isRemoved && !businessInfo.isNew) {
-      await deleteBusinessInfo(businessInfo.id);
-    } else if (!businessInfo.isNew && !businessInfo.isRemoved) {
-      await updateBusinessInfo(
-        businessInfo.id,
-        businessInfo.name,
-        businessInfo.amount!,
-        businessInfo.invoice_date!,
-        businessInfo.period_date!,
-        matterInfo.id,
-        businessInfo.is_completed
-      );
-    }
-  }
+  // コストとビジネス情報をバルク操作で並列実行
+  await Promise.all([
+    bulkUpsertCostInfo(costInfoList, matterInfo.id),
+    bulkUpsertBusinessInfo(businessInfoList, matterInfo.id)
+  ]);
   return true;
 };
 

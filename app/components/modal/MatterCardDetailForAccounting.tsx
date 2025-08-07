@@ -4,11 +4,6 @@ import {
   MatterInfoWithUserNameType,
 } from "@/app/types/types";
 import {
-  getUserBusinessInfoList,
-  getUserCostInfoList,
-  updateMatterInfo,
-} from "@/app/utils/supabase/supabaseServer";
-import {
   Modal,
   Badge,
   Grid,
@@ -17,12 +12,16 @@ import {
   LoadingOverlay,
   Checkbox,
 } from "@mantine/core";
-import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState } from "react";
 import LabelText from "../LabelText";
 import BusinessBlockForAccounting from "../BusinessBlockForAccounting";
 import CostBlockForAccounting from "../CostBlockForAccounting";
-import { updateMatter } from "@/app/utils/supabase/editMatterInfo";
+import {
+  useMatterDetail,
+  useRevertToFixed,
+  useCheckCompletedSingle,
+  useSaveAccountingMemo,
+} from "@/app/hooks/useMatterData";
 
 type Props = {
   matterInfo: MatterInfoWithUserNameType;
@@ -39,109 +38,123 @@ export const MatterCardDetailModalForAccounting = ({
   const [businessList, setBusinessList] = useState<BusinessType[]>([]);
   const [checkhasUpdates, setCheckhasUpdates] = useState<boolean>(false);
   const [accountingMemo, setAccountingMemo] = useState<string | null>("");
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const router = useRouter();
-  const [_, startTransition] = useTransition();
 
-  useEffect(() => {
-    if (opened) {
-      const getBusinessInfo = async () => {
-        const { businessInfoList, error } = await getUserBusinessInfoList(
-          matterInfo.id
-        );
+  // React Queryを使用してデータ取得
+  const { data, isLoading, error, refetch } = useMatterDetail(
+    matterInfo.id,
+    opened
+  );
+  const revertToFixedMutation = useRevertToFixed();
+  const checkCompletedSingleMutation = useCheckCompletedSingle();
+  const saveAccountingMemoMutation = useSaveAccountingMemo();
 
-        if (error) {
-          console.error("Error fetching businessInfoList:", error);
-          return <div>取引先情報の取得に失敗しました。</div>;
-        }
-        if (businessInfoList) {
-          setBusinessList(businessInfoList);
-        }
-      };
-      getBusinessInfo();
-
-      const getCostInfo = async () => {
-        const { costInfoList, error } = await getUserCostInfoList(
-          matterInfo.id
-        );
-
-        if (error) {
-          console.error("Error fetching costInfoList:", error);
-          return <div>コスト情報の取得に失敗しました。</div>;
-        }
-        if (costInfoList) {
-          setCostList(costInfoList);
-        }
-      };
-      getCostInfo();
-    }
-  }, [opened, matterInfo.id]);
-
-  const closeModal = () => {
-    refreshData();
-    setOpened(false);
-  };
-
-  const refreshData = () => {
-    startTransition(() => {
-      router.refresh();
-    });
-  };
-
-  const handleCheckMatterInfo = async () => {
-    const isUpdated = window.confirm(`保存しますか？`);
-    if (!isUpdated) {
-      alert("保存処理を中止しました。");
-      return;
-    }
-
-    try {
-      setIsLoading(true);
-      let { user_name, slack_id, ...updatedMatter } = matterInfo;
-      updatedMatter.accounting_memo = accountingMemo;
-      updatedMatter.has_updates = !checkhasUpdates;
-
-      await updateMatter(
-        updatedMatter,
-        businessList.map((business) => ({
+  // データマッピング用の共通関数
+  const updateStateFromData = (responseData: { costs: CostType[], businesses: BusinessType[] } | undefined) => {
+    if (responseData) {
+      setCostList(
+        responseData.costs.map((cost) => ({ ...cost, isNew: false, isRemoved: false }))
+      );
+      setBusinessList(
+        responseData.businesses.map((business) => ({
           ...business,
           isNew: false,
           isRemoved: false,
-        })),
-        costList.map((cost) => ({ ...cost, isNew: false, isRemoved: false }))
+        }))
       );
-
-      setIsLoading(false);
-      closeModal();
-    } catch (err) {
-      console.error("Error updating matterInfo:", err);
-      alert("保存処理に失敗しました。");
-      return;
     }
   };
 
-  const handleRevertMatterInfo = async () => {
-    const isReverted = window.confirm(`経理申請中に戻しますか？`);
-    if (!isReverted) {
-      alert("経理申請中に戻す処理を中止しました。");
+  // データが取得できた場合にstateを更新
+  useEffect(() => {
+    updateStateFromData(data);
+  }, [data]);
+
+  // 初期値設定
+  useEffect(() => {
+    setCheckhasUpdates(matterInfo.has_updates || false);
+    setAccountingMemo(matterInfo.accounting_memo || "");
+  }, [matterInfo.has_updates, matterInfo.accounting_memo]);
+
+  const closeModal = () => {
+    setOpened(false);
+  };
+
+  const handleSaveMatterInfo = async () => {
+    const isUpdated = window.confirm(`保存しますか？`);
+
+    if (!isUpdated) {
       return;
     }
 
     try {
-      setIsLoading(true);
-      let { user_name, slack_id, ...updatedMatter } = matterInfo;
-      updatedMatter.is_completed = false;
+      await saveAccountingMemoMutation.mutateAsync({
+        matterInfo,
+        businessList,
+        costList,
+        accountingMemo: accountingMemo || undefined,
+        clearHasUpdates: checkhasUpdates,
+      });
 
-      await updateMatterInfo(updatedMatter);
-      alert(`${updatedMatter.title}を経理申請中に戻しました。`);
-      setIsLoading(false);
+      // データを再取得してstateを更新
+      const updatedData = await refetch();
+      updateStateFromData(updatedData.data);
+
       closeModal();
-    } catch (err) {
-      console.error("Error updating matterInfo:", err);
-      alert("経理申請中に戻す処理に失敗しました。");
-      return;
+    } catch (error) {
+      console.error("保存に失敗しました:", error);
+      alert("保存に失敗しました。");
     }
   };
+
+  const handleCheckCompleted = async () => {
+    const isCompleted = window.confirm(`確認完了しますか？`);
+
+    if (!isCompleted) {
+      return;
+    }
+
+    try {
+      await checkCompletedSingleMutation.mutateAsync({
+        matterInfo,
+        businessList,
+        costList,
+        accountingMemo: accountingMemo || undefined,
+        clearHasUpdates: checkhasUpdates,
+      });
+      closeModal();
+    } catch (error) {
+      console.error("確認完了に失敗しました:", error);
+      alert("確認完了に失敗しました。");
+    }
+  };
+
+  const handleBackToFixedMatter = async () => {
+    const isRevert = window.confirm(`申請中に戻しますか？`);
+
+    if (!isRevert) {
+      return;
+    }
+
+    try {
+      await revertToFixedMutation.mutateAsync({
+        matterInfo,
+        accountingMemo: accountingMemo || undefined,
+        clearHasUpdates: false,
+      });
+      closeModal();
+    } catch (error) {
+      console.error("申請中に戻すのに失敗しました:", error);
+      alert("申請中に戻すのに失敗しました。");
+    }
+  };
+
+  if (error) {
+    return (
+      <Modal opened={opened} onClose={closeModal} title="エラー">
+        <div>データの取得に失敗しました。</div>
+      </Modal>
+    );
+  }
 
   return (
     <Modal
@@ -150,101 +163,105 @@ export const MatterCardDetailModalForAccounting = ({
       title={matterInfo.title}
       size="100%"
     >
-      <div className="w-full">
-        <LoadingOverlay visible={isLoading} />
-        <div className="flex justify-end mb-1">
-          {matterInfo.is_completed ? (
-            <Badge color="green">経理確認完了</Badge>
-          ) : matterInfo.is_fixed ? (
-            <Badge color="red">経理確認待ち</Badge>
-          ) : (
-            <Badge color="blue">申請者編集中</Badge>
-          )}
-        </div>
-        <div className="flex justify-end items-center gap-2">
-          {matterInfo.has_updates && (
-            <>
-              <Checkbox
-                label="更新確認"
-                color="orange"
-                size="sm"
-                checked={checkhasUpdates}
-                onChange={(event) =>
-                  setCheckhasUpdates(event.currentTarget.checked)
-                }
-              />
-            </>
-          )}
-        </div>
-        <h2 className="my-4">基本情報</h2>
-        <div className="sm:flex gap-4 w-full my-4">
-          <LabelText label="担当者名">{matterInfo.user_name}</LabelText>
-          <LabelText label="分類">{matterInfo.category}</LabelText>
-          <LabelText label="チーム">{matterInfo.team}</LabelText>
-          <LabelText label="案件開始日" isDate>
-            {matterInfo.start_date}
-          </LabelText>
-        </div>
-        <div className="w-full my-4">
-          <LabelText label="説明">{matterInfo.description}</LabelText>
-        </div>
+      <LoadingOverlay
+        visible={
+          isLoading ||
+          revertToFixedMutation.isPending ||
+          checkCompletedSingleMutation.isPending ||
+          saveAccountingMemoMutation.isPending
+        }
+      />
+      <div className="flex justify-end">
+        {matterInfo.is_completed ? (
+          <Badge color="green">経理確認完了</Badge>
+        ) : matterInfo.is_fixed ? (
+          <Badge color="red">経理申請中</Badge>
+        ) : (
+          <Badge color="blue">下書き</Badge>
+        )}
+      </div>
+      <span className="text-red-700 text-sm">
+        ※記載の金額は、全て税抜となっております。
+      </span>
+      <h2 className="my-4">基本情報</h2>
+      <div className="sm:flex gap-4 w-full my-4">
+        <LabelText label="担当者名">{matterInfo.user_name}</LabelText>
+        <LabelText label="分類">{matterInfo.category}</LabelText>
+        <LabelText label="チーム">{matterInfo.team}</LabelText>
+        <LabelText label="案件開始日" isDate>
+          {matterInfo.start_date}
+        </LabelText>
+      </div>
+      <div className="w-full my-4">
+        <LabelText label="説明">{matterInfo.description}</LabelText>
+      </div>
 
-        {businessList.length > 0 ? <h2 className="my-4">取引先情報</h2> : ""}
-        <Grid gutter="md">
-          {businessList?.map((business) => (
-            <Grid.Col key={business.id} span={{ base: 12, md: 6, lg: 4 }}>
-              <BusinessBlockForAccounting
-                business={business}
-                businessList={businessList}
-                setBusinessList={setBusinessList}
-                isCompleted={matterInfo.is_completed!}
-              />
-            </Grid.Col>
-          ))}
-        </Grid>
-        {costList.length > 0 ? <h2 className="my-4">コスト情報</h2> : ""}
-        <Grid gutter="md">
-          {costList?.map((cost) => (
-            <Grid.Col key={cost.id} span={{ base: 12, md: 6, lg: 4 }}>
-              <CostBlockForAccounting
-                cost={cost}
-                costList={costList}
-                setCostList={setCostList}
-                isCompleted={matterInfo.is_completed!}
-              />
-            </Grid.Col>
-          ))}
-        </Grid>
-        <Textarea
-          label="経理メモ"
-          className="pt-4 w-full"
-          defaultValue={
-            matterInfo.accounting_memo ? matterInfo.accounting_memo : ""
-          }
-          disabled={matterInfo.is_completed!}
-          onChange={(event) => setAccountingMemo(event.currentTarget.value)}
-        />
-        <div className="my-4">
-          {!matterInfo.is_completed ? (
-            <Button
-              fullWidth
-              color="green"
-              className="w-full"
-              onClick={handleCheckMatterInfo}
-            >
+      {businessList.length > 0 ? <h2 className="my-4">取引先情報</h2> : ""}
+      <Grid gutter="md">
+        {businessList?.map((business) => (
+          <Grid.Col key={business.id} span={{ base: 12, md: 6, lg: 4 }}>
+            <BusinessBlockForAccounting
+              business={business}
+              businessList={businessList}
+              setBusinessList={setBusinessList}
+              isCompleted={matterInfo.is_completed!}
+            />
+          </Grid.Col>
+        ))}
+      </Grid>
+      {costList.length > 0 ? <h2 className="my-4">コスト情報</h2> : ""}
+      <Grid gutter="md">
+        {costList?.map((cost) => (
+          <Grid.Col key={cost.id} span={{ base: 12, md: 6, lg: 4 }}>
+            <CostBlockForAccounting
+              cost={cost}
+              costList={costList}
+              setCostList={setCostList}
+              isCompleted={matterInfo.is_completed!}
+            />
+          </Grid.Col>
+        ))}
+      </Grid>
+
+      <Textarea
+        label="経理メモ"
+        className="pt-4 w-full"
+        value={accountingMemo || ""}
+        disabled={matterInfo.is_completed!}
+        onChange={(event) => setAccountingMemo(event.currentTarget.value)}
+      />
+      <div className="flex justify-end items-center gap-2">
+        {matterInfo.has_updates && (
+          <Checkbox
+            label="更新確認"
+            color="orange"
+            size="sm"
+            checked={checkhasUpdates}
+            onChange={(event) =>
+              setCheckhasUpdates(event.currentTarget.checked)
+            }
+          />
+        )}
+      </div>
+      <div className="my-4">
+        {!matterInfo.is_completed ? (
+          <div className="flex gap-2">
+            <Button fullWidth color="blue" onClick={handleSaveMatterInfo}>
               保存
             </Button>
-          ) : (
-            <Button
-              fullWidth
-              color="red"
-              className="w-full"
-              onClick={handleRevertMatterInfo}
-            >
-              申請中に戻す
+            <Button fullWidth color="green" onClick={handleCheckCompleted}>
+              確認完了
             </Button>
-          )}
-        </div>
+          </div>
+        ) : (
+          <Button
+            fullWidth
+            color="red"
+            onClick={handleBackToFixedMatter}
+          >
+            申請中に戻す
+          </Button>
+        )}
       </div>
     </Modal>
   );
