@@ -26,7 +26,7 @@ const DynamicAccouting = async () => {
 
   return (
     <main>
-      <AccountingMatterList matterList={matterList} />
+      <AccountingMatterList initialData={matterList} />
     </main>
   );
 };

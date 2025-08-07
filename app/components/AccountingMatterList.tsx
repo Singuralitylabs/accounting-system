@@ -1,25 +1,40 @@
 "use client";
 
 import { Button, SimpleGrid, Table } from "@mantine/core";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { MatterInfoWithUserNameType } from "../types/types";
 import { MatterCardDetailModalForAccounting } from "./modal/MatterCardDetailForAccounting";
 import { NotificationMessage } from "./modal/NotificationMessage";
-import { useRouter } from "next/navigation";
 import DisplayMenu from "./buttons/display-menu";
 import { MatterCardForAccounting } from "./MatterCardForAccounting";
 import { useViewportSize } from "@mantine/hooks";
-import sendMessageToSlack from "../utils/slack/sendMessageToSlack";
 import AccoutingTableHeader from "./AccoutingTableHeader";
 import AccountingTablebody from "./AccountingTablebody";
-import checkMatterInfoList from "../utils/supabase/checkMatterInfoList";
-import { updateMatterInfo } from "../utils/supabase/supabaseServer";
+import { useAllMatterList, useSlackNotification, useCheckCompleted } from "../hooks/useMatterData";
 
 export const AccountingMatterList = ({
-  matterList,
+  initialData,
 }: {
-  matterList: MatterInfoWithUserNameType[] | null;
+  initialData?: MatterInfoWithUserNameType[] | null;
 }) => {
+  // React Queryでデータを管理
+  const { data: rawMatterList } = useAllMatterList();
+  const slackNotificationMutation = useSlackNotification();
+  const checkCompletedMutation = useCheckCompleted();
+  
+  // rawMatterListをMatterInfoWithUserNameType[]に変換
+  const matterList: MatterInfoWithUserNameType[] | null = useMemo(() => {
+    if (!rawMatterList) return initialData || null;
+    
+    return rawMatterList.map((matterWithProfile) => {
+      const { profiles, ...matterInfo } = matterWithProfile;
+      return {
+        ...matterInfo,
+        user_name: profiles?.name || '',
+        slack_id: profiles?.slack_id || null,
+      };
+    });
+  }, [rawMatterList, initialData]);
   const [checkedMatterIdList, setCheckedMatterIdList] = useState<number[]>([]);
   const [detailMatterInfo, setDetailMatterInfo] =
     useState<MatterInfoWithUserNameType | null>(null);
@@ -36,33 +51,36 @@ export const AccountingMatterList = ({
     setIsMobileView(width < MD_BREAKPOINT);
   }, [width]);
 
-  const router = useRouter();
-
-  const handleShowMatterInfo = (matter: MatterInfoWithUserNameType) => {
+  const handleShowMatterInfo = useCallback((matter: MatterInfoWithUserNameType) => {
     setDetailMatterInfo(matter);
     setDetailOpened(true);
-  };
+  }, []);
 
-  const handleCheckCard = (id: number) => {
+  const handleCheckCard = useCallback((id: number) => {
     setCheckedMatterIdList(
       checkedMatterIdList.includes(id)
         ? checkedMatterIdList.filter((matterId) => matterId !== id)
         : [...checkedMatterIdList, id]
     );
-  };
+  }, [checkedMatterIdList]);
 
-  const handleCheckCompleted = async () => {
-    const checkedMatterList = matterList?.filter((matter) =>
+  const handleCheckCompleted = useCallback(async () => {
+    const checkedMatterList = matterList?.filter((matter: MatterInfoWithUserNameType) =>
       checkedMatterIdList.includes(matter.id)
     );
-    if (checkedMatterList) {
-      await checkMatterInfoList(checkedMatterList);
+    
+    if (checkedMatterList && checkedMatterList.length > 0) {
+      try {
+        await checkCompletedMutation.mutateAsync(checkedMatterList);
+        setCheckedMatterIdList([]);
+      } catch (error) {
+        console.error('確認完了に失敗しました:', error);
+        alert('確認完了に失敗しました。');
+      }
     }
-    setCheckedMatterIdList([]);
-    router.refresh();
-  };
+  }, [matterList, checkedMatterIdList, checkCompletedMutation]);
 
-  const handleSendMessage = async (message: string) => {
+  const handleSendMessage = useCallback(async (message: string) => {
     if (checkedMatterIdList.length === 0) {
       alert("送信対象となる案件にチェックを入れてください。");
       return;
@@ -72,43 +90,33 @@ export const AccountingMatterList = ({
       return;
     }
 
-    for (const id of checkedMatterIdList) {
-      const matterToNotify: MatterInfoWithUserNameType | undefined =
-        matterList?.find((matter) => matter.id === id);
-      if (!matterToNotify) {
-        console.error(`案件ID${id}が見つかりません。`);
-        continue;
-      }
+    // チェックされた案件を取得
+    const checkedMatters = matterList?.filter((matter: MatterInfoWithUserNameType) =>
+      checkedMatterIdList.includes(matter.id)
+    ) || [];
 
-      const ret = await sendMessageToSlack(
-        matterToNotify.slack_id!,
-        matterToNotify.user_name!,
-        matterToNotify.title,
+    try {
+      await slackNotificationMutation.mutateAsync({
+        matters: checkedMatters,
         message
-      );
-      if (!ret) return;
-
-      const { user_name, slack_id, ...matterInfo } = matterToNotify;
-      if (matterInfo) {
-        matterInfo.is_fixed = false;
-        await updateMatterInfo(matterInfo);
-      } else {
-        console.error(`案件ID${id}が見つかりません。`);
-      }
+      });
+      
+      setNotificationOpened(false);
+      setCheckedMatterIdList([]);
+    } catch (error) {
+      console.error('Slack通知に失敗しました:', error);
+      alert('Slack通知に失敗しました。');
     }
+  }, [checkedMatterIdList, matterList, slackNotificationMutation]);
 
-    setNotificationOpened(false);
-    setCheckedMatterIdList([]);
-    router.refresh();
-  };
-
-  const filteredMatterList = matterList?.filter((matter) => {
-    return Object.entries(filters).every(([key, values]) => {
-      if (values.size === 0) return true;
-      const value = matter[key as keyof MatterInfoWithUserNameType];
-      return value && values.has(value.toString());
-    });
-  });
+  const filteredMatterList = useMemo(() => 
+    matterList?.filter((matter: MatterInfoWithUserNameType) => {
+      return Object.entries(filters).every(([key, values]) => {
+        if (values.size === 0) return true;
+        const value = matter[key as keyof MatterInfoWithUserNameType];
+        return value && values.has(value.toString());
+      });
+    }), [matterList, filters]);
 
   return (
     <div className="my-4">
@@ -137,7 +145,7 @@ export const AccountingMatterList = ({
         {isMobileView || switchDisplay ? (
           <div className="py-4 px-8">
             <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
-              {matterList?.map((matter) => (
+              {matterList?.map((matter: MatterInfoWithUserNameType) => (
                 <MatterCardForAccounting
                   key={matter.id}
                   matter={matter}
@@ -160,7 +168,7 @@ export const AccountingMatterList = ({
               }
             </Table.Thead>
             <Table.Tbody>
-              {filteredMatterList?.map((matter) => (
+              {filteredMatterList?.map((matter: MatterInfoWithUserNameType) => (
                 <AccountingTablebody
                   matter={matter}
                   isChecked={checkedMatterIdList.includes(matter.id)}

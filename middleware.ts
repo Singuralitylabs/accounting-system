@@ -9,8 +9,8 @@ export async function middleware(req: NextRequest) {
 
   try {
     const {
-      data: { session },
-    } = await supabase.auth.getSession();
+      data: { user },
+    } = await supabase.auth.getUser();
 
     const { pathname } = req.nextUrl;
 
@@ -18,6 +18,7 @@ export async function middleware(req: NextRequest) {
       pathname === "/" ||
       pathname.startsWith("/dashboard") ||
       pathname.startsWith("/accounting") ||
+      pathname.startsWith("/team") ||
       pathname.startsWith("/new");
 
     const isAuthRoute =
@@ -36,11 +37,11 @@ export async function middleware(req: NextRequest) {
       return res;
     }
 
-    if (!session && isProtectedRoute) {
+    if (!user && isProtectedRoute) {
       return NextResponse.redirect(new URL("/login", req.url));
     }
 
-    if (session && pathname === "/accounting") {
+    if (user && pathname === "/accounting") {
       try {
         const { profileInfo } = await getProfileInfo();
         if (
@@ -55,7 +56,22 @@ export async function middleware(req: NextRequest) {
       }
     }
 
-    if (session && pathname === "/dashboard") {
+    if (user && pathname === "/team") {
+      try {
+        const { profileInfo } = await getProfileInfo();
+        if (
+          !profileInfo?.class ||
+          !["teamleader", "admin"].includes(profileInfo.class)
+        ) {
+          return NextResponse.redirect(new URL("/", req.url));
+        }
+      } catch (error) {
+        console.error("Profile fetch error:", error);
+        return NextResponse.redirect(new URL("/", req.url));
+      }
+    }
+
+    if (user && pathname === "/dashboard") {
       try {
         const { profileInfo } = await getProfileInfo();
         if (!profileInfo?.class || profileInfo.class !== "admin") {
@@ -67,7 +83,7 @@ export async function middleware(req: NextRequest) {
       }
     }
 
-    if (session && isAuthRoute) {
+    if (user && isAuthRoute) {
       return NextResponse.redirect(new URL("/", req.url));
     }
 

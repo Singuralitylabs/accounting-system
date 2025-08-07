@@ -45,6 +45,16 @@ const MobileHeader: FC<Props> = ({ profile, onSignOut }) => {
             >
               新規作成
             </Link>
+            {(profile?.class === "teamleader" ||
+              profile?.class === "admin") && (
+              <Link
+                href="/team"
+                className="block rounded px-3 py-2 text-white hover:bg-gray-500 text-right w-full"
+                onClick={toggleMenu}
+              >
+                チーム案件一覧
+              </Link>
+            )}
             {(profile?.class === "accounting" ||
               profile?.class === "admin") && (
               <Link

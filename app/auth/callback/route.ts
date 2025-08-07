@@ -12,7 +12,12 @@ export async function GET(request: Request) {
 
   if (code) {
     const supabase = createRouteHandlerClient({ cookies });
-    await supabase.auth.exchangeCodeForSession(code);
+    const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+    
+    if (exchangeError) {
+      console.error("セッション交換エラー:", exchangeError);
+      return NextResponse.redirect(`${requestUrl.origin}/auth-error`);
+    }
 
     const {
       data: { user },

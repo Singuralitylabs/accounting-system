@@ -6,6 +6,7 @@ import { MantineProvider, ColorSchemeScript } from "@mantine/core";
 import SupabaseProvider from "./components/providers/SupabaseProvider";
 import { DatePickerProvider } from "./components/providers/DatePickerProvider";
 import AuthProvider from "./components/auth/AuthProvider";
+import { QueryProvider } from "./components/providers/QueryProvider";
 
 export const metadata: Metadata = {
   title: "案件管理アプリ",
@@ -26,12 +27,14 @@ export default async function RootLayout({
       </head>
       <body>
         <SupabaseProvider>
-          <MantineProvider>
-            <AuthProvider>
-              <DatePickerProvider>{children}</DatePickerProvider>
-              <Footer />
-            </AuthProvider>
-          </MantineProvider>
+          <QueryProvider>
+            <MantineProvider>
+              <AuthProvider>
+                <DatePickerProvider>{children}</DatePickerProvider>
+                <Footer />
+              </AuthProvider>
+            </MantineProvider>
+          </QueryProvider>
         </SupabaseProvider>
       </body>
     </html>

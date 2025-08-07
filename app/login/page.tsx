@@ -10,10 +10,10 @@ const Login = async () => {
     cookies: () => cookieStore,
   });
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  if (session) {
+  if (user) {
     redirect("/");
   }
 
@@ -21,9 +21,7 @@ const Login = async () => {
     <main>
       <PageTitle title="ログイン" />
       <div className="flex justify-center items-center">
-        <div className="flex justify-center h-12 items-center bg-blue-600 text-lg rounded text-white w-32 text-center my-4 hover:cursor-pointer hover:bg-blue-300">
-          <SignIn />
-        </div>
+        <SignIn />
       </div>
     </main>
   );

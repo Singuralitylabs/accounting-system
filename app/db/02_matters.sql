@@ -48,6 +48,13 @@ CREATE POLICY "matters_select_policy" ON matters
             SELECT 1 FROM profiles
             WHERE profiles.user_id = auth.uid()::uuid
             AND profiles.class IN ('admin', 'accounting')
+        ) OR
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.user_id = auth.uid()::uuid
+            AND profiles.class = 'teamleader'
+            AND profiles.team IS NOT NULL
+            AND profiles.team = matters.team
         )
     );
 

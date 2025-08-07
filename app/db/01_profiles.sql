@@ -8,6 +8,7 @@ CREATE TABLE profiles (
     name text not null,
     slack_id text,
     class text default 'public',
+    team text,
     inserted_at timestamp with time zone default timezone('Asia/Tokyo'::text, now()) not null,
     updated_at timestamp with time zone default timezone('Asia/Tokyo'::text, now()) not null,
     CONSTRAINT fk_user_id FOREIGN KEY (user_id) 

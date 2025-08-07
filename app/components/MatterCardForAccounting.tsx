@@ -53,13 +53,18 @@ export function MatterCardForAccounting({
         >
           {matter.title}
         </Text>
-        <div className="absolute top-4 right-2 flex items-center gap-2">
+        <div className="absolute top-4 right-2 flex flex-col items-end gap-1">
           {matter.is_completed ? (
             <Badge color="green">経理確認完了</Badge>
           ) : matter.is_fixed ? (
-            <Badge color="red">経理申請中</Badge>
+            <Badge color="red">経理確認待ち</Badge>
           ) : (
-            <Badge color="blue">下書き</Badge>
+            <Badge color="blue">申請者編集中</Badge>
+          )}
+          {matter.has_updates && (
+            <Badge color="orange" size="sm">
+              更新あり
+            </Badge>
           )}
         </div>
       </Group>
