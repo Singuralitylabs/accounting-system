@@ -20,6 +20,7 @@ const sendMessageToSlack = async (
       message: "担当者への通知が完了しました",
       color: "green",
     });
+    return true; // 成功時にtrueを返す
   } catch (error) {
     console.error("通知送信エラー:", error);
     notifications.show({

@@ -23,7 +23,7 @@ const DynamicMatterList = async () => {
           </div>
         )}
         {matterList ? (
-          <MatterCardList matterList={matterList} />
+          <MatterCardList initialData={matterList} />
         ) : (
           <div>案件の取得に失敗しました。</div>
         )}
