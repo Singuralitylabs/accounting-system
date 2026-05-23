@@ -96,6 +96,7 @@ export const MatterCardDetailModal = ({
       cost_count: costInfoInCardList.length,
       business_count: businessInfoInCardList.length,
       unchecked_cost_count: costInfoInCardList.length,
+      parent_matter_id: null,
       inserted_at: "",
       updated_at: "",
     };
