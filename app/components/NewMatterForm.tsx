@@ -33,6 +33,7 @@ const NewMatterForm = () => {
     is_completed: false,
     accounting_memo: null,
     unchecked_cost_count: 0,
+    parent_matter_id: null,
   };
 
   const { teamList, categoryList, itemList, certificateList } =
@@ -129,6 +130,7 @@ const NewMatterForm = () => {
       cost_count: costList.length,
       business_count: businessList.length,
       unchecked_cost_count: costList.length,
+      parent_matter_id: null,
       inserted_at: "",
       updated_at: "",
     };

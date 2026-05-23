@@ -225,6 +225,7 @@ const TeamMatterList: FC<TeamMatterListProps> = ({ matterList }) => {
             unchecked_cost_count: 0,
             updated_at: selectedMatter.inserted_at,
             user_id: 0,
+            parent_matter_id: null,
           }}
           opened={detailOpened}
           setOpened={setDetailOpened}

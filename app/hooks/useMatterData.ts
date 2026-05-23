@@ -216,6 +216,7 @@ export const useSlackNotification = () => {
           total_cost: matter.total_cost,
           cost_count: matter.cost_count,
           unchecked_cost_count: matter.unchecked_cost_count,
+          parent_matter_id: matter.parent_matter_id,
           is_fixed: false, // ここで明示的にfalseに設定
           is_completed: matter.is_completed,
           has_updates: matter.has_updates,
@@ -289,6 +290,7 @@ export const useCheckCompletedSingle = () => {
         total_cost: data.matterInfo.total_cost,
         cost_count: data.matterInfo.cost_count,
         unchecked_cost_count: data.matterInfo.unchecked_cost_count,
+        parent_matter_id: data.matterInfo.parent_matter_id,
         is_fixed: data.matterInfo.is_fixed,
         is_completed: true, // 確認完了
         has_updates: data.clearHasUpdates ? false : data.matterInfo.has_updates,
@@ -354,6 +356,7 @@ export const useSaveAccountingMemo = () => {
         total_cost: data.matterInfo.total_cost,
         cost_count: data.matterInfo.cost_count,
         unchecked_cost_count: data.matterInfo.unchecked_cost_count,
+        parent_matter_id: data.matterInfo.parent_matter_id,
         is_fixed: data.matterInfo.is_fixed,
         is_completed: data.matterInfo.is_completed, // 現在の状態を維持
         has_updates: data.clearHasUpdates ? false : data.matterInfo.has_updates,
@@ -417,6 +420,7 @@ export const useRevertToFixed = () => {
         total_cost: data.matterInfo.total_cost,
         cost_count: data.matterInfo.cost_count,
         unchecked_cost_count: data.matterInfo.unchecked_cost_count,
+        parent_matter_id: data.matterInfo.parent_matter_id,
         is_fixed: true, // 申請中に戻す
         is_completed: false, // 確認完了を取り消し
         has_updates: data.clearHasUpdates ? false : data.matterInfo.has_updates,
@@ -468,6 +472,7 @@ export const useRevertToDraft = () => {
         total_cost: data.matterInfo.total_cost,
         cost_count: data.matterInfo.cost_count,
         unchecked_cost_count: data.matterInfo.unchecked_cost_count,
+        parent_matter_id: data.matterInfo.parent_matter_id,
         is_fixed: false, // 下書きに戻す
         is_completed: false, // 確認完了を取り消し
         has_updates: data.clearHasUpdates ? false : data.matterInfo.has_updates,
