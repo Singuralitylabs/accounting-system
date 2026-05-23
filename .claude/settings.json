@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(yarn lint)",
+      "Bash(yarn dev)",
+      "Bash(yarn build)",
+      "Bash(yarn db:types-local)",
+      "Bash(npx tsc:*)",
+      "Bash(supabase start:*)",
+      "Bash(supabase stop:*)",
+      "Bash(supabase status:*)",
+      "Bash(supabase reset:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git branch:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(ls:*)",
+      "mcp__ide__getDiagnostics"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE=$(jq -r '.tool_input.file_path // empty'); if [[ -n \"$FILE\" && \"$FILE\" =~ \\.(ts|tsx)$ && -f \"$FILE\" ]]; then npx --no-install eslint \"$FILE\" 2>&1 | tail -40 || true; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

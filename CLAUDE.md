@@ -2,89 +2,70 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Commands
+## コマンド
 
-### Development
 ```bash
-yarn dev              # Start development server (Next.js)
-yarn build            # Production build 
-yarn start            # Production server
-yarn lint             # ESLint checking
+yarn dev              # 開発サーバ起動
+yarn build            # 本番ビルド
+yarn lint             # ESLint
+
+yarn db:types         # 本番 Supabase からの型生成（.env.local の PROJECT_ID を参照）
+yarn db:types-local   # ローカル Supabase からの型生成
+yarn db:seed          # scripts/seed-dev-data.sql を流す（※このファイルはリポジトリに含まれない）
+
+supabase start | stop | reset   # ローカル Supabase の起動・停止・リセット
 ```
 
-### Database
-```bash
-yarn db:types         # Generate TypeScript types from Supabase production schema
-yarn db:types-local   # Generate TypeScript types from local Supabase
-yarn db:seed          # Seed local development database
-```
+- スキーマ変更後は `yarn db:types-local` を必ず実行し `app/lib/database.types.ts` を更新する。
+- `supabase/migrations/` は空。スキーマはリモートで管理しているため、テーブル形状の真実は `database.types.ts`。
+- テストフレームワークは導入されていない。TypeScript + ESLint + 手動確認のみ。
 
-### Local Supabase (when running locally)
-```bash
-supabase start        # Start local Supabase services
-supabase stop         # Stop local Supabase services
-supabase reset        # Reset local database
-```
+## アーキテクチャ
 
-## Architecture Overview
+- Next.js 14 (App Router) / TypeScript / Mantine + Tailwind
+- 認証は Supabase Auth + Google OAuth。`@future-tech-association.org` ドメイン限定。
+- `@supabase/ssr`（推奨）と `@supabase/auth-helpers-nextjs`（`middleware.ts` のみ）が混在。新規コードは `@supabase/ssr` を使う。
+- `app/layout.tsx` で `export const dynamic = "force-dynamic"` を指定しており、ページは静的キャッシュされない。
 
-### Technology Stack
-- **Framework**: Next.js 14 with App Router and TypeScript
-- **Database**: PostgreSQL via Supabase with Row Level Security
-- **UI**: Tailwind CSS + Mantine components
-- **State**: Jotai atoms for global state, React hooks for local state
-- **Auth**: Supabase Auth with Google OAuth (restricted to future-tech-association.org domain)
+### Provider スタック（`app/layout.tsx`）
+`SupabaseProvider` → `QueryProvider` → `MantineProvider` → `AuthProvider` → `DatePickerProvider`
 
-### Key Directories
-- `app/components/` - Reusable React components organized by feature
-- `app/actions/` - Next.js Server Actions for database operations
-- `app/atoms/` - Jotai state atoms for global state management
-- `app/utils/supabase/` - Database client utilities and helper functions
-- `app/lib/database.types.ts` - Auto-generated TypeScript types from Supabase schema
-- `supabase/` - Database migrations and local development configuration
-- `docs/` - Comprehensive documentation (setup, specification, database design)
+### 状態管理
+- **マスタデータ**: `app/atoms/optionsAtom.ts`（Jotai）。`InitialOptionalLoader` が初回にハイドレート。
+- **サーバ状態**: `app/hooks/useMatterData.ts` の TanStack Query フック（`useUserMatterList` / `useAllMatterList` / `useTeamMatterList` ＋ ミューテーション）。Server Component から `initialData` でキャッシュを温める。
+- **フォーム**: `@mantine/form`。
 
-### Authentication & Authorization
-- Three permission levels: `public` (regular users), `accounting` (finance team), `admin` (full access)
-- Route protection via `middleware.ts` based on user roles
-- Domain restriction: Only `@future-tech-association.org` accounts can log in
-- User roles stored in `profiles.permission` column
+### データアクセス
+- DB ヘルパは `app/utils/supabase/*.tsx`（`addMatterInfo` / `editMatterInfo` / `deleteMatter` / `checkMatterInfoList` / `updateProfile` / `supabaseServer`）。Server Component から直接呼ぶか、TanStack Query フック経由で呼ぶ。
+- `app/actions/` は現状 Slack 通知アクションを再エクスポートしているだけ。新規 Server Action を足すならここ。
+- RLS が有効なので、すべての DB 操作は RLS を前提に書く。
 
-### Database Architecture
-- **Core entities**: `matters` (projects), `business` (revenue), `costs` (expenses), `profiles` (users)
-- **Master data**: `select_options` table with hierarchical dropdown options
-- **RLS policies**: Strict data access control based on user permissions and matter ownership
-- **Automated features**: Timestamp triggers, change detection after submissions
-- **Real-time**: Supabase subscriptions available for live updates
+### 認可（`middleware.ts`）
+ロールは `profiles.class` カラムに格納：`public` / `teamleader` / `accounting` / `admin`。
 
-### State Management Patterns
-- **Global master data**: `optionsAtom` (Jotai) for dropdown options loaded once
-- **Authentication state**: `AuthProvider` context wrapping the app
-- **Database client**: `SupabaseProvider` for server/client Supabase instances
-- **Form state**: Mantine forms with local React state
+| パス | 要件 |
+|------|------|
+| `/`, `/new` | ログイン必須 |
+| `/team` | `teamleader` または `admin` |
+| `/accounting` | `accounting` または `admin` |
+| `/dashboard` | `admin` のみ |
 
-### Server vs Client Components
-- Database operations use Server Actions (`app/actions/`)
-- Interactive UI components are Client Components (`'use client'`)
-- Data fetching typically happens in Server Components
-- Client components handle user interactions and real-time updates
+## 業務ロジック
 
-### Business Logic
-This is a Japanese case management system for Future Tech Promotion Association with:
-- **Matter lifecycle**: Draft → Submitted to Accounting → Accounting Approved → Complete
-- **Financial tracking**: Revenue (`business` table) and expenses (`costs` table) per matter
-- **Team collaboration**: Team leaders can view all team matters
-- **Change tracking**: Updates after submission are flagged for accounting review
-- **Slack integration**: Notifications to matter owners
+未来技術推進協会の案件管理システム（日本語 UI、JST、円表記）。
 
-### Development Notes
-- Run `yarn db:types-local` after schema changes to update TypeScript types
-- All database operations should use RLS-aware patterns
-- Japanese locale considerations (JST timezone, currency formatting)
-- No formal testing framework - relies on TypeScript + ESLint + manual testing
+- **案件ライフサイクル**: 下書き → 経理申請中 → 経理確認完了 → 完了
+- **金額**: `business`（売上）と `costs`（費用）を案件ごとに紐付け
+- **チーム**: チームリーダーは自チームの全案件を閲覧可
+- **差し戻し検知**: 経理申請後に編集されると経理側でハイライト表示
+- **通知**: 案件担当者に Slack で通知
 
-### Important Files
-- `middleware.ts` - Route protection and user role checking
-- `app/components/providers/` - Context providers for auth, database, and UI
-- `app/utils/supabase/editMatterInfo.tsx` - Core matter CRUD operations
-- `docs/` directory contains comprehensive setup and specification documentation
+## 主要ファイル
+
+- `middleware.ts` — ルート保護 & ロール判定
+- `app/layout.tsx` — Provider スタック / `force-dynamic`
+- `app/components/providers/` — `SupabaseProvider`, `QueryProvider`, `DatePickerProvider`, `InitialOptionalLoader`
+- `app/utils/supabase/editMatterInfo.tsx` — 案件 CRUD のコア
+- `app/hooks/useMatterData.ts` — TanStack Query フック群
+- `app/actions/slack/` — Slack 通知 Server Action
+- `docs/setup.md` / `docs/specification.md` / `docs/database.md` — セットアップ・仕様・DB 設計（日本語）
