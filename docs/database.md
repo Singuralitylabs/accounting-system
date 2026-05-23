@@ -169,6 +169,8 @@
 
 ### 5.1 profiles テーブル
 
+> パフォーマンス最適化のため、`auth.uid()` は `(select auth.uid())` でラップして 1 行ごとの再評価を避けている（Supabase Linter `auth_rls_initplan` 対応）。
+
 ```sql
 -- 全認証ユーザーが参照可能
 CREATE POLICY "Users can view own profile"
@@ -182,22 +184,21 @@ CREATE POLICY "Users can insert own profile"
   ON profiles
   FOR INSERT
   TO authenticated
-  WITH CHECK (auth.uid() = user_id);
+  WITH CHECK ((select auth.uid()) = user_id);
 
 -- 自分自身のプロフィールまたは管理者が更新可能
 CREATE POLICY "Users can update own profile or admin can update any profile"
-ON profiles
-FOR UPDATE
-TO authenticated
-USING (
-  auth.uid() = user_id OR
-  EXISTS (
-    SELECT 1
-    FROM profiles
-    WHERE user_id = auth.uid()
-    AND class = 'admin'
-  )
-);
+  ON profiles
+  FOR UPDATE
+  TO authenticated
+  USING (
+    (select auth.uid()) = user_id OR
+    EXISTS (
+      SELECT 1 FROM profiles p
+      WHERE p.user_id = (select auth.uid())
+      AND p.class = 'admin'
+    )
+  );
 ```
 
 ### 5.2 matters テーブル
@@ -211,16 +212,16 @@ CREATE POLICY "matters_select_policy" ON matters
         EXISTS (
             SELECT 1 FROM profiles
             WHERE profiles.id = matters.user_id
-            AND profiles.user_id = auth.uid()::uuid
+            AND profiles.user_id = (select auth.uid())
         ) OR
         EXISTS (
             SELECT 1 FROM profiles
-            WHERE profiles.user_id = auth.uid()::uuid
+            WHERE profiles.user_id = (select auth.uid())
             AND profiles.class IN ('admin', 'accounting')
         ) OR
         EXISTS (
             SELECT 1 FROM profiles
-            WHERE profiles.user_id = auth.uid()::uuid
+            WHERE profiles.user_id = (select auth.uid())
             AND profiles.class = 'teamleader'
             AND profiles.team IS NOT NULL
             AND profiles.team = matters.team
@@ -235,7 +236,7 @@ CREATE POLICY "matters_insert_policy" ON matters
         EXISTS (
             SELECT 1 FROM profiles
             WHERE profiles.id = matters.user_id
-            AND profiles.user_id = auth.uid()::uuid
+            AND profiles.user_id = (select auth.uid())
         )
     );
 
@@ -248,11 +249,11 @@ CREATE POLICY "matters_update_policy" ON matters
         EXISTS (
             SELECT 1 FROM profiles
             WHERE profiles.id = matters.user_id
-            AND profiles.user_id = auth.uid()::uuid
+            AND profiles.user_id = (select auth.uid())
         ) OR
         EXISTS (
             SELECT 1 FROM profiles
-            WHERE profiles.user_id = auth.uid()::uuid
+            WHERE profiles.user_id = (select auth.uid())
             AND profiles.class IN ('admin', 'accounting')
         )
     );
@@ -265,11 +266,11 @@ CREATE POLICY "matters_delete_policy" ON matters
         EXISTS (
             SELECT 1 FROM profiles
             WHERE profiles.id = matters.user_id
-            AND profiles.user_id = auth.uid()::uuid
+            AND profiles.user_id = (select auth.uid())
         ) OR
         EXISTS (
             SELECT 1 FROM profiles
-            WHERE profiles.user_id = auth.uid()::uuid
+            WHERE profiles.user_id = (select auth.uid())
             AND profiles.class = 'admin'
         )
     );
@@ -287,20 +288,20 @@ CREATE POLICY "costs_select_policy" ON costs
             SELECT 1 FROM matters
             JOIN profiles ON profiles.id = matters.user_id
             WHERE matters.id = costs.matter_id
-            AND profiles.user_id = auth.uid()::uuid
+            AND profiles.user_id = (select auth.uid())
         ) OR
         EXISTS (
             SELECT 1 FROM profiles
-            WHERE profiles.user_id = auth.uid()::uuid
+            WHERE profiles.user_id = (select auth.uid())
             AND profiles.class IN ('admin', 'accounting')
         ) OR
         EXISTS (
-            SELECT 1 FROM profiles current_user, matters
+            SELECT 1 FROM profiles cu, matters
             WHERE matters.id = costs.matter_id
-            AND current_user.user_id = auth.uid()::uuid
-            AND current_user.class = 'teamleader'
-            AND current_user.team IS NOT NULL
-            AND current_user.team = matters.team
+            AND cu.user_id = (select auth.uid())
+            AND cu.class = 'teamleader'
+            AND cu.team IS NOT NULL
+            AND cu.team = matters.team
         )
     );
 
@@ -313,7 +314,7 @@ CREATE POLICY "costs_insert_policy" ON costs
             SELECT 1 FROM matters
             JOIN profiles ON profiles.id = matters.user_id
             WHERE matters.id = costs.matter_id
-            AND profiles.user_id = auth.uid()::uuid
+            AND profiles.user_id = (select auth.uid())
         )
     );
 
@@ -326,11 +327,11 @@ CREATE POLICY "costs_update_policy" ON costs
             SELECT 1 FROM matters
             JOIN profiles ON profiles.id = matters.user_id
             WHERE matters.id = costs.matter_id
-            AND profiles.user_id = auth.uid()::uuid
+            AND profiles.user_id = (select auth.uid())
         ) OR
         EXISTS (
             SELECT 1 FROM profiles
-            WHERE profiles.user_id = auth.uid()::uuid
+            WHERE profiles.user_id = (select auth.uid())
             AND profiles.class IN ('admin', 'accounting')
         )
     );
@@ -344,11 +345,11 @@ CREATE POLICY "costs_delete_policy" ON costs
             SELECT 1 FROM matters
             JOIN profiles ON profiles.id = matters.user_id
             WHERE matters.id = costs.matter_id
-            AND profiles.user_id = auth.uid()::uuid
+            AND profiles.user_id = (select auth.uid())
         ) OR
         EXISTS (
             SELECT 1 FROM profiles
-            WHERE profiles.user_id = auth.uid()::uuid
+            WHERE profiles.user_id = (select auth.uid())
             AND profiles.class = 'admin'
         )
     );
@@ -366,20 +367,20 @@ CREATE POLICY "business_select_policy" ON business
             SELECT 1 FROM matters
             JOIN profiles ON profiles.id = matters.user_id
             WHERE matters.id = business.matter_id
-            AND profiles.user_id = auth.uid()::uuid
+            AND profiles.user_id = (select auth.uid())
         ) OR
         EXISTS (
             SELECT 1 FROM profiles
-            WHERE profiles.user_id = auth.uid()::uuid
+            WHERE profiles.user_id = (select auth.uid())
             AND profiles.class IN ('admin', 'accounting')
         ) OR
         EXISTS (
-            SELECT 1 FROM profiles current_user, matters
+            SELECT 1 FROM profiles cu, matters
             WHERE matters.id = business.matter_id
-            AND current_user.user_id = auth.uid()::uuid
-            AND current_user.class = 'teamleader'
-            AND current_user.team IS NOT NULL
-            AND current_user.team = matters.team
+            AND cu.user_id = (select auth.uid())
+            AND cu.class = 'teamleader'
+            AND cu.team IS NOT NULL
+            AND cu.team = matters.team
         )
     );
 
@@ -392,7 +393,7 @@ CREATE POLICY "business_insert_policy" ON business
             SELECT 1 FROM matters
             JOIN profiles ON profiles.id = matters.user_id
             WHERE matters.id = business.matter_id
-            AND profiles.user_id = auth.uid()::uuid
+            AND profiles.user_id = (select auth.uid())
         )
     );
 
@@ -405,11 +406,11 @@ CREATE POLICY "business_update_policy" ON business
             SELECT 1 FROM matters
             JOIN profiles ON profiles.id = matters.user_id
             WHERE matters.id = business.matter_id
-            AND profiles.user_id = auth.uid()::uuid
+            AND profiles.user_id = (select auth.uid())
         ) OR
         EXISTS (
             SELECT 1 FROM profiles
-            WHERE profiles.user_id = auth.uid()::uuid
+            WHERE profiles.user_id = (select auth.uid())
             AND profiles.class IN ('admin', 'accounting')
         )
     );
@@ -423,17 +424,19 @@ CREATE POLICY "business_delete_policy" ON business
             SELECT 1 FROM matters
             JOIN profiles ON profiles.id = matters.user_id
             WHERE matters.id = business.matter_id
-            AND profiles.user_id = auth.uid()::uuid
+            AND profiles.user_id = (select auth.uid())
         ) OR
         EXISTS (
             SELECT 1 FROM profiles
-            WHERE profiles.user_id = auth.uid()::uuid
+            WHERE profiles.user_id = (select auth.uid())
             AND profiles.class = 'admin'
         )
     );
 ```
 
 ### 5.5 select_option_types テーブル・select_options テーブル
+
+> 管理者向け書き込みポリシーは `FOR ALL` ではなく `INSERT/UPDATE/DELETE` を個別に定義する。`FOR ALL` だと SELECT も対象となり、参照用ポリシーと重複して Supabase Linter `multiple_permissive_policies` が発火するため。
 
 ```sql
 -- 全認証ユーザーが参照可能
@@ -443,21 +446,64 @@ CREATE POLICY "Users can view select option types" ON select_option_types
 CREATE POLICY "Users can view select options" ON select_options
     FOR SELECT USING (true);
 
--- 管理者のみ更新可能
-CREATE POLICY "Admin can update any select options" ON select_option_types
-    FOR ALL USING (
+-- 管理者のみ書き込み可能（select_option_types）
+CREATE POLICY "Admin can insert select option types" ON select_option_types
+    FOR INSERT TO authenticated
+    WITH CHECK (
         EXISTS (
             SELECT 1 FROM profiles
-            WHERE profiles.user_id = auth.uid()::uuid
+            WHERE profiles.user_id = (select auth.uid())
             AND profiles.class = 'admin'
         )
     );
 
-CREATE POLICY "Admin can insert any select options" ON select_options
-    FOR ALL USING (
+CREATE POLICY "Admin can update select option types" ON select_option_types
+    FOR UPDATE TO authenticated
+    USING (
         EXISTS (
             SELECT 1 FROM profiles
-            WHERE profiles.user_id = auth.uid()::uuid
+            WHERE profiles.user_id = (select auth.uid())
+            AND profiles.class = 'admin'
+        )
+    );
+
+CREATE POLICY "Admin can delete select option types" ON select_option_types
+    FOR DELETE TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.user_id = (select auth.uid())
+            AND profiles.class = 'admin'
+        )
+    );
+
+-- 管理者のみ書き込み可能（select_options）
+CREATE POLICY "Admin can insert select options" ON select_options
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.user_id = (select auth.uid())
+            AND profiles.class = 'admin'
+        )
+    );
+
+CREATE POLICY "Admin can update select options" ON select_options
+    FOR UPDATE TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.user_id = (select auth.uid())
+            AND profiles.class = 'admin'
+        )
+    );
+
+CREATE POLICY "Admin can delete select options" ON select_options
+    FOR DELETE TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.user_id = (select auth.uid())
             AND profiles.class = 'admin'
         )
     );
