@@ -22,12 +22,15 @@ const matterInfoTable: { [key: string]: keyof MatterType | "username" } = {
 };
 
 const TableInfo = ({ matter, username, itemList }: Props) => {
-  const formatValue = (key: string, value: any) => {
+  const formatValue = (
+    key: string,
+    value: MatterType[keyof MatterType] | undefined
+  ) => {
     if (key === "案件名" && typeof value === "string") {
       return value.length > 15 ? `${value.slice(0, 15)}...` : value;
     }
     if (key === "合計請求額" || key === "合計コスト") {
-      return formatCurrency(value);
+      return formatCurrency(typeof value === "number" ? value : null);
     }
     return value;
   };
@@ -36,7 +39,7 @@ const TableInfo = ({ matter, username, itemList }: Props) => {
     <>
       {itemList.map((item) => {
         const key = matterInfoTable[item];
-        if (!key) return <Table.Td>取得エラー</Table.Td>;
+        if (!key) return <Table.Td key={item}>取得エラー</Table.Td>;
 
         const value = key === "username" ? username : matter[key];
         const formattedValue = formatValue(item, value);

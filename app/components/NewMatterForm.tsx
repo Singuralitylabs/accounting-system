@@ -48,7 +48,7 @@ const NewMatterForm = () => {
   const [businessList, setBusinessList] = useState<BusinessType[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
-  const [_, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
 
   const refreshData = () => {
     startTransition(() => {

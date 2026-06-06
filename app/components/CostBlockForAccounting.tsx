@@ -1,4 +1,4 @@
-import { Card, Checkbox, Group, Stack, Text } from "@mantine/core";
+import { Card, Checkbox, Group, Stack } from "@mantine/core";
 import { formatCurrency, formatDateToJp } from "../utils/formatter";
 import { CostType } from "../types/types";
 import LabelText from "./LabelText";
