@@ -14,15 +14,16 @@
 
 ## 2. テーブル一覧
 
-| テーブル名          | 説明                                 |
-| ------------------- | ------------------------------------ |
-| profiles            | ユーザー情報を管理するテーブル       |
-| matters             | 案件情報を管理するテーブル           |
-| costs               | コスト情報を管理するテーブル         |
-| business            | 取引先情報を管理するテーブル         |
-| select_option_types | 選択肢の種類を管理するテーブル       |
-| select_options      | 選択肢の値を管理するテーブル         |
-| recurring_costs     | 定期費用（管理費）を管理するテーブル |
+| テーブル名          | 説明                                                       |
+| ------------------- | ---------------------------------------------------------- |
+| profiles            | ユーザー情報を管理するテーブル                             |
+| matters             | 案件情報を管理するテーブル                                 |
+| costs               | コスト情報を管理するテーブル                               |
+| business            | 取引先情報を管理するテーブル                               |
+| select_option_types | 選択肢の種類を管理するテーブル                             |
+| select_options      | 選択肢の値を管理するテーブル                               |
+| recurring_costs     | 定期費用（管理費）を管理するテーブル                       |
+| manual_entries      | 案件外収支（案件に紐づかない売上・費用）を管理するテーブル |
 
 ## 3. テーブル詳細
 
@@ -176,6 +177,38 @@
 
 - team
 - start_month
+
+### 3.8 manual_entries テーブル
+
+案件外収支（案件に紐づかない売上・費用の手動エントリ）を保持するテーブル。損益計算書の集計時に計上月へ算入する（売上エントリ → 売上合計、費用エントリ → 案件費用合計）。マイナス金額を許容し、損益計算書上での減額調整に使う。
+
+| カラム名     | データ型                 | 制約                                                  | 説明                                                      |
+| ------------ | ------------------------ | ----------------------------------------------------- | --------------------------------------------------------- |
+| id           | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY             | 主キー                                                    |
+| entry_type   | text                     | NOT NULL, CHECK (entry_type IN ('revenue', 'cost'))   | 種別（revenue = 売上 / cost = 費用）                      |
+| name         | text                     | NOT NULL                                              | 名称（例: 協賛金収入、備品購入）                          |
+| category     | text                     | NULL                                                  | 分類（select_options の category と同じ値域。売上時のみ） |
+| item         | text                     | NULL                                                  | 品目（select_options の item と同じ値域。費用時のみ）     |
+| amount       | numeric(15,2)            | NOT NULL, CHECK (amount <> 0)                         | 金額（マイナス可。0 は不可）                              |
+| team         | text                     | NULL                                                  | 対象チーム（NULL = 全体共通）                             |
+| target_month | date                     | NOT NULL                                              | 計上月（月初日で格納: 例 2026-07-01）                     |
+| comment      | text                     | NULL                                                  | コメント                                                  |
+| inserted_at  | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 作成日時                                                  |
+| updated_at   | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 更新日時                                                  |
+
+CHECK 制約（種別と分類・品目の整合性）:
+
+```sql
+CHECK (
+    (entry_type = 'revenue' AND category IS NOT NULL AND item IS NULL) OR
+    (entry_type = 'cost' AND item IS NOT NULL AND category IS NULL)
+)
+```
+
+インデックス:
+
+- team
+- target_month
 
 ## 4. 列挙型
 
@@ -621,6 +654,63 @@ CREATE POLICY "recurring_costs_delete_policy" ON recurring_costs
     );
 ```
 
+### 5.7 manual_entries テーブル
+
+> recurring_costs と同じ方針。teamleader が全体共通（team IS NULL）の行を SELECT できるのは、損益計算書で「全体共通（参考）」として表示するため。チーム損益への算入可否はアプリケーション層で制御する。書き込みは経理担当者・管理者のみ。
+
+```sql
+-- 経理担当者/管理者は全行、チームリーダーは自チームの行 + 全体共通の行を参照可能
+CREATE POLICY "manual_entries_select_policy" ON manual_entries
+    FOR SELECT TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.user_id = (select auth.uid())
+            AND profiles.class IN ('admin', 'accounting')
+        ) OR
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.user_id = (select auth.uid())
+            AND profiles.class = 'teamleader'
+            AND profiles.team IS NOT NULL
+            AND (manual_entries.team IS NULL OR manual_entries.team = profiles.team)
+        )
+    );
+
+-- 経理担当者/管理者のみ挿入可能
+CREATE POLICY "manual_entries_insert_policy" ON manual_entries
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.user_id = (select auth.uid())
+            AND profiles.class IN ('admin', 'accounting')
+        )
+    );
+
+-- 経理担当者/管理者のみ更新可能
+CREATE POLICY "manual_entries_update_policy" ON manual_entries
+    FOR UPDATE TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.user_id = (select auth.uid())
+            AND profiles.class IN ('admin', 'accounting')
+        )
+    );
+
+-- 経理担当者/管理者のみ削除可能
+CREATE POLICY "manual_entries_delete_policy" ON manual_entries
+    FOR DELETE TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.user_id = (select auth.uid())
+            AND profiles.class IN ('admin', 'accounting')
+        )
+    );
+```
+
 ## 6. トリガー
 
 ### 6.1 updated_at 更新トリガー
@@ -660,6 +750,11 @@ CREATE TRIGGER update_business_updated_at
 
 CREATE TRIGGER update_recurring_costs_updated_at
     BEFORE UPDATE ON recurring_costs
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_updated_at_column();
+
+CREATE TRIGGER update_manual_entries_updated_at
+    BEFORE UPDATE ON manual_entries
     FOR EACH ROW
     EXECUTE PROCEDURE update_updated_at_column();
 ```
@@ -800,6 +895,20 @@ erDiagram
         text payment_cycle
         date start_month
         date end_month
+        text comment
+        timestamp inserted_at
+        timestamp updated_at
+    }
+
+    manual_entries {
+        bigint id PK
+        text entry_type
+        text name
+        text category
+        text item
+        numeric amount
+        text team
+        date target_month
         text comment
         timestamp inserted_at
         timestamp updated_at
