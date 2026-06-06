@@ -120,6 +120,24 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
               経理用一覧
             </Link>
           )}
+          {(profile?.class === "teamleader" ||
+            profile?.class === "accounting" ||
+            profile?.class === "admin") && (
+            <Link
+              href="/profit-loss"
+              className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
+            >
+              損益計算書
+            </Link>
+          )}
+          {(profile?.class === "accounting" || profile?.class === "admin") && (
+            <Link
+              href="/recurring-costs"
+              className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
+            >
+              定期費用マスタ
+            </Link>
+          )}
           {profile?.class === "admin" && (
             <Link
               href="/dashboard"
