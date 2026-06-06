@@ -1,16 +1,12 @@
 "use client";
 
 import { AnnualTrendType } from "@/app/types/types";
-import { formatCurrency } from "@/app/utils/formatter";
+import { formatCurrency, formatMonthHeader } from "@/app/utils/formatter";
 import { Paper, Table } from "@mantine/core";
 
 type Props = {
   trend: AnnualTrendType;
 };
-
-// 月キー（YYYY-MM）を「M月」表記にする
-const formatMonthHeader = (month: string) =>
-  `${parseInt(month.slice(5, 7), 10)}月`;
 
 const AnnualTrendTable = ({ trend }: Props) => {
   const rows: {

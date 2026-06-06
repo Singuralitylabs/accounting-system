@@ -9,6 +9,19 @@ import { RecurringCostInListType } from "../../types/types";
 const toFirstOfMonth = (dateStr: string | null): string | null =>
   dateStr ? `${dateStr.slice(0, 7)}-01` : null;
 
+// 一覧の行データを DB 書き込み用の形に変換する（INSERT / UPDATE 共通）
+// updated_at は DB トリガー（update_recurring_costs_updated_at）が JST で設定する
+const toDbRow = (rc: RecurringCostInListType) => ({
+  name: rc.name,
+  item: rc.item,
+  price: rc.price,
+  team: rc.team,
+  payment_cycle: rc.payment_cycle,
+  start_month: toFirstOfMonth(rc.start_month)!,
+  end_month: toFirstOfMonth(rc.end_month),
+  comment: rc.comment ?? "",
+});
+
 export const getRecurringCostList = async () => {
   const supabase = createServerComponentClient<Database>({ cookies });
 
@@ -40,18 +53,9 @@ export const bulkUpsertRecurringCost = async (
 
   // バルクINSERT
   if (newCosts.length > 0) {
-    const insertData = newCosts.map((rc) => ({
-      name: rc.name,
-      item: rc.item,
-      price: rc.price,
-      team: rc.team,
-      payment_cycle: rc.payment_cycle,
-      start_month: toFirstOfMonth(rc.start_month)!,
-      end_month: toFirstOfMonth(rc.end_month),
-      comment: rc.comment ?? "",
-    }));
-
-    operations.push(supabase.from("recurring_costs").insert(insertData));
+    operations.push(
+      supabase.from("recurring_costs").insert(newCosts.map(toDbRow))
+    );
   }
 
   // バルクUPDATE
@@ -63,17 +67,7 @@ export const bulkUpsertRecurringCost = async (
 
       return supabase
         .from("recurring_costs")
-        .update({
-          name: rc.name,
-          item: rc.item,
-          price: rc.price,
-          team: rc.team,
-          payment_cycle: rc.payment_cycle,
-          start_month: toFirstOfMonth(rc.start_month)!,
-          end_month: toFirstOfMonth(rc.end_month),
-          comment: rc.comment ?? "",
-          // updated_at は DB トリガー（update_recurring_costs_updated_at）が JST で設定する
-        })
+        .update(toDbRow(rc))
         .eq("id", rc.id);
     });
     operations.push(...updatePromises);

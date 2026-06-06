@@ -3,9 +3,10 @@
 import {
   MatterInfoWithUserNameType,
   PLReportType,
+  RecurringCostType,
 } from "@/app/types/types";
 import { getMatterInfoById } from "@/app/utils/supabase/profitLossReport";
-import { formatCurrency } from "@/app/utils/formatter";
+import { formatCurrency, formatMonthLabel } from "@/app/utils/formatter";
 import { formatPaymentCycle } from "@/app/utils/paymentCycle";
 import { Alert, Button, Paper, SimpleGrid, Table, Text } from "@mantine/core";
 import { Fragment, useState } from "react";
@@ -16,9 +17,20 @@ type Props = {
   report: PLReportType;
 };
 
-// 月キー（YYYY-MM）を「YYYY年M月」表記にする
-const formatMonthLabel = (month: string) =>
-  `${month.slice(0, 4)}年${parseInt(month.slice(5, 7), 10)}月`;
+// 定期費用の補足表示（品目 / 支払サイクル / チーム）
+const formatRecurringCostNote = (
+  recurringCost: RecurringCostType,
+  includeTeam: boolean
+) => {
+  const parts = [recurringCost.item];
+  if (recurringCost.payment_cycle !== "monthly") {
+    parts.push(formatPaymentCycle(recurringCost.payment_cycle));
+  }
+  if (includeTeam && recurringCost.team) {
+    parts.push(recurringCost.team);
+  }
+  return `（${parts.join(" / ")}）`;
+};
 
 const ProfitLossStatement = ({ report }: Props) => {
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
@@ -193,11 +205,7 @@ const ProfitLossStatement = ({ report }: Props) => {
                 <Table.Td className="pl-8 text-gray-700">
                   {recurringCost.name}
                   <span className="text-xs text-gray-500 ml-2">
-                    （{recurringCost.item}
-                    {recurringCost.payment_cycle !== "monthly"
-                      ? ` / ${formatPaymentCycle(recurringCost.payment_cycle)}`
-                      : ""}
-                    {recurringCost.team ? ` / ${recurringCost.team}` : ""}）
+                    {formatRecurringCostNote(recurringCost, true)}
                   </span>
                 </Table.Td>
                 <Table.Td className="text-right">
@@ -236,10 +244,7 @@ const ProfitLossStatement = ({ report }: Props) => {
                     <Table.Td className="text-gray-700">
                       {recurringCost.name}
                       <span className="text-xs text-gray-500 ml-2">
-                        （{recurringCost.item}
-                        {recurringCost.payment_cycle !== "monthly"
-                          ? ` / ${formatPaymentCycle(recurringCost.payment_cycle)}`
-                          : ""}）
+                        {formatRecurringCostNote(recurringCost, false)}
                       </span>
                     </Table.Td>
                     <Table.Td className="text-right w-44">

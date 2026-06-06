@@ -19,6 +19,18 @@ export const formatTimeToJp = (date: string | null) => {
   });
 };
 
+// ローカル時刻ベースで月キー（YYYY-MM）へ変換する（toISOString の UTC ズレを避ける）
+export const toMonthString = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+
+// 月キー（YYYY-MM）を「YYYY年M月」表記にする
+export const formatMonthLabel = (month: string) =>
+  `${month.slice(0, 4)}年${parseInt(month.slice(5, 7), 10)}月`;
+
+// 月キー（YYYY-MM）を「M月」表記にする
+export const formatMonthHeader = (month: string) =>
+  `${parseInt(month.slice(5, 7), 10)}月`;
+
 export const formatDateToJp = (date: string | null) => {
   if (!date) return "-";
   try {
