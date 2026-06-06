@@ -1,0 +1,30 @@
+---
+name: ドキュメント更新
+about: READMEや設計書などのドキュメント更新
+title: "[Docs] "
+labels: ["documentation"]
+assignees: ""
+---
+
+## 背景
+
+<!-- 変更理由を簡潔に記載してください -->
+
+## 更新箇所
+
+<!-- 更新箇所を簡潔に記載してください -->
+
+## アクション
+
+<!-- 更新するドキュメントと内容を記載してください -->
+
+- [ ] 設計書の更新
+  - [ ] README.md
+  - [ ] docs/setup.md
+  - [ ] docs/specification.md
+  - [ ] docs/database.md
+  - [ ] docs/testing.md
+
+## 補足事項
+
+<!-- 関連する情報や注意点があれば記載してください -->
