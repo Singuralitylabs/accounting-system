@@ -57,7 +57,7 @@ Unit Tests (多数・最優先で導入)
 
 PR では短時間で完了するチェックを必須とし、リリース前は範囲を絞った確認を追加する。
 
-- **PR（原則）**: 変更内容に応じて CI が自動実行される（型チェック、Lint、ビルド、ユニットテスト、デバッグ出力検知、フォーマットチェック）。
+- **PR（原則）**: 変更内容に応じて CI が自動実行される（Phase 1 以降で整備。型チェック、Lint、ビルド、ユニットテスト、デバッグ出力検知、フォーマットチェック）。
 - **リリース前（gitlab リモートへの本番反映前）**: 影響範囲が広い変更（例: 認可・middleware、案件ステータス遷移、損益計算書、主要画面の動線）に対して、主要フローの手動確認を追加する（[3.6](#36-e2eテスト未実装リリース前のみ) 参照）。
 
 CI のワークフロー計画は [4.2](#42-github-actions-ワークフロー計画) に記載する。
@@ -72,7 +72,7 @@ CI のワークフロー計画は [4.2](#42-github-actions-ワークフロー計
 
 - **失敗時の調査容易性**: テストが失敗した際に原因を素早く特定できるよう、確認観点ごとにチェックを分離し、テスト名やジョブ名から目的が読み取れる命名にする。
 - **ログの扱い**: 開発時のデバッグ出力（`console.log` / `console.info` / `debugger`）がコードに残った場合は CI で検知してエラーにする。一方、障害調査に必要なログ（`console.error` 等）は意図的に残す。
-  - 現状、ソースコード中の `console.log` / `console.info` / `debugger` は **0 件**であり、`console.*` の残存（約 90 件 / 28 ファイル）はすべてエラーログ用途の `console.error`（および少数の `console.warn`）である。したがってデバッグ出力検知 CI は**事前クリーンアップなしで導入可能**であり、「ゼロ件の維持」を目的として早期に有効化する。
+  - 本書作成時点（2026年6月）で、ソースコード中の `console.log` / `console.info` / `debugger` は **0 件**であり、`console.*` の残存（約 90 件 / 28 ファイル）はすべてエラーログ用途の `console.error`（および少数の `console.warn`）である。したがってデバッグ出力検知 CI は**事前クリーンアップなしで導入可能**であり、「ゼロ件の維持」を目的として早期に有効化する。
 
 ### 2.5 ユニットテストの要否判断
 
@@ -217,7 +217,7 @@ CI/CD の実行基盤には GitHub Actions を利用する（origin = GitHub。g
 
 テスト基盤の導入時に、以下の追加が必要となる（本書の時点では未実施）。
 
-- **devDependencies**: `vitest`（必要に応じて `jsdom`、`@vitest/coverage-v8`）
+- **devDependencies**: `vitest`、`prettier`（`.prettierrc` は設定済みだが本体は未導入。必要に応じて `jsdom`、`@vitest/coverage-v8` も追加）
 - **package.json scripts**:
 
   | スクリプト | 内容 |
@@ -236,7 +236,7 @@ CI/CD の実行基盤には GitHub Actions を利用する（origin = GitHub。g
 DB Types 整合性チェックのワークフローを実行するために、GitHub Actions 側で以下の設定が必要。
 
 - **Secret**: `SUPABASE_ACCESS_TOKEN`（Supabase CLI で利用する Personal Access Token）
-- **Variable**: `SUPABASE_PROJECT_ID`（対象 Supabase プロジェクトの Project ID。`.env.local` の `PROJECT_ID` に相当）
+- **Variable**: `SUPABASE_PROJECT_ID`（対象 Supabase プロジェクトの Project ID。`.env.local` / `yarn db:types` の `PROJECT_ID` に相当する。Variable 名は関連プロジェクトの CI と揃えているため、ワークフロー内で既存スクリプトを利用する場合は `PROJECT_ID` 環境変数へマッピングして渡す）
 - もしくは、CI 上でローカル Supabase（`supabase start`）+ `yarn db:types-local` を用いて `supabase/migrations/` から型を再生成し、コミット済みの `app/lib/database.types.ts` との差分を検知する方式でもよい（リモート接続不要。導入時にいずれかを選定する）。
 
 ## 5. テスト規約
