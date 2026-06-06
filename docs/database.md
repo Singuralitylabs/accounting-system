@@ -207,6 +207,12 @@ CREATE OR REPLACE FUNCTION public.auth_user_team()
 RETURNS text LANGUAGE sql SECURITY DEFINER STABLE SET search_path = ''
 AS $$ SELECT team FROM public.profiles WHERE user_id = (select auth.uid()) LIMIT 1 $$;
 
+-- ヘルパ関数は認証済みロールのみ実行可能（不特定多数からの直接呼び出しを防ぐ）
+REVOKE EXECUTE ON FUNCTION public.auth_user_class() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.auth_user_team() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.auth_user_class() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.auth_user_team() TO authenticated;
+
 -- 自分 / 経理・管理者 / 同チームのチームリーダーのみ参照可能
 CREATE POLICY "Users can view own profile"
   ON profiles
@@ -229,7 +235,9 @@ CREATE POLICY "Users can insert own profile"
   TO authenticated
   WITH CHECK ((select auth.uid()) = user_id);
 
--- 自分自身のプロフィールまたは管理者が更新可能
+-- 自分自身のプロフィールまたは管理者が更新可能。
+-- WITH CHECK で更新後の値も制約し、admin 以外による class/team/user_id の改変
+-- （自己昇格・所有者付け替え）を防ぐ。
 CREATE POLICY "Users can update own profile or admin can update any profile"
   ON profiles
   FOR UPDATE
@@ -237,6 +245,14 @@ CREATE POLICY "Users can update own profile or admin can update any profile"
   USING (
     user_id = (select auth.uid())
     OR public.auth_user_class() = 'admin'
+  )
+  WITH CHECK (
+    public.auth_user_class() = 'admin'
+    OR (
+      user_id = (select auth.uid())
+      AND class IS NOT DISTINCT FROM public.auth_user_class()
+      AND team  IS NOT DISTINCT FROM public.auth_user_team()
+    )
   );
 ```
 
