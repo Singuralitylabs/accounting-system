@@ -1,7 +1,10 @@
+// profiles.class が取りうるロール（DB 上は string | null のため、判定側で文字列を受ける）
+export type Role = "public" | "teamleader" | "accounting" | "admin";
+
 // ルートごとの閲覧許可ロール。
 // middleware のルート保護・ヘッダーのナビゲーション表示・Server Action の権限確認で
 // 共用する単一の定義（ロール変更時はここだけ直せばよい）。
-export const ROUTE_PERMISSIONS: Record<string, string[]> = {
+export const ROUTE_PERMISSIONS: Record<string, Role[]> = {
   "/team": ["teamleader", "admin"],
   "/accounting": ["accounting", "admin"],
   "/profit-loss": ["teamleader", "accounting", "admin"],
@@ -13,9 +16,10 @@ export const ROUTE_PERMISSIONS: Record<string, string[]> = {
 export const PL_ALLOWED_CLASSES = ROUTE_PERMISSIONS["/profit-loss"];
 
 export const hasClassAccess = (
-  allowedClasses: string[],
+  allowedClasses: readonly Role[],
   profileClass: string | null | undefined
-) => !!profileClass && allowedClasses.includes(profileClass);
+) =>
+  !!profileClass && (allowedClasses as readonly string[]).includes(profileClass);
 
 // ヘッダー（PC / モバイル共通）のナビゲーション項目。
 // ROUTE_PERMISSIONS に無いルートはログインユーザー全員に表示する。
