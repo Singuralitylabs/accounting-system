@@ -7,6 +7,7 @@ import {
 import { cookies } from "next/headers";
 import { Database } from "../../lib/database.types";
 import { MatterType, ProfilesType } from "../../types/types";
+import { isAllowedEmailDomain } from "../constants";
 
 export const getProfileInfo = async () => {
   try {
@@ -96,6 +97,13 @@ export const insertUserInfo = async ({
   name: string;
   email: string;
 }) => {
+  // 多層防御: 呼び出し元（OAuth コールバック）でもドメイン検証しているが、
+  // プロフィール作成の最終段でも許可ドメイン外を弾く。
+  if (!isAllowedEmailDomain(email)) {
+    console.warn(`許可されていないドメインのプロフィール作成を拒否しました: ${email}`);
+    return { error: new Error("許可されていないドメインのメールアドレスです。") };
+  }
+
   const supabase = createServerComponentClient<Database>({ cookies });
 
   try {

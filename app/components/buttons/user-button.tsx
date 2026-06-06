@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import UserButtonMenu from "./user-buttonMenu";
 import { User } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
+import { ALLOWED_EMAIL_DOMAIN } from "@/app/utils/constants";
 
 const UserButton = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -47,6 +48,11 @@ const UserButton = () => {
       provider: "google",
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
+        // Google 側でも組織ドメインのアカウント選択に絞る（UX 改善）。
+        // セキュリティ上の強制はサーバ側コールバックが担う。
+        queryParams: {
+          hd: ALLOWED_EMAIL_DOMAIN,
+        },
       },
     });
     if (error) {

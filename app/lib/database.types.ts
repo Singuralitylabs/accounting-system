@@ -369,7 +369,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      auth_user_class: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
+      auth_user_team: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
     }
     Enums: {
       information_category: "basic_info" | "business_info" | "cost_info"
