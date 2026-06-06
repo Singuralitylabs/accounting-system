@@ -53,10 +53,6 @@ export function MatterCardList({
     setOpened(false);
   }, []);
 
-  if (!Array.isArray(matterList)) {
-    return null;
-  }
-
   const handleOpenCard = useCallback((matter: MatterType) => {
     setMatterInfo(matter);
     setOpened(true);
@@ -138,6 +134,10 @@ export function MatterCardList({
       )),
     [matterList, handleOpenCard, handleCopyCard, handleDeleteCard]
   );
+
+  if (!Array.isArray(matterList)) {
+    return null;
+  }
 
   return (
     <div>

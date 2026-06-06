@@ -1,5 +1,6 @@
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
+import { toMonthString } from "../utils/formatter";
 
 interface CustomMonthPickerProps {
   label?: string;
@@ -11,10 +12,6 @@ interface CustomMonthPickerProps {
   className?: string;
   isClearable?: boolean;
 }
-
-// ローカル時刻ベースで月キー（YYYY-MM）へ変換する（toISOString の UTC ズレを避ける）
-const toMonthString = (date: Date) =>
-  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 
 export const CustomMonthPicker = ({
   label,

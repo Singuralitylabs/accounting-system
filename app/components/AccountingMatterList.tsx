@@ -170,6 +170,7 @@ export const AccountingMatterList = ({
             <Table.Tbody>
               {filteredMatterList?.map((matter: MatterInfoWithUserNameType) => (
                 <AccountingTablebody
+                  key={matter.id}
                   matter={matter}
                   isChecked={checkedMatterIdList.includes(matter.id)}
                   checkedMatterIdList={checkedMatterIdList}
