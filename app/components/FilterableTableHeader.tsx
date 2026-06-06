@@ -17,7 +17,7 @@ type Props = {
   activeFilters: Set<string>;
   onFilterChange: (
     key: keyof MatterInfoWithUserNameType,
-    values: Set<string>
+    values: Set<string>,
   ) => void;
 };
 

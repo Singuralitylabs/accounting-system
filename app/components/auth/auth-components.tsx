@@ -22,7 +22,9 @@ export const SignIn = () => {
         // 実際の強制はサーバの /auth/callback で行う）
         if (!isAllowedEmailDomain(user.email)) {
           await supabase.auth.signOut();
-          alert(`${ALLOWED_EMAIL_DOMAIN}のメールアドレスのみログイン可能です。`);
+          alert(
+            `${ALLOWED_EMAIL_DOMAIN}のメールアドレスのみログイン可能です。`,
+          );
           return;
         }
         router.push("/");
@@ -52,7 +54,7 @@ export const SignIn = () => {
   };
 
   return (
-    <button 
+    <button
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();

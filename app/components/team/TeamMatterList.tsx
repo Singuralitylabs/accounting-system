@@ -33,13 +33,13 @@ interface TeamMatterListProps {
 const TeamMatterList: FC<TeamMatterListProps> = ({ matterList }) => {
   const [switchDisplay, setSwitchDisplay] = useState(false); // false: カード表示, true: テーブル表示
   const [selectedMatter, setSelectedMatter] = useState<TeamMatterType | null>(
-    null
+    null,
   );
   const [detailOpened, setDetailOpened] = useState(false);
 
   const getStatusBadge = (
     isFixed: boolean | null,
-    isCompleted: boolean | null
+    isCompleted: boolean | null,
   ) => {
     if (isCompleted) {
       return <Badge color="green">経理確認完了</Badge>;

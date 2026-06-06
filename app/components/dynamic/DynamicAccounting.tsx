@@ -21,7 +21,7 @@ const DynamicAccouting = async () => {
           user_name: profiles!.name,
           slack_id: profiles!.slack_id,
         };
-      }
+      },
     ) ?? [];
 
   return (

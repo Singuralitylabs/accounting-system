@@ -32,7 +32,7 @@ export const MatterCardDetailModalReadOnly = ({
     if (opened) {
       const getBusinessInfo = async () => {
         const { businessInfoList, error } = await getUserBusinessInfoList(
-          matterInfo.id
+          matterInfo.id,
         );
         if (error) {
           console.error("取引先情報の取得に失敗しました:", error);
@@ -43,7 +43,7 @@ export const MatterCardDetailModalReadOnly = ({
 
       const getCostInfo = async () => {
         const { costInfoList, error } = await getUserCostInfoList(
-          matterInfo.id
+          matterInfo.id,
         );
         if (error) {
           console.error("コスト情報の取得に失敗しました:", error);
@@ -88,10 +88,8 @@ export const MatterCardDetailModalReadOnly = ({
         <LoadingOverlay visible={isLoading} />
 
         {/* ステータスバッジ */}
-        <div className="flex justify-end w-full mb-4">
-          {getStatusBadge()}
-        </div>
-        
+        <div className="flex justify-end w-full mb-4">{getStatusBadge()}</div>
+
         {/* 基本情報 */}
         <div className="mb-6">
           <h3 className="text-lg font-semibold mb-3 border-b pb-2">基本情報</h3>
@@ -288,7 +286,7 @@ export const MatterCardDetailModalReadOnly = ({
                 >
                   {formatCurrency(
                     (matterInfo.total_amount || 0) -
-                      (matterInfo.total_cost || 0)
+                      (matterInfo.total_cost || 0),
                   )}
                 </div>
               </div>

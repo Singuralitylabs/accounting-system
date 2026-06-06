@@ -21,12 +21,16 @@ const AnnualTrendTable = ({ trend }: Props) => {
   ];
 
   const totalRowValues = rows.map((row) =>
-    trend.months.reduce((sum, month) => sum + row.getValue(month), 0)
+    trend.months.reduce((sum, month) => sum + row.getValue(month), 0),
   );
 
   return (
     <Paper withBorder radius="md" className="overflow-x-auto">
-      <Table verticalSpacing="sm" highlightOnHover className="whitespace-nowrap">
+      <Table
+        verticalSpacing="sm"
+        highlightOnHover
+        className="whitespace-nowrap"
+      >
         <Table.Thead>
           <Table.Tr>
             <Table.Th className="sticky left-0 bg-white z-10">

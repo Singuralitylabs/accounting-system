@@ -13,7 +13,8 @@ export async function GET(request: Request) {
 
   if (code) {
     const supabase = createRouteHandlerClient({ cookies });
-    const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+    const { error: exchangeError } =
+      await supabase.auth.exchangeCodeForSession(code);
 
     if (exchangeError) {
       console.error("セッション交換エラー:", exchangeError);
@@ -33,9 +34,13 @@ export async function GET(request: Request) {
     // ドメイン制限のサーバ側担保。クライアントのチェックはバイパス可能なため、
     // 許可ドメイン外のアカウントはここでセッションを破棄しプロフィールも作らせない。
     if (!isAllowedEmailDomain(user.email)) {
-      console.warn(`許可されていないドメインのログインを拒否しました: ${user.email}`);
+      console.warn(
+        `許可されていないドメインのログインを拒否しました: ${user.email}`,
+      );
       await supabase.auth.signOut();
-      return NextResponse.redirect(`${requestUrl.origin}/auth-error?reason=domain`);
+      return NextResponse.redirect(
+        `${requestUrl.origin}/auth-error?reason=domain`,
+      );
     }
 
     const { profileInfo } = await getProfileInfo();

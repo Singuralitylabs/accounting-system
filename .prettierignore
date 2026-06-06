@@ -1,0 +1,10 @@
+# 自動生成ファイル（supabase gen types の出力。整形すると再生成時に差分が出る）
+app/lib/database.types.ts
+
+# ビルド成果物・依存
+.next/
+node_modules/
+yarn.lock
+
+# Supabase マイグレーション（SQL は Prettier の対象外とする）
+supabase/

@@ -26,12 +26,12 @@ const AccountingTablebody = ({
         isChecked
           ? "var(--mantine-color-red-5)"
           : matter.is_completed
-          ? "var(--mantine-color-green-light)"
-          : matter.has_updates
-          ? "var(--mantine-color-orange-light)"
-          : matter.is_fixed
-          ? "var(--mantine-color-red-light)"
-          : "var(--mantine-color-blue-light)"
+            ? "var(--mantine-color-green-light)"
+            : matter.has_updates
+              ? "var(--mantine-color-orange-light)"
+              : matter.is_fixed
+                ? "var(--mantine-color-red-light)"
+                : "var(--mantine-color-blue-light)"
       }
     >
       <Table.Td>

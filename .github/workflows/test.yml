@@ -1,0 +1,37 @@
+name: Unit Tests
+
+# Vitest によるユニットテスト実行（docs/testing.md 3.1 / 3.2）
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "middleware.ts"
+      - "tests/**"
+      - "vitest.config.ts"
+      - "package.json"
+      - "yarn.lock"
+  pull_request:
+    paths:
+      - "app/**"
+      - "middleware.ts"
+      - "tests/**"
+      - "vitest.config.ts"
+      - "package.json"
+      - "yarn.lock"
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Vitest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+      - name: Run unit tests
+        run: yarn test

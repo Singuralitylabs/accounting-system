@@ -7,7 +7,7 @@ import {
 
 export async function sendSlackNotification(
   message: string,
-  metadata?: SlackNotificationMetadata
+  metadata?: SlackNotificationMetadata,
 ): Promise<SlackNotificationResponse> {
   const slackWebhookUrl = process.env.SLACK_WEBHOOK_URL;
 
@@ -54,7 +54,7 @@ export async function sendSlackNotification(
 
     if (!response.ok) {
       throw new Error(
-        `Failed to send Slack notification: ${response.statusText}`
+        `Failed to send Slack notification: ${response.statusText}`,
       );
     }
 

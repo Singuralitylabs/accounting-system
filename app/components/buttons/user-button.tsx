@@ -29,7 +29,9 @@ const UserButton = () => {
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
         // セッションがある場合は、getUser()で再検証
-        const { data: { user: validatedUser } } = await supabase.auth.getUser();
+        const {
+          data: { user: validatedUser },
+        } = await supabase.auth.getUser();
         setUser(validatedUser ?? null);
       } else {
         setUser(null);

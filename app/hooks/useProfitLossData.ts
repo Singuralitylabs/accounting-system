@@ -1,22 +1,22 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery } from "@tanstack/react-query";
 import {
   getProfitLossReport,
   getAnnualTrend,
-} from '../utils/supabase/profitLossReport';
-import { AnnualTrendType, PLReportType } from '../types/types';
+} from "../utils/supabase/profitLossReport";
+import { AnnualTrendType, PLReportType } from "../types/types";
 
 // 月次損益レポート（month: "YYYY-MM"）
 export const useProfitLossReport = (
   month: string,
-  initialData?: PLReportType | null
+  initialData?: PLReportType | null,
 ) => {
   return useQuery({
-    queryKey: ['profitLoss', 'month', month],
+    queryKey: ["profitLoss", "month", month],
     queryFn: async () => {
       const report = await getProfitLossReport(month);
       // null を成功としてキャッシュすると永久にローディング表示になるため、エラーとして扱う
       if (!report) {
-        throw new Error('損益レポートの取得に失敗しました');
+        throw new Error("損益レポートの取得に失敗しました");
       }
       return report;
     },
@@ -31,14 +31,14 @@ export const useProfitLossReport = (
 export const useAnnualTrend = (
   fiscalYear: number,
   initialData?: AnnualTrendType | null,
-  enabled = true
+  enabled = true,
 ) => {
   return useQuery({
-    queryKey: ['profitLoss', 'annual', fiscalYear],
+    queryKey: ["profitLoss", "annual", fiscalYear],
     queryFn: async () => {
       const trend = await getAnnualTrend(fiscalYear);
       if (!trend) {
-        throw new Error('年間推移の取得に失敗しました');
+        throw new Error("年間推移の取得に失敗しました");
       }
       return trend;
     },

@@ -24,7 +24,7 @@ const matterInfoTable: { [key: string]: keyof MatterType | "username" } = {
 const TableInfo = ({ matter, username, itemList }: Props) => {
   const formatValue = (
     key: string,
-    value: MatterType[keyof MatterType] | undefined
+    value: MatterType[keyof MatterType] | undefined,
   ) => {
     if (key === "案件名" && typeof value === "string") {
       return value.length > 15 ? `${value.slice(0, 15)}...` : value;

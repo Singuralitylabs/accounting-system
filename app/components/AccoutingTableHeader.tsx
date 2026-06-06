@@ -30,14 +30,14 @@ const AccoutingTableHeader = ({ matterList, filters, setFilters }: Props) => {
             const value = matter[key as keyof MatterInfoWithUserNameType];
             return value ? value.toString() : "";
           })
-          .filter(Boolean)
-      )
+          .filter(Boolean),
+      ),
     ).sort();
   };
 
   const handleFilterChange = (
     key: keyof MatterInfoWithUserNameType,
-    values: Set<string>
+    values: Set<string>,
   ) => {
     setFilters((prev) => ({
       ...prev,

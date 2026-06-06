@@ -8,9 +8,8 @@ import SelectOptionList from "../SelectOptionList";
 
 const DynamicDashboard = async () => {
   const userList = await getAllUserInfo();
-  const { options: teamList, error: teamError } = await getSelectOptions(
-    "team"
-  );
+  const { options: teamList, error: teamError } =
+    await getSelectOptions("team");
   if (teamError) {
     console.error("チーム情報の取得に失敗しました。", teamError);
   }
@@ -19,9 +18,8 @@ const DynamicDashboard = async () => {
   if (categoryError) {
     console.error("カテゴリ情報の取得に失敗しました。", categoryError);
   }
-  const { options: itemList, error: itemError } = await getSelectOptions(
-    "item"
-  );
+  const { options: itemList, error: itemError } =
+    await getSelectOptions("item");
   if (itemError) {
     console.error("アイテム情報の取得に失敗しました。", itemError);
   }

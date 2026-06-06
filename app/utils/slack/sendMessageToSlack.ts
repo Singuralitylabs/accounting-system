@@ -5,7 +5,7 @@ const sendMessageToSlack = async (
   slackId: string,
   username: string,
   title: string,
-  message: string
+  message: string,
 ) => {
   try {
     const slackName = slackId ? `<@${slackId}>` : username;

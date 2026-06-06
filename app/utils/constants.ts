@@ -10,7 +10,7 @@ export const ALLOWED_EMAIL_DOMAIN = "future-tech-association.org";
 // 大文字小文字・前後空白を無視し、ドメイン部の完全一致のみを許可する
 // （endsWith による "evil-future-tech-association.org" のような部分一致を防ぐ）。
 export const isAllowedEmailDomain = (
-  email: string | null | undefined
+  email: string | null | undefined,
 ): boolean => {
   if (!email) {
     return false;
@@ -19,6 +19,9 @@ export const isAllowedEmailDomain = (
   if (atIndex === -1) {
     return false;
   }
-  const domain = email.slice(atIndex + 1).trim().toLowerCase();
+  const domain = email
+    .slice(atIndex + 1)
+    .trim()
+    .toLowerCase();
   return domain === ALLOWED_EMAIL_DOMAIN;
 };

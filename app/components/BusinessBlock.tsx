@@ -13,7 +13,7 @@ type Props = {
   index: number;
   onRemoveBusiness: (id: number) => void;
   onBusinessUpdate: (
-    updatedBusiness: BusinessType & { isNew?: boolean; isRemoved?: boolean }
+    updatedBusiness: BusinessType & { isNew?: boolean; isRemoved?: boolean },
   ) => void;
 };
 

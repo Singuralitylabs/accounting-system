@@ -43,7 +43,7 @@ export const MatterCardDetailModalForAccounting = ({
   // React Queryを使用してデータ取得
   const { data, isLoading, error, refetch } = useMatterDetail(
     matterInfo.id,
-    opened
+    opened,
   );
   const revertToFixedMutation = useRevertToFixed();
   const revertToDraftMutation = useRevertToDraft();
@@ -52,7 +52,7 @@ export const MatterCardDetailModalForAccounting = ({
 
   // データマッピング用の共通関数
   const updateStateFromData = (
-    responseData: { costs: CostType[]; businesses: BusinessType[] } | undefined
+    responseData: { costs: CostType[]; businesses: BusinessType[] } | undefined,
   ) => {
     if (responseData) {
       setCostList(
@@ -60,14 +60,14 @@ export const MatterCardDetailModalForAccounting = ({
           ...cost,
           isNew: false,
           isRemoved: false,
-        }))
+        })),
       );
       setBusinessList(
         responseData.businesses.map((business) => ({
           ...business,
           isNew: false,
           isRemoved: false,
-        }))
+        })),
       );
     }
   };

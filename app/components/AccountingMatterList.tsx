@@ -10,7 +10,11 @@ import { MatterCardForAccounting } from "./MatterCardForAccounting";
 import { useViewportSize } from "@mantine/hooks";
 import AccoutingTableHeader from "./AccoutingTableHeader";
 import AccountingTablebody from "./AccountingTablebody";
-import { useAllMatterList, useSlackNotification, useCheckCompleted } from "../hooks/useMatterData";
+import {
+  useAllMatterList,
+  useSlackNotification,
+  useCheckCompleted,
+} from "../hooks/useMatterData";
 
 export const AccountingMatterList = ({
   initialData,
@@ -21,16 +25,16 @@ export const AccountingMatterList = ({
   const { data: rawMatterList } = useAllMatterList();
   const slackNotificationMutation = useSlackNotification();
   const checkCompletedMutation = useCheckCompleted();
-  
+
   // rawMatterListをMatterInfoWithUserNameType[]に変換
   const matterList: MatterInfoWithUserNameType[] | null = useMemo(() => {
     if (!rawMatterList) return initialData || null;
-    
+
     return rawMatterList.map((matterWithProfile) => {
       const { profiles, ...matterInfo } = matterWithProfile;
       return {
         ...matterInfo,
-        user_name: profiles?.name || '',
+        user_name: profiles?.name || "",
         slack_id: profiles?.slack_id || null,
       };
     });
@@ -51,72 +55,86 @@ export const AccountingMatterList = ({
     setIsMobileView(width < MD_BREAKPOINT);
   }, [width]);
 
-  const handleShowMatterInfo = useCallback((matter: MatterInfoWithUserNameType) => {
-    setDetailMatterInfo(matter);
-    setDetailOpened(true);
-  }, []);
+  const handleShowMatterInfo = useCallback(
+    (matter: MatterInfoWithUserNameType) => {
+      setDetailMatterInfo(matter);
+      setDetailOpened(true);
+    },
+    [],
+  );
 
-  const handleCheckCard = useCallback((id: number) => {
-    setCheckedMatterIdList(
-      checkedMatterIdList.includes(id)
-        ? checkedMatterIdList.filter((matterId) => matterId !== id)
-        : [...checkedMatterIdList, id]
-    );
-  }, [checkedMatterIdList]);
+  const handleCheckCard = useCallback(
+    (id: number) => {
+      setCheckedMatterIdList(
+        checkedMatterIdList.includes(id)
+          ? checkedMatterIdList.filter((matterId) => matterId !== id)
+          : [...checkedMatterIdList, id],
+      );
+    },
+    [checkedMatterIdList],
+  );
 
   const handleCheckCompleted = useCallback(async () => {
-    const checkedMatterList = matterList?.filter((matter: MatterInfoWithUserNameType) =>
-      checkedMatterIdList.includes(matter.id)
+    const checkedMatterList = matterList?.filter(
+      (matter: MatterInfoWithUserNameType) =>
+        checkedMatterIdList.includes(matter.id),
     );
-    
+
     if (checkedMatterList && checkedMatterList.length > 0) {
       try {
         await checkCompletedMutation.mutateAsync(checkedMatterList);
         setCheckedMatterIdList([]);
       } catch (error) {
-        console.error('確認完了に失敗しました:', error);
-        alert('確認完了に失敗しました。');
+        console.error("確認完了に失敗しました:", error);
+        alert("確認完了に失敗しました。");
       }
     }
   }, [matterList, checkedMatterIdList, checkCompletedMutation]);
 
-  const handleSendMessage = useCallback(async (message: string) => {
-    if (checkedMatterIdList.length === 0) {
-      alert("送信対象となる案件にチェックを入れてください。");
-      return;
-    }
-    if (!message.trim()) {
-      alert("メッセージを入力してください。");
-      return;
-    }
+  const handleSendMessage = useCallback(
+    async (message: string) => {
+      if (checkedMatterIdList.length === 0) {
+        alert("送信対象となる案件にチェックを入れてください。");
+        return;
+      }
+      if (!message.trim()) {
+        alert("メッセージを入力してください。");
+        return;
+      }
 
-    // チェックされた案件を取得
-    const checkedMatters = matterList?.filter((matter: MatterInfoWithUserNameType) =>
-      checkedMatterIdList.includes(matter.id)
-    ) || [];
+      // チェックされた案件を取得
+      const checkedMatters =
+        matterList?.filter((matter: MatterInfoWithUserNameType) =>
+          checkedMatterIdList.includes(matter.id),
+        ) || [];
 
-    try {
-      await slackNotificationMutation.mutateAsync({
-        matters: checkedMatters,
-        message
-      });
-      
-      setNotificationOpened(false);
-      setCheckedMatterIdList([]);
-    } catch (error) {
-      console.error('Slack通知に失敗しました:', error);
-      alert('Slack通知に失敗しました。');
-    }
-  }, [checkedMatterIdList, matterList, slackNotificationMutation]);
+      try {
+        await slackNotificationMutation.mutateAsync({
+          matters: checkedMatters,
+          message,
+        });
 
-  const filteredMatterList = useMemo(() => 
-    matterList?.filter((matter: MatterInfoWithUserNameType) => {
-      return Object.entries(filters).every(([key, values]) => {
-        if (values.size === 0) return true;
-        const value = matter[key as keyof MatterInfoWithUserNameType];
-        return value && values.has(value.toString());
-      });
-    }), [matterList, filters]);
+        setNotificationOpened(false);
+        setCheckedMatterIdList([]);
+      } catch (error) {
+        console.error("Slack通知に失敗しました:", error);
+        alert("Slack通知に失敗しました。");
+      }
+    },
+    [checkedMatterIdList, matterList, slackNotificationMutation],
+  );
+
+  const filteredMatterList = useMemo(
+    () =>
+      matterList?.filter((matter: MatterInfoWithUserNameType) => {
+        return Object.entries(filters).every(([key, values]) => {
+          if (values.size === 0) return true;
+          const value = matter[key as keyof MatterInfoWithUserNameType];
+          return value && values.has(value.toString());
+        });
+      }),
+    [matterList, filters],
+  );
 
   return (
     <div className="my-4">
