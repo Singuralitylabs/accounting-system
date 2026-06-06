@@ -1,7 +1,12 @@
 import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { ROUTE_PERMISSIONS, hasClassAccess } from "./app/utils/permissions";
 import { getProfileInfo } from "./app/utils/supabase/supabaseServer";
+
+// pathname がルート自身またはその配下かどうか
+const matchesRoute = (pathname: string, route: string) =>
+  pathname === route || pathname.startsWith(`${route}/`);
 
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next();
@@ -16,12 +21,10 @@ export async function middleware(req: NextRequest) {
 
     const isProtectedRoute =
       pathname === "/" ||
-      pathname.startsWith("/dashboard") ||
-      pathname.startsWith("/accounting") ||
-      pathname.startsWith("/team") ||
-      pathname.startsWith("/new") ||
-      pathname.startsWith("/profit-loss") ||
-      pathname.startsWith("/recurring-costs");
+      matchesRoute(pathname, "/new") ||
+      Object.keys(ROUTE_PERMISSIONS).some((route) =>
+        matchesRoute(pathname, route)
+      );
 
     const isAuthRoute =
       pathname.startsWith("/login") || pathname.startsWith("/auth/callback");
@@ -43,70 +46,14 @@ export async function middleware(req: NextRequest) {
       return NextResponse.redirect(new URL("/login", req.url));
     }
 
-    if (user && pathname === "/accounting") {
+    // ロール制限のあるルートは ROUTE_PERMISSIONS に基づいて一括チェックする
+    const restrictedRoute = Object.entries(ROUTE_PERMISSIONS).find(([route]) =>
+      matchesRoute(pathname, route)
+    );
+    if (user && restrictedRoute) {
       try {
         const { profileInfo } = await getProfileInfo();
-        if (
-          !profileInfo?.class ||
-          (profileInfo.class !== "accounting" && profileInfo.class !== "admin")
-        ) {
-          return NextResponse.redirect(new URL("/", req.url));
-        }
-      } catch (error) {
-        console.error("Profile fetch error:", error);
-        return NextResponse.redirect(new URL("/", req.url));
-      }
-    }
-
-    if (user && pathname === "/team") {
-      try {
-        const { profileInfo } = await getProfileInfo();
-        if (
-          !profileInfo?.class ||
-          !["teamleader", "admin"].includes(profileInfo.class)
-        ) {
-          return NextResponse.redirect(new URL("/", req.url));
-        }
-      } catch (error) {
-        console.error("Profile fetch error:", error);
-        return NextResponse.redirect(new URL("/", req.url));
-      }
-    }
-
-    if (user && pathname === "/dashboard") {
-      try {
-        const { profileInfo } = await getProfileInfo();
-        if (!profileInfo?.class || profileInfo.class !== "admin") {
-          return NextResponse.redirect(new URL("/", req.url));
-        }
-      } catch (error) {
-        console.error("Profile fetch error:", error);
-        return NextResponse.redirect(new URL("/", req.url));
-      }
-    }
-
-    if (user && pathname.startsWith("/profit-loss")) {
-      try {
-        const { profileInfo } = await getProfileInfo();
-        if (
-          !profileInfo?.class ||
-          !["teamleader", "accounting", "admin"].includes(profileInfo.class)
-        ) {
-          return NextResponse.redirect(new URL("/", req.url));
-        }
-      } catch (error) {
-        console.error("Profile fetch error:", error);
-        return NextResponse.redirect(new URL("/", req.url));
-      }
-    }
-
-    if (user && pathname.startsWith("/recurring-costs")) {
-      try {
-        const { profileInfo } = await getProfileInfo();
-        if (
-          !profileInfo?.class ||
-          !["accounting", "admin"].includes(profileInfo.class)
-        ) {
+        if (!hasClassAccess(restrictedRoute[1], profileInfo?.class)) {
           return NextResponse.redirect(new URL("/", req.url));
         }
       } catch (error) {

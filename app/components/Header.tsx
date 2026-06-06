@@ -5,6 +5,7 @@ import { User } from "@supabase/supabase-js";
 import Link from "next/link";
 import React, { FC, Suspense, useEffect, useState } from "react";
 import { ProfilesType } from "../types/types";
+import { visibleNavItems } from "../utils/permissions";
 import { getProfileInfoById } from "../utils/supabase/supabaseServer";
 import MobileHeader from "./MobileHeader";
 import UserButton from "./buttons/user-button";
@@ -92,60 +93,15 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
     <header className="bg-gray-800 p-4">
       <nav className="flex justify-between items-center">
         <div className="hidden sm:flex space-x-4">
-          <Link
-            href="/"
-            className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
-          >
-            案件カード
-          </Link>
-          <Link
-            href="/new"
-            className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
-          >
-            新規作成
-          </Link>
-          {(profile?.class === "teamleader" || profile?.class === "admin") && (
+          {visibleNavItems(profile?.class).map((item) => (
             <Link
-              href="/team"
+              key={item.href}
+              href={item.href}
               className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
             >
-              チーム案件一覧
+              {item.label}
             </Link>
-          )}
-          {(profile?.class === "accounting" || profile?.class === "admin") && (
-            <Link
-              href="/accounting"
-              className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
-            >
-              経理用一覧
-            </Link>
-          )}
-          {(profile?.class === "teamleader" ||
-            profile?.class === "accounting" ||
-            profile?.class === "admin") && (
-            <Link
-              href="/profit-loss"
-              className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
-            >
-              損益計算書
-            </Link>
-          )}
-          {(profile?.class === "accounting" || profile?.class === "admin") && (
-            <Link
-              href="/recurring-costs"
-              className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
-            >
-              定期費用マスタ
-            </Link>
-          )}
-          {profile?.class === "admin" && (
-            <Link
-              href="/dashboard"
-              className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
-            >
-              管理画面
-            </Link>
-          )}
+          ))}
         </div>
         <div className="hidden sm:flex ml-auto rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500">
           <Suspense fallback={<div>Loading...</div>}>

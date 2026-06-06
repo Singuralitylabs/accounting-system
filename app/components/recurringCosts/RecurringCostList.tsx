@@ -17,10 +17,9 @@ import {
 import { useEffect, useState } from "react";
 import { CiSquarePlus } from "react-icons/ci";
 import { RiDeleteBin6Line } from "react-icons/ri";
+import { ORG_WIDE_TEAM_LABEL } from "@/app/utils/constants";
 import { PAYMENT_CYCLE_OPTIONS } from "@/app/utils/paymentCycle";
 import { CustomMonthPicker } from "../CustomMonthPicker";
-
-const ORG_WIDE_TEAM_LABEL = "全体共通";
 
 type Props = {
   initialData: RecurringCostType[];

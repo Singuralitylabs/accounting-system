@@ -28,7 +28,8 @@ const checkMatterInfoList = async (
         );
         if (!hasUncheckedCost) continue;
       }
-      let { user_name, slack_id, ...updatedMatter } = matterInfo;
+      // user_name / slack_id は表示用の付加情報のため、更新対象から除外する
+      const { user_name, slack_id, ...updatedMatter } = matterInfo;
       updatedMatter.is_completed = true;
       await updateMatterInfo(updatedMatter);
     }

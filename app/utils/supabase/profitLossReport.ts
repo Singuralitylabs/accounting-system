@@ -13,6 +13,8 @@ import {
   RecurringCostType,
   TeamBreakdown,
 } from "../../types/types";
+import { ORG_WIDE_TEAM_LABEL } from "../constants";
+import { PL_ALLOWED_CLASSES, hasClassAccess } from "../permissions";
 import { getProfileInfo } from "./supabaseServer";
 
 // 集計対象の行（RLS により権限に応じた行のみ取得される）
@@ -68,8 +70,6 @@ const isRecurringCostChargedInMonth = (
   const cycleMonths = CYCLE_MONTHS[recurringCost.payment_cycle] ?? 1;
   return monthDiff(start, month) % cycleMonths === 0;
 };
-
-const ORG_WIDE_TEAM_LABEL = "全体共通";
 
 // 取得済みの行から指定月の損益レポートを組み立てる
 const buildMonthlyReport = (
@@ -214,9 +214,6 @@ const buildMonthlyReport = (
   };
 };
 
-// 損益計算書を閲覧できるロール（middleware の許可リストと一致させる）
-const PL_ALLOWED_CLASSES = ["teamleader", "accounting", "admin"];
-
 // 集計に必要な行をまとめて取得する（RLS により権限に応じた行のみ返る）
 // セッション Cookie は auth-helpers 形式のため、既存コードと同じクライアントを使う
 // NOTE: business / costs は全件取得している。データが数年分蓄積して
@@ -261,7 +258,7 @@ export const getProfitLossReport = async (
   }
 
   // middleware はページ遷移しか守らないため、Server Action 側でも権限を確認する（多層防御）
-  if (!PL_ALLOWED_CLASSES.includes(profileInfo.class ?? "")) {
+  if (!hasClassAccess(PL_ALLOWED_CLASSES, profileInfo.class)) {
     console.error("損益レポートの閲覧権限がありません。");
     return null;
   }
@@ -304,7 +301,7 @@ export const getAnnualTrend = async (
     return null;
   }
 
-  if (!PL_ALLOWED_CLASSES.includes(profileInfo.class ?? "")) {
+  if (!hasClassAccess(PL_ALLOWED_CLASSES, profileInfo.class)) {
     console.error("損益レポートの閲覧権限がありません。");
     return null;
   }
