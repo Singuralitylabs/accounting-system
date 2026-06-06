@@ -7,6 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "db:types": "source .env.local && supabase gen types typescript --project-id ${PROJECT_ID} --schema public > app/lib/database.types.ts",
     "db:types-local": "supabase gen types typescript --local > app/lib/database.types.ts",
     "db:seed": "PGPASSWORD=postgres psql -h localhost -p 54322 -U postgres -d postgres -f scripts/seed-dev-data.sql"
@@ -41,8 +46,10 @@
     "eslint": "^8.57.1",
     "eslint-config-next": "14.2.35",
     "postcss": "^8.5.10",
+    "prettier": "^3.8.3",
     "tailwindcss": "^3.4.14",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.8"
   },
   "resolutions": {
     "jotai": "^2.0.0",

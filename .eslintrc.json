@@ -4,6 +4,8 @@
     "@typescript-eslint/no-unused-vars": [
       "error",
       { "ignoreRestSiblings": true }
-    ]
+    ],
+    "no-console": ["error", { "allow": ["error", "warn"] }],
+    "no-debugger": "error"
   }
 }
