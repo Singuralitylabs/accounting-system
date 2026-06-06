@@ -182,19 +182,19 @@
 
 案件外収支（案件に紐づかない売上・費用の手動エントリ）を保持するテーブル。損益計算書の集計時に計上月へ算入する（売上エントリ → 売上合計、費用エントリ → 案件費用合計）。マイナス金額を許容し、損益計算書上での減額調整に使う。
 
-| カラム名     | データ型                 | 制約                                                  | 説明                                                      |
-| ------------ | ------------------------ | ----------------------------------------------------- | --------------------------------------------------------- |
-| id           | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY             | 主キー                                                    |
-| entry_type   | text                     | NOT NULL, CHECK (entry_type IN ('revenue', 'cost'))   | 種別（revenue = 売上 / cost = 費用）                      |
-| name         | text                     | NOT NULL                                              | 名称（例: 協賛金収入、備品購入）                          |
-| category     | text                     | NULL                                                  | 分類（select_options の category と同じ値域。売上時のみ） |
-| item         | text                     | NULL                                                  | 品目（select_options の item と同じ値域。費用時のみ）     |
-| amount       | numeric(15,2)            | NOT NULL, CHECK (amount <> 0)                         | 金額（マイナス可。0 は不可）                              |
-| team         | text                     | NULL                                                  | 対象チーム（NULL = 全体共通）                             |
-| target_month | date                     | NOT NULL                                              | 計上月（月初日で格納: 例 2026-07-01）                     |
-| comment      | text                     | NULL                                                  | コメント                                                  |
-| inserted_at  | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 作成日時                                                  |
-| updated_at   | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 更新日時                                                  |
+| カラム名     | データ型                 | 制約                                                  | 説明                                                                            |
+| ------------ | ------------------------ | ----------------------------------------------------- | ------------------------------------------------------------------------------- |
+| id           | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY             | 主キー                                                                          |
+| entry_type   | text                     | NOT NULL, CHECK (entry_type IN ('revenue', 'cost'))   | 種別（revenue = 売上 / cost = 費用）                                            |
+| name         | text                     | NOT NULL                                              | 名称（例: 協賛金収入、備品購入）                                                |
+| category     | text                     | NULL                                                  | 分類（select_options のうち type=category の行の value と同じ値域。売上時のみ） |
+| item         | text                     | NULL                                                  | 品目（select_options のうち type=item の行の value と同じ値域。費用時のみ）     |
+| amount       | numeric(15,2)            | NOT NULL, CHECK (amount <> 0)                         | 金額（マイナス可。0 は不可）                                                    |
+| team         | text                     | NULL                                                  | 対象チーム（NULL = 全体共通）                                                   |
+| target_month | date                     | NOT NULL                                              | 計上月（月初日で格納: 例 2026-07-01）                                           |
+| comment      | text                     | NULL                                                  | コメント                                                                        |
+| inserted_at  | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 作成日時                                                                        |
+| updated_at   | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 更新日時                                                                        |
 
 CHECK 制約（種別と分類・品目の整合性）:
 
