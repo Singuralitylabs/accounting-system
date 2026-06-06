@@ -8,7 +8,14 @@ import { useViewportSize } from "@mantine/hooks";
 import UserCard from "./UserCard";
 import UserTable from "./UserTable";
 
-const elementListOfUser = ["ID", "名前", "メールアドレス", "権限", "チーム", "slack ID"];
+const elementListOfUser = [
+  "ID",
+  "名前",
+  "メールアドレス",
+  "権限",
+  "チーム",
+  "slack ID",
+];
 export const classList = ["public", "teamleader", "accounting", "admin"];
 
 const UserList = ({ userList }: { userList: ProfilesType[] }) => {
@@ -21,12 +28,12 @@ const UserList = ({ userList }: { userList: ProfilesType[] }) => {
 
   const handleUpdateUserList = (
     userId: number,
-    updates: Partial<ProfilesType>
+    updates: Partial<ProfilesType>,
   ) => {
     setUpdatedUserList(
       updatedUserList.map((user) =>
-        user.id === userId ? { ...user, ...updates } : user
-      )
+        user.id === userId ? { ...user, ...updates } : user,
+      ),
     );
   };
 

@@ -1,9 +1,6 @@
 "use client";
 
-import {
-  RecurringCostInListType,
-  RecurringCostType,
-} from "@/app/types/types";
+import { RecurringCostInListType, RecurringCostType } from "@/app/types/types";
 import { useRecurringCostList } from "@/app/hooks/useRecurringCostData";
 import { useUpsertRecurringCost } from "@/app/hooks/useRecurringCostData";
 import {
@@ -28,7 +25,7 @@ type Props = {
 };
 
 const toListRows = (
-  recurringCosts: RecurringCostType[]
+  recurringCosts: RecurringCostType[],
 ): RecurringCostInListType[] =>
   recurringCosts.map((rc) => ({ ...rc, isNew: false, isRemoved: false }));
 
@@ -37,7 +34,7 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
   const upsertMutation = useUpsertRecurringCost();
 
   const [rows, setRows] = useState<RecurringCostInListType[]>(
-    toListRows(initialData)
+    toListRows(initialData),
   );
   // 編集中フラグ。バックグラウンド再取得（再接続時など）で
   // 保存前の編集内容が黙って破棄されるのを防ぐ
@@ -53,11 +50,11 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
 
   const handleUpdateRow = (
     id: number,
-    updates: Partial<RecurringCostInListType>
+    updates: Partial<RecurringCostInListType>,
   ) => {
     setIsDirty(true);
     setRows((prev) =>
-      prev.map((row) => (row.id === id ? { ...row, ...updates } : row))
+      prev.map((row) => (row.id === id ? { ...row, ...updates } : row)),
     );
   };
 
@@ -86,7 +83,7 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
   const handleRemoveRow = (id: number) => {
     setIsDirty(true);
     setRows((prev) =>
-      prev.map((row) => (row.id === id ? { ...row, isRemoved: true } : row))
+      prev.map((row) => (row.id === id ? { ...row, isRemoved: true } : row)),
     );
   };
 
@@ -101,7 +98,10 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
         alert(`「${row.name}」の支払額を入力してください。`);
         return;
       }
-      if (row.end_month && row.end_month.slice(0, 7) < row.start_month.slice(0, 7)) {
+      if (
+        row.end_month &&
+        row.end_month.slice(0, 7) < row.start_month.slice(0, 7)
+      ) {
         alert(`「${row.name}」の適用終了月が適用開始月より前になっています。`);
         return;
       }
@@ -117,7 +117,7 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
     } catch (error) {
       console.error("定期費用情報の保存に失敗しました。", error);
       alert(
-        "定期費用情報の更新に失敗しました。一部のみ反映されている可能性があるため、画面を再読み込みして内容を確認してください。"
+        "定期費用情報の更新に失敗しました。一部のみ反映されている可能性があるため、画面を再読み込みして内容を確認してください。",
       );
     }
   };

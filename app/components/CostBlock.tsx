@@ -15,7 +15,7 @@ type Props = {
   index: number;
   onRemoveCost: (id: number) => void;
   onCostUpdate: (
-    updatedCost: CostType & { isNew?: boolean; isRemoved?: boolean }
+    updatedCost: CostType & { isNew?: boolean; isRemoved?: boolean },
   ) => void;
 };
 

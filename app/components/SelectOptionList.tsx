@@ -46,24 +46,24 @@ const SelectOptionList = ({
     optionClass === "team"
       ? "チーム"
       : optionClass === "category"
-      ? "分類"
-      : "品目";
+        ? "分類"
+        : "品目";
 
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
-    })
+    }),
   );
 
   const handleUpdateTeamList = (
     id: number,
-    updates: { value: string } | { is_active: boolean }
+    updates: { value: string } | { is_active: boolean },
   ) => {
     setUpdatedOptionList(
       updatedOptionList.map((option) =>
-        option.id === id ? { ...option, ...updates } : option
-      )
+        option.id === id ? { ...option, ...updates } : option,
+      ),
     );
   };
 
@@ -99,8 +99,8 @@ const SelectOptionList = ({
   const handleRemoveOption = async (id: number) => {
     setUpdatedOptionList(
       updatedOptionList.map((option) =>
-        option.id === id ? { ...option, is_active: false } : option
-      )
+        option.id === id ? { ...option, is_active: false } : option,
+      ),
     );
   };
 
@@ -123,14 +123,14 @@ const SelectOptionList = ({
           await insertSelectOption(
             optionClass,
             option.value,
-            option.display_order || updatedOptionList.length
+            option.display_order || updatedOptionList.length,
           );
         } else {
           await updateSelectOption(
             option.id,
             option.value,
             option.display_order || updatedOptionList.length,
-            option.is_active!
+            option.is_active!,
           );
         }
       }

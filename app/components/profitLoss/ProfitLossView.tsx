@@ -35,7 +35,10 @@ const ProfitLossView = ({ initialMonth, initialReport }: Props) => {
     data: report,
     isLoading: isReportLoading,
     isError: isReportError,
-  } = useProfitLossReport(month, month === initialMonth ? initialReport : undefined);
+  } = useProfitLossReport(
+    month,
+    month === initialMonth ? initialReport : undefined,
+  );
   const {
     data: trend,
     isLoading: isTrendLoading,

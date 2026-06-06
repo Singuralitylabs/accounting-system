@@ -461,12 +461,10 @@ supabase status
 ### 認証エラー
 
 1. **Google Cloud Console の設定を再確認**
-
    - リダイレクト URI が正確に設定されているか
    - JavaScript 生成元が正しく設定されているか
 
 2. **環境変数の確認**
-
    - `.env.local`の`GOOGLE_CLIENT_ID`と`GOOGLE_CLIENT_SECRET`が正しいか
    - Supabase のキーが最新か
 

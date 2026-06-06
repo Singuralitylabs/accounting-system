@@ -18,10 +18,10 @@ const LabelText = ({
     typeof children === "number" && isCurrency
       ? formatCurrency(children)
       : typeof children === "string" && isDate
-      ? formatDateToJp(children)
-      : isCurrency && isDate
-      ? "-"
-      : children;
+        ? formatDateToJp(children)
+        : isCurrency && isDate
+          ? "-"
+          : children;
   return (
     <Stack gap="xs" className="w-full md:pt-0 pt-4">
       <Text size="sm" fw={500} c="dimmed">

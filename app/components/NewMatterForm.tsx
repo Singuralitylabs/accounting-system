@@ -178,8 +178,8 @@ const NewMatterForm = () => {
               businessList.map((businessVal) =>
                 businessVal.id === updatedBusiness.id
                   ? updatedBusiness
-                  : businessVal
-              )
+                  : businessVal,
+              ),
             );
           }}
         />
@@ -212,8 +212,8 @@ const NewMatterForm = () => {
           onCostUpdate={(updatedCost) => {
             setCostList(
               costList.map((costVal) =>
-                costVal.id === updatedCost.id ? updatedCost : costVal
-              )
+                costVal.id === updatedCost.id ? updatedCost : costVal,
+              ),
             );
           }}
         />

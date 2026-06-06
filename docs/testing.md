@@ -80,12 +80,12 @@ CI のワークフロー計画は [4.2](#42-github-actions-ワークフロー計
 
 #### テストを書くべきもの
 
-| 対象 | 理由 | 本プロジェクトでの例 |
-| --- | --- | --- |
-| 認可・ドメイン制限ロジック | 壊れるとセキュリティ事故につながる。手動確認では全パターンの網羅が困難 | `hasClassAccess` / `visibleNavItems`（`app/utils/permissions.ts`）、`isAllowedEmailDomain`（`app/utils/constants.ts`）、`middleware.ts` のルート判定 |
-| 状態遷移・分岐・計算を含むビジネスロジック | 案件ライフサイクル（下書き→経理申請中→経理確認完了→完了）と金額集計はシステムの中核。回帰時の影響が大きい | `editMatterInfo.tsx` のステータス遷移判定・バリデーション・金額集計、`profitLossReport.ts` の支払サイクル判定・月次集計 |
-| 日付・タイムゾーン変換 | JST/UTC の月ズレは静かに壊れ、発見が遅れる | `toMonthString`（`app/utils/formatter.ts`）、`bulkUpsertCostInfo` 等の日付フォーマット処理 |
-| 外部API連携のメッセージ組み立て・エラーハンドリング | 障害時の挙動はテストなしでは確認できない | Slack 通知（`app/utils/slack/sendMessageToSlack.ts`、`app/actions/slack/`） |
+| 対象                                                | 理由                                                                                                      | 本プロジェクトでの例                                                                                                                                 |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 認可・ドメイン制限ロジック                          | 壊れるとセキュリティ事故につながる。手動確認では全パターンの網羅が困難                                    | `hasClassAccess` / `visibleNavItems`（`app/utils/permissions.ts`）、`isAllowedEmailDomain`（`app/utils/constants.ts`）、`middleware.ts` のルート判定 |
+| 状態遷移・分岐・計算を含むビジネスロジック          | 案件ライフサイクル（下書き→経理申請中→経理確認完了→完了）と金額集計はシステムの中核。回帰時の影響が大きい | `editMatterInfo.tsx` のステータス遷移判定・バリデーション・金額集計、`profitLossReport.ts` の支払サイクル判定・月次集計                              |
+| 日付・タイムゾーン変換                              | JST/UTC の月ズレは静かに壊れ、発見が遅れる                                                                | `toMonthString`（`app/utils/formatter.ts`）、`bulkUpsertCostInfo` 等の日付フォーマット処理                                                           |
+| 外部API連携のメッセージ組み立て・エラーハンドリング | 障害時の挙動はテストなしでは確認できない                                                                  | Slack 通知（`app/utils/slack/sendMessageToSlack.ts`、`app/actions/slack/`）                                                                          |
 
 上記に該当しないもの（Supabase クエリの薄い CRUD ラッパー、UI の見た目、`page.tsx` のデータ受け渡し、定数・型定義、`deleteMatter` のような単純削除処理など）は、RLS ポリシー・型チェック・Lint・ビルド・レビューでカバーできるためユニットテストは原則不要とする。判断に迷う場合は、ロジックの複雑さや障害時の影響度を基準にチームで相談する。
 
@@ -125,12 +125,12 @@ CI のワークフロー計画は [4.2](#42-github-actions-ワークフロー計
 
 本プロジェクトのセキュリティテストは、**単体で確認できる部分はユニット**、**実際の認証フロー・RLS に関わる部分は手動**に分類する。
 
-| 観点 | CI（自動） | 手動 |
-| --- | --- | --- |
-| 認証制御 | ― | 未ログインユーザーの `/login` リダイレクト |
-| 認可制御 | `hasClassAccess` / `visibleNavItems` / ルートマッチングの判定ロジック（`ROUTE_PERMISSIONS` のロール別許可/拒否） | middleware 経由の実アクセス制御（`/team` / `/accounting` / `/profit-loss` / `/recurring-costs` / `/dashboard`） |
-| ドメイン制限 | `isAllowedEmailDomain`（完全一致のみ許可、`evil-future-tech-association.org` のような部分一致の拒否、null/空文字/大文字小文字/前後空白） | Google OAuth コールバックでの実挙動 |
-| データアクセス | ―（ユニットでは検証困難） | RLS によるデータ分離（チームリーダーの自チーム案件閲覧など） |
+| 観点           | CI（自動）                                                                                                                               | 手動                                                                                                            |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| 認証制御       | ―                                                                                                                                        | 未ログインユーザーの `/login` リダイレクト                                                                      |
+| 認可制御       | `hasClassAccess` / `visibleNavItems` / ルートマッチングの判定ロジック（`ROUTE_PERMISSIONS` のロール別許可/拒否）                         | middleware 経由の実アクセス制御（`/team` / `/accounting` / `/profit-loss` / `/recurring-costs` / `/dashboard`） |
+| ドメイン制限   | `isAllowedEmailDomain`（完全一致のみ許可、`evil-future-tech-association.org` のような部分一致の拒否、null/空文字/大文字小文字/前後空白） | Google OAuth コールバックでの実挙動                                                                             |
+| データアクセス | ―（ユニットでは検証困難）                                                                                                                | RLS によるデータ分離（チームリーダーの自チーム案件閲覧など）                                                    |
 
 - **実行タイミング**: [2.2 実行タイミング](#22-実行タイミングpr--リリース前) に従う。
 
@@ -181,24 +181,24 @@ TypeScript と型生成の運用によって、型の破綻を早期に検知す
 
 テスト体制はゼロからの導入となるため、以下の 3 フェーズで段階的に整備する。
 
-| フェーズ | 内容 | 成果物 |
-| --- | --- | --- |
-| **Phase 1: 基盤導入** | Vitest 導入、`typecheck` / `format` 系スクリプト追加、GitHub Actions の基本ワークフロー（typecheck / lint / build / unit test / console 検知 / format-check）整備。**即テスト可能な純粋関数**（認可・ドメイン制限・フォーマッタ）のテスト作成 | `vitest.config.ts`、`tests/` 配下の初期テスト、`.github/workflows/*.yml` |
-| **Phase 2: コアロジック** | テスト容易化リファクタリング（[2.6](#26-テスト容易化リファクタリング方針)）を実施した上で、案件ステータス遷移・金額集計・損益計算書・ルート判定のテスト作成。db-types 整合性チェックの CI 追加 | リファクタリング PR + 対応テスト |
-| **Phase 3: 拡充** | bulkUpsert 系の日付フォーマット・操作分岐、Slack 通知のテスト作成。E2E（自動化）の要否検討 | 残対象のテスト、E2E 方針の見直し |
+| フェーズ                  | 内容                                                                                                                                                                                                                                          | 成果物                                                                   |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| **Phase 1: 基盤導入**     | Vitest 導入、`typecheck` / `format` 系スクリプト追加、GitHub Actions の基本ワークフロー（typecheck / lint / build / unit test / console 検知 / format-check）整備。**即テスト可能な純粋関数**（認可・ドメイン制限・フォーマッタ）のテスト作成 | `vitest.config.ts`、`tests/` 配下の初期テスト、`.github/workflows/*.yml` |
+| **Phase 2: コアロジック** | テスト容易化リファクタリング（[2.6](#26-テスト容易化リファクタリング方針)）を実施した上で、案件ステータス遷移・金額集計・損益計算書・ルート判定のテスト作成。db-types 整合性チェックの CI 追加                                                | リファクタリング PR + 対応テスト                                         |
+| **Phase 3: 拡充**         | bulkUpsert 系の日付フォーマット・操作分岐、Slack 通知のテスト作成。E2E（自動化）の要否検討                                                                                                                                                    | 残対象のテスト、E2E 方針の見直し                                         |
 
 ### 4.2 GitHub Actions ワークフロー計画
 
 CI/CD の実行基盤には GitHub Actions を利用する（origin = GitHub。gitlab リモートは本番反映用であり、CI は GitHub 側に集約する）。
 
-| Workflow（予定） | 目的 | 主な実行内容 | 導入フェーズ | 前提 |
-| --- | --- | --- | --- | --- |
-| TypeScript Type Check | 型安全性と静的品質の早期検出 | `tsc --noEmit` + ESLint | Phase 1 | `typecheck` スクリプト追加 |
-| Build Test | 本番相当のビルド成立性を検証 | 依存関係インストール + `next build` | Phase 1 | ― |
-| Unit Tests | ユニットテスト実行 | Vitest | Phase 1 | Vitest 導入 |
-| Check console.log and debugger | デバッグ用出力の混入を防止 | `console.log` / `console.info` / `debugger` 検査 | Phase 1 | 現状 0 件のため即導入可 |
-| Format Check | コード整形の統一性を担保 | `prettier --check` | Phase 1 | `format:check` スクリプト追加 |
-| Supabase DB Types Consistency | DB 型定義の整合性監視 | 型生成 + `app/lib/database.types.ts` との差分チェック | Phase 2 | [4.5](#45-supabase-db-types-チェックの前提設定) の設定 |
+| Workflow（予定）               | 目的                         | 主な実行内容                                          | 導入フェーズ | 前提                                                   |
+| ------------------------------ | ---------------------------- | ----------------------------------------------------- | ------------ | ------------------------------------------------------ |
+| TypeScript Type Check          | 型安全性と静的品質の早期検出 | `tsc --noEmit` + ESLint                               | Phase 1      | `typecheck` スクリプト追加                             |
+| Build Test                     | 本番相当のビルド成立性を検証 | 依存関係インストール + `next build`                   | Phase 1      | ―                                                      |
+| Unit Tests                     | ユニットテスト実行           | Vitest                                                | Phase 1      | Vitest 導入                                            |
+| Check console.log and debugger | デバッグ用出力の混入を防止   | `console.log` / `console.info` / `debugger` 検査      | Phase 1      | 現状 0 件のため即導入可                                |
+| Format Check                   | コード整形の統一性を担保     | `prettier --check`                                    | Phase 1      | `format:check` スクリプト追加                          |
+| Supabase DB Types Consistency  | DB 型定義の整合性監視        | 型生成 + `app/lib/database.types.ts` との差分チェック | Phase 2      | [4.5](#45-supabase-db-types-チェックの前提設定) の設定 |
 
 - トリガーはいずれも `pull_request` / `push`（対象パスで絞り込み）+ `workflow_dispatch` を基本とする。
 - ジョブは観点ごとに分離し、失敗時にどの観点が壊れたか一目で分かるようにする（[2.4 可観測性](#24-可観測性)）。
@@ -220,12 +220,12 @@ CI/CD の実行基盤には GitHub Actions を利用する（origin = GitHub。g
 - **devDependencies**: `vitest`、`prettier`（`.prettierrc` は設定済みだが本体は未導入。必要に応じて `jsdom`、`@vitest/coverage-v8` も追加）
 - **package.json scripts**:
 
-  | スクリプト | 内容 |
-  | --- | --- |
-  | `test` | `vitest run` |
-  | `test:watch` | `vitest` |
-  | `typecheck` | `tsc --noEmit` |
-  | `format` | `prettier --write .` |
+  | スクリプト     | 内容                 |
+  | -------------- | -------------------- |
+  | `test`         | `vitest run`         |
+  | `test:watch`   | `vitest`             |
+  | `typecheck`    | `tsc --noEmit`       |
+  | `format`       | `prettier --write .` |
   | `format:check` | `prettier --check .` |
 
 - **設定ファイル**: `vitest.config.ts`（パスエイリアス `@/*` の解決、デフォルト環境 `node`）
@@ -264,19 +264,19 @@ DB Types 整合性チェックのワークフローを実行するために、Gi
 
 テスト未実装の現状を踏まえ、「実装済みテスト一覧」の代わりに優先度・前提条件付きの対象カタログを定義する。テストを実装したら本表のステータスを更新していく。
 
-| # | 対象 | ファイル | 主なテスト観点 | 価値 | 前提 | フェーズ |
-| --- | --- | --- | --- | --- | --- | --- |
-| 1 | ドメイン制限 `isAllowedEmailDomain` | `app/utils/constants.ts` | 完全一致のみ許可 / 部分一致ドメインの拒否 / null・空文字・`@`なし / 大文字小文字・前後空白 | 高 | なし（純粋関数・export 済） | 1 |
-| 2 | 認可判定 `hasClassAccess` / `visibleNavItems` | `app/utils/permissions.ts` | `ROUTE_PERMISSIONS` のロール別許可/拒否 / null・undefined・未知ロール / ナビ項目のロール別フィルタ | 高 | なし（純粋関数・export 済） | 1 |
-| 3 | 日付・金額フォーマッタ | `app/utils/formatter.ts` | `toMonthString` の月境界（ローカル時刻基準で UTC ズレがないこと）/ `formatCurrency` の null / `formatMonthLabel` 等 | 中 | なし（純粋関数・export 済） | 1 |
-| 4 | 案件更新の金額集計 `updateMatter` | `app/utils/supabase/editMatterInfo.tsx` | `isRemoved` 行の集計除外 / `total_amount` / `total_cost` / `unchecked_cost_count`（`is_completed` と `isNew` の扱い） | 非常に高 | 集計部の純粋関数抽出を推奨（暫定は依存モジュールのモック） | 1〜2 |
-| 5 | ステータス遷移 + バリデーション `editMatterInfo` | `app/utils/supabase/editMatterInfo.tsx` | `isNewApplication`（下書き→申請）/ `isPostSubmissionUpdate`（申請後更新で `has_updates`）/ 必須項目 / 請求日 > 振込期限の検出 | 非常に高 | `confirm` / `alert` の分離リファクタ（[2.6](#26-テスト容易化リファクタリング方針)） | 2 |
-| 6 | 損益計算書の計上月判定・月次集計 | `app/utils/supabase/profitLossReport.ts` | `monthDiff` / `isRecurringCostChargedInMonth`（月払い・四半期・年払いの計上月、年度跨ぎ、`end_month` null）/ `buildMonthlyReport`（ロール別集計、全体共通費用の分離） | 非常に高 | 純粋ヘルパーが module-private かつ `"use server"` ファイル内のため、非サーバーファイルへの抽出 + export が必要 | 2 |
-| 7 | ルート判定 `matchesRoute` + `ROUTE_PERMISSIONS` 連動 | `middleware.ts` | 完全一致・配下パス（`/team/sub`）の一致 / 前方一致の誤検知（`/teamX`）がないこと / 保護対象ルートの網羅 | 高 | `matchesRoute` の export 化（または `permissions.ts` への移動） | 2 |
-| 8 | 一括完了のステータス遷移チェック | `app/utils/supabase/checkMatterInfoList.tsx` | 下書き（`is_fixed=false`）の完了スキップ / `unchecked_cost_count > 0` の確認分岐 | 中 | `confirm` 分離リファクタ | 2 |
-| 9 | bulkUpsert の操作分岐・日付フォーマット | `app/utils/supabase/supabaseServer.ts`（`bulkUpsertCostInfo` / `bulkUpsertBusinessInfo`） | `isNew` / `isRemoved` の組による INSERT / UPDATE / DELETE 振り分け / `toISOString` 由来の JST 月ズレ回帰 | 高 | 分岐・フォーマット部の純粋関数抽出（`"use server"` + Supabase 密結合のため） | 2〜3 |
-| 10 | Slack 通知のメッセージ組み立て | `app/utils/slack/sendMessageToSlack.ts`、`app/actions/slack/` | `slackId` 有無によるメンション切替 / metadata の null-safe 処理 / 送信失敗時のエラーハンドリング | 中 | `fetch` / `notifications.show` の分離またはモック | 3 |
-| ― | 薄い CRUD ラッパー（`getAllMatterInfoList` 等）/ `deleteMatter` / UI コンポーネント | 各所 | ― | 低 | テスト不要（[2.5](#25-ユニットテストの要否判断) の基準） | ― |
+| #   | 対象                                                                                | ファイル                                                                                  | 主なテスト観点                                                                                                                                                        | 価値     | 前提                                                                                                           | フェーズ |
+| --- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------- | -------- |
+| 1   | ドメイン制限 `isAllowedEmailDomain`                                                 | `app/utils/constants.ts`                                                                  | 完全一致のみ許可 / 部分一致ドメインの拒否 / null・空文字・`@`なし / 大文字小文字・前後空白                                                                            | 高       | なし（純粋関数・export 済）                                                                                    | 1        |
+| 2   | 認可判定 `hasClassAccess` / `visibleNavItems`                                       | `app/utils/permissions.ts`                                                                | `ROUTE_PERMISSIONS` のロール別許可/拒否 / null・undefined・未知ロール / ナビ項目のロール別フィルタ                                                                    | 高       | なし（純粋関数・export 済）                                                                                    | 1        |
+| 3   | 日付・金額フォーマッタ                                                              | `app/utils/formatter.ts`                                                                  | `toMonthString` の月境界（ローカル時刻基準で UTC ズレがないこと）/ `formatCurrency` の null / `formatMonthLabel` 等                                                   | 中       | なし（純粋関数・export 済）                                                                                    | 1        |
+| 4   | 案件更新の金額集計 `updateMatter`                                                   | `app/utils/supabase/editMatterInfo.tsx`                                                   | `isRemoved` 行の集計除外 / `total_amount` / `total_cost` / `unchecked_cost_count`（`is_completed` と `isNew` の扱い）                                                 | 非常に高 | 集計部の純粋関数抽出を推奨（暫定は依存モジュールのモック）                                                     | 1〜2     |
+| 5   | ステータス遷移 + バリデーション `editMatterInfo`                                    | `app/utils/supabase/editMatterInfo.tsx`                                                   | `isNewApplication`（下書き→申請）/ `isPostSubmissionUpdate`（申請後更新で `has_updates`）/ 必須項目 / 請求日 > 振込期限の検出                                         | 非常に高 | `confirm` / `alert` の分離リファクタ（[2.6](#26-テスト容易化リファクタリング方針)）                            | 2        |
+| 6   | 損益計算書の計上月判定・月次集計                                                    | `app/utils/supabase/profitLossReport.ts`                                                  | `monthDiff` / `isRecurringCostChargedInMonth`（月払い・四半期・年払いの計上月、年度跨ぎ、`end_month` null）/ `buildMonthlyReport`（ロール別集計、全体共通費用の分離） | 非常に高 | 純粋ヘルパーが module-private かつ `"use server"` ファイル内のため、非サーバーファイルへの抽出 + export が必要 | 2        |
+| 7   | ルート判定 `matchesRoute` + `ROUTE_PERMISSIONS` 連動                                | `middleware.ts`                                                                           | 完全一致・配下パス（`/team/sub`）の一致 / 前方一致の誤検知（`/teamX`）がないこと / 保護対象ルートの網羅                                                               | 高       | `matchesRoute` の export 化（または `permissions.ts` への移動）                                                | 2        |
+| 8   | 一括完了のステータス遷移チェック                                                    | `app/utils/supabase/checkMatterInfoList.tsx`                                              | 下書き（`is_fixed=false`）の完了スキップ / `unchecked_cost_count > 0` の確認分岐                                                                                      | 中       | `confirm` 分離リファクタ                                                                                       | 2        |
+| 9   | bulkUpsert の操作分岐・日付フォーマット                                             | `app/utils/supabase/supabaseServer.ts`（`bulkUpsertCostInfo` / `bulkUpsertBusinessInfo`） | `isNew` / `isRemoved` の組による INSERT / UPDATE / DELETE 振り分け / `toISOString` 由来の JST 月ズレ回帰                                                              | 高       | 分岐・フォーマット部の純粋関数抽出（`"use server"` + Supabase 密結合のため）                                   | 2〜3     |
+| 10  | Slack 通知のメッセージ組み立て                                                      | `app/utils/slack/sendMessageToSlack.ts`、`app/actions/slack/`                             | `slackId` 有無によるメンション切替 / metadata の null-safe 処理 / 送信失敗時のエラーハンドリング                                                                      | 中       | `fetch` / `notifications.show` の分離またはモック                                                              | 3        |
+| ―   | 薄い CRUD ラッパー（`getAllMatterInfoList` 等）/ `deleteMatter` / UI コンポーネント | 各所                                                                                      | ―                                                                                                                                                                     | 低       | テスト不要（[2.5](#25-ユニットテストの要否判断) の基準）                                                       | ―        |
 
 ### テスト着手前のリファクタリング前提タスク
 

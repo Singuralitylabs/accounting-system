@@ -6,7 +6,7 @@ export const PAYMENT_CYCLE_LABELS: Record<string, string> = {
 };
 
 export const PAYMENT_CYCLE_OPTIONS = Object.entries(PAYMENT_CYCLE_LABELS).map(
-  ([value, label]) => ({ value, label })
+  ([value, label]) => ({ value, label }),
 );
 
 export const formatPaymentCycle = (paymentCycle: string): string =>

@@ -79,7 +79,7 @@ export function MatterCardList({
         console.error("案件削除に失敗しました:", error);
       }
     },
-    [deleteMatterMutation]
+    [deleteMatterMutation],
   );
 
   const tableHeads = useMemo(
@@ -94,7 +94,7 @@ export function MatterCardList({
         <Table.Th></Table.Th>
       </Table.Tr>
     ),
-    []
+    [],
   );
 
   const tableInfoList = useMemo(
@@ -106,8 +106,8 @@ export function MatterCardList({
             matter.is_completed
               ? "var(--mantine-color-green-light)"
               : matter.is_fixed
-              ? "var(--mantine-color-red-light)"
-              : "var(--mantine-color-blue-light)"
+                ? "var(--mantine-color-red-light)"
+                : "var(--mantine-color-blue-light)"
           }
         >
           <TableInfo
@@ -132,7 +132,7 @@ export function MatterCardList({
           </Table.Td>
         </Table.Tr>
       )),
-    [matterList, handleOpenCard, handleCopyCard, handleDeleteCard]
+    [matterList, handleOpenCard, handleCopyCard, handleDeleteCard],
   );
 
   if (!Array.isArray(matterList)) {

@@ -40,7 +40,7 @@ const CostBlockForAccounting = ({
                       is_completed: event.currentTarget.checked,
                     }
                   : costInfo;
-              })
+              }),
             )
           }
         />

@@ -36,27 +36,27 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 ## 3. 機能一覧
 
-| 機能 ID | 機能名               | 説明                              | 対象ユーザー       |
-| ------- | -------------------- | --------------------------------- | ------------------ |
-| F001    | ユーザー認証         | Google アカウントによる認証       | 全ユーザー         |
-| F002    | 案件一覧表示         | 案件の一覧表示（カード/テーブル） | 全ユーザー         |
-| F003    | 案件登録             | 新規案件の登録                    | 全ユーザー         |
-| F004    | 案件詳細表示・編集   | 案件の詳細表示と編集              | 全ユーザー         |
-| F005    | 案件削除             | 案件の削除                        | 全ユーザー         |
-| F006    | 案件コピー           | 既存案件のコピー                  | 全ユーザー         |
-| F007    | 経理申請             | 案件の経理申請                    | 全ユーザー         |
-| F008    | 経理申請後の案件編集 | 経理申請後の案件情報の編集        | 全ユーザー         |
-| F009    | 関連案件管理         | 親子関係のある案件の管理          | 全ユーザー         |
-| F010    | チーム案件一覧       | チーム内の案件一覧表示            | チームリーダー     |
-| F011    | 経理用案件一覧       | 全案件の一覧（経理確認用）        | 経理担当者・管理者 |
-| F012    | 案件確認・完了処理   | 案件の確認と完了処理              | 経理担当者・管理者 |
-| F013    | 案件更新の確認       | 経理申請後の更新内容の確認        | 経理担当者・管理者 |
-| F014    | Slack 通知           | 担当者への Slack 通知             | 経理担当者・管理者 |
-| F015    | ユーザー管理         | ユーザーの権限設定                | 管理者             |
-| F016    | マスタデータ管理     | 選択肢項目の管理                  | 管理者             |
+| 機能 ID | 機能名               | 説明                                 | 対象ユーザー                       |
+| ------- | -------------------- | ------------------------------------ | ---------------------------------- |
+| F001    | ユーザー認証         | Google アカウントによる認証          | 全ユーザー                         |
+| F002    | 案件一覧表示         | 案件の一覧表示（カード/テーブル）    | 全ユーザー                         |
+| F003    | 案件登録             | 新規案件の登録                       | 全ユーザー                         |
+| F004    | 案件詳細表示・編集   | 案件の詳細表示と編集                 | 全ユーザー                         |
+| F005    | 案件削除             | 案件の削除                           | 全ユーザー                         |
+| F006    | 案件コピー           | 既存案件のコピー                     | 全ユーザー                         |
+| F007    | 経理申請             | 案件の経理申請                       | 全ユーザー                         |
+| F008    | 経理申請後の案件編集 | 経理申請後の案件情報の編集           | 全ユーザー                         |
+| F009    | 関連案件管理         | 親子関係のある案件の管理             | 全ユーザー                         |
+| F010    | チーム案件一覧       | チーム内の案件一覧表示               | チームリーダー                     |
+| F011    | 経理用案件一覧       | 全案件の一覧（経理確認用）           | 経理担当者・管理者                 |
+| F012    | 案件確認・完了処理   | 案件の確認と完了処理                 | 経理担当者・管理者                 |
+| F013    | 案件更新の確認       | 経理申請後の更新内容の確認           | 経理担当者・管理者                 |
+| F014    | Slack 通知           | 担当者への Slack 通知                | 経理担当者・管理者                 |
+| F015    | ユーザー管理         | ユーザーの権限設定                   | 管理者                             |
+| F016    | マスタデータ管理     | 選択肢項目の管理                     | 管理者                             |
 | F017    | 月次損益計算書表示   | 月別の売上・費用・管理費・損益の表示 | チームリーダー・経理担当者・管理者 |
-| F018    | 年間推移表示         | 年度（7月〜翌6月）の月別損益推移  | チームリーダー・経理担当者・管理者 |
-| F019    | 定期費用マスタ管理   | 毎月固定の管理費の登録・編集      | 経理担当者・管理者 |
+| F018    | 年間推移表示         | 年度（7月〜翌6月）の月別損益推移     | チームリーダー・経理担当者・管理者 |
+| F019    | 定期費用マスタ管理   | 毎月固定の管理費の登録・編集         | 経理担当者・管理者                 |
 
 ## 4. 機能詳細
 
@@ -427,11 +427,11 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 #### 4.16.2 計上ルール（発生主義）
 
-| 区分     | 計上月の判定                                                       | 金額                    |
-| -------- | ------------------------------------------------------------------ | ----------------------- |
-| 売上     | business.invoice_date（請求日）の属する月                          | business.amount         |
-| 案件費用 | costs.period（支払い期限）の属する月                               | costs.price             |
-| 管理費   | 定期費用マスタの支払月（適用期間内かつ支払サイクルに一致する月）   | recurring_costs.price（支払月に全額計上） |
+| 区分     | 計上月の判定                                                     | 金額                                      |
+| -------- | ---------------------------------------------------------------- | ----------------------------------------- |
+| 売上     | business.invoice_date（請求日）の属する月                        | business.amount                           |
+| 案件費用 | costs.period（支払い期限）の属する月                             | costs.price                               |
+| 管理費   | 定期費用マスタの支払月（適用期間内かつ支払サイクルに一致する月） | recurring_costs.price（支払月に全額計上） |
 
 - 月の判定は日付文字列の先頭 7 文字（YYYY-MM）の比較で行う（タイムゾーン変換による月ズレを避けるため Date オブジェクトは使わない）
 - invoice_date / period が NULL のレコードは「月未確定」として売上・費用の合計を別枠表示する
@@ -454,11 +454,11 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 #### 4.16.4 権限によるスコープ
 
-| 権限               | 表示範囲                                                                 |
-| ------------------ | ------------------------------------------------------------------------ |
-| accounting / admin | 全案件・全定期費用。チーム別内訳あり                                     |
+| 権限               | 表示範囲                                                                   |
+| ------------------ | -------------------------------------------------------------------------- |
+| accounting / admin | 全案件・全定期費用。チーム別内訳あり                                       |
 | teamleader         | 自チームの案件・自チーム向け定期費用のみ損益に算入。全体共通は参考表示のみ |
-| public             | アクセス不可                                                             |
+| public             | アクセス不可                                                               |
 
 #### 4.16.5 画面
 
@@ -487,16 +487,16 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 #### 4.18.2 登録項目
 
-| 項目         | 説明                                                          | 必須 |
-| ------------ | ------------------------------------------------------------- | ---- |
-| 名称         | 例: オフィス家賃                                              | ○    |
-| 品目         | 品目マスタ（select_options の item）から選択                  | ○    |
-| 支払額（1回）| 円。支払サイクル1回あたりの金額（年払いなら年額）             | ○    |
-| 支払サイクル | 月払い / 四半期払い / 年払い（既定: 月払い）                  | ○    |
-| チーム       | チームマスタから選択。未選択 = 「全体共通」                   | -    |
-| 適用開始月   | 最初の支払月。以降はサイクル間隔ごとに支払月となる            | ○    |
-| 適用終了月   | この月まで損益に算入する（含む）。未設定 = 継続中             | -    |
-| コメント     | 備考                                                          | -    |
+| 項目          | 説明                                               | 必須 |
+| ------------- | -------------------------------------------------- | ---- |
+| 名称          | 例: オフィス家賃                                   | ○    |
+| 品目          | 品目マスタ（select_options の item）から選択       | ○    |
+| 支払額（1回） | 円。支払サイクル1回あたりの金額（年払いなら年額）  | ○    |
+| 支払サイクル  | 月払い / 四半期払い / 年払い（既定: 月払い）       | ○    |
+| チーム        | チームマスタから選択。未選択 = 「全体共通」        | -    |
+| 適用開始月    | 最初の支払月。以降はサイクル間隔ごとに支払月となる | ○    |
+| 適用終了月    | この月まで損益に算入する（含む）。未設定 = 継続中  | -    |
+| コメント      | 備考                                               | -    |
 
 #### 4.18.3 機能
 
@@ -523,19 +523,19 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 ### 5.2 画面一覧
 
-| 画面 ID | 画面名                 | URL         | 対象ユーザー           |
-| ------- | ---------------------- | ----------- | ---------------------- |
-| S001    | ログイン画面           | /login      | 全ユーザー             |
-| S002    | 案件一覧画面           | /           | 全ユーザー             |
-| S003    | 新規案件作成画面       | /new        | 全ユーザー             |
-| S004    | 案件詳細モーダル       | -           | 全ユーザー             |
-| S005    | チーム案件一覧画面     | /team       | チームリーダー・管理者 |
-| S006    | 経理用案件一覧画面     | /accounting | 経理担当者・管理者     |
-| S007    | 経理用案件詳細モーダル | -           | 経理担当者・管理者     |
-| S008    | 通知内容入力モーダル   | -           | 経理担当者・管理者     |
-| S009    | 管理画面               | /dashboard  | 管理者                 |
-| S010    | 損益計算書画面         | /profit-loss | チームリーダー・経理担当者・管理者 |
-| S011    | 定期費用マスタ画面     | /recurring-costs | 経理担当者・管理者 |
+| 画面 ID | 画面名                 | URL              | 対象ユーザー                       |
+| ------- | ---------------------- | ---------------- | ---------------------------------- |
+| S001    | ログイン画面           | /login           | 全ユーザー                         |
+| S002    | 案件一覧画面           | /                | 全ユーザー                         |
+| S003    | 新規案件作成画面       | /new             | 全ユーザー                         |
+| S004    | 案件詳細モーダル       | -                | 全ユーザー                         |
+| S005    | チーム案件一覧画面     | /team            | チームリーダー・管理者             |
+| S006    | 経理用案件一覧画面     | /accounting      | 経理担当者・管理者                 |
+| S007    | 経理用案件詳細モーダル | -                | 経理担当者・管理者                 |
+| S008    | 通知内容入力モーダル   | -                | 経理担当者・管理者                 |
+| S009    | 管理画面               | /dashboard       | 管理者                             |
+| S010    | 損益計算書画面         | /profit-loss     | チームリーダー・経理担当者・管理者 |
+| S011    | 定期費用マスタ画面     | /recurring-costs | 経理担当者・管理者                 |
 
 ### 5.3 画面詳細
 
@@ -796,36 +796,36 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 ### 7.1 Server Actions
 
-| 関数名                  | 説明                               | パラメータ                            | レスポンス                |
-| ----------------------- | ---------------------------------- | ------------------------------------- | ------------------------- |
-| getProfileInfo          | ログインユーザーのプロフィール取得 | -                                     | {profileInfo, error}      |
-| getProfileInfoById      | 指定ユーザーのプロフィール取得     | userId: string                        | {profileInfo, error}      |
-| getAllUserInfo          | 全ユーザー情報の取得               | -                                     | ProfilesType[]            |
-| insertUserInfo          | ユーザー情報の登録                 | {user, name, email}                   | {error}                   |
-| updateUserInfo          | ユーザー情報の更新                 | {profile}                             | {error}                   |
-| getAllMatterInfoList    | 全案件情報の取得                   | -                                     | MatterType[]              |
-| getUserMatterInfoList   | ユーザーの案件情報の取得           | -                                     | MatterType[]              |
-| getTeamMatterInfoList   | チームの案件情報の取得             | -                                     | MatterType[]              |
-| insertMatterInfo        | 案件情報の登録                     | (title, category, team, ...)          | {newId, error}            |
-| updateMatterInfo        | 案件情報の更新                     | matterInfo: MatterType                | {status, error}           |
-| deleteMatterInfo        | 案件情報の削除                     | id: number                            | {status, error}           |
-| getUserCostInfoList     | コスト情報の取得                   | matter_id: number                     | {costInfoList, error}     |
-| updateCostInfo          | コスト情報の更新                   | (id, name, item, ...)                 | -                         |
-| insertCostInfo          | コスト情報の登録                   | (name, item, ...)                     | {error}                   |
-| deleteCostInfo          | コスト情報の削除                   | id: number                            | -                         |
-| getUserBusinessInfoList | 取引先情報の取得                   | matter_id: number                     | {businessInfoList, error} |
-| insertBusinessInfo      | 取引先情報の登録                   | (name, amount, ...)                   | {error}                   |
-| updateBusinessInfo      | 取引先情報の更新                   | (id, name, amount, ...)               | -                         |
-| deleteBusinessInfo      | 取引先情報の削除                   | id: number                            | -                         |
-| getSelectOptions        | 選択肢情報の取得                   | typeName: string                      | {options, error}          |
-| insertSelectOption      | 選択肢情報の登録                   | (typeName, value, display_order)      | boolean                   |
-| updateSelectOption      | 選択肢情報の更新                   | (id, value, display_order, is_active) | boolean                   |
-| sendSlackNotification   | Slack 通知の送信                   | (message, metadata)                   | {success, error}          |
-| getProfitLossReport     | 月次損益レポートの取得             | month: string ("YYYY-MM")             | PLReportType \| null      |
-| getAnnualTrend          | 年間推移の取得                     | fiscalYear: number                    | AnnualTrendType \| null   |
-| getMatterInfoById       | 案件情報の単体取得（詳細モーダル用） | matterId: number                    | {matterInfo, error}       |
-| getRecurringCostList    | 定期費用一覧の取得                 | -                                     | {recurringCostList, error} |
-| bulkUpsertRecurringCost | 定期費用の一括登録・更新・削除     | rows: RecurringCostInListType[]       | boolean                   |
+| 関数名                  | 説明                                 | パラメータ                            | レスポンス                 |
+| ----------------------- | ------------------------------------ | ------------------------------------- | -------------------------- |
+| getProfileInfo          | ログインユーザーのプロフィール取得   | -                                     | {profileInfo, error}       |
+| getProfileInfoById      | 指定ユーザーのプロフィール取得       | userId: string                        | {profileInfo, error}       |
+| getAllUserInfo          | 全ユーザー情報の取得                 | -                                     | ProfilesType[]             |
+| insertUserInfo          | ユーザー情報の登録                   | {user, name, email}                   | {error}                    |
+| updateUserInfo          | ユーザー情報の更新                   | {profile}                             | {error}                    |
+| getAllMatterInfoList    | 全案件情報の取得                     | -                                     | MatterType[]               |
+| getUserMatterInfoList   | ユーザーの案件情報の取得             | -                                     | MatterType[]               |
+| getTeamMatterInfoList   | チームの案件情報の取得               | -                                     | MatterType[]               |
+| insertMatterInfo        | 案件情報の登録                       | (title, category, team, ...)          | {newId, error}             |
+| updateMatterInfo        | 案件情報の更新                       | matterInfo: MatterType                | {status, error}            |
+| deleteMatterInfo        | 案件情報の削除                       | id: number                            | {status, error}            |
+| getUserCostInfoList     | コスト情報の取得                     | matter_id: number                     | {costInfoList, error}      |
+| updateCostInfo          | コスト情報の更新                     | (id, name, item, ...)                 | -                          |
+| insertCostInfo          | コスト情報の登録                     | (name, item, ...)                     | {error}                    |
+| deleteCostInfo          | コスト情報の削除                     | id: number                            | -                          |
+| getUserBusinessInfoList | 取引先情報の取得                     | matter_id: number                     | {businessInfoList, error}  |
+| insertBusinessInfo      | 取引先情報の登録                     | (name, amount, ...)                   | {error}                    |
+| updateBusinessInfo      | 取引先情報の更新                     | (id, name, amount, ...)               | -                          |
+| deleteBusinessInfo      | 取引先情報の削除                     | id: number                            | -                          |
+| getSelectOptions        | 選択肢情報の取得                     | typeName: string                      | {options, error}           |
+| insertSelectOption      | 選択肢情報の登録                     | (typeName, value, display_order)      | boolean                    |
+| updateSelectOption      | 選択肢情報の更新                     | (id, value, display_order, is_active) | boolean                    |
+| sendSlackNotification   | Slack 通知の送信                     | (message, metadata)                   | {success, error}           |
+| getProfitLossReport     | 月次損益レポートの取得               | month: string ("YYYY-MM")             | PLReportType \| null       |
+| getAnnualTrend          | 年間推移の取得                       | fiscalYear: number                    | AnnualTrendType \| null    |
+| getMatterInfoById       | 案件情報の単体取得（詳細モーダル用） | matterId: number                      | {matterInfo, error}        |
+| getRecurringCostList    | 定期費用一覧の取得                   | -                                     | {recurringCostList, error} |
+| bulkUpsertRecurringCost | 定期費用の一括登録・更新・削除       | rows: RecurringCostInListType[]       | boolean                    |
 
 ### 7.2 ユーティリティ関数
 

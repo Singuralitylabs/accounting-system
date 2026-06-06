@@ -23,7 +23,7 @@ export async function middleware(req: NextRequest) {
       pathname === "/" ||
       matchesRoute(pathname, "/new") ||
       Object.keys(ROUTE_PERMISSIONS).some((route) =>
-        matchesRoute(pathname, route)
+        matchesRoute(pathname, route),
       );
 
     const isAuthRoute =
@@ -48,7 +48,7 @@ export async function middleware(req: NextRequest) {
 
     // ロール制限のあるルートは ROUTE_PERMISSIONS に基づいて一括チェックする
     const restrictedRoute = Object.entries(ROUTE_PERMISSIONS).find(([route]) =>
-      matchesRoute(pathname, route)
+      matchesRoute(pathname, route),
     );
     if (user && restrictedRoute) {
       try {

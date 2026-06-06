@@ -39,7 +39,7 @@ const BusinessBlockForAccounting = ({
                       is_completed: event.currentTarget.checked,
                     }
                   : businessInfo;
-              })
+              }),
             )
           }
         />

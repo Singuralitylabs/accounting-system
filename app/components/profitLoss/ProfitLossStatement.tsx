@@ -20,7 +20,7 @@ type Props = {
 // 定期費用の補足表示（品目 / 支払サイクル / チーム）
 const formatRecurringCostNote = (
   recurringCost: RecurringCostType,
-  includeTeam: boolean
+  includeTeam: boolean,
 ) => {
   const parts = [recurringCost.item];
   if (recurringCost.payment_cycle !== "monthly") {
@@ -69,7 +69,8 @@ const ProfitLossStatement = ({ report }: Props) => {
   const profitColor =
     report.operatingProfit < 0 ? "text-red-600" : "text-green-700";
 
-  const hasUndated = report.undated.revenue > 0 || report.undated.matterCost > 0;
+  const hasUndated =
+    report.undated.revenue > 0 || report.undated.matterCost > 0;
 
   const summaryCards = [
     { label: "売上", value: report.revenueTotal, color: "text-green-700" },
@@ -218,7 +219,9 @@ const ProfitLossStatement = ({ report }: Props) => {
             {/* 営業損益 */}
             <Table.Tr className="bg-slate-100 border-t-2 border-gray-400">
               <Table.Td className="font-bold text-lg">営業損益</Table.Td>
-              <Table.Td className={`text-right font-bold text-lg ${profitColor}`}>
+              <Table.Td
+                className={`text-right font-bold text-lg ${profitColor}`}
+              >
                 {formatCurrency(report.operatingProfit)}
               </Table.Td>
               <Table.Td />

@@ -17,9 +17,10 @@ export const PL_ALLOWED_CLASSES = ROUTE_PERMISSIONS["/profit-loss"];
 
 export const hasClassAccess = (
   allowedClasses: readonly Role[],
-  profileClass: string | null | undefined
+  profileClass: string | null | undefined,
 ) =>
-  !!profileClass && (allowedClasses as readonly string[]).includes(profileClass);
+  !!profileClass &&
+  (allowedClasses as readonly string[]).includes(profileClass);
 
 // ヘッダー（PC / モバイル共通）のナビゲーション項目。
 // ROUTE_PERMISSIONS に無いルートはログインユーザー全員に表示する。

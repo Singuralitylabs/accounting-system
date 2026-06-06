@@ -27,7 +27,7 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
   const [user, setUser] = useState<User | null>(initialUser);
   const [profile, setProfile] = useState<ProfilesType | null>(initialProfile);
   const [profileCache, setProfileCache] = useState<Record<string, CacheEntry>>(
-    {}
+    {},
   );
   const supabase = createClientComponentClient();
   const router = useRouter();

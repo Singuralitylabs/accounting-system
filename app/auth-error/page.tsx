@@ -2,11 +2,7 @@ import Link from "next/link";
 import PageTitle from "../components/PageTitle";
 import { ALLOWED_EMAIL_DOMAIN } from "../utils/constants";
 
-const AuthError = ({
-  searchParams,
-}: {
-  searchParams: { reason?: string };
-}) => {
+const AuthError = ({ searchParams }: { searchParams: { reason?: string } }) => {
   const isDomainError = searchParams.reason === "domain";
 
   const message = isDomainError
