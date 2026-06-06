@@ -1,21 +1,28 @@
 "use client";
 
 import {
+  ManualEntryType,
   MatterInfoWithUserNameType,
   PLReportType,
   RecurringCostType,
 } from "@/app/types/types";
 import { getMatterInfoById } from "@/app/utils/supabase/profitLossReport";
 import { formatCurrency, formatMonthLabel } from "@/app/utils/formatter";
+import { formatEntryType } from "@/app/utils/manualEntry";
 import { formatPaymentCycle } from "@/app/utils/paymentCycle";
 import { Alert, Button, Paper, SimpleGrid, Table, Text } from "@mantine/core";
 import { Fragment, useState } from "react";
 import { FaChevronDown, FaChevronRight } from "react-icons/fa";
 import { MatterCardDetailModalReadOnly } from "../modal/MatterCardDetailReadOnly";
+import ManualEntrySection from "./ManualEntrySection";
 
 type Props = {
   report: PLReportType;
 };
+
+// 案件外収支の補足表示（種別 / 分類または品目）
+const formatManualEntryNote = (entry: ManualEntryType) =>
+  `（案件外${formatEntryType(entry.entry_type)} / ${entry.category ?? entry.item}）`;
 
 // 定期費用の補足表示（品目 / 支払サイクル / チーム）
 const formatRecurringCostNote = (
@@ -163,33 +170,54 @@ const ProfitLossStatement = ({ report }: Props) => {
                   </Table.Td>
                   <Table.Td />
                 </Table.Tr>
-                {expandedItems.has(breakdown.item) &&
-                  breakdown.matters.map((matter) => (
-                    <Table.Tr
-                      key={`item-${breakdown.item}-matter-${matter.matterId}`}
-                      className="bg-gray-50"
-                    >
-                      <Table.Td className="pl-16 text-gray-600">
-                        {matter.matterTitle}
-                      </Table.Td>
-                      <Table.Td className="text-right text-gray-600">
-                        {formatCurrency(matter.amount)}
-                      </Table.Td>
-                      <Table.Td className="text-center">
-                        <Button
-                          size="xs"
-                          variant="light"
-                          loading={loadingMatterId === matter.matterId}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleShowMatter(matter.matterId);
-                          }}
-                        >
-                          案件を表示
-                        </Button>
-                      </Table.Td>
-                    </Table.Tr>
-                  ))}
+                {expandedItems.has(breakdown.item) && (
+                  <>
+                    {breakdown.matters.map((matter) => (
+                      <Table.Tr
+                        key={`item-${breakdown.item}-matter-${matter.matterId}`}
+                        className="bg-gray-50"
+                      >
+                        <Table.Td className="pl-16 text-gray-600">
+                          {matter.matterTitle}
+                        </Table.Td>
+                        <Table.Td className="text-right text-gray-600">
+                          {formatCurrency(matter.amount)}
+                        </Table.Td>
+                        <Table.Td className="text-center">
+                          <Button
+                            size="xs"
+                            variant="light"
+                            loading={loadingMatterId === matter.matterId}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleShowMatter(matter.matterId);
+                            }}
+                          >
+                            案件を表示
+                          </Button>
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                    {/* 案件外費用の明細行（案件に紐づかないため「案件を表示」ボタンなし） */}
+                    {breakdown.manualEntries.map((entry) => (
+                      <Table.Tr
+                        key={`item-${breakdown.item}-manual-${entry.id}`}
+                        className="bg-gray-50"
+                      >
+                        <Table.Td className="pl-16 text-gray-600">
+                          {entry.name}
+                          <span className="text-xs text-gray-500 ml-2">
+                            （案件外）
+                          </span>
+                        </Table.Td>
+                        <Table.Td className="text-right text-gray-600">
+                          {formatCurrency(entry.amount)}
+                        </Table.Td>
+                        <Table.Td />
+                      </Table.Tr>
+                    ))}
+                  </>
+                )}
               </Fragment>
             ))}
 
@@ -230,35 +258,57 @@ const ProfitLossStatement = ({ report }: Props) => {
         </Table>
       </Paper>
 
+      {/* 案件外収支: 明細一覧（accounting / admin には編集ボタンを表示） */}
+      <ManualEntrySection
+        month={report.month}
+        manualEntries={report.manualEntries}
+        canEdit={report.canEditManualEntries}
+      />
+
       {/* 全体共通（参考）: teamleader のみデータが入る */}
-      {report.orgWideRecurringCosts &&
-        report.orgWideRecurringCosts.length > 0 && (
-          <Paper withBorder radius="md" className="overflow-x-auto mb-6 p-4">
-            <Text fw={700} className="mb-1">
-              全体共通の管理費（参考）
-            </Text>
-            <Text size="xs" c="dimmed" className="mb-3">
-              チーム表示には全体共通の管理費は含まれません。
-            </Text>
-            <Table verticalSpacing="xs">
-              <Table.Tbody>
-                {report.orgWideRecurringCosts.map((recurringCost) => (
-                  <Table.Tr key={`orgwide-${recurringCost.id}`}>
-                    <Table.Td className="text-gray-700">
-                      {recurringCost.name}
-                      <span className="text-xs text-gray-500 ml-2">
-                        {formatRecurringCostNote(recurringCost, false)}
-                      </span>
-                    </Table.Td>
-                    <Table.Td className="text-right w-44">
-                      {formatCurrency(recurringCost.price)}
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          </Paper>
-        )}
+      {((report.orgWideRecurringCosts &&
+        report.orgWideRecurringCosts.length > 0) ||
+        (report.orgWideManualEntries &&
+          report.orgWideManualEntries.length > 0)) && (
+        <Paper withBorder radius="md" className="overflow-x-auto mb-6 p-4">
+          <Text fw={700} className="mb-1">
+            全体共通の管理費・案件外収支（参考）
+          </Text>
+          <Text size="xs" c="dimmed" className="mb-3">
+            チーム表示には全体共通の管理費・案件外収支は含まれません。
+          </Text>
+          <Table verticalSpacing="xs">
+            <Table.Tbody>
+              {report.orgWideRecurringCosts?.map((recurringCost) => (
+                <Table.Tr key={`orgwide-${recurringCost.id}`}>
+                  <Table.Td className="text-gray-700">
+                    {recurringCost.name}
+                    <span className="text-xs text-gray-500 ml-2">
+                      {formatRecurringCostNote(recurringCost, false)}
+                    </span>
+                  </Table.Td>
+                  <Table.Td className="text-right w-44">
+                    {formatCurrency(recurringCost.price)}
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+              {report.orgWideManualEntries?.map((entry) => (
+                <Table.Tr key={`orgwide-manual-${entry.id}`}>
+                  <Table.Td className="text-gray-700">
+                    {entry.name}
+                    <span className="text-xs text-gray-500 ml-2">
+                      {formatManualEntryNote(entry)}
+                    </span>
+                  </Table.Td>
+                  <Table.Td className="text-right w-44">
+                    {formatCurrency(entry.amount)}
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </Paper>
+      )}
 
       {/* チーム別内訳: accounting / admin のみデータが入る */}
       {report.byTeam && report.byTeam.length > 0 && (

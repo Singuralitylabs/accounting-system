@@ -62,6 +62,14 @@ export type RecurringCostInListType = {
   isRemoved?: boolean;
 } & RecurringCostType;
 
+type ManualEntriesTable = Database["public"]["Tables"]["manual_entries"];
+export type ManualEntryType = ManualEntriesTable["Row"];
+
+export type ManualEntryInListType = {
+  isNew?: boolean;
+  isRemoved?: boolean;
+} & ManualEntryType;
+
 // 分類別売上内訳（matters.category ごと）
 export type CategoryBreakdown = { category: string; amount: number };
 
@@ -72,11 +80,12 @@ export type MatterCostDetail = {
   amount: number;
 };
 
-// 品目別費用内訳（展開時の案件別明細を含む）
+// 品目別費用内訳（展開時の案件別明細＋案件外費用明細を含む）
 export type ItemBreakdown = {
   item: string;
   amount: number;
   matters: MatterCostDetail[];
+  manualEntries: ManualEntryType[]; // 案件外費用（「案件外」表示の明細行）
 };
 
 // チーム別内訳（accounting / admin のみ。全体共通の管理費は team = "全体共通"）
@@ -90,13 +99,16 @@ export type TeamBreakdown = {
 
 export type PLReportType = {
   month: string; // "YYYY-MM"
-  revenueTotal: number; // 売上合計
-  revenueByCategory: CategoryBreakdown[]; // 分類別売上内訳
-  matterCostTotal: number; // 案件費用合計
-  matterCostByItem: ItemBreakdown[]; // 品目別費用内訳（案件別明細を含む）
+  revenueTotal: number; // 売上合計（案件外売上を含む）
+  revenueByCategory: CategoryBreakdown[]; // 分類別売上内訳（案件外売上を合算）
+  matterCostTotal: number; // 案件費用合計（案件外費用を含む）
+  matterCostByItem: ItemBreakdown[]; // 品目別費用内訳（案件別明細＋案件外明細を含む）
   recurringCostTotal: number; // 管理費合計（teamleader は自チーム分のみ算入）
   recurringCostDetails: RecurringCostType[]; // 管理費明細
   orgWideRecurringCosts?: RecurringCostType[]; // teamleader 向け「全体共通（参考）」（損益に算入しない）
+  manualEntries: ManualEntryType[]; // 案件外収支明細（teamleader は自チーム分のみ。損益に算入済み）
+  orgWideManualEntries?: ManualEntryType[]; // teamleader 向け「全体共通（参考）」（損益に算入しない）
+  canEditManualEntries: boolean; // 案件外収支を編集できるか（accounting / admin のみ true）
   operatingProfit: number; // 営業損益 = 売上 − 案件費用 − 管理費
   byTeam?: TeamBreakdown[]; // チーム別内訳（accounting / admin のみ）
   undated: { revenue: number; matterCost: number }; // 月未確定（日付未入力）

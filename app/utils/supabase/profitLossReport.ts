@@ -7,6 +7,7 @@ import {
   AnnualTrendType,
   CategoryBreakdown,
   ItemBreakdown,
+  ManualEntryType,
   MatterCostDetail,
   MatterInfoWithUserNameType,
   PLReportType,
@@ -77,22 +78,48 @@ const buildMonthlyReport = (
   businessRows: BusinessRow[],
   costRows: CostRow[],
   recurringCosts: RecurringCostType[],
+  manualEntries: ManualEntryType[],
   isTeamLeader: boolean,
   includeTeamBreakdown: boolean
 ): PLReportType => {
-  // ===== 売上（分類別） =====
+  // ===== 案件外収支（手動エントリ） =====
+  const monthlyManualEntries = manualEntries.filter(
+    (entry) => toMonthKey(entry.target_month) === month
+  );
+
+  // teamleader の場合、全体共通（team IS NULL）は損益に算入せず参考表示に分離する
+  // （定期費用と同じルール）
+  const countedManualEntries = isTeamLeader
+    ? monthlyManualEntries.filter((entry) => entry.team !== null)
+    : monthlyManualEntries;
+  const orgWideManualEntries = isTeamLeader
+    ? monthlyManualEntries.filter((entry) => entry.team === null)
+    : undefined;
+
+  const manualRevenueEntries = countedManualEntries.filter(
+    (entry) => entry.entry_type === "revenue"
+  );
+  const manualCostEntries = countedManualEntries.filter(
+    (entry) => entry.entry_type === "cost"
+  );
+
+  // ===== 売上（分類別。案件外売上を合算） =====
   const monthlyBusiness = businessRows.filter(
     (row) => toMonthKey(row.invoice_date) === month
   );
-  const revenueTotal = monthlyBusiness.reduce(
-    (sum, row) => sum + (row.amount ?? 0),
-    0
-  );
+  const revenueTotal =
+    monthlyBusiness.reduce((sum, row) => sum + (row.amount ?? 0), 0) +
+    manualRevenueEntries.reduce((sum, entry) => sum + entry.amount, 0);
 
   const categoryMap = new Map<string, number>();
   monthlyBusiness.forEach((row) => {
     const category = row.matters.category;
     categoryMap.set(category, (categoryMap.get(category) ?? 0) + (row.amount ?? 0));
+  });
+  manualRevenueEntries.forEach((entry) => {
+    // 売上エントリの category は CHECK 制約で NOT NULL（型上は nullable）
+    const category = entry.category ?? "";
+    categoryMap.set(category, (categoryMap.get(category) ?? 0) + entry.amount);
   });
   const revenueByCategory: CategoryBreakdown[] = Array.from(
     categoryMap.entries()
@@ -100,11 +127,13 @@ const buildMonthlyReport = (
     .map(([category, amount]) => ({ category, amount }))
     .sort((a, b) => b.amount - a.amount);
 
-  // ===== 案件費用（品目別 → 案件別明細） =====
+  // ===== 案件費用（品目別 → 案件別明細。案件外費用を合算） =====
   const monthlyCosts = costRows.filter(
     (row) => toMonthKey(row.period) === month
   );
-  const matterCostTotal = monthlyCosts.reduce((sum, row) => sum + row.price, 0);
+  const matterCostTotal =
+    monthlyCosts.reduce((sum, row) => sum + row.price, 0) +
+    manualCostEntries.reduce((sum, entry) => sum + entry.amount, 0);
 
   const itemMap = new Map<string, Map<number, MatterCostDetail>>();
   monthlyCosts.forEach((row) => {
@@ -123,15 +152,32 @@ const buildMonthlyReport = (
       });
     }
   });
-  const matterCostByItem: ItemBreakdown[] = Array.from(itemMap.entries())
-    .map(([item, matterMap]) => {
-      const matters = Array.from(matterMap.values()).sort(
+  // 案件外費用を品目別にまとめる（費用エントリの item は CHECK 制約で NOT NULL）
+  const manualCostByItem = new Map<string, ManualEntryType[]>();
+  manualCostEntries.forEach((entry) => {
+    const item = entry.item ?? "";
+    manualCostByItem.set(item, [
+      ...(manualCostByItem.get(item) ?? []),
+      entry,
+    ]);
+  });
+  const allCostItems = new Set([
+    ...Array.from(itemMap.keys()),
+    ...Array.from(manualCostByItem.keys()),
+  ]);
+  const matterCostByItem: ItemBreakdown[] = Array.from(allCostItems)
+    .map((item) => {
+      const matters = Array.from(itemMap.get(item)?.values() ?? []).sort(
         (a, b) => b.amount - a.amount
       );
+      const itemManualEntries = manualCostByItem.get(item) ?? [];
       return {
         item,
-        amount: matters.reduce((sum, m) => sum + m.amount, 0),
+        amount:
+          matters.reduce((sum, m) => sum + m.amount, 0) +
+          itemManualEntries.reduce((sum, entry) => sum + entry.amount, 0),
         matters,
+        manualEntries: itemManualEntries,
       };
     })
     .sort((a, b) => b.amount - a.amount);
@@ -190,6 +236,15 @@ const buildMonthlyReport = (
     activeRecurringCosts.forEach((rc) => {
       getTeamEntry(rc.team ?? ORG_WIDE_TEAM_LABEL).recurringCost += rc.price;
     });
+    // 案件外収支は本表と同じく売上 / 案件費用へ算入する（チーム未指定は「全体共通」）
+    monthlyManualEntries.forEach((entry) => {
+      const teamEntry = getTeamEntry(entry.team ?? ORG_WIDE_TEAM_LABEL);
+      if (entry.entry_type === "revenue") {
+        teamEntry.revenue += entry.amount;
+      } else {
+        teamEntry.matterCost += entry.amount;
+      }
+    });
 
     byTeam = Array.from(teamMap.values())
       .map((entry) => ({
@@ -208,6 +263,9 @@ const buildMonthlyReport = (
     recurringCostTotal,
     recurringCostDetails: countedRecurringCosts,
     orgWideRecurringCosts,
+    manualEntries: countedManualEntries,
+    orgWideManualEntries,
+    canEditManualEntries: includeTeamBreakdown, // accounting / admin のみ（チーム別内訳と同じ条件）
     operatingProfit: revenueTotal - matterCostTotal - recurringCostTotal,
     byTeam,
     undated,
@@ -222,20 +280,30 @@ const buildMonthlyReport = (
 const fetchReportSourceRows = async () => {
   const supabase = createServerComponentClient<Database>({ cookies });
 
-  const [businessResult, costResult, recurringResult] = await Promise.all([
-    supabase
-      .from("business")
-      .select("amount, invoice_date, matters!inner(team, category)"),
-    supabase
-      .from("costs")
-      .select("price, item, period, matter_id, matters!inner(id, title, team)"),
-    supabase.from("recurring_costs").select("*").order("id", { ascending: true }),
-  ]);
+  const [businessResult, costResult, recurringResult, manualResult] =
+    await Promise.all([
+      supabase
+        .from("business")
+        .select("amount, invoice_date, matters!inner(team, category)"),
+      supabase
+        .from("costs")
+        .select("price, item, period, matter_id, matters!inner(id, title, team)"),
+      supabase.from("recurring_costs").select("*").order("id", { ascending: true }),
+      supabase.from("manual_entries").select("*").order("id", { ascending: true }),
+    ]);
 
-  if (businessResult.error || costResult.error || recurringResult.error) {
+  if (
+    businessResult.error ||
+    costResult.error ||
+    recurringResult.error ||
+    manualResult.error
+  ) {
     console.error(
       "損益レポートのデータ取得に失敗しました:",
-      businessResult.error ?? costResult.error ?? recurringResult.error
+      businessResult.error ??
+        costResult.error ??
+        recurringResult.error ??
+        manualResult.error
     );
     return null;
   }
@@ -244,6 +312,7 @@ const fetchReportSourceRows = async () => {
     businessRows: (businessResult.data ?? []) as BusinessRow[],
     costRows: (costResult.data ?? []) as CostRow[],
     recurringCosts: recurringResult.data ?? [],
+    manualEntries: manualResult.data ?? [],
   };
 };
 
@@ -278,6 +347,7 @@ export const getProfitLossReport = async (
     rows.businessRows,
     rows.costRows,
     rows.recurringCosts,
+    rows.manualEntries,
     isTeamLeader,
     includeTeamBreakdown
   );
@@ -323,6 +393,7 @@ export const getAnnualTrend = async (
       rows.businessRows,
       rows.costRows,
       rows.recurringCosts,
+      rows.manualEntries,
       isTeamLeader,
       includeTeamBreakdown
     )

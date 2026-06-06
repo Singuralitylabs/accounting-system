@@ -17,9 +17,9 @@ export type Database = {
     Functions: {
       graphql: {
         Args: {
+          query?: string
           variables?: Json
           operationName?: string
-          query?: string
           extensions?: Json
         }
         Returns: Json
@@ -133,6 +133,48 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      manual_entries: {
+        Row: {
+          amount: number
+          category: string | null
+          comment: string | null
+          entry_type: string
+          id: number
+          inserted_at: string
+          item: string | null
+          name: string
+          target_month: string
+          team: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          category?: string | null
+          comment?: string | null
+          entry_type: string
+          id?: never
+          inserted_at?: string
+          item?: string | null
+          name: string
+          target_month: string
+          team?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          category?: string | null
+          comment?: string | null
+          entry_type?: string
+          id?: never
+          inserted_at?: string
+          item?: string | null
+          name?: string
+          target_month?: string
+          team?: string | null
+          updated_at?: string
+        }
+        Relationships: []
       }
       matters: {
         Row: {
