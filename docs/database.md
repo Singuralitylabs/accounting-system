@@ -195,13 +195,32 @@
 
 > パフォーマンス最適化のため、`auth.uid()` は `(select auth.uid())` でラップして 1 行ごとの再評価を避けている（Supabase Linter `auth_rls_initplan` 対応）。
 
+> SELECT は「自分 / 経理・管理者 / 同チームのチームリーダー」に限定している（旧 `USING (true)` では全ログインユーザーが他人の email・class 等を読めたため）。閲覧者自身の `class` / `team` を SELECT ポリシー内で参照すると profiles への再帰参照で無限再帰になるため、`SECURITY DEFINER` のヘルパ関数（`auth_user_class()` / `auth_user_team()`、RLS をバイパスして自分の 1 行のみ読む）経由で取得する。
+
 ```sql
--- 全認証ユーザーが参照可能
+-- 閲覧者自身の class / team を RLS バイパスで取得するヘルパ（再帰回避用）
+CREATE OR REPLACE FUNCTION public.auth_user_class()
+RETURNS text LANGUAGE sql SECURITY DEFINER STABLE SET search_path = ''
+AS $$ SELECT class FROM public.profiles WHERE user_id = (select auth.uid()) LIMIT 1 $$;
+
+CREATE OR REPLACE FUNCTION public.auth_user_team()
+RETURNS text LANGUAGE sql SECURITY DEFINER STABLE SET search_path = ''
+AS $$ SELECT team FROM public.profiles WHERE user_id = (select auth.uid()) LIMIT 1 $$;
+
+-- 自分 / 経理・管理者 / 同チームのチームリーダーのみ参照可能
 CREATE POLICY "Users can view own profile"
   ON profiles
   FOR SELECT
   TO authenticated
-  USING (true);
+  USING (
+    user_id = (select auth.uid())
+    OR public.auth_user_class() IN ('admin', 'accounting')
+    OR (
+      public.auth_user_class() = 'teamleader'
+      AND public.auth_user_team() IS NOT NULL
+      AND profiles.team = public.auth_user_team()
+    )
+  );
 
 -- 自分自身のプロフィールのみ挿入可能
 CREATE POLICY "Users can insert own profile"
@@ -216,12 +235,8 @@ CREATE POLICY "Users can update own profile or admin can update any profile"
   FOR UPDATE
   TO authenticated
   USING (
-    (select auth.uid()) = user_id OR
-    EXISTS (
-      SELECT 1 FROM profiles p
-      WHERE p.user_id = (select auth.uid())
-      AND p.class = 'admin'
-    )
+    user_id = (select auth.uid())
+    OR public.auth_user_class() = 'admin'
   );
 ```
 

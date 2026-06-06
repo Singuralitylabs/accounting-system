@@ -1,14 +1,11 @@
 "use client";
 
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+import {
+  ALLOWED_EMAIL_DOMAIN,
+  isAllowedEmailDomain,
+} from "@/app/utils/constants";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
-
-const ALLOWED_DOMAIN = "future-tech-association.org";
-
-const isAllowedDomain = (email: string): boolean => {
-  return email.endsWith(`@${ALLOWED_DOMAIN}`);
-};
 
 export const SignIn = () => {
   const supabase = createClientComponentClient();
@@ -21,10 +18,11 @@ export const SignIn = () => {
       } = await supabase.auth.getUser();
 
       if (user) {
-        // 既存ユーザーがいる場合のドメインチェック
-        if (user.email && !isAllowedDomain(user.email)) {
+        // 既存ユーザーがいる場合のドメインチェック（UX 用の早期判定。
+        // 実際の強制はサーバの /auth/callback で行う）
+        if (!isAllowedEmailDomain(user.email)) {
           await supabase.auth.signOut();
-          alert(`${ALLOWED_DOMAIN}のメールアドレスのみログイン可能です。`);
+          alert(`${ALLOWED_EMAIL_DOMAIN}のメールアドレスのみログイン可能です。`);
           return;
         }
         router.push("/");
@@ -35,6 +33,11 @@ export const SignIn = () => {
         provider: "google",
         options: {
           redirectTo: `${window.location.origin}/auth/callback`,
+          // Google 側でも組織ドメインのアカウント選択に絞る（UX 改善）。
+          // セキュリティ上の強制はサーバ側コールバックが担う。
+          queryParams: {
+            hd: ALLOWED_EMAIL_DOMAIN,
+          },
         },
       });
 
@@ -47,24 +50,6 @@ export const SignIn = () => {
       alert("ログイン処理でエラーが発生しました。");
     }
   };
-
-  const checkDomainAfterRedirect = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (user?.email && !isAllowedDomain(user.email)) {
-      await supabase.auth.signOut();
-      alert(`${ALLOWED_DOMAIN}のメールアドレスのみログイン可能です。`);
-      router.push("/");
-    }
-  };
-
-  useEffect(() => {
-    if (window.location.pathname === "/auth/callback") {
-      checkDomainAfterRedirect();
-    }
-  }, []);
 
   return (
     <button 
