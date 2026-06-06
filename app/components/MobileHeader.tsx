@@ -65,6 +65,27 @@ const MobileHeader: FC<Props> = ({ profile, onSignOut }) => {
                 経理用一覧
               </Link>
             )}
+            {(profile?.class === "teamleader" ||
+              profile?.class === "accounting" ||
+              profile?.class === "admin") && (
+              <Link
+                href="/profit-loss"
+                className="block rounded px-3 py-2 text-white hover:bg-gray-500 text-right w-full"
+                onClick={toggleMenu}
+              >
+                損益計算書
+              </Link>
+            )}
+            {(profile?.class === "accounting" ||
+              profile?.class === "admin") && (
+              <Link
+                href="/recurring-costs"
+                className="block rounded px-3 py-2 text-white hover:bg-gray-500 text-right w-full"
+                onClick={toggleMenu}
+              >
+                定期費用マスタ
+              </Link>
+            )}
             {profile?.class === "admin" && (
               <Link
                 href="/dashboard"

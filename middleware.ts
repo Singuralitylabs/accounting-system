@@ -19,7 +19,9 @@ export async function middleware(req: NextRequest) {
       pathname.startsWith("/dashboard") ||
       pathname.startsWith("/accounting") ||
       pathname.startsWith("/team") ||
-      pathname.startsWith("/new");
+      pathname.startsWith("/new") ||
+      pathname.startsWith("/profit-loss") ||
+      pathname.startsWith("/recurring-costs");
 
     const isAuthRoute =
       pathname.startsWith("/login") || pathname.startsWith("/auth/callback");
@@ -75,6 +77,36 @@ export async function middleware(req: NextRequest) {
       try {
         const { profileInfo } = await getProfileInfo();
         if (!profileInfo?.class || profileInfo.class !== "admin") {
+          return NextResponse.redirect(new URL("/", req.url));
+        }
+      } catch (error) {
+        console.error("Profile fetch error:", error);
+        return NextResponse.redirect(new URL("/", req.url));
+      }
+    }
+
+    if (user && pathname.startsWith("/profit-loss")) {
+      try {
+        const { profileInfo } = await getProfileInfo();
+        if (
+          !profileInfo?.class ||
+          !["teamleader", "accounting", "admin"].includes(profileInfo.class)
+        ) {
+          return NextResponse.redirect(new URL("/", req.url));
+        }
+      } catch (error) {
+        console.error("Profile fetch error:", error);
+        return NextResponse.redirect(new URL("/", req.url));
+      }
+    }
+
+    if (user && pathname.startsWith("/recurring-costs")) {
+      try {
+        const { profileInfo } = await getProfileInfo();
+        if (
+          !profileInfo?.class ||
+          !["accounting", "admin"].includes(profileInfo.class)
+        ) {
           return NextResponse.redirect(new URL("/", req.url));
         }
       } catch (error) {

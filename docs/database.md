@@ -14,14 +14,15 @@
 
 ## 2. テーブル一覧
 
-| テーブル名          | 説明                           |
-| ------------------- | ------------------------------ |
-| profiles            | ユーザー情報を管理するテーブル |
-| matters             | 案件情報を管理するテーブル     |
-| costs               | コスト情報を管理するテーブル   |
-| business            | 取引先情報を管理するテーブル   |
-| select_option_types | 選択肢の種類を管理するテーブル |
-| select_options      | 選択肢の値を管理するテーブル   |
+| テーブル名          | 説明                                 |
+| ------------------- | ------------------------------------ |
+| profiles            | ユーザー情報を管理するテーブル       |
+| matters             | 案件情報を管理するテーブル           |
+| costs               | コスト情報を管理するテーブル         |
+| business            | 取引先情報を管理するテーブル         |
+| select_option_types | 選択肢の種類を管理するテーブル       |
+| select_options      | 選択肢の値を管理するテーブル         |
+| recurring_costs     | 定期費用（管理費）を管理するテーブル |
 
 ## 3. テーブル詳細
 
@@ -152,6 +153,29 @@
 ユニーク制約:
 
 - (type_id, value)
+
+### 3.7 recurring_costs テーブル
+
+定期費用（管理費）を保持するテーブル。定期的にかかる費用を登録し、損益計算書の集計時に支払月（適用開始月を起点に支払サイクル間隔ごと）へ全額算入する（実レコードは月ごとに生成しない）。
+
+| カラム名      | データ型                 | 制約                                                  | 説明                                                   |
+| ------------- | ------------------------ | ----------------------------------------------------- | ------------------------------------------------------ |
+| id            | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY             | 主キー                                                 |
+| name          | text                     | NOT NULL                                              | 名称（例: オフィス家賃）                               |
+| item          | text                     | NOT NULL                                              | 品目（select_options の item と同じ値域）              |
+| price         | numeric(15,2)            | NOT NULL                                              | 支払額（支払サイクル1回あたり）                        |
+| team          | text                     | NULL                                                  | 対象チーム（NULL = 全体共通）                          |
+| payment_cycle | text                     | NOT NULL, DEFAULT 'monthly', CHECK (monthly/quarterly/yearly) | 支払サイクル（月払い / 四半期払い / 年払い）  |
+| start_month   | date                     | NOT NULL                                              | 適用開始月 = 最初の支払月（月初日で格納: 例 2026-07-01） |
+| end_month     | date                     | NULL                                                  | 適用終了月（月初日で格納。NULL = 継続中。当月を含む） |
+| comment       | text                     | NULL                                                  | コメント                                               |
+| inserted_at   | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 作成日時                                               |
+| updated_at    | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 更新日時                                               |
+
+インデックス:
+
+- team
+- start_month
 
 ## 4. 列挙型
 
@@ -509,6 +533,63 @@ CREATE POLICY "Admin can delete select options" ON select_options
     );
 ```
 
+### 5.6 recurring_costs テーブル
+
+> teamleader が全体共通（team IS NULL）の行を SELECT できるのは、損益計算書で「全体共通（参考）」として表示するため。チーム損益への算入可否はアプリケーション層で制御する。
+
+```sql
+-- 経理担当者/管理者は全行、チームリーダーは自チームの行 + 全体共通の行を参照可能
+CREATE POLICY "recurring_costs_select_policy" ON recurring_costs
+    FOR SELECT TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.user_id = (select auth.uid())
+            AND profiles.class IN ('admin', 'accounting')
+        ) OR
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.user_id = (select auth.uid())
+            AND profiles.class = 'teamleader'
+            AND profiles.team IS NOT NULL
+            AND (recurring_costs.team IS NULL OR recurring_costs.team = profiles.team)
+        )
+    );
+
+-- 経理担当者/管理者のみ挿入可能
+CREATE POLICY "recurring_costs_insert_policy" ON recurring_costs
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.user_id = (select auth.uid())
+            AND profiles.class IN ('admin', 'accounting')
+        )
+    );
+
+-- 経理担当者/管理者のみ更新可能
+CREATE POLICY "recurring_costs_update_policy" ON recurring_costs
+    FOR UPDATE TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.user_id = (select auth.uid())
+            AND profiles.class IN ('admin', 'accounting')
+        )
+    );
+
+-- 経理担当者/管理者のみ削除可能
+CREATE POLICY "recurring_costs_delete_policy" ON recurring_costs
+    FOR DELETE TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.user_id = (select auth.uid())
+            AND profiles.class IN ('admin', 'accounting')
+        )
+    );
+```
+
 ## 6. トリガー
 
 ### 6.1 updated_at 更新トリガー
@@ -543,6 +624,11 @@ CREATE TRIGGER update_costs_updated_at
 
 CREATE TRIGGER update_business_updated_at
     BEFORE UPDATE ON business
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_updated_at_column();
+
+CREATE TRIGGER update_recurring_costs_updated_at
+    BEFORE UPDATE ON recurring_costs
     FOR EACH ROW
     EXECUTE PROCEDURE update_updated_at_column();
 ```
@@ -671,6 +757,20 @@ erDiagram
         integer display_order
         boolean is_active
         timestamp created_at
+        timestamp updated_at
+    }
+
+    recurring_costs {
+        bigint id PK
+        text name
+        text item
+        numeric price
+        text team
+        text payment_cycle
+        date start_month
+        date end_month
+        text comment
+        timestamp inserted_at
         timestamp updated_at
     }
 ```

@@ -21,11 +21,15 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 - マイグレーションを足したら同じ PR で `docs/database.md` も更新する（テーブル定義 / RLS / トリガーの記載と実物を一致させる）。
 - テストフレームワークは導入されていない。TypeScript + ESLint + 手動確認のみ。
 
+## 作業ルール
+
+- **ファイルを修正したら、コミットする前に必ずユーザーに確認を取る**。確認なしで `git commit` / `git push` を実行しない。
+
 ## アーキテクチャ
 
 - Next.js 14 (App Router) / TypeScript / Mantine + Tailwind
 - 認証は Supabase Auth + Google OAuth。`@future-tech-association.org` ドメイン限定。
-- `@supabase/ssr`（推奨）と `@supabase/auth-helpers-nextjs`（`middleware.ts` のみ）が混在。新規コードは `@supabase/ssr` を使う。
+- 認証・DB アクセスは全面的に `@supabase/auth-helpers-nextjs` を使用。`@supabase/ssr` は依存に入っているが**未使用**であり、セッション Cookie が auth-helpers 形式のため **`@supabase/ssr` クライアントを混在させるとセッションを読めず、RLS で全クエリが 0 行になる**（エラーは出ない）。認証スタック全体を `@supabase/ssr` へ移行するまでは、新規コードも `createServerComponentClient` 等の auth-helpers を使うこと。
 - `app/layout.tsx` で `export const dynamic = "force-dynamic"` を指定しており、ページは静的キャッシュされない。
 
 ### Provider スタック（`app/layout.tsx`）
