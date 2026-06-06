@@ -57,6 +57,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 | F017    | 月次損益計算書表示   | 月別の売上・費用・管理費・損益の表示 | チームリーダー・経理担当者・管理者 |
 | F018    | 年間推移表示         | 年度（7月〜翌6月）の月別損益推移     | チームリーダー・経理担当者・管理者 |
 | F019    | 定期費用マスタ管理   | 毎月固定の管理費の登録・編集         | 経理担当者・管理者                 |
+| F020    | 案件外収支管理       | 案件に紐づかない売上・費用の登録     | 経理担当者・管理者                 |
 
 ## 4. 機能詳細
 
@@ -427,38 +428,41 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 #### 4.16.2 計上ルール（発生主義）
 
-| 区分     | 計上月の判定                                                     | 金額                                      |
-| -------- | ---------------------------------------------------------------- | ----------------------------------------- |
-| 売上     | business.invoice_date（請求日）の属する月                        | business.amount                           |
-| 案件費用 | costs.period（支払い期限）の属する月                             | costs.price                               |
-| 管理費   | 定期費用マスタの支払月（適用期間内かつ支払サイクルに一致する月） | recurring_costs.price（支払月に全額計上） |
+| 区分       | 計上月の判定                                                     | 金額                                                                |
+| ---------- | ---------------------------------------------------------------- | ------------------------------------------------------------------- |
+| 売上       | business.invoice_date（請求日）の属する月                        | business.amount                                                     |
+| 案件費用   | costs.period（支払い期限）の属する月                             | costs.price                                                         |
+| 管理費     | 定期費用マスタの支払月（適用期間内かつ支払サイクルに一致する月） | recurring_costs.price（支払月に全額計上）                           |
+| 案件外収支 | manual_entries.target_month（計上月）                            | manual_entries.amount（売上は売上合計へ、費用は案件費用合計へ算入） |
 
 - 月の判定は日付文字列の先頭 7 文字（YYYY-MM）の比較で行う（タイムゾーン変換による月ズレを避けるため Date オブジェクトは使わない）
 - invoice_date / period が NULL のレコードは「月未確定」として売上・費用の合計を別枠表示する
 - business.amount は NULL 許容のため、集計時は NULL を 0 として扱う
 - 定期費用の計上判定: 適用期間内（`start_month <= 選択月の月初日 AND (end_month IS NULL OR 選択月の月初日 <= end_month)`。end_month の月**を含む**）かつ支払月に一致する月
 - 支払月は適用開始月を起点に支払サイクル間隔ごとに自動計算する（月払い=毎月、四半期払い=3ヶ月ごと、年払い=12ヶ月ごと）。月割り按分は行わず、支払月に全額計上する
+- 案件外収支はマイナス金額を許容する（案件側のデータを直さずに損益計算書上で減額調整するため）。売上エントリは分類別内訳へ、費用エントリは品目別内訳へそれぞれ合算する
 
 #### 4.16.3 表示内容
 
 - 損益計算書テーブル
-  - 売上合計（分類別内訳をインデント行で表示）
-  - 案件費用合計（品目別内訳。各品目行は展開可能で、案件別明細＋「案件を表示」ボタンを表示）
+  - 売上合計（分類別内訳をインデント行で表示。案件外売上も分類別に合算する）
+  - 案件費用合計（品目別内訳。各品目行は展開可能で、案件別明細＋「案件を表示」ボタンを表示。案件外費用も品目別に合算し、展開明細では名称＋「案件外」表示の行とする＝「案件を表示」ボタンなし）
   - 管理費合計（定期費用の明細行を表示）
   - 営業損益（太字。マイナスは赤字表示）
-- チーム別内訳（経理担当者・管理者のみ。チームに紐づかない管理費は「全体共通」として表示）
-- 全体共通（参考）セクション（チームリーダーのみ。全体共通の管理費を参考表示し、チーム損益には算入しない）
+- 案件外収支セクション（選択月にエントリがある場合のみ。明細一覧を全閲覧者に表示し、経理担当者・管理者には編集ボタンを表示）
+- チーム別内訳（経理担当者・管理者のみ。チームに紐づかない管理費・案件外収支は「全体共通」として表示）
+- 全体共通（参考）セクション（チームリーダーのみ。全体共通の管理費・案件外収支を参考表示し、チーム損益には算入しない）
 - 月未確定の注記（該当データがある場合のみ）
 
 「案件を表示」ボタンは閲覧専用の案件詳細モーダル（MatterCardDetailModalReadOnly）を開く。案件の閲覧可否は RLS により担保される。
 
 #### 4.16.4 権限によるスコープ
 
-| 権限               | 表示範囲                                                                   |
-| ------------------ | -------------------------------------------------------------------------- |
-| accounting / admin | 全案件・全定期費用。チーム別内訳あり                                       |
-| teamleader         | 自チームの案件・自チーム向け定期費用のみ損益に算入。全体共通は参考表示のみ |
-| public             | アクセス不可                                                               |
+| 権限               | 表示範囲                                                                               |
+| ------------------ | -------------------------------------------------------------------------------------- |
+| accounting / admin | 全案件・全定期費用・全案件外収支。チーム別内訳あり                                     |
+| teamleader         | 自チームの案件・自チーム向け定期費用・案件外収支のみ損益に算入。全体共通は参考表示のみ |
+| public             | アクセス不可                                                                           |
 
 #### 4.16.5 画面
 
@@ -511,6 +515,38 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 - 定期費用マスタ画面 (/recurring-costs)
 
+### 4.19 案件外収支管理 (F020)
+
+#### 4.19.1 概要
+
+- 損益計算書は案件管理と定期費用マスタのデータだけでは実際の収支と必ずしも一致しないため、案件に紐づかない売上・費用（手動エントリ）を経理担当者・管理者が自由に登録・編集できるようにする
+- 登録したエントリは計上月の損益計算書に算入される（売上エントリ → 売上合計、費用エントリ → 案件費用合計）
+- マイナス金額を許容し、案件側のデータを直さずに損益計算書上で差異の減額調整ができる
+
+#### 4.19.2 登録項目
+
+| 項目     | 説明                                                                               | 必須        |
+| -------- | ---------------------------------------------------------------------------------- | ----------- |
+| 種別     | 売上 / 費用                                                                        | ○           |
+| 名称     | 例: 協賛金収入、備品購入                                                           | ○           |
+| 分類     | 分類マスタ（select_options のうち type=category の value）から選択。**売上時のみ** | ○（売上時） |
+| 品目     | 品目マスタ（select_options のうち type=item の value）から選択。**費用時のみ**     | ○（費用時） |
+| 金額     | 円。マイナス値も可（減額調整用）。0 は不可                                         | ○           |
+| チーム   | チームマスタから選択。未選択 = 「全体共通」                                        | -           |
+| 計上月   | 損益計算書に算入する月（編集モーダルでは選択中の月が自動設定され、変更不可）       | ○           |
+| コメント | 備考                                                                               | -           |
+
+#### 4.19.3 機能
+
+- 損益計算書画面（/profit-loss）の月次タブから、選択中の月のエントリを編集モーダルで追加・編集・削除する
+- 編集モーダルはステージング編集方式・一括保存（マスタデータ管理・定期費用マスタと同方式）。計上月は選択中の月に固定する
+- 編集は経理担当者・管理者のみ。チームリーダーには明細の閲覧のみ許可する（自チーム向け＋全体共通）
+
+#### 4.19.4 画面
+
+- 損益計算書画面 (/profit-loss) 内の案件外収支セクション
+- 案件外収支編集モーダル
+
 ## 5. 画面設計
 
 ### 5.1 共通レイアウト
@@ -536,6 +572,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 | S009    | 管理画面               | /dashboard       | 管理者                             |
 | S010    | 損益計算書画面         | /profit-loss     | チームリーダー・経理担当者・管理者 |
 | S011    | 定期費用マスタ画面     | /recurring-costs | 経理担当者・管理者                 |
+| S012    | 案件外収支編集モーダル | -                | 経理担当者・管理者                 |
 
 ### 5.3 画面詳細
 
@@ -754,10 +791,12 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
       - 案件費用合計（品目別内訳・展開で案件別明細＋「案件を表示」ボタン）
       - 管理費合計（定期費用明細）
       - 営業損益（太字、マイナスは赤字）
+    - 案件外収支セクション（選択月の明細一覧。経理担当者・管理者には「編集」ボタンを表示し、案件外収支編集モーダルを起動）
     - チーム別内訳テーブル（経理担当者・管理者のみ）
-    - 全体共通の管理費（参考）セクション（チームリーダーのみ）
+    - 全体共通の管理費・案件外収支（参考）セクション（チームリーダーのみ）
     - 月未確定の注記（該当データがある場合のみ）
     - 案件詳細モーダル（閲覧専用。「案件を表示」ボタンから起動）
+    - 案件外収支編集モーダル（経理担当者・管理者のみ）
   - 【年間推移タブ】
     - 年度選択（7月始まり）
     - 推移テーブル（列: 7月〜翌6月＋年度合計、行: 売上 / 案件費用 / 管理費 / 営業損益。横スクロール対応）
@@ -771,6 +810,17 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
     - 名称 / 品目（選択） / 月額 / チーム（選択。「全体共通」あり） / 適用開始月 / 適用終了月（クリア可） / コメント / 削除ボタン
   - 定期費用追加ボタン
   - 保存ボタン
+
+#### 5.3.12 案件外収支編集モーダル (S012)
+
+- 損益計算書画面（月次タブ）の案件外収支セクション「編集」ボタンから起動
+- 構成要素
+  - モーダルタイトル「案件外収支の編集（YYYY年M月）」（計上月は選択中の月に固定）
+  - エントリリスト（ステージング編集方式・一括保存）
+    - 種別（売上 / 費用） / 名称 / 分類（売上時）または品目（費用時） / 金額（マイナス可） / チーム（選択。「全体共通」あり） / コメント / 削除ボタン
+  - エントリ追加ボタン
+  - 保存ボタン・キャンセルボタン
+- 保存後は損益計算書を再取得して表示を更新する
 
 ## 6. 状態管理
 
@@ -796,36 +846,38 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 ### 7.1 Server Actions
 
-| 関数名                  | 説明                                 | パラメータ                            | レスポンス                 |
-| ----------------------- | ------------------------------------ | ------------------------------------- | -------------------------- |
-| getProfileInfo          | ログインユーザーのプロフィール取得   | -                                     | {profileInfo, error}       |
-| getProfileInfoById      | 指定ユーザーのプロフィール取得       | userId: string                        | {profileInfo, error}       |
-| getAllUserInfo          | 全ユーザー情報の取得                 | -                                     | ProfilesType[]             |
-| insertUserInfo          | ユーザー情報の登録                   | {user, name, email}                   | {error}                    |
-| updateUserInfo          | ユーザー情報の更新                   | {profile}                             | {error}                    |
-| getAllMatterInfoList    | 全案件情報の取得                     | -                                     | MatterType[]               |
-| getUserMatterInfoList   | ユーザーの案件情報の取得             | -                                     | MatterType[]               |
-| getTeamMatterInfoList   | チームの案件情報の取得               | -                                     | MatterType[]               |
-| insertMatterInfo        | 案件情報の登録                       | (title, category, team, ...)          | {newId, error}             |
-| updateMatterInfo        | 案件情報の更新                       | matterInfo: MatterType                | {status, error}            |
-| deleteMatterInfo        | 案件情報の削除                       | id: number                            | {status, error}            |
-| getUserCostInfoList     | コスト情報の取得                     | matter_id: number                     | {costInfoList, error}      |
-| updateCostInfo          | コスト情報の更新                     | (id, name, item, ...)                 | -                          |
-| insertCostInfo          | コスト情報の登録                     | (name, item, ...)                     | {error}                    |
-| deleteCostInfo          | コスト情報の削除                     | id: number                            | -                          |
-| getUserBusinessInfoList | 取引先情報の取得                     | matter_id: number                     | {businessInfoList, error}  |
-| insertBusinessInfo      | 取引先情報の登録                     | (name, amount, ...)                   | {error}                    |
-| updateBusinessInfo      | 取引先情報の更新                     | (id, name, amount, ...)               | -                          |
-| deleteBusinessInfo      | 取引先情報の削除                     | id: number                            | -                          |
-| getSelectOptions        | 選択肢情報の取得                     | typeName: string                      | {options, error}           |
-| insertSelectOption      | 選択肢情報の登録                     | (typeName, value, display_order)      | boolean                    |
-| updateSelectOption      | 選択肢情報の更新                     | (id, value, display_order, is_active) | boolean                    |
-| sendSlackNotification   | Slack 通知の送信                     | (message, metadata)                   | {success, error}           |
-| getProfitLossReport     | 月次損益レポートの取得               | month: string ("YYYY-MM")             | PLReportType \| null       |
-| getAnnualTrend          | 年間推移の取得                       | fiscalYear: number                    | AnnualTrendType \| null    |
-| getMatterInfoById       | 案件情報の単体取得（詳細モーダル用） | matterId: number                      | {matterInfo, error}        |
-| getRecurringCostList    | 定期費用一覧の取得                   | -                                     | {recurringCostList, error} |
-| bulkUpsertRecurringCost | 定期費用の一括登録・更新・削除       | rows: RecurringCostInListType[]       | boolean                    |
+| 関数名                  | 説明                                 | パラメータ                                   | レスポンス                 |
+| ----------------------- | ------------------------------------ | -------------------------------------------- | -------------------------- |
+| getProfileInfo          | ログインユーザーのプロフィール取得   | -                                            | {profileInfo, error}       |
+| getProfileInfoById      | 指定ユーザーのプロフィール取得       | userId: string                               | {profileInfo, error}       |
+| getAllUserInfo          | 全ユーザー情報の取得                 | -                                            | ProfilesType[]             |
+| insertUserInfo          | ユーザー情報の登録                   | {user, name, email}                          | {error}                    |
+| updateUserInfo          | ユーザー情報の更新                   | {profile}                                    | {error}                    |
+| getAllMatterInfoList    | 全案件情報の取得                     | -                                            | MatterType[]               |
+| getUserMatterInfoList   | ユーザーの案件情報の取得             | -                                            | MatterType[]               |
+| getTeamMatterInfoList   | チームの案件情報の取得               | -                                            | MatterType[]               |
+| insertMatterInfo        | 案件情報の登録                       | (title, category, team, ...)                 | {newId, error}             |
+| updateMatterInfo        | 案件情報の更新                       | matterInfo: MatterType                       | {status, error}            |
+| deleteMatterInfo        | 案件情報の削除                       | id: number                                   | {status, error}            |
+| getUserCostInfoList     | コスト情報の取得                     | matter_id: number                            | {costInfoList, error}      |
+| updateCostInfo          | コスト情報の更新                     | (id, name, item, ...)                        | -                          |
+| insertCostInfo          | コスト情報の登録                     | (name, item, ...)                            | {error}                    |
+| deleteCostInfo          | コスト情報の削除                     | id: number                                   | -                          |
+| getUserBusinessInfoList | 取引先情報の取得                     | matter_id: number                            | {businessInfoList, error}  |
+| insertBusinessInfo      | 取引先情報の登録                     | (name, amount, ...)                          | {error}                    |
+| updateBusinessInfo      | 取引先情報の更新                     | (id, name, amount, ...)                      | -                          |
+| deleteBusinessInfo      | 取引先情報の削除                     | id: number                                   | -                          |
+| getSelectOptions        | 選択肢情報の取得                     | typeName: string                             | {options, error}           |
+| insertSelectOption      | 選択肢情報の登録                     | (typeName, value, display_order)             | boolean                    |
+| updateSelectOption      | 選択肢情報の更新                     | (id, value, display_order, is_active)        | boolean                    |
+| sendSlackNotification   | Slack 通知の送信                     | (message, metadata)                          | {success, error}           |
+| getProfitLossReport     | 月次損益レポートの取得               | month: string ("YYYY-MM")                    | PLReportType \| null       |
+| getAnnualTrend          | 年間推移の取得                       | fiscalYear: number                           | AnnualTrendType \| null    |
+| getMatterInfoById       | 案件情報の単体取得（詳細モーダル用） | matterId: number                             | {matterInfo, error}        |
+| getRecurringCostList    | 定期費用一覧の取得                   | -                                            | {recurringCostList, error} |
+| bulkUpsertRecurringCost | 定期費用の一括登録・更新・削除       | rows: RecurringCostInListType[]              | boolean                    |
+| getManualEntryList      | 案件外収支一覧の取得（対象月）       | month: string ("YYYY-MM")                    | {manualEntryList, error}   |
+| bulkUpsertManualEntry   | 案件外収支の一括登録・更新・削除     | month: string, rows: ManualEntryInListType[] | boolean                    |
 
 ### 7.2 ユーティリティ関数
 
