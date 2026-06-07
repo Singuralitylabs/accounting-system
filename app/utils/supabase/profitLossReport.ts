@@ -72,16 +72,42 @@ const isRecurringCostChargedInMonth = (
   return monthDiff(start, month) % cycleMonths === 0;
 };
 
+// ロール（profiles.class）からレポートの挙動フラグを導出する。
+// includeTeamBreakdown と canEditManualEntries は現状どちらも accounting / admin だが、
+// 「チーム別内訳の表示」と「案件外収支の編集可否」は別概念のため、
+// 片方だけ変更できるように独立して定義する。
+// （案件外収支の実際の書き込み権限は RLS が担保し、これは UI 表示の制御のみ）
+const reportFlags = (profileClass: string | null | undefined) => ({
+  isTeamLeader: profileClass === "teamleader",
+  includeTeamBreakdown: hasClassAccess(["accounting", "admin"], profileClass),
+  canEditManualEntries: hasClassAccess(["accounting", "admin"], profileClass),
+});
+
+// buildMonthlyReport の入力。
+// boolean フラグが複数あるため、呼び出し側での取り違えを防ぐ目的で
+// 位置引数ではなくオブジェクトで受ける。
+type MonthlyReportInput = {
+  month: string;
+  businessRows: BusinessRow[];
+  costRows: CostRow[];
+  recurringCosts: RecurringCostType[];
+  manualEntries: ManualEntryType[];
+  isTeamLeader: boolean;
+  includeTeamBreakdown: boolean; // チーム別内訳を含めるか（accounting / admin）
+  canEditManualEntries: boolean; // 案件外収支の編集UIを表示するか（accounting / admin）
+};
+
 // 取得済みの行から指定月の損益レポートを組み立てる
-const buildMonthlyReport = (
-  month: string,
-  businessRows: BusinessRow[],
-  costRows: CostRow[],
-  recurringCosts: RecurringCostType[],
-  manualEntries: ManualEntryType[],
-  isTeamLeader: boolean,
-  includeTeamBreakdown: boolean
-): PLReportType => {
+const buildMonthlyReport = ({
+  month,
+  businessRows,
+  costRows,
+  recurringCosts,
+  manualEntries,
+  isTeamLeader,
+  includeTeamBreakdown,
+  canEditManualEntries,
+}: MonthlyReportInput): PLReportType => {
   // ===== 案件外収支（手動エントリ） =====
   const monthlyManualEntries = manualEntries.filter(
     (entry) => toMonthKey(entry.target_month) === month
@@ -156,10 +182,10 @@ const buildMonthlyReport = (
   const manualCostByItem = new Map<string, ManualEntryType[]>();
   manualCostEntries.forEach((entry) => {
     const item = entry.item ?? "";
-    manualCostByItem.set(item, [
-      ...(manualCostByItem.get(item) ?? []),
-      entry,
-    ]);
+    if (!manualCostByItem.has(item)) {
+      manualCostByItem.set(item, []);
+    }
+    manualCostByItem.get(item)!.push(entry);
   });
   const allCostItems = new Set([
     ...Array.from(itemMap.keys()),
@@ -265,7 +291,7 @@ const buildMonthlyReport = (
     orgWideRecurringCosts,
     manualEntries: countedManualEntries,
     orgWideManualEntries,
-    canEditManualEntries: includeTeamBreakdown, // accounting / admin のみ（チーム別内訳と同じ条件）
+    canEditManualEntries,
     operatingProfit: revenueTotal - matterCostTotal - recurringCostTotal,
     byTeam,
     undated,
@@ -337,20 +363,14 @@ export const getProfitLossReport = async (
     return null;
   }
 
-  const isTeamLeader = profileInfo.class === "teamleader";
-  const includeTeamBreakdown = ["accounting", "admin"].includes(
-    profileInfo.class ?? ""
-  );
-
-  return buildMonthlyReport(
+  return buildMonthlyReport({
     month,
-    rows.businessRows,
-    rows.costRows,
-    rows.recurringCosts,
-    rows.manualEntries,
-    isTeamLeader,
-    includeTeamBreakdown
-  );
+    businessRows: rows.businessRows,
+    costRows: rows.costRows,
+    recurringCosts: rows.recurringCosts,
+    manualEntries: rows.manualEntries,
+    ...reportFlags(profileInfo.class),
+  });
 };
 
 // 年度（7月〜翌6月）の月キー一覧を生成する
@@ -382,21 +402,15 @@ export const getAnnualTrend = async (
     return null;
   }
 
-  const isTeamLeader = profileInfo.class === "teamleader";
-  const includeTeamBreakdown = ["accounting", "admin"].includes(
-    profileInfo.class ?? ""
-  );
-
   const months = fiscalYearMonths(fiscalYear).map((month) =>
-    buildMonthlyReport(
+    buildMonthlyReport({
       month,
-      rows.businessRows,
-      rows.costRows,
-      rows.recurringCosts,
-      rows.manualEntries,
-      isTeamLeader,
-      includeTeamBreakdown
-    )
+      businessRows: rows.businessRows,
+      costRows: rows.costRows,
+      recurringCosts: rows.recurringCosts,
+      manualEntries: rows.manualEntries,
+      ...reportFlags(profileInfo.class),
+    })
   );
 
   return { fiscalYear, months };
