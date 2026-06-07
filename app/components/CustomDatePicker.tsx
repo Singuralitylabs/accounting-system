@@ -10,6 +10,9 @@ interface CustomDatePickerProps {
   onChange: (date: string | null) => void;
   className?: string;
   showIcon?: boolean;
+  // overflow を持つコンテナ（横スクロールするテーブルなど）内で使う場合に指定すると、
+  // カレンダーをポータル表示にしてコンテナにクリップされないようにする
+  portalId?: string;
 }
 
 export const CustomDatePicker = ({
@@ -21,6 +24,7 @@ export const CustomDatePicker = ({
   onChange,
   className = "",
   showIcon = false,
+  portalId,
 }: CustomDatePickerProps) => {
   return (
     <div className={className}>
@@ -54,6 +58,7 @@ export const CustomDatePicker = ({
           locale="ja"
           wrapperClassName="w-full"
           calendarClassName="shadow-lg"
+          portalId={portalId}
           customInput={
             <input
               type="text"

@@ -1,28 +1,56 @@
 "use client";
 
 import {
-  ManualEntryType,
+  ExtraEntryType,
   MatterInfoWithUserNameType,
   PLReportType,
   RecurringCostType,
 } from "@/app/types/types";
 import { getMatterInfoById } from "@/app/utils/supabase/profitLossReport";
 import { formatCurrency, formatMonthLabel } from "@/app/utils/formatter";
-import { formatEntryType } from "@/app/utils/manualEntry";
+import { formatEntryType } from "@/app/utils/extraEntry";
 import { formatPaymentCycle } from "@/app/utils/paymentCycle";
 import { Alert, Button, Paper, SimpleGrid, Table, Text } from "@mantine/core";
 import { Fragment, useState } from "react";
 import { FaChevronDown, FaChevronRight } from "react-icons/fa";
 import { MatterCardDetailModalReadOnly } from "../modal/MatterCardDetailReadOnly";
-import ManualEntrySection from "./ManualEntrySection";
+import ExtraEntrySection from "./ExtraEntrySection";
 
 type Props = {
   report: PLReportType;
 };
 
-// 案件外収支の補足表示（種別 / 分類または品目）
-const formatManualEntryNote = (entry: ManualEntryType) =>
-  `（案件外${formatEntryType(entry.entry_type)} / ${entry.category ?? entry.item}）`;
+// 経理追加収支の金額1件分の表示行（全体共通（参考）セクション用）。
+// 収入エントリは請求額と経費（任意）の最大2行に分解する。
+type ExtraEntryAmountLine = {
+  key: string;
+  description: string;
+  note: string;
+  amount: number;
+};
+
+const toExtraEntryAmountLines = (
+  entry: ExtraEntryType,
+): ExtraEntryAmountLine[] => {
+  const lines: ExtraEntryAmountLine[] = [];
+  if (entry.entry_type === "income") {
+    lines.push({
+      key: `extra-${entry.id}-billing`,
+      description: entry.description,
+      note: `（${formatEntryType(entry.entry_type)}・請求額 / ${entry.category}）`,
+      amount: entry.billing_amount ?? 0,
+    });
+  }
+  if (entry.expense_amount !== null) {
+    lines.push({
+      key: `extra-${entry.id}-expense`,
+      description: entry.description,
+      note: `（${formatEntryType(entry.entry_type)}・経費 / ${entry.category}）`,
+      amount: entry.expense_amount,
+    });
+  }
+  return lines;
+};
 
 // 定期費用の補足表示（品目 / 支払サイクル / チーム）
 const formatRecurringCostNote = (
@@ -198,20 +226,20 @@ const ProfitLossStatement = ({ report }: Props) => {
                         </Table.Td>
                       </Table.Tr>
                     ))}
-                    {/* 案件外費用の明細行（案件に紐づかないため「案件を表示」ボタンなし） */}
-                    {breakdown.manualEntries.map((entry) => (
+                    {/* 経理追加収支の経費明細行（案件に紐づかないため「案件を表示」ボタンなし） */}
+                    {breakdown.extraEntries.map((entry) => (
                       <Table.Tr
-                        key={`item-${breakdown.item}-manual-${entry.id}`}
+                        key={`item-${breakdown.item}-extra-${entry.id}`}
                         className="bg-gray-50"
                       >
                         <Table.Td className="pl-16 text-gray-600">
-                          {entry.name}
+                          {entry.description}
                           <span className="text-xs text-gray-500 ml-2">
-                            （案件外）
+                            （経理追加）
                           </span>
                         </Table.Td>
                         <Table.Td className="text-right text-gray-600">
-                          {formatCurrency(entry.amount)}
+                          {formatCurrency(entry.expense_amount)}
                         </Table.Td>
                         <Table.Td />
                       </Table.Tr>
@@ -258,24 +286,23 @@ const ProfitLossStatement = ({ report }: Props) => {
         </Table>
       </Paper>
 
-      {/* 案件外収支: 明細一覧（accounting / admin には編集ボタンを表示） */}
-      <ManualEntrySection
-        month={report.month}
-        manualEntries={report.manualEntries}
-        canEdit={report.canEditManualEntries}
+      {/* 経理追加収支: 明細一覧（accounting / admin には管理リンクを表示） */}
+      <ExtraEntrySection
+        extraEntries={report.extraEntries}
+        canEdit={report.canEditExtraEntries}
       />
 
       {/* 全体共通（参考）: teamleader のみデータが入る */}
       {((report.orgWideRecurringCosts &&
         report.orgWideRecurringCosts.length > 0) ||
-        (report.orgWideManualEntries &&
-          report.orgWideManualEntries.length > 0)) && (
+        (report.orgWideExtraEntries &&
+          report.orgWideExtraEntries.length > 0)) && (
         <Paper withBorder radius="md" className="overflow-x-auto mb-6 p-4">
           <Text fw={700} className="mb-1">
-            全体共通の管理費・案件外収支（参考）
+            全体共通の管理費・経理追加収支（参考）
           </Text>
           <Text size="xs" c="dimmed" className="mb-3">
-            チーム表示には全体共通の管理費・案件外収支は含まれません。
+            チーム表示には全体共通の管理費・経理追加収支は含まれません。
           </Text>
           <Table verticalSpacing="xs">
             <Table.Tbody>
@@ -292,19 +319,21 @@ const ProfitLossStatement = ({ report }: Props) => {
                   </Table.Td>
                 </Table.Tr>
               ))}
-              {report.orgWideManualEntries?.map((entry) => (
-                <Table.Tr key={`orgwide-manual-${entry.id}`}>
-                  <Table.Td className="text-gray-700">
-                    {entry.name}
-                    <span className="text-xs text-gray-500 ml-2">
-                      {formatManualEntryNote(entry)}
-                    </span>
-                  </Table.Td>
-                  <Table.Td className="text-right w-44">
-                    {formatCurrency(entry.amount)}
-                  </Table.Td>
-                </Table.Tr>
-              ))}
+              {report.orgWideExtraEntries
+                ?.flatMap(toExtraEntryAmountLines)
+                .map((line) => (
+                  <Table.Tr key={`orgwide-${line.key}`}>
+                    <Table.Td className="text-gray-700">
+                      {line.description}
+                      <span className="text-xs text-gray-500 ml-2">
+                        {line.note}
+                      </span>
+                    </Table.Td>
+                    <Table.Td className="text-right w-44">
+                      {formatCurrency(line.amount)}
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
             </Table.Tbody>
           </Table>
         </Paper>

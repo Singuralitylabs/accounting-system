@@ -134,47 +134,64 @@ export type Database = {
           },
         ]
       }
-      manual_entries: {
+      extra_entries: {
         Row: {
-          amount: number
-          category: string | null
-          comment: string | null
+          billing_amount: number | null
+          billing_target: string | null
+          category: string
+          description: string
+          entry_date: string | null
           entry_type: string
+          expense_amount: number | null
           id: number
           inserted_at: string
-          item: string | null
-          name: string
-          target_month: string
+          invoice_number: string | null
+          manager_id: number
+          payment_method: string | null
           team: string | null
           updated_at: string
         }
         Insert: {
-          amount: number
-          category?: string | null
-          comment?: string | null
+          billing_amount?: number | null
+          billing_target?: string | null
+          category: string
+          description: string
+          entry_date?: string | null
           entry_type: string
+          expense_amount?: number | null
           id?: never
           inserted_at?: string
-          item?: string | null
-          name: string
-          target_month: string
+          invoice_number?: string | null
+          manager_id: number
+          payment_method?: string | null
           team?: string | null
           updated_at?: string
         }
         Update: {
-          amount?: number
-          category?: string | null
-          comment?: string | null
+          billing_amount?: number | null
+          billing_target?: string | null
+          category?: string
+          description?: string
+          entry_date?: string | null
           entry_type?: string
+          expense_amount?: number | null
           id?: never
           inserted_at?: string
-          item?: string | null
-          name?: string
-          target_month?: string
+          invoice_number?: string | null
+          manager_id?: number
+          payment_method?: string | null
           team?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "extra_entries_manager_id_fkey"
+            columns: ["manager_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       matters: {
         Row: {

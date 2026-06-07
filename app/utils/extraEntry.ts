@@ -1,7 +1,7 @@
-// 案件外収支の種別定義（manual_entries.entry_type の値域）
+// 経理追加収支の種別定義（extra_entries.entry_type の値域）
 export const ENTRY_TYPE_LABELS: Record<string, string> = {
-  revenue: "売上",
-  cost: "費用",
+  income: "収入",
+  expense: "支出",
 };
 
 export const ENTRY_TYPE_OPTIONS = Object.entries(ENTRY_TYPE_LABELS).map(
