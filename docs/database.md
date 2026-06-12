@@ -14,16 +14,16 @@
 
 ## 2. テーブル一覧
 
-| テーブル名          | 説明                                                       |
-| ------------------- | ---------------------------------------------------------- |
-| profiles            | ユーザー情報を管理するテーブル                             |
-| matters             | 案件情報を管理するテーブル                                 |
-| costs               | コスト情報を管理するテーブル                               |
-| business            | 取引先情報を管理するテーブル                               |
-| select_option_types | 選択肢の種類を管理するテーブル                             |
-| select_options      | 選択肢の値を管理するテーブル                               |
-| recurring_costs     | 定期費用（管理費）を管理するテーブル                       |
-| manual_entries      | 案件外収支（案件に紐づかない売上・費用）を管理するテーブル |
+| テーブル名          | 説明                                                         |
+| ------------------- | ------------------------------------------------------------ |
+| profiles            | ユーザー情報を管理するテーブル                               |
+| matters             | 案件情報を管理するテーブル                                   |
+| costs               | コスト情報を管理するテーブル                                 |
+| business            | 取引先情報を管理するテーブル                                 |
+| select_option_types | 選択肢の種類を管理するテーブル                               |
+| select_options      | 選択肢の値を管理するテーブル                                 |
+| recurring_costs     | 定期費用（管理費）を管理するテーブル                         |
+| extra_entries       | 経理追加収支（案件に紐づかない収入・支出）を管理するテーブル |
 
 ## 3. テーブル詳細
 
@@ -178,37 +178,43 @@
 - team
 - start_month
 
-### 3.8 manual_entries テーブル
+### 3.8 extra_entries テーブル
 
-案件外収支（案件に紐づかない売上・費用の手動エントリ）を保持するテーブル。損益計算書の集計時に計上月へ算入する（売上エントリ → 売上合計、費用エントリ → 案件費用合計）。マイナス金額を許容し、損益計算書上での減額調整に使う。
+経理追加収支（案件に紐づかない収入・支出）を保持するテーブル。損益計算書の集計時に entry_date（日付）の属する月へ算入する（収入の請求額 → 売上合計、経費 → 案件費用合計。日付未入力は月未確定）。金額はマイナスを許容し、損益計算書上での減額調整に使う。
 
-| カラム名     | データ型                 | 制約                                                  | 説明                                                                            |
-| ------------ | ------------------------ | ----------------------------------------------------- | ------------------------------------------------------------------------------- |
-| id           | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY             | 主キー                                                                          |
-| entry_type   | text                     | NOT NULL, CHECK (entry_type IN ('revenue', 'cost'))   | 種別（revenue = 売上 / cost = 費用）                                            |
-| name         | text                     | NOT NULL                                              | 名称（例: 協賛金収入、備品購入）                                                |
-| category     | text                     | NULL                                                  | 分類（select_options のうち type=category の行の value と同じ値域。売上時のみ） |
-| item         | text                     | NULL                                                  | 品目（select_options のうち type=item の行の value と同じ値域。費用時のみ）     |
-| amount       | numeric(15,2)            | NOT NULL, CHECK (amount <> 0)                         | 金額（マイナス可。0 は不可）                                                    |
-| team         | text                     | NULL                                                  | 対象チーム（NULL = 全体共通）                                                   |
-| target_month | date                     | NOT NULL                                              | 計上月（月初日で格納: 例 2026-07-01）                                           |
-| comment      | text                     | NULL                                                  | コメント                                                                        |
-| inserted_at  | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 作成日時                                                                        |
-| updated_at   | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 更新日時                                                                        |
+| カラム名       | データ型                 | 制約                                                  | 説明                                                                                 |
+| -------------- | ------------------------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| id             | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY             | 主キー                                                                               |
+| entry_type     | text                     | NOT NULL, CHECK (entry_type IN ('income', 'expense')) | 種別（income = 収入 / expense = 支出）                                               |
+| category       | text                     | NOT NULL                                              | 分類（収入時は extra_income_category、支出時は extra_expense_category マスタの値域） |
+| entry_date     | date                     | NULL                                                  | 日付（損益計算書の計上月の判定に使用。NULL = 月未確定）                              |
+| invoice_number | text                     | NULL                                                  | 請求書番号（収入時のみ）                                                             |
+| description    | text                     | NOT NULL                                              | 内容                                                                                 |
+| billing_target | text                     | NULL                                                  | 請求先（収入時のみ）                                                                 |
+| manager_id     | bigint                   | NOT NULL, FOREIGN KEY (profiles.id)                   | 責任者（メンバー）                                                                   |
+| team           | text                     | NULL                                                  | 対象チーム（NULL = 全体共通）                                                        |
+| billing_amount | numeric(15,2)            | NULL, CHECK (billing_amount <> 0)                     | 請求額（円・税別。マイナス可・0 不可。収入時のみ）                                   |
+| expense_amount | numeric(15,2)            | NULL, CHECK (expense_amount <> 0)                     | 経費（円・税別。マイナス可・0 不可。収入時は任意、支出時は必須）                     |
+| payment_method | text                     | NULL                                                  | 決済方法（payment_method マスタの値域。支出時のみ）                                  |
+| inserted_at    | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 作成日時                                                                             |
+| updated_at     | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 更新日時                                                                             |
 
-CHECK 制約（種別と分類・品目の整合性）:
+CHECK 制約（種別ごとの項目の整合性）:
 
 ```sql
+-- 収入: 請求額必須・決済方法なし / 支出: 経費・決済方法必須、収入専用項目（請求書番号・請求先・請求額）なし
 CHECK (
-    (entry_type = 'revenue' AND category IS NOT NULL AND item IS NULL) OR
-    (entry_type = 'cost' AND item IS NOT NULL AND category IS NULL)
+    (entry_type = 'income' AND billing_amount IS NOT NULL AND payment_method IS NULL) OR
+    (entry_type = 'expense' AND expense_amount IS NOT NULL AND payment_method IS NOT NULL
+        AND billing_amount IS NULL AND invoice_number IS NULL AND billing_target IS NULL)
 )
 ```
 
 インデックス:
 
 - team
-- target_month
+- entry_date
+- manager_id
 
 ## 4. 列挙型
 
@@ -654,13 +660,13 @@ CREATE POLICY "recurring_costs_delete_policy" ON recurring_costs
     );
 ```
 
-### 5.7 manual_entries テーブル
+### 5.7 extra_entries テーブル
 
 > recurring_costs と同じ方針。teamleader が全体共通（team IS NULL）の行を SELECT できるのは、損益計算書で「全体共通（参考）」として表示するため。チーム損益への算入可否はアプリケーション層で制御する。書き込みは経理担当者・管理者のみ。
 
 ```sql
 -- 経理担当者/管理者は全行、チームリーダーは自チームの行 + 全体共通の行を参照可能
-CREATE POLICY "manual_entries_select_policy" ON manual_entries
+CREATE POLICY "extra_entries_select_policy" ON extra_entries
     FOR SELECT TO authenticated
     USING (
         EXISTS (
@@ -673,12 +679,12 @@ CREATE POLICY "manual_entries_select_policy" ON manual_entries
             WHERE profiles.user_id = (select auth.uid())
             AND profiles.class = 'teamleader'
             AND profiles.team IS NOT NULL
-            AND (manual_entries.team IS NULL OR manual_entries.team = profiles.team)
+            AND (extra_entries.team IS NULL OR extra_entries.team = profiles.team)
         )
     );
 
 -- 経理担当者/管理者のみ挿入可能
-CREATE POLICY "manual_entries_insert_policy" ON manual_entries
+CREATE POLICY "extra_entries_insert_policy" ON extra_entries
     FOR INSERT TO authenticated
     WITH CHECK (
         EXISTS (
@@ -689,7 +695,7 @@ CREATE POLICY "manual_entries_insert_policy" ON manual_entries
     );
 
 -- 経理担当者/管理者のみ更新可能
-CREATE POLICY "manual_entries_update_policy" ON manual_entries
+CREATE POLICY "extra_entries_update_policy" ON extra_entries
     FOR UPDATE TO authenticated
     USING (
         EXISTS (
@@ -700,7 +706,7 @@ CREATE POLICY "manual_entries_update_policy" ON manual_entries
     );
 
 -- 経理担当者/管理者のみ削除可能
-CREATE POLICY "manual_entries_delete_policy" ON manual_entries
+CREATE POLICY "extra_entries_delete_policy" ON extra_entries
     FOR DELETE TO authenticated
     USING (
         EXISTS (
@@ -753,8 +759,8 @@ CREATE TRIGGER update_recurring_costs_updated_at
     FOR EACH ROW
     EXECUTE PROCEDURE update_updated_at_column();
 
-CREATE TRIGGER update_manual_entries_updated_at
-    BEFORE UPDATE ON manual_entries
+CREATE TRIGGER update_extra_entries_updated_at
+    BEFORE UPDATE ON extra_entries
     FOR EACH ROW
     EXECUTE PROCEDURE update_updated_at_column();
 ```
@@ -798,6 +804,7 @@ CREATE TRIGGER detect_matters_updates
 ```mermaid
 erDiagram
     profiles ||--o{ matters : "creates"
+    profiles ||--o{ extra_entries : "manages"
     matters ||--o{ costs : "contains"
     matters ||--o{ business : "has"
     matters ||--o{ matters : "is parent of"
@@ -900,16 +907,19 @@ erDiagram
         timestamp updated_at
     }
 
-    manual_entries {
+    extra_entries {
         bigint id PK
         text entry_type
-        text name
         text category
-        text item
-        numeric amount
+        date entry_date
+        text invoice_number
+        text description
+        text billing_target
+        bigint manager_id FK
         text team
-        date target_month
-        text comment
+        numeric billing_amount
+        numeric expense_amount
+        text payment_method
         timestamp inserted_at
         timestamp updated_at
     }
@@ -925,7 +935,10 @@ INSERT INTO select_option_types (name, display_name, category, display_order) VA
     ('team', 'チーム', 'basic_info', 1),
     ('category', '分類', 'basic_info', 2),
     ('item', '品目', 'cost_info', 1),
-    ('certificate', '通知方法', 'cost_info', 2);
+    ('certificate', '通知方法', 'cost_info', 2),
+    ('extra_income_category', '収入分類', 'business_info', 1),
+    ('extra_expense_category', '支出分類', 'cost_info', 3),
+    ('payment_method', '決済方法', 'cost_info', 4);
 
 -- チーム選択肢
 INSERT INTO select_options (type_id, value, display_order) VALUES
@@ -964,4 +977,26 @@ INSERT INTO select_options (type_id, value, display_order) VALUES
 INSERT INTO select_options (type_id, value, display_order) VALUES
     ((SELECT id FROM select_option_types WHERE name = 'certificate'), '請求書', 1),
     ((SELECT id FROM select_option_types WHERE name = 'certificate'), '領収書', 2);
+
+-- 収入分類選択肢（経理追加収支用。暫定値のため管理画面で実運用に合わせて編集する）
+INSERT INTO select_options (type_id, value, display_order) VALUES
+    ((SELECT id FROM select_option_types WHERE name = 'extra_income_category'), '協賛金', 1),
+    ((SELECT id FROM select_option_types WHERE name = 'extra_income_category'), '助成金', 2),
+    ((SELECT id FROM select_option_types WHERE name = 'extra_income_category'), '受託収入', 3),
+    ((SELECT id FROM select_option_types WHERE name = 'extra_income_category'), 'その他収入', 4);
+
+-- 支出分類選択肢（経理追加収支用。暫定値のため管理画面で実運用に合わせて編集する）
+INSERT INTO select_options (type_id, value, display_order) VALUES
+    ((SELECT id FROM select_option_types WHERE name = 'extra_expense_category'), '消耗品費', 1),
+    ((SELECT id FROM select_option_types WHERE name = 'extra_expense_category'), '交通費', 2),
+    ((SELECT id FROM select_option_types WHERE name = 'extra_expense_category'), '会議費', 3),
+    ((SELECT id FROM select_option_types WHERE name = 'extra_expense_category'), '通信費', 4),
+    ((SELECT id FROM select_option_types WHERE name = 'extra_expense_category'), 'その他経費', 5);
+
+-- 決済方法選択肢（経理追加収支用）
+INSERT INTO select_options (type_id, value, display_order) VALUES
+    ((SELECT id FROM select_option_types WHERE name = 'payment_method'), '銀行振込', 1),
+    ((SELECT id FROM select_option_types WHERE name = 'payment_method'), 'クレジットカード', 2),
+    ((SELECT id FROM select_option_types WHERE name = 'payment_method'), '口座引き落とし', 3),
+    ((SELECT id FROM select_option_types WHERE name = 'payment_method'), '現金', 4);
 ```

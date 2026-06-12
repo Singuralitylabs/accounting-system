@@ -1,20 +1,55 @@
 "use client";
 
 import {
+  ExtraEntryType,
   MatterInfoWithUserNameType,
   PLReportType,
   RecurringCostType,
 } from "@/app/types/types";
 import { getMatterInfoById } from "@/app/utils/supabase/profitLossReport";
 import { formatCurrency, formatMonthLabel } from "@/app/utils/formatter";
+import { formatEntryType } from "@/app/utils/extraEntry";
 import { formatPaymentCycle } from "@/app/utils/paymentCycle";
 import { Alert, Button, Paper, SimpleGrid, Table, Text } from "@mantine/core";
 import { Fragment, useState } from "react";
 import { FaChevronDown, FaChevronRight } from "react-icons/fa";
 import { MatterCardDetailModalReadOnly } from "../modal/MatterCardDetailReadOnly";
+import ExtraEntrySection from "./ExtraEntrySection";
 
 type Props = {
   report: PLReportType;
+};
+
+// 経理追加収支の金額1件分の表示行（全体共通（参考）セクション用）。
+// 収入エントリは請求額と経費（任意）の最大2行に分解する。
+type ExtraEntryAmountLine = {
+  key: string;
+  description: string;
+  note: string;
+  amount: number;
+};
+
+const toExtraEntryAmountLines = (
+  entry: ExtraEntryType,
+): ExtraEntryAmountLine[] => {
+  const lines: ExtraEntryAmountLine[] = [];
+  if (entry.entry_type === "income") {
+    lines.push({
+      key: `extra-${entry.id}-billing`,
+      description: entry.description,
+      note: `（${formatEntryType(entry.entry_type)}・請求額 / ${entry.category}）`,
+      amount: entry.billing_amount ?? 0,
+    });
+  }
+  if (entry.expense_amount !== null) {
+    lines.push({
+      key: `extra-${entry.id}-expense`,
+      description: entry.description,
+      note: `（${formatEntryType(entry.entry_type)}・経費 / ${entry.category}）`,
+      amount: entry.expense_amount,
+    });
+  }
+  return lines;
 };
 
 // 定期費用の補足表示（品目 / 支払サイクル / チーム）
@@ -163,33 +198,54 @@ const ProfitLossStatement = ({ report }: Props) => {
                   </Table.Td>
                   <Table.Td />
                 </Table.Tr>
-                {expandedItems.has(breakdown.item) &&
-                  breakdown.matters.map((matter) => (
-                    <Table.Tr
-                      key={`item-${breakdown.item}-matter-${matter.matterId}`}
-                      className="bg-gray-50"
-                    >
-                      <Table.Td className="pl-16 text-gray-600">
-                        {matter.matterTitle}
-                      </Table.Td>
-                      <Table.Td className="text-right text-gray-600">
-                        {formatCurrency(matter.amount)}
-                      </Table.Td>
-                      <Table.Td className="text-center">
-                        <Button
-                          size="xs"
-                          variant="light"
-                          loading={loadingMatterId === matter.matterId}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleShowMatter(matter.matterId);
-                          }}
-                        >
-                          案件を表示
-                        </Button>
-                      </Table.Td>
-                    </Table.Tr>
-                  ))}
+                {expandedItems.has(breakdown.item) && (
+                  <>
+                    {breakdown.matters.map((matter) => (
+                      <Table.Tr
+                        key={`item-${breakdown.item}-matter-${matter.matterId}`}
+                        className="bg-gray-50"
+                      >
+                        <Table.Td className="pl-16 text-gray-600">
+                          {matter.matterTitle}
+                        </Table.Td>
+                        <Table.Td className="text-right text-gray-600">
+                          {formatCurrency(matter.amount)}
+                        </Table.Td>
+                        <Table.Td className="text-center">
+                          <Button
+                            size="xs"
+                            variant="light"
+                            loading={loadingMatterId === matter.matterId}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleShowMatter(matter.matterId);
+                            }}
+                          >
+                            案件を表示
+                          </Button>
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                    {/* 経理追加収支の経費明細行（案件に紐づかないため「案件を表示」ボタンなし） */}
+                    {breakdown.extraEntries.map((entry) => (
+                      <Table.Tr
+                        key={`item-${breakdown.item}-extra-${entry.id}`}
+                        className="bg-gray-50"
+                      >
+                        <Table.Td className="pl-16 text-gray-600">
+                          {entry.description}
+                          <span className="text-xs text-gray-500 ml-2">
+                            （経理追加）
+                          </span>
+                        </Table.Td>
+                        <Table.Td className="text-right text-gray-600">
+                          {formatCurrency(entry.expense_amount)}
+                        </Table.Td>
+                        <Table.Td />
+                      </Table.Tr>
+                    ))}
+                  </>
+                )}
               </Fragment>
             ))}
 
@@ -230,35 +286,58 @@ const ProfitLossStatement = ({ report }: Props) => {
         </Table>
       </Paper>
 
+      {/* 経理追加収支: 明細一覧（accounting / admin には管理リンクを表示） */}
+      <ExtraEntrySection
+        extraEntries={report.extraEntries}
+        canEdit={report.canEditExtraEntries}
+      />
+
       {/* 全体共通（参考）: teamleader のみデータが入る */}
-      {report.orgWideRecurringCosts &&
-        report.orgWideRecurringCosts.length > 0 && (
-          <Paper withBorder radius="md" className="overflow-x-auto mb-6 p-4">
-            <Text fw={700} className="mb-1">
-              全体共通の管理費（参考）
-            </Text>
-            <Text size="xs" c="dimmed" className="mb-3">
-              チーム表示には全体共通の管理費は含まれません。
-            </Text>
-            <Table verticalSpacing="xs">
-              <Table.Tbody>
-                {report.orgWideRecurringCosts.map((recurringCost) => (
-                  <Table.Tr key={`orgwide-${recurringCost.id}`}>
+      {((report.orgWideRecurringCosts &&
+        report.orgWideRecurringCosts.length > 0) ||
+        (report.orgWideExtraEntries &&
+          report.orgWideExtraEntries.length > 0)) && (
+        <Paper withBorder radius="md" className="overflow-x-auto mb-6 p-4">
+          <Text fw={700} className="mb-1">
+            全体共通の管理費・経理追加収支（参考）
+          </Text>
+          <Text size="xs" c="dimmed" className="mb-3">
+            チーム表示には全体共通の管理費・経理追加収支は含まれません。
+          </Text>
+          <Table verticalSpacing="xs">
+            <Table.Tbody>
+              {report.orgWideRecurringCosts?.map((recurringCost) => (
+                <Table.Tr key={`orgwide-${recurringCost.id}`}>
+                  <Table.Td className="text-gray-700">
+                    {recurringCost.name}
+                    <span className="text-xs text-gray-500 ml-2">
+                      {formatRecurringCostNote(recurringCost, false)}
+                    </span>
+                  </Table.Td>
+                  <Table.Td className="text-right w-44">
+                    {formatCurrency(recurringCost.price)}
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+              {report.orgWideExtraEntries
+                ?.flatMap(toExtraEntryAmountLines)
+                .map((line) => (
+                  <Table.Tr key={`orgwide-${line.key}`}>
                     <Table.Td className="text-gray-700">
-                      {recurringCost.name}
+                      {line.description}
                       <span className="text-xs text-gray-500 ml-2">
-                        {formatRecurringCostNote(recurringCost, false)}
+                        {line.note}
                       </span>
                     </Table.Td>
                     <Table.Td className="text-right w-44">
-                      {formatCurrency(recurringCost.price)}
+                      {formatCurrency(line.amount)}
                     </Table.Td>
                   </Table.Tr>
                 ))}
-              </Table.Tbody>
-            </Table>
-          </Paper>
-        )}
+            </Table.Tbody>
+          </Table>
+        </Paper>
+      )}
 
       {/* チーム別内訳: accounting / admin のみデータが入る */}
       {report.byTeam && report.byTeam.length > 0 && (

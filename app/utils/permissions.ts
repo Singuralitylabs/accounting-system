@@ -9,6 +9,7 @@ export const ROUTE_PERMISSIONS: Record<string, Role[]> = {
   "/accounting": ["accounting", "admin"],
   "/profit-loss": ["teamleader", "accounting", "admin"],
   "/recurring-costs": ["accounting", "admin"],
+  "/extra-entries": ["accounting", "admin"],
   "/dashboard": ["admin"],
 };
 
@@ -31,6 +32,7 @@ export const NAV_ITEMS: { href: string; label: string }[] = [
   { href: "/accounting", label: "経理用一覧" },
   { href: "/profit-loss", label: "損益計算書" },
   { href: "/recurring-costs", label: "定期費用マスタ" },
+  { href: "/extra-entries", label: "経理追加収支" },
   { href: "/dashboard", label: "管理画面" },
 ];
 

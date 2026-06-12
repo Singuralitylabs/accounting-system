@@ -42,12 +42,15 @@ const SelectOptionList = ({
   >(optionList.map((option) => ({ ...option, isNew: false })));
   const [isLoading, setIsLoading] = useState(false);
 
-  const optionTitle =
-    optionClass === "team"
-      ? "チーム"
-      : optionClass === "category"
-        ? "分類"
-        : "品目";
+  const OPTION_TITLES: Record<string, string> = {
+    team: "チーム",
+    category: "分類",
+    item: "品目",
+    extra_income_category: "収入分類",
+    extra_expense_category: "支出分類",
+    payment_method: "決済方法",
+  };
+  const optionTitle = OPTION_TITLES[optionClass] ?? optionClass;
 
   const sensors = useSensors(
     useSensor(PointerSensor),

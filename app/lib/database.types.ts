@@ -17,9 +17,9 @@ export type Database = {
     Functions: {
       graphql: {
         Args: {
+          query?: string
           variables?: Json
           operationName?: string
-          query?: string
           extensions?: Json
         }
         Returns: Json
@@ -130,6 +130,65 @@ export type Database = {
             columns: ["matter_id"]
             isOneToOne: false
             referencedRelation: "matters"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      extra_entries: {
+        Row: {
+          billing_amount: number | null
+          billing_target: string | null
+          category: string
+          description: string
+          entry_date: string | null
+          entry_type: string
+          expense_amount: number | null
+          id: number
+          inserted_at: string
+          invoice_number: string | null
+          manager_id: number
+          payment_method: string | null
+          team: string | null
+          updated_at: string
+        }
+        Insert: {
+          billing_amount?: number | null
+          billing_target?: string | null
+          category: string
+          description: string
+          entry_date?: string | null
+          entry_type: string
+          expense_amount?: number | null
+          id?: never
+          inserted_at?: string
+          invoice_number?: string | null
+          manager_id: number
+          payment_method?: string | null
+          team?: string | null
+          updated_at?: string
+        }
+        Update: {
+          billing_amount?: number | null
+          billing_target?: string | null
+          category?: string
+          description?: string
+          entry_date?: string | null
+          entry_type?: string
+          expense_amount?: number | null
+          id?: never
+          inserted_at?: string
+          invoice_number?: string | null
+          manager_id?: number
+          payment_method?: string | null
+          team?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "extra_entries_manager_id_fkey"
+            columns: ["manager_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]

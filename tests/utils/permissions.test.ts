@@ -38,6 +38,8 @@ describe("ROUTE_PERMISSIONS による各保護ルートの認可", () => {
     ["/profit-loss", "public", false],
     ["/recurring-costs", "accounting", true],
     ["/recurring-costs", "teamleader", false],
+    ["/extra-entries", "accounting", true],
+    ["/extra-entries", "teamleader", false],
     ["/dashboard", "admin", true],
     ["/dashboard", "accounting", false],
   ])("%s へのアクセス: ロール %s → %s", (route, role, expected) => {
@@ -69,6 +71,7 @@ describe("visibleNavItems", () => {
       "/accounting",
       "/profit-loss",
       "/recurring-costs",
+      "/extra-entries",
       "/dashboard",
     ]);
   });
@@ -86,13 +89,14 @@ describe("visibleNavItems", () => {
     ]);
   });
 
-  it("accounting には経理用一覧・損益計算書・定期費用マスタを表示する", () => {
+  it("accounting には経理用一覧・損益計算書・定期費用マスタ・経理追加収支を表示する", () => {
     expect(hrefsFor("accounting")).toEqual([
       "/",
       "/new",
       "/accounting",
       "/profit-loss",
       "/recurring-costs",
+      "/extra-entries",
     ]);
   });
 
