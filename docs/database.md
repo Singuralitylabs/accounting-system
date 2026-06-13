@@ -24,6 +24,7 @@
 | select_options      | 選択肢の値を管理するテーブル                                 |
 | recurring_costs     | 定期費用（管理費）を管理するテーブル                         |
 | extra_entries       | 経理追加収支（案件に紐づかない収入・支出）を管理するテーブル |
+| declaration_period_checks | 事前申告の完了状態（チーム×月）を管理するテーブル      |
 
 ## 3. テーブル詳細
 
@@ -70,13 +71,25 @@
 | unchecked_cost_count | integer                  | NOT NULL, DEFAULT 0                                   | 未払いコスト数     |
 | user_id              | bigint                   | NOT NULL, FOREIGN KEY (profiles.id)                   | ユーザー ID        |
 | parent_matter_id     | bigint                   | NULL, FOREIGN KEY (matters.id)                        | 親案件 ID          |
+| is_advance_declaration | boolean                | NOT NULL, DEFAULT false                               | 事前申告フラグ（true = 事前申告カード。実績系の集計・一覧から除外） |
+| declaration_month    | date                     | NULL                                                  | 事前申告の対象月（月初日で保持。事前申告時のみ必須） |
 | inserted_at          | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 作成日時           |
 | updated_at           | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 更新日時           |
+
+CHECK 制約（事前申告は対象月必須）:
+
+```sql
+CHECK (is_advance_declaration = false OR declaration_month IS NOT NULL)
+```
 
 インデックス:
 
 - user_id
 - parent_matter_id
+- declaration_month（PARTIAL: WHERE is_advance_declaration = true）
+- is_advance_declaration
+
+> 事前申告（F021）は通常案件と同じ matters テーブルに `is_advance_declaration = true` で保存する。実績ではないため、ホーム案件一覧・経理用一覧・チーム案件一覧・損益計算書の各クエリは `is_advance_declaration = false` で除外する。案件化時は同レコードの `is_advance_declaration` を解除し `declaration_month` を NULL にして通常の下書きへ移行する。
 
 ### 3.3 costs テーブル
 
@@ -215,6 +228,25 @@ CHECK (
 - team
 - entry_date
 - manager_id
+
+### 3.9 declaration_period_checks テーブル
+
+事前申告（F021）の完了状態を **チーム × 月** の単位で保持するテーブル。チームリーダー（および管理者）が自チームのその月の事前申告を締めたかを表す（F022）。締めは助言的な目印であり、申告カードの編集を制限しない。
+
+| カラム名     | データ型                 | 制約                                                  | 説明                       |
+| ------------ | ------------------------ | ----------------------------------------------------- | -------------------------- |
+| id           | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY             | 主キー                     |
+| team         | text                     | NOT NULL                                              | 対象チーム                 |
+| month        | date                     | NOT NULL                                              | 対象月（月初日で保持）     |
+| is_completed | boolean                  | NOT NULL, DEFAULT false                               | 完了フラグ                 |
+| checked_by   | bigint                   | NULL, FOREIGN KEY (profiles.id)                       | 最終更新者                 |
+| checked_at   | timestamp with time zone | NULL                                                  | 完了状態の最終更新日時     |
+| inserted_at  | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 作成日時                   |
+| updated_at   | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 更新日時                   |
+
+制約:
+
+- UNIQUE (team, month)（チーム×月で 1 レコード。upsert に使用）
 
 ## 4. 列挙型
 
@@ -717,6 +749,55 @@ CREATE POLICY "extra_entries_delete_policy" ON extra_entries
     );
 ```
 
+> 事前申告（F021）そのものは matters / costs / business に保存するため、これらのテーブルの既存 RLS（所有者の挿入・更新・削除、所有者・経理・管理者・同チームリーダーの参照）をそのまま使う。事前申告のために RLS は緩めない。
+
+### 5.8 declaration_period_checks テーブル
+
+> 完了状態は全ログインユーザーが参照可能。更新（挿入・更新）は管理者、または **当該チームの** チームリーダーのみ（任意のチームリーダー不可）。削除は許可しない（トグルは is_completed の更新で行う）。
+
+```sql
+-- 全ログインユーザーが参照可能
+CREATE POLICY "declaration_period_checks_select_policy" ON declaration_period_checks
+    FOR SELECT TO authenticated
+    USING (true);
+
+-- 管理者、または当該チームのチームリーダーのみ挿入可能
+CREATE POLICY "declaration_period_checks_insert_policy" ON declaration_period_checks
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.user_id = (select auth.uid())
+            AND profiles.class = 'admin'
+        ) OR
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.user_id = (select auth.uid())
+            AND profiles.class = 'teamleader'
+            AND profiles.team IS NOT NULL
+            AND profiles.team = declaration_period_checks.team
+        )
+    );
+
+-- 管理者、または当該チームのチームリーダーのみ更新可能
+CREATE POLICY "declaration_period_checks_update_policy" ON declaration_period_checks
+    FOR UPDATE TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.user_id = (select auth.uid())
+            AND profiles.class = 'admin'
+        ) OR
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.user_id = (select auth.uid())
+            AND profiles.class = 'teamleader'
+            AND profiles.team IS NOT NULL
+            AND profiles.team = declaration_period_checks.team
+        )
+    );
+```
+
 ## 6. トリガー
 
 ### 6.1 updated_at 更新トリガー
@@ -763,6 +844,11 @@ CREATE TRIGGER update_extra_entries_updated_at
     BEFORE UPDATE ON extra_entries
     FOR EACH ROW
     EXECUTE PROCEDURE update_updated_at_column();
+
+CREATE TRIGGER update_declaration_period_checks_updated_at
+    BEFORE UPDATE ON declaration_period_checks
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_updated_at_column();
 ```
 
 ### 6.2 案件更新検知トリガー
@@ -805,6 +891,7 @@ CREATE TRIGGER detect_matters_updates
 erDiagram
     profiles ||--o{ matters : "creates"
     profiles ||--o{ extra_entries : "manages"
+    profiles ||--o{ declaration_period_checks : "checks"
     matters ||--o{ costs : "contains"
     matters ||--o{ business : "has"
     matters ||--o{ matters : "is parent of"
@@ -840,6 +927,8 @@ erDiagram
         integer unchecked_cost_count
         bigint user_id FK
         bigint parent_matter_id FK
+        boolean is_advance_declaration
+        date declaration_month
         timestamp inserted_at
         timestamp updated_at
     }
@@ -920,6 +1009,17 @@ erDiagram
         numeric billing_amount
         numeric expense_amount
         text payment_method
+        timestamp inserted_at
+        timestamp updated_at
+    }
+
+    declaration_period_checks {
+        bigint id PK
+        text team
+        date month
+        boolean is_completed
+        bigint checked_by FK
+        timestamp checked_at
         timestamp inserted_at
         timestamp updated_at
     }
