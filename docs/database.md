@@ -79,7 +79,11 @@
 CHECK 制約（事前申告は対象月必須）:
 
 ```sql
-CHECK (is_advance_declaration = false OR declaration_month IS NOT NULL)
+-- 事前申告は対象月必須・通常案件は対象月 NULL（案件化時に NULL へ戻す不変条件を保証）
+CHECK (
+    (is_advance_declaration = true  AND declaration_month IS NOT NULL) OR
+    (is_advance_declaration = false AND declaration_month IS NULL)
+)
 ```
 
 インデックス:
@@ -233,20 +237,20 @@ CHECK (
 
 事前申告（F021）の完了状態を **チーム × 月** の単位で保持するテーブル。チームリーダー（および管理者）が自チームのその月の事前申告を締めたかを表す（F022）。締めは助言的な目印であり、申告カードの編集を制限しない。
 
-| カラム名     | データ型                 | 制約                                                  | 説明                   |
-| ------------ | ------------------------ | ----------------------------------------------------- | ---------------------- |
-| id           | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY             | 主キー                 |
-| team         | text                     | NOT NULL                                              | 対象チーム             |
-| month        | date                     | NOT NULL                                              | 対象月（月初日で保持） |
-| is_completed | boolean                  | NOT NULL, DEFAULT false                               | 完了フラグ             |
-| checked_by   | bigint                   | NULL, FOREIGN KEY (profiles.id)                       | 最終更新者             |
-| checked_at   | timestamp with time zone | NULL                                                  | 完了状態の最終更新日時 |
-| inserted_at  | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 作成日時               |
-| updated_at   | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 更新日時               |
+| カラム名          | データ型                 | 制約                                                  | 説明                   |
+| ----------------- | ------------------------ | ----------------------------------------------------- | ---------------------- |
+| id                | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY             | 主キー                 |
+| team              | text                     | NOT NULL                                              | 対象チーム             |
+| declaration_month | date                     | NOT NULL                                              | 対象月（月初日で保持） |
+| is_completed      | boolean                  | NOT NULL, DEFAULT false                               | 完了フラグ             |
+| checked_by        | bigint                   | NULL, FOREIGN KEY (profiles.id)                       | 最終更新者             |
+| checked_at        | timestamp with time zone | NULL                                                  | 完了状態の最終更新日時 |
+| inserted_at       | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 作成日時               |
+| updated_at        | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 更新日時               |
 
 制約:
 
-- UNIQUE (team, month)（チーム×月で 1 レコード。upsert に使用）
+- UNIQUE (team, declaration_month)（チーム×月で 1 レコード。upsert に使用）
 
 ## 4. 列挙型
 
@@ -754,6 +758,8 @@ CREATE POLICY "extra_entries_delete_policy" ON extra_entries
 ### 5.8 declaration_period_checks テーブル
 
 > 完了状態は全ログインユーザーが参照可能。更新（挿入・更新）は管理者、または **当該チームの** チームリーダーのみ（任意のチームリーダー不可）。削除は許可しない（トグルは is_completed の更新で行う）。
+>
+> UPDATE は `profiles` テーブルと同様に **WITH CHECK でも同じ条件を課す**。USING（更新前の行）だけだと、自チームの既存行を起点に `team` を別チームへ「付け替え」できてしまうため、更新後の行に対してもメンバーシップを再検証する。加えて監査項目 `checked_by` は INSERT/UPDATE の両方で **current user 自身の profiles.id（または NULL）に限定** し、最終更新者の偽装を防ぐ。
 
 ```sql
 -- 全ログインユーザーが参照可能
@@ -761,25 +767,34 @@ CREATE POLICY "declaration_period_checks_select_policy" ON declaration_period_ch
     FOR SELECT TO authenticated
     USING (true);
 
--- 管理者、または当該チームのチームリーダーのみ挿入可能
+-- 管理者、または当該チームのチームリーダーのみ挿入可能。
+-- checked_by は自分の profiles.id（または NULL）に限定して偽装を防ぐ。
 CREATE POLICY "declaration_period_checks_insert_policy" ON declaration_period_checks
     FOR INSERT TO authenticated
     WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class = 'admin'
-        ) OR
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class = 'teamleader'
-            AND profiles.team IS NOT NULL
-            AND profiles.team = declaration_period_checks.team
+        (
+            EXISTS (
+                SELECT 1 FROM profiles
+                WHERE profiles.user_id = (select auth.uid())
+                AND profiles.class = 'admin'
+            ) OR
+            EXISTS (
+                SELECT 1 FROM profiles
+                WHERE profiles.user_id = (select auth.uid())
+                AND profiles.class = 'teamleader'
+                AND profiles.team IS NOT NULL
+                AND profiles.team = declaration_period_checks.team
+            )
+        )
+        AND (
+            checked_by IS NULL OR
+            checked_by = (SELECT id FROM profiles WHERE user_id = (select auth.uid()))
         )
     );
 
--- 管理者、または当該チームのチームリーダーのみ更新可能
+-- 管理者、または当該チームのチームリーダーのみ更新可能。
+-- USING（更新前の行）と WITH CHECK（更新後の行）の両方でメンバーシップを検証し、
+-- team の付け替えと checked_by の偽装を防ぐ。
 CREATE POLICY "declaration_period_checks_update_policy" ON declaration_period_checks
     FOR UPDATE TO authenticated
     USING (
@@ -794,6 +809,26 @@ CREATE POLICY "declaration_period_checks_update_policy" ON declaration_period_ch
             AND profiles.class = 'teamleader'
             AND profiles.team IS NOT NULL
             AND profiles.team = declaration_period_checks.team
+        )
+    )
+    WITH CHECK (
+        (
+            EXISTS (
+                SELECT 1 FROM profiles
+                WHERE profiles.user_id = (select auth.uid())
+                AND profiles.class = 'admin'
+            ) OR
+            EXISTS (
+                SELECT 1 FROM profiles
+                WHERE profiles.user_id = (select auth.uid())
+                AND profiles.class = 'teamleader'
+                AND profiles.team IS NOT NULL
+                AND profiles.team = declaration_period_checks.team
+            )
+        )
+        AND (
+            checked_by IS NULL OR
+            checked_by = (SELECT id FROM profiles WHERE user_id = (select auth.uid()))
         )
     );
 ```
@@ -1016,7 +1051,7 @@ erDiagram
     declaration_period_checks {
         bigint id PK
         text team
-        date month
+        date declaration_month
         boolean is_completed
         bigint checked_by FK
         timestamp checked_at
