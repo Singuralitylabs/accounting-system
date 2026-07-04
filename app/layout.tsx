@@ -4,7 +4,6 @@ import "./globals.css";
 import "@mantine/core/styles.css";
 import { MantineProvider, ColorSchemeScript } from "@mantine/core";
 import SupabaseProvider from "./components/providers/SupabaseProvider";
-import { DatePickerProvider } from "./components/providers/DatePickerProvider";
 import AuthProvider from "./components/auth/AuthProvider";
 import { QueryProvider } from "./components/providers/QueryProvider";
 
@@ -30,7 +29,7 @@ export default async function RootLayout({
           <QueryProvider>
             <MantineProvider>
               <AuthProvider>
-                <DatePickerProvider>{children}</DatePickerProvider>
+                {children}
                 <Footer />
               </AuthProvider>
             </MantineProvider>
