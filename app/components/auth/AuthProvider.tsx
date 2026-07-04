@@ -20,7 +20,7 @@ export default async function AuthProvider({
     let initialOptions = null;
     if (user) {
       // プロフィールと選択肢マスタは互いに独立しているため並列で取得する
-      const [profileResult, optionsByType] = await Promise.all([
+      const [profileResult, { optionsByType }] = await Promise.all([
         getCachedProfileInfo(),
         getActiveSelectOptionsByType([
           "team",

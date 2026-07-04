@@ -24,7 +24,7 @@ export const getProfileInfoById = async (userId: string) => {
   try {
     return await getCachedProfileInfoById(userId);
   } catch (error) {
-    console.error("Unexpected error in getProfileInfo:", error);
+    console.error("Unexpected error in getProfileInfoById:", error);
     return { error: new Error("予期せぬエラーが発生しました。") };
   }
 };
@@ -510,9 +510,11 @@ export const deleteBusinessInfo = async (id: number) => {
 // 有効な選択肢の取得。実装は getActiveSelectOptionsByType（join による1クエリ＋
 // リクエスト内キャッシュ）に一本化しており、これはその種類別ラッパー。
 export const getSelectOptions = async (typeName: string) => {
-  const optionsByType = await getActiveSelectOptionsByType([typeName]);
+  const { optionsByType, error } = await getActiveSelectOptionsByType([
+    typeName,
+  ]);
 
-  return { options: optionsByType[typeName] ?? [], error: null };
+  return { options: optionsByType[typeName] ?? [], error };
 };
 
 export const insertSelectOption = async (
