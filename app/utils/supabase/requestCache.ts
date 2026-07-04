@@ -11,6 +11,14 @@ import { Database } from "../../lib/database.types";
 // 「"use server" ファイルのエクスポートは async 関数のみ」という制約に反するため、
 // このファイルは "use server" にせず、supabaseServer.ts の async ラッパー経由で公開する。
 
+type ProfilesRow = Database["public"]["Tables"]["profiles"]["Row"];
+
+// 呼び出し側が const { profileInfo } = ... と分割代入できるよう、
+// 成功・失敗の両ケースで両プロパティを持つ判別可能な union にする
+export type ProfileInfoResult =
+  | { profileInfo: ProfilesRow; error?: undefined }
+  | { profileInfo?: undefined; error: Error };
+
 export const getCachedUser = cache(async () => {
   const supabase = createServerComponentClient<Database>({ cookies });
 
@@ -22,7 +30,27 @@ export const getCachedUser = cache(async () => {
   return { user, error };
 });
 
-export const getCachedProfileInfo = cache(async () => {
+export const getCachedProfileInfoById = cache(
+  async (userId: string): Promise<ProfileInfoResult> => {
+  const supabase = createServerComponentClient<Database>({ cookies });
+
+  const { data: profileInfo, error: profileError } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("user_id", userId)
+    .single();
+
+    if (!profileInfo || profileError) {
+      console.error("Profile fetch failed:", profileError);
+      return { error: new Error("プロファイル情報の取得に失敗しました。") };
+    }
+
+    return { profileInfo };
+  }
+);
+
+export const getCachedProfileInfo = cache(
+  async (): Promise<ProfileInfoResult> => {
   const { user, error: userError } = await getCachedUser();
 
   if (!user || userError) {
@@ -30,30 +58,5 @@ export const getCachedProfileInfo = cache(async () => {
     return { error: new Error("ユーザー認証情報の取得に失敗しました。") };
   }
 
-  const supabase = createServerComponentClient<Database>({ cookies });
-
-  const { data: profileInfo, error: profileError } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("user_id", user.id)
-    .single();
-
-  if (!profileInfo || profileError) {
-    console.error("Profile fetch failed:", profileError);
-    return { error: new Error("プロファイル情報の取得に失敗しました。") };
-  }
-
-  return {
-    profileInfo: {
-      id: profileInfo.id,
-      user_id: profileInfo.user_id,
-      email: profileInfo.email,
-      name: profileInfo.name,
-      slack_id: profileInfo.slack_id,
-      team: profileInfo.team,
-      class: profileInfo.class,
-      inserted_at: profileInfo.inserted_at,
-      updated_at: profileInfo.updated_at,
-    },
-  };
+  return getCachedProfileInfoById(user.id);
 });

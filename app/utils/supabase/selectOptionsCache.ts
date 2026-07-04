@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { Database } from "../../lib/database.types";
@@ -11,54 +12,45 @@ export type ActiveSelectOptionType = {
 
 type OptionsByTypeName = Record<string, ActiveSelectOptionType[]>;
 
-// 選択肢マスタは変更頻度が低いため、サーバーインスタンス内で短時間キャッシュする。
-// select_options / select_option_types の SELECT ポリシーは USING (true) で
-// 全ユーザー共通の結果になるため、ユーザーをまたいで共有しても安全。
-// 書き込み時は clearSelectOptionsCache() で即時無効化する（別インスタンスの
-// キャッシュは TTL 経過で追従する）。
-const CACHE_TTL_MS = 5 * 60 * 1000;
+// 有効な選択肢を全種類まとめて 1 クエリで取得し、React.cache() で
+// 同一リクエスト内の呼び出しをデデュープする。
+// 従来の getSelectOptions（種類ごとに「type_id 取得 → options 取得」の2クエリ）
+// に対し、何種類参照してもリクエストあたり 1 クエリで済む。
+// NOTE: リクエストをまたぐキャッシュ（モジュールスコープの TTL 等）は、
+// マルチインスタンス環境で書き込み後の無効化が他インスタンスに伝わらず
+// 古い選択肢を配信しうるため使わない。
+const fetchActiveSelectOptions = cache(async (): Promise<OptionsByTypeName> => {
+  const supabase = createServerComponentClient<Database>({ cookies });
 
-let cacheEntry: { data: OptionsByTypeName; expiresAt: number } | null = null;
+  const { data, error } = await supabase
+    .from("select_options")
+    .select("id, value, display_order, is_active, select_option_types!inner(name)")
+    .eq("is_active", true)
+    .order("display_order");
 
-export const clearSelectOptionsCache = () => {
-  cacheEntry = null;
-};
+  if (error || !data) {
+    console.error("選択肢の一括取得に失敗しました:", error);
+    return {};
+  }
 
-// 有効な選択肢を種類名ごとにまとめて取得する。
-// 従来の getSelectOptions（種類ごとに「type_id 取得 → options 取得」の2クエリ）と
-// 異なり、join を使った1クエリで全種類を取得してキャッシュする。
+  const grouped: OptionsByTypeName = {};
+  for (const row of data) {
+    const typeName = row.select_option_types?.name;
+    if (!typeName) continue;
+    const { select_option_types: _types, ...option } = row;
+    (grouped[typeName] ??= []).push(option);
+  }
+
+  return grouped;
+});
+
+// 有効な選択肢を種類名ごとにまとめて取得する
 export const getActiveSelectOptionsByType = async (
   typeNames: string[]
 ): Promise<OptionsByTypeName> => {
-  const now = Date.now();
-
-  if (!cacheEntry || cacheEntry.expiresAt <= now) {
-    const supabase = createServerComponentClient<Database>({ cookies });
-
-    const { data, error } = await supabase
-      .from("select_options")
-      .select("id, value, display_order, is_active, select_option_types!inner(name)")
-      .eq("is_active", true)
-      .order("display_order");
-
-    if (error || !data) {
-      console.error("選択肢の一括取得に失敗しました:", error);
-      // 失敗時はキャッシュせず、空の選択肢を返す
-      return Object.fromEntries(typeNames.map((name) => [name, []]));
-    }
-
-    const grouped: OptionsByTypeName = {};
-    for (const row of data) {
-      const typeName = row.select_option_types?.name;
-      if (!typeName) continue;
-      const { select_option_types: _types, ...option } = row;
-      (grouped[typeName] ??= []).push(option);
-    }
-
-    cacheEntry = { data: grouped, expiresAt: now + CACHE_TTL_MS };
-  }
+  const grouped = await fetchActiveSelectOptions();
 
   return Object.fromEntries(
-    typeNames.map((name) => [name, cacheEntry!.data[name] ?? []])
+    typeNames.map((name) => [name, grouped[name] ?? []])
   );
 };

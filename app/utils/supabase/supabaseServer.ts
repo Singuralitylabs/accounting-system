@@ -8,8 +8,8 @@ import { cookies } from "next/headers";
 import { Database } from "../../lib/database.types";
 import { MatterType, ProfilesType } from "../../types/types";
 import { isAllowedEmailDomain } from "../constants";
-import { getCachedProfileInfo } from "./requestCache";
-import { clearSelectOptionsCache } from "./selectOptionsCache";
+import { getCachedProfileInfo, getCachedProfileInfoById } from "./requestCache";
+import { getActiveSelectOptionsByType } from "./selectOptionsCache";
 
 export const getProfileInfo = async () => {
   try {
@@ -22,22 +22,7 @@ export const getProfileInfo = async () => {
 
 export const getProfileInfoById = async (userId: string) => {
   try {
-    const supabase = createServerComponentClient<Database>({ cookies });
-
-    const { data: profileInfo, error: profileError } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("user_id", userId)
-      .single();
-
-    if (!profileInfo || profileError) {
-      console.error("Profile fetch failed:", profileError);
-      return { error: new Error("プロファイル情報の取得に失敗しました。") };
-    }
-
-    return {
-      profileInfo,
-    };
+    return await getCachedProfileInfoById(userId);
   } catch (error) {
     console.error("Unexpected error in getProfileInfo:", error);
     return { error: new Error("予期せぬエラーが発生しました。") };
@@ -522,32 +507,12 @@ export const deleteBusinessInfo = async (id: number) => {
   }
 };
 
+// 有効な選択肢の取得。実装は getActiveSelectOptionsByType（join による1クエリ＋
+// リクエスト内キャッシュ）に一本化しており、これはその種類別ラッパー。
 export const getSelectOptions = async (typeName: string) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const optionsByType = await getActiveSelectOptionsByType([typeName]);
 
-  const { data: typeData, error: typeError } = await supabase
-    .from("select_option_types")
-    .select("id")
-    .eq("name", typeName)
-    .single();
-
-  if (typeError) {
-    console.error(`選択肢の種類の取得に失敗しました: ${typeName}`, typeError);
-    return { options: [], error: typeError };
-  }
-
-  const { data: options, error } = await supabase
-    .from("select_options")
-    .select("id, value, display_order, is_active")
-    .eq("type_id", typeData.id)
-    .eq("is_active", true)
-    .order("display_order");
-  if (error) {
-    console.error(`選択肢の取得に失敗しました: ${typeName}`, error);
-    return { options: [], error };
-  }
-
-  return { options, error };
+  return { options: optionsByType[typeName] ?? [], error: null };
 };
 
 export const insertSelectOption = async (
@@ -580,7 +545,6 @@ export const insertSelectOption = async (
     return false;
   }
 
-  clearSelectOptionsCache();
   return true;
 };
 
@@ -607,7 +571,6 @@ export const updateSelectOption = async (
     return false;
   }
 
-  clearSelectOptionsCache();
   return true;
 };
 

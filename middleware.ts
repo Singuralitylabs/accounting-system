@@ -11,9 +11,15 @@ const matchesRoute = (pathname: string, route: string) =>
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // ネットワークを伴う認証チェックの前に、認証不要なパスを先に返す
-  // （静的アセット・/api は config.matcher 側で除外済み）
-  if (pathname.startsWith("/auth/")) {
+  // ネットワークを伴う認証チェック（getUser）の前に、認証不要なパスを先に返す。
+  // 除外は拡張子ホワイトリスト方式（フェイルクローズ）とし、
+  // ここに該当しないパスは必ず認証チェックへ落とす
+  const isPublicFile =
+    pathname.match(/\.(js|css|ico|png|jpg|jpeg|svg|gif)$/) ||
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/api");
+
+  if (isPublicFile || pathname.startsWith("/auth/")) {
     return NextResponse.next();
   }
 
@@ -71,10 +77,9 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    // 認証チェックが不要なパスは middleware 自体を実行しない:
-    // - /api 配下
-    // - Next.js の静的アセット（_next/static, _next/image）
-    // - 拡張子付きの静的ファイル（favicon.ico, 画像, JS/CSS など）
-    "/((?!api|_next/static|_next/image|.*\\..*).*)",
+    // Next.js の静的アセットのみ matcher で除外する。
+    // それ以外の除外（拡張子・/api）はコード側のホワイトリストで行い、
+    // 未知のパスが認証チェックをすり抜けない（フェイルクローズ）状態を保つ
+    "/((?!_next/static|_next/image|favicon.ico).*)",
   ],
 };
