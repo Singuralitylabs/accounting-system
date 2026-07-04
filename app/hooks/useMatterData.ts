@@ -199,52 +199,43 @@ export const useSlackNotification = () => {
     }) => {
       const { matters, message } = data;
 
-      // 各案件にSlack通知を送信
-      for (const matter of matters) {
-        const sendMessageToSlackModule =
-          await import("../utils/slack/sendMessageToSlack");
-        const { updateMatterInfo } =
-          await import("../utils/supabase/supabaseServer");
+      // import はループ内ではなく最初に1回だけ行う
+      const [{ default: sendMessageToSlack }, { bulkUnfixMatterInfo }] =
+        await Promise.all([
+          import("../utils/slack/sendMessageToSlack"),
+          import("../utils/supabase/supabaseServer"),
+        ]);
 
-        const ret = await sendMessageToSlackModule.default(
-          matter.slack_id!,
-          matter.user_name!,
-          matter.title,
-          message,
-        );
+      // 各案件にSlack通知を送信し、成功した案件だけを差し戻し対象にする
+      const results = await Promise.all(
+        matters.map(async (matter) => ({
+          matter,
+          notified: await sendMessageToSlack(
+            matter.slack_id!,
+            matter.user_name!,
+            matter.title,
+            message,
+          ),
+        })),
+      );
 
-        if (!ret) throw new Error(`Slack通知に失敗しました: ${matter.title}`);
+      const notifiedMatterIds = results
+        .filter((result) => result.notified)
+        .map((result) => result.matter.id);
+      const failedTitles = results
+        .filter((result) => !result.notified)
+        .map((result) => result.matter.title);
 
-        // 案件をis_fixed=falseに戻す
-        const matterInfo: MatterType = {
-          id: matter.id,
-          title: matter.title,
-          category: matter.category,
-          team: matter.team,
-          start_date: matter.start_date,
-          description: matter.description,
-          total_amount: matter.total_amount,
-          business_count: matter.business_count,
-          total_cost: matter.total_cost,
-          cost_count: matter.cost_count,
-          unchecked_cost_count: matter.unchecked_cost_count,
-          parent_matter_id: matter.parent_matter_id,
-          is_fixed: false, // ここで明示的にfalseに設定
-          is_completed: matter.is_completed,
-          has_updates: matter.has_updates,
-          user_id: matter.user_id,
-          accounting_memo: matter.accounting_memo,
-          inserted_at: matter.inserted_at,
-          updated_at: matter.updated_at,
-        };
-
-        const result = await updateMatterInfo(matterInfo);
-
-        if (result.error) {
-          throw new Error(
-            `データベース更新に失敗しました: ${result.error.message}`,
-          );
+      // 通知できた案件は1件ずつではなく一括UPDATEで is_fixed=false に戻す
+      if (notifiedMatterIds.length > 0) {
+        const { error } = await bulkUnfixMatterInfo(notifiedMatterIds);
+        if (error) {
+          throw new Error(`データベース更新に失敗しました: ${error.message}`);
         }
+      }
+
+      if (failedTitles.length > 0) {
+        throw new Error(`Slack通知に失敗しました: ${failedTitles.join(", ")}`);
       }
 
       return true;
