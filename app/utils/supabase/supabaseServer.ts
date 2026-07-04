@@ -8,45 +8,11 @@ import { cookies } from "next/headers";
 import { Database } from "../../lib/database.types";
 import { MatterType, ProfilesType } from "../../types/types";
 import { isAllowedEmailDomain } from "../constants";
+import { getCachedProfileInfo } from "./requestCache";
 
 export const getProfileInfo = async () => {
   try {
-    const supabase = createServerComponentClient<Database>({ cookies });
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (!user || userError) {
-      console.error("User authentication failed:", userError);
-      return { error: new Error("ユーザー認証情報の取得に失敗しました。") };
-    }
-
-    const { data: profileInfo, error: profileError } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("user_id", user.id)
-      .single();
-
-    if (!profileInfo || profileError) {
-      console.error("Profile fetch failed:", profileError);
-      return { error: new Error("プロファイル情報の取得に失敗しました。") };
-    }
-
-    return {
-      profileInfo: {
-        id: profileInfo.id,
-        user_id: profileInfo.user_id,
-        email: profileInfo.email,
-        name: profileInfo.name,
-        slack_id: profileInfo.slack_id,
-        team: profileInfo.team,
-        class: profileInfo.class,
-        inserted_at: profileInfo.inserted_at,
-        updated_at: profileInfo.updated_at,
-      },
-    };
+    return await getCachedProfileInfo();
   } catch (error) {
     console.error("Unexpected error in getProfileInfo:", error);
     return { error: new Error("予期せぬエラーが発生しました。") };
