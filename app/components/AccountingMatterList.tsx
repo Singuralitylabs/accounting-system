@@ -14,21 +14,24 @@ import {
   useAllMatterList,
   useSlackNotification,
   useCheckCompleted,
+  MatterWithProfileType,
 } from "../hooks/useMatterData";
 
 export const AccountingMatterList = ({
   initialData,
 }: {
-  initialData?: MatterInfoWithUserNameType[] | null;
+  initialData?: MatterWithProfileType[];
 }) => {
-  // React Queryでデータを管理
-  const { data: rawMatterList } = useAllMatterList();
+  // React Queryでデータを管理。
+  // サーバー側で取得済みのデータを initialData としてキャッシュにシードし、
+  // マウント直後の再フェッチ（同じ全件取得の二重実行）を防ぐ。
+  const { data: rawMatterList } = useAllMatterList(initialData);
   const slackNotificationMutation = useSlackNotification();
   const checkCompletedMutation = useCheckCompleted();
 
   // rawMatterListをMatterInfoWithUserNameType[]に変換
   const matterList: MatterInfoWithUserNameType[] | null = useMemo(() => {
-    if (!rawMatterList) return initialData || null;
+    if (!rawMatterList) return null;
 
     return rawMatterList.map((matterWithProfile) => {
       const { profiles, ...matterInfo } = matterWithProfile;
@@ -38,7 +41,7 @@ export const AccountingMatterList = ({
         slack_id: profiles?.slack_id || null,
       };
     });
-  }, [rawMatterList, initialData]);
+  }, [rawMatterList]);
   const [checkedMatterIdList, setCheckedMatterIdList] = useState<number[]>([]);
   const [detailMatterInfo, setDetailMatterInfo] =
     useState<MatterInfoWithUserNameType | null>(null);

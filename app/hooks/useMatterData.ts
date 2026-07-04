@@ -19,7 +19,7 @@ import {
 } from "../types/types";
 
 // getAllMatterInfoListの戻り値の型定義
-type MatterWithProfileType = MatterType & {
+export type MatterWithProfileType = MatterType & {
   profiles: {
     name: string;
     slack_id: string | null;
