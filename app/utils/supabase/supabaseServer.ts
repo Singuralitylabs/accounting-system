@@ -9,6 +9,7 @@ import { Database } from "../../lib/database.types";
 import { MatterType, ProfilesType } from "../../types/types";
 import { isAllowedEmailDomain } from "../constants";
 import { getCachedProfileInfo } from "./requestCache";
+import { clearSelectOptionsCache } from "./selectOptionsCache";
 
 export const getProfileInfo = async () => {
   try {
@@ -579,6 +580,7 @@ export const insertSelectOption = async (
     return false;
   }
 
+  clearSelectOptionsCache();
   return true;
 };
 
@@ -605,6 +607,7 @@ export const updateSelectOption = async (
     return false;
   }
 
+  clearSelectOptionsCache();
   return true;
 };
 
