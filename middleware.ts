@@ -2,22 +2,28 @@ import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { ROUTE_PERMISSIONS, hasClassAccess } from "./app/utils/permissions";
-import { getProfileInfo } from "./app/utils/supabase/supabaseServer";
+import type { Database } from "./app/lib/database.types";
 
 // pathname がルート自身またはその配下かどうか
 const matchesRoute = (pathname: string, route: string) =>
   pathname === route || pathname.startsWith(`${route}/`);
 
 export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+
+  // ネットワークを伴う認証チェックの前に、認証不要なパスを先に返す
+  // （静的アセット・/api は config.matcher 側で除外済み）
+  if (pathname.startsWith("/auth/")) {
+    return NextResponse.next();
+  }
+
   const res = NextResponse.next();
-  const supabase = createMiddlewareClient({ req, res });
+  const supabase = createMiddlewareClient<Database>({ req, res });
 
   try {
     const {
       data: { user },
     } = await supabase.auth.getUser();
-
-    const { pathname } = req.nextUrl;
 
     const isProtectedRoute =
       pathname === "/" ||
@@ -26,21 +32,7 @@ export async function middleware(req: NextRequest) {
         matchesRoute(pathname, route),
       );
 
-    const isAuthRoute =
-      pathname.startsWith("/login") || pathname.startsWith("/auth/callback");
-
-    const isPublicFile =
-      pathname.match(/\.(js|css|ico|png|jpg|jpeg|svg|gif)$/) ||
-      pathname.startsWith("/_next") ||
-      pathname.startsWith("/api");
-
-    if (isPublicFile) {
-      return res;
-    }
-
-    if (pathname.startsWith("/auth/")) {
-      return res;
-    }
+    const isAuthRoute = pathname.startsWith("/login");
 
     if (!user && isProtectedRoute) {
       return NextResponse.redirect(new URL("/login", req.url));
@@ -51,13 +43,17 @@ export async function middleware(req: NextRequest) {
       matchesRoute(pathname, route),
     );
     if (user && restrictedRoute) {
-      try {
-        const { profileInfo } = await getProfileInfo();
-        if (!hasClassAccess(restrictedRoute[1], profileInfo?.class)) {
-          return NextResponse.redirect(new URL("/", req.url));
+      // getUser は上で実行済みのため、ここではロール（class）のみを 1 クエリで取得する
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("class")
+        .eq("user_id", user.id)
+        .single();
+
+      if (profileError || !hasClassAccess(restrictedRoute[1], profile?.class)) {
+        if (profileError) {
+          console.error("Profile fetch error:", profileError);
         }
-      } catch (error) {
-        console.error("Profile fetch error:", error);
         return NextResponse.redirect(new URL("/", req.url));
       }
     }
@@ -75,7 +71,10 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    // 除外するパス
-    "/((?!_next/static|_next/image|favicon.ico).*)",
+    // 認証チェックが不要なパスは middleware 自体を実行しない:
+    // - /api 配下
+    // - Next.js の静的アセット（_next/static, _next/image）
+    // - 拡張子付きの静的ファイル（favicon.ico, 画像, JS/CSS など）
+    "/((?!api|_next/static|_next/image|.*\\..*).*)",
   ],
 };
