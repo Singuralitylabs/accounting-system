@@ -11,8 +11,7 @@ const DynamicAccouting = async () => {
     <main>
       <AccountingMatterList
         initialData={
-          (matterListWithProfile as MatterWithProfileType[] | null) ??
-          undefined
+          (matterListWithProfile as MatterWithProfileType[] | null) ?? undefined
         }
       />
     </main>
