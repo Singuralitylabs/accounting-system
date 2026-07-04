@@ -42,7 +42,7 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 
 `SupabaseProvider` → `QueryProvider` → `MantineProvider` → `AuthProvider`
 
-（react-datepicker の日本語ロケール登録は `app/components/datePickerLocale.ts` を各ピッカーが side-effect import する方式。layout には置かない — バンドルが全ページに乗るため）
+（react-datepicker は `app/components/datePicker.ts`（ロケール登録・CSS 読み込み済みの単一入口）経由でのみ import する。layout には置かない — バンドルが全ページに乗るため）
 
 ### 状態管理
 

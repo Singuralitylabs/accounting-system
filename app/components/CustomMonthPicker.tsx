@@ -1,6 +1,4 @@
-import DatePicker from "react-datepicker";
-import "react-datepicker/dist/react-datepicker.css";
-import "./datePickerLocale";
+import DatePicker from "./datePicker";
 import { toMonthString } from "../utils/formatter";
 
 interface CustomMonthPickerProps {
