@@ -1,9 +1,9 @@
 "use client";
 
 import { SimpleGrid, Table } from "@mantine/core";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MatterType } from "../types/types";
-import { MatterCardDetailModal } from "./modal/MatterCardDetail";
 import { MatterCard } from "./MatterCard";
 import { useDeleteMatter, useUserMatterList } from "../hooks/useMatterData";
 import TableInfo from "./TableInfo";
@@ -12,6 +12,16 @@ import { useViewportSize } from "@mantine/hooks";
 import DisplayMenu from "./buttons/display-menu";
 import { useAtomValue } from "jotai";
 import { optionsAtom } from "../atoms/optionsAtom";
+
+// 案件詳細モーダルはフォーム一式（日付ピッカー等）を含み重いため、
+// 初期バンドルから外して開くときに読み込む
+const MatterCardDetailModal = dynamic(
+  () =>
+    import("./modal/MatterCardDetail").then(
+      (module) => module.MatterCardDetailModal,
+    ),
+  { ssr: false },
+);
 
 const itemListInUserMatter = [
   "ID",
