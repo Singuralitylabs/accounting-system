@@ -112,13 +112,26 @@ export const AccountingMatterList = ({
         ) || [];
 
       try {
-        await slackNotificationMutation.mutateAsync({
-          matters: checkedMatters,
-          message,
-        });
+        const { failedTitles, dbUpdateFailed } =
+          await slackNotificationMutation.mutateAsync({
+            matters: checkedMatters,
+            message,
+          });
 
+        // 成功した案件は差し戻し済みのため、部分失敗でもモーダルとチェックは
+        // クリアする（チェックを残すと再送信で成功済み案件に二重通知されるため）
         setNotificationOpened(false);
         setCheckedMatterIdList([]);
+
+        if (dbUpdateFailed) {
+          alert(
+            "Slack通知は送信しましたが、案件のステータス更新に失敗しました。\n画面を再読み込みして状態を確認してください。",
+          );
+        } else if (failedTitles.length > 0) {
+          alert(
+            `以下の案件のSlack通知に失敗しました。対象を再選択して送信し直してください。\n${failedTitles.join("\n")}`,
+          );
+        }
       } catch (error) {
         console.error("Slack通知に失敗しました:", error);
         alert("Slack通知に失敗しました。");
