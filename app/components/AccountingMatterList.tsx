@@ -29,9 +29,11 @@ export const AccountingMatterList = ({
   const slackNotificationMutation = useSlackNotification();
   const checkCompletedMutation = useCheckCompleted();
 
-  // rawMatterListをMatterInfoWithUserNameType[]に変換
-  const matterList: MatterInfoWithUserNameType[] | null = useMemo(() => {
-    if (!rawMatterList) return null;
+  // rawMatterListをMatterInfoWithUserNameType[]に変換。
+  // 取得前・取得失敗時も常に配列を返し、子コンポーネントへの
+  // non-null アサーションを不要にする
+  const matterList: MatterInfoWithUserNameType[] = useMemo(() => {
+    if (!rawMatterList) return [];
 
     return rawMatterList.map((matterWithProfile) => {
       const { profiles, ...matterInfo } = matterWithProfile;
@@ -195,7 +197,7 @@ export const AccountingMatterList = ({
             <Table.Thead className="bg-white">
               {
                 <AccoutingTableHeader
-                  matterList={matterList!}
+                  matterList={matterList}
                   filters={filters}
                   setFilters={setFilters}
                 />

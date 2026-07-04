@@ -219,9 +219,11 @@ export const useSlackNotification = () => {
       const notifiedMatterIds: number[] = [];
       const failedTitles: string[] = [];
       for (const matter of matters) {
+        // slack_id が null の場合は sendMessageToSlack 側で
+        // ユーザー名表示にフォールバックする
         const notified = await sendMessageToSlack(
-          matter.slack_id!,
-          matter.user_name!,
+          matter.slack_id ?? "",
+          matter.user_name ?? "",
           matter.title,
           message,
         );

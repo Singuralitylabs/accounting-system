@@ -1,5 +1,5 @@
 import { getAllMatterInfoList } from "@/app/utils/supabase/supabaseServer";
-import { MatterWithProfileType } from "@/app/hooks/useMatterData";
+import type { MatterWithProfileType } from "@/app/hooks/useMatterData";
 import { AccountingMatterList } from "../AccountingMatterList";
 
 const DynamicAccouting = async () => {
