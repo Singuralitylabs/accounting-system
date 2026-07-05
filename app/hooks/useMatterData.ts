@@ -4,7 +4,6 @@ import {
   getUserCostInfoList,
   getUserBusinessInfoList,
   getAllMatterInfoList,
-  getTeamMatterInfoList,
 } from "../utils/supabase/supabaseServer";
 import { updateMatter } from "../utils/supabase/editMatterInfo";
 import addMatterInfo from "../utils/supabase/addMatterInfo";
@@ -30,7 +29,16 @@ export type MatterWithProfileType = MatterType & {
 export const useUserMatterList = (initialData?: MatterType[]) => {
   return useQuery({
     queryKey: ["matters", "user"],
-    queryFn: () => getUserMatterInfoList(),
+    queryFn: async () => {
+      const result = await getUserMatterInfoList();
+      // getUserMatterInfoList はエラー時に null を返す。null をそのまま返すと
+      // 成功扱いでキャッシュされリトライされないため throw に変換し、
+      // TanStack Query の retry と前回データ保持に任せる（useAllMatterList と統一）
+      if (result === null) {
+        throw new Error("案件情報の取得に失敗しました");
+      }
+      return result;
+    },
     initialData,
     staleTime: 2 * 60 * 1000, // 2分
   });
@@ -55,15 +63,6 @@ export const useAllMatterList = (initialData?: MatterWithProfileType[]) => {
   });
 };
 
-// チーム案件一覧
-export const useTeamMatterList = () => {
-  return useQuery({
-    queryKey: ["matters", "team"],
-    queryFn: () => getTeamMatterInfoList(),
-    staleTime: 2 * 60 * 1000,
-  });
-};
-
 // 案件詳細（コスト・ビジネス情報含む）
 export const useMatterDetail = (matterId: number, enabled = true) => {
   return useQuery({
@@ -74,19 +73,31 @@ export const useMatterDetail = (matterId: number, enabled = true) => {
         getUserBusinessInfoList(matterId),
       ]);
 
+      // 取得失敗（error あり）を空配列にフォールバックすると「成功・空」として
+      // キャッシュされモーダルが無言で空表示になるため、throw して
+      // TanStack Query の retry・エラー表示に委ねる。
+      // throw すると Supabase の元エラーが失われ原因を追えなくなるため、
+      // 事前に両方のエラーをログしておく
+      if (costResult.error || businessResult.error) {
+        console.error(
+          "案件詳細の取得に失敗しました:",
+          costResult.error,
+          businessResult.error,
+        );
+        throw new Error("案件詳細の取得に失敗しました");
+      }
+
       return {
-        costs:
-          costResult.costInfoList?.map((cost) => ({
-            ...cost,
-            isNew: false,
-            isRemoved: false,
-          })) || [],
-        businesses:
-          businessResult.businessInfoList?.map((business) => ({
-            ...business,
-            isNew: false,
-            isRemoved: false,
-          })) || [],
+        costs: (costResult.costInfoList ?? []).map((cost) => ({
+          ...cost,
+          isNew: false,
+          isRemoved: false,
+        })),
+        businesses: (businessResult.businessInfoList ?? []).map((business) => ({
+          ...business,
+          isNew: false,
+          isRemoved: false,
+        })),
       };
     },
     enabled: enabled && !!matterId,
