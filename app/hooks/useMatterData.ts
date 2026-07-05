@@ -75,8 +75,15 @@ export const useMatterDetail = (matterId: number, enabled = true) => {
 
       // 取得失敗（error あり）を空配列にフォールバックすると「成功・空」として
       // キャッシュされモーダルが無言で空表示になるため、throw して
-      // TanStack Query の retry・エラー表示に委ねる
+      // TanStack Query の retry・エラー表示に委ねる。
+      // throw すると Supabase の元エラーが失われ原因を追えなくなるため、
+      // 事前に両方のエラーをログしておく
       if (costResult.error || businessResult.error) {
+        console.error(
+          "案件詳細の取得に失敗しました:",
+          costResult.error,
+          businessResult.error,
+        );
         throw new Error("案件詳細の取得に失敗しました");
       }
 
