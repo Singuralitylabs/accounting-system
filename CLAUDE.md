@@ -67,6 +67,10 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 | `/accounting` | `accounting` または `admin` |
 | `/dashboard`  | `admin` のみ                |
 
+- middleware は `getSession()`（ローカルの JWT を読む。有効期限内は Auth 往復なし）で認証を確認し、ロールは JWT の `user_class` クレームから取得する（`profiles` への DB クエリを排除）。`user_class` は Custom Access Token Hook（`public.custom_access_token_hook`、`docs/database.md` 参照）が付与する。
+- クレームが無い場合（フック未設定 / 旧トークン）は `profiles` への DB クエリにフォールバックするため、フック未有効化でも動作する（フェイルセーフ）。**本番では Supabase ダッシュボードでフックを有効化する必要がある**。
+- ロール変更は対象ユーザーのトークンリフレッシュ（既定で最大約1時間）または再ログインまで JWT に反映されない。即時反映が必要な用途では middleware だけに依存しないこと。
+
 ## 業務ロジック
 
 未来技術推進協会の案件管理システム（日本語 UI、JST、円表記）。

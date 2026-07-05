@@ -8,10 +8,27 @@ import type { Database } from "./app/lib/database.types";
 const matchesRoute = (pathname: string, route: string) =>
   pathname === route || pathname.startsWith(`${route}/`);
 
+// JWT（access_token）のペイロードから user_class クレームを読む。
+// Custom Access Token Hook（migration 15）が付与する。DB 往復なしでロールを取得できる。
+// フック未設定/旧トークンでクレームが無い場合は null を返し、呼び出し側で DB フォールバックする。
+const readClassClaim = (accessToken: string | undefined): string | null => {
+  if (!accessToken) return null;
+  try {
+    const payloadPart = accessToken.split(".")[1];
+    if (!payloadPart) return null;
+    const base64 = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded)) as { user_class?: unknown };
+    return typeof payload.user_class === "string" ? payload.user_class : null;
+  } catch {
+    return null;
+  }
+};
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // ネットワークを伴う認証チェック（getUser）の前に、認証不要なパスを先に返す。
+  // 認証チェック（getSession）の前に、認証不要なパスを先に返す。
   // 除外は拡張子ホワイトリスト方式（フェイルクローズ）とし、
   // ここに該当しないパスは必ず認証チェックへ落とす
   const isPublicFile =
@@ -27,9 +44,13 @@ export async function middleware(req: NextRequest) {
   const supabase = createMiddlewareClient<Database>({ req, res });
 
   try {
+    // getSession はローカルの JWT を読む（有効期限内は Auth への往復なし。期限切れ時のみ
+    // リフレッシュで往復）。ロールは JWT の user_class クレームから取得するため、
+    // 制限ルートでも profiles への DB クエリは原則不要になる。
     const {
-      data: { user },
-    } = await supabase.auth.getUser();
+      data: { session },
+    } = await supabase.auth.getSession();
+    const user = session?.user ?? null;
 
     const isProtectedRoute =
       pathname === "/" ||
@@ -49,17 +70,26 @@ export async function middleware(req: NextRequest) {
       matchesRoute(pathname, route),
     );
     if (user && restrictedRoute) {
-      // getUser は上で実行済みのため、ここではロール（class）のみを 1 クエリで取得する
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("class")
-        .eq("user_id", user.id)
-        .single();
+      // まず JWT の user_class クレームからロールを読む（DB 往復なし）
+      let userClass = readClassClaim(session?.access_token);
 
-      if (profileError || !hasClassAccess(restrictedRoute[1], profile?.class)) {
+      // クレームが無い場合（Custom Access Token Hook 未設定 / 旧トークン）は
+      // profiles への DB クエリにフォールバックする（フェイルセーフ）
+      if (userClass === null) {
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .select("class")
+          .eq("user_id", user.id)
+          .single();
+
         if (profileError) {
           console.error("Profile fetch error:", profileError);
+          return NextResponse.redirect(new URL("/", req.url));
         }
+        userClass = profile?.class ?? null;
+      }
+
+      if (!hasClassAccess(restrictedRoute[1], userClass)) {
         return NextResponse.redirect(new URL("/", req.url));
       }
     }
