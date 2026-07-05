@@ -1,3 +1,5 @@
+"use client";
+
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { Database } from "../../lib/database.types";
 
@@ -12,13 +14,30 @@ import { Database } from "../../lib/database.types";
 // 認証スタックは auth-helpers で統一されているため、ここでも必ず
 // createClientComponentClient を使う（@supabase/ssr を混在させない。CLAUDE.md 参照）。
 
-const client = () => createClientComponentClient<Database>();
+// 同一ブラウザコンテキストで複数の GoTrueClient インスタンスが生成されると
+// 警告やトークンリフレッシュの競合につながるため、クライアントは 1 度だけ生成して使い回す
+let browserClient: ReturnType<
+  typeof createClientComponentClient<Database>
+> | null = null;
+
+const client = () => {
+  if (!browserClient) {
+    browserClient = createClientComponentClient<Database>();
+  }
+  return browserClient;
+};
 
 // ローカルのセッション情報から auth UID を取得する（ネットワーク往復なし）
 const getSessionUserId = async () => {
   const {
     data: { session },
+    error,
   } = await client().auth.getSession();
+
+  if (error) {
+    console.error("セッション情報の取得に失敗しました:", error);
+    throw new Error("ログインセッションの取得に失敗しました。");
+  }
 
   if (!session) {
     throw new Error("ログインセッションが見つかりません。");

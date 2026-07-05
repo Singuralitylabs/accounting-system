@@ -47,7 +47,7 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 ### 状態管理
 
 - **マスタデータ**: `app/atoms/optionsAtom.ts`（Jotai）。`InitialOptionalLoader` が初回にハイドレート。
-- **サーバ状態**: `app/hooks/useMatterData.ts` の TanStack Query フック（`useUserMatterList` / `useAllMatterList` / `useTeamMatterList` ＋ ミューテーション）。Server Component から `initialData` でキャッシュを温める。
+- **サーバ状態**: `app/hooks/useMatterData.ts` の TanStack Query フック（`useUserMatterList` / `useAllMatterList` / `useMatterDetail` ＋ ミューテーション）。Server Component から `initialData` でキャッシュを温める。
 - **フォーム**: `@mantine/form`。
 
 ### データアクセス
