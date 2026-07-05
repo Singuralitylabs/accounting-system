@@ -8,45 +8,12 @@ import { cookies } from "next/headers";
 import { Database } from "../../lib/database.types";
 import { MatterType, ProfilesType } from "../../types/types";
 import { isAllowedEmailDomain } from "../constants";
+import { getCachedProfileInfo, getCachedProfileInfoById } from "./requestCache";
+import { getActiveSelectOptionsByType } from "./selectOptionsCache";
 
 export const getProfileInfo = async () => {
   try {
-    const supabase = createServerComponentClient<Database>({ cookies });
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (!user || userError) {
-      console.error("User authentication failed:", userError);
-      return { error: new Error("ユーザー認証情報の取得に失敗しました。") };
-    }
-
-    const { data: profileInfo, error: profileError } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("user_id", user.id)
-      .single();
-
-    if (!profileInfo || profileError) {
-      console.error("Profile fetch failed:", profileError);
-      return { error: new Error("プロファイル情報の取得に失敗しました。") };
-    }
-
-    return {
-      profileInfo: {
-        id: profileInfo.id,
-        user_id: profileInfo.user_id,
-        email: profileInfo.email,
-        name: profileInfo.name,
-        slack_id: profileInfo.slack_id,
-        team: profileInfo.team,
-        class: profileInfo.class,
-        inserted_at: profileInfo.inserted_at,
-        updated_at: profileInfo.updated_at,
-      },
-    };
+    return await getCachedProfileInfo();
   } catch (error) {
     console.error("Unexpected error in getProfileInfo:", error);
     return { error: new Error("予期せぬエラーが発生しました。") };
@@ -55,24 +22,9 @@ export const getProfileInfo = async () => {
 
 export const getProfileInfoById = async (userId: string) => {
   try {
-    const supabase = createServerComponentClient<Database>({ cookies });
-
-    const { data: profileInfo, error: profileError } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("user_id", userId)
-      .single();
-
-    if (!profileInfo || profileError) {
-      console.error("Profile fetch failed:", profileError);
-      return { error: new Error("プロファイル情報の取得に失敗しました。") };
-    }
-
-    return {
-      profileInfo,
-    };
+    return await getCachedProfileInfoById(userId);
   } catch (error) {
-    console.error("Unexpected error in getProfileInfo:", error);
+    console.error("Unexpected error in getProfileInfoById:", error);
     return { error: new Error("予期せぬエラーが発生しました。") };
   }
 };
@@ -555,32 +507,14 @@ export const deleteBusinessInfo = async (id: number) => {
   }
 };
 
+// 有効な選択肢の取得。実装は getActiveSelectOptionsByType（join による1クエリ＋
+// リクエスト内キャッシュ）に一本化しており、これはその種類別ラッパー。
 export const getSelectOptions = async (typeName: string) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const { optionsByType, error } = await getActiveSelectOptionsByType([
+    typeName,
+  ]);
 
-  const { data: typeData, error: typeError } = await supabase
-    .from("select_option_types")
-    .select("id")
-    .eq("name", typeName)
-    .single();
-
-  if (typeError) {
-    console.error(`選択肢の種類の取得に失敗しました: ${typeName}`, typeError);
-    return { options: [], error: typeError };
-  }
-
-  const { data: options, error } = await supabase
-    .from("select_options")
-    .select("id, value, display_order, is_active")
-    .eq("type_id", typeData.id)
-    .eq("is_active", true)
-    .order("display_order");
-  if (error) {
-    console.error(`選択肢の取得に失敗しました: ${typeName}`, error);
-    return { options: [], error };
-  }
-
-  return { options, error };
+  return { options: optionsByType[typeName] ?? [], error };
 };
 
 export const insertSelectOption = async (
