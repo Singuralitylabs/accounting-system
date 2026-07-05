@@ -19,7 +19,7 @@ import {
 } from "../types/types";
 
 // getAllMatterInfoListの戻り値の型定義
-type MatterWithProfileType = MatterType & {
+export type MatterWithProfileType = MatterType & {
   profiles: {
     name: string;
     slack_id: string | null;
@@ -37,14 +37,18 @@ export const useUserMatterList = (initialData?: MatterType[]) => {
 };
 
 // 全案件一覧（経理用）
-export const useAllMatterList = (
-  initialData?: MatterWithProfileType[] | null,
-) => {
+export const useAllMatterList = (initialData?: MatterWithProfileType[]) => {
   return useQuery({
     queryKey: ["matters", "all"],
     queryFn: async () => {
       const result = await getAllMatterInfoList();
-      return result as MatterWithProfileType[] | null;
+      // getAllMatterInfoList はエラー時に null を返す。null をそのまま返すと
+      // 成功扱いでキャッシュが null 上書きされ一覧が白紙化するため throw に変換し、
+      // TanStack Query の retry と前回データ保持に任せる
+      if (result === null) {
+        throw new Error("案件一覧の取得に失敗しました");
+      }
+      return result as MatterWithProfileType[];
     },
     initialData,
     staleTime: 2 * 60 * 1000,
@@ -193,64 +197,59 @@ export const useSlackNotification = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
+    // Slack 送信は非冪等な副作用のため、グローバル設定（retry: 1）による
+    // mutationFn 全体の自動再実行＝通知の二重送信を防ぐ
+    retry: 0,
     mutationFn: async (data: {
       matters: MatterInfoWithUserNameType[];
       message: string;
-    }) => {
+    }): Promise<{ failedTitles: string[]; dbUpdateFailed: boolean }> => {
       const { matters, message } = data;
 
-      // 各案件にSlack通知を送信
-      for (const matter of matters) {
-        const sendMessageToSlackModule =
-          await import("../utils/slack/sendMessageToSlack");
-        const { updateMatterInfo } =
-          await import("../utils/supabase/supabaseServer");
+      // import はループ内ではなく最初に1回だけ行う
+      const [{ default: sendMessageToSlack }, { bulkUnfixMatterInfo }] =
+        await Promise.all([
+          import("../utils/slack/sendMessageToSlack"),
+          import("../utils/supabase/supabaseServer"),
+        ]);
 
-        const ret = await sendMessageToSlackModule.default(
-          matter.slack_id!,
-          matter.user_name!,
+      // Server Action は同一クライアントからは直列実行される上、Slack 側の
+      // レート制限（概ね1メッセージ/秒）もあるため、送信は明示的に直列で行い、
+      // 失敗しても残りの案件の送信は継続する
+      const notifiedMatterIds: number[] = [];
+      const failedTitles: string[] = [];
+      for (const matter of matters) {
+        // slack_id が null の場合は sendMessageToSlack 側で
+        // ユーザー名表示にフォールバックする
+        const notified = await sendMessageToSlack(
+          matter.slack_id ?? "",
+          matter.user_name ?? "",
           matter.title,
           message,
         );
-
-        if (!ret) throw new Error(`Slack通知に失敗しました: ${matter.title}`);
-
-        // 案件をis_fixed=falseに戻す
-        const matterInfo: MatterType = {
-          id: matter.id,
-          title: matter.title,
-          category: matter.category,
-          team: matter.team,
-          start_date: matter.start_date,
-          description: matter.description,
-          total_amount: matter.total_amount,
-          business_count: matter.business_count,
-          total_cost: matter.total_cost,
-          cost_count: matter.cost_count,
-          unchecked_cost_count: matter.unchecked_cost_count,
-          parent_matter_id: matter.parent_matter_id,
-          is_fixed: false, // ここで明示的にfalseに設定
-          is_completed: matter.is_completed,
-          has_updates: matter.has_updates,
-          user_id: matter.user_id,
-          accounting_memo: matter.accounting_memo,
-          inserted_at: matter.inserted_at,
-          updated_at: matter.updated_at,
-        };
-
-        const result = await updateMatterInfo(matterInfo);
-
-        if (result.error) {
-          throw new Error(
-            `データベース更新に失敗しました: ${result.error.message}`,
-          );
+        if (notified) {
+          notifiedMatterIds.push(matter.id);
+        } else {
+          failedTitles.push(matter.title);
         }
       }
 
-      return true;
+      // 通知できた案件のみ、一括UPDATEで is_fixed=false に戻す。
+      // 部分失敗は throw せず戻り値で返す（throw すると DB 更新済みなのに
+      // キャッシュ無効化されず、UI が DB と乖離するため）
+      let dbUpdateFailed = false;
+      if (notifiedMatterIds.length > 0) {
+        const { error } = await bulkUnfixMatterInfo(notifiedMatterIds);
+        if (error) {
+          console.error("案件の一括差し戻しに失敗しました:", error);
+          dbUpdateFailed = true;
+        }
+      }
+
+      return { failedTitles, dbUpdateFailed };
     },
-    onSuccess: () => {
-      // 全ての案件一覧を無効化
+    onSettled: () => {
+      // 部分失敗でも DB が更新されている可能性があるため、成否によらず無効化する
       queryClient.invalidateQueries({ queryKey: ["matters"] });
     },
     onError: (error) => {

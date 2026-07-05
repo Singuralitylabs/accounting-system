@@ -14,21 +14,26 @@ import {
   useAllMatterList,
   useSlackNotification,
   useCheckCompleted,
+  MatterWithProfileType,
 } from "../hooks/useMatterData";
 
 export const AccountingMatterList = ({
   initialData,
 }: {
-  initialData?: MatterInfoWithUserNameType[] | null;
+  initialData?: MatterWithProfileType[];
 }) => {
-  // React Queryでデータを管理
-  const { data: rawMatterList } = useAllMatterList();
+  // React Queryでデータを管理。
+  // サーバー側で取得済みのデータを initialData としてキャッシュにシードし、
+  // マウント直後の再フェッチ（同じ全件取得の二重実行）を防ぐ。
+  const { data: rawMatterList } = useAllMatterList(initialData);
   const slackNotificationMutation = useSlackNotification();
   const checkCompletedMutation = useCheckCompleted();
 
-  // rawMatterListをMatterInfoWithUserNameType[]に変換
-  const matterList: MatterInfoWithUserNameType[] | null = useMemo(() => {
-    if (!rawMatterList) return initialData || null;
+  // rawMatterListをMatterInfoWithUserNameType[]に変換。
+  // 取得前・取得失敗時も常に配列を返し、子コンポーネントへの
+  // non-null アサーションを不要にする
+  const matterList: MatterInfoWithUserNameType[] = useMemo(() => {
+    if (!rawMatterList) return [];
 
     return rawMatterList.map((matterWithProfile) => {
       const { profiles, ...matterInfo } = matterWithProfile;
@@ -38,7 +43,7 @@ export const AccountingMatterList = ({
         slack_id: profiles?.slack_id || null,
       };
     });
-  }, [rawMatterList, initialData]);
+  }, [rawMatterList]);
   const [checkedMatterIdList, setCheckedMatterIdList] = useState<number[]>([]);
   const [detailMatterInfo, setDetailMatterInfo] =
     useState<MatterInfoWithUserNameType | null>(null);
@@ -109,13 +114,26 @@ export const AccountingMatterList = ({
         ) || [];
 
       try {
-        await slackNotificationMutation.mutateAsync({
-          matters: checkedMatters,
-          message,
-        });
+        const { failedTitles, dbUpdateFailed } =
+          await slackNotificationMutation.mutateAsync({
+            matters: checkedMatters,
+            message,
+          });
 
+        // 成功した案件は差し戻し済みのため、部分失敗でもモーダルとチェックは
+        // クリアする（チェックを残すと再送信で成功済み案件に二重通知されるため）
         setNotificationOpened(false);
         setCheckedMatterIdList([]);
+
+        if (dbUpdateFailed) {
+          alert(
+            "Slack通知は送信しましたが、案件のステータス更新に失敗しました。\n画面を再読み込みして状態を確認してください。",
+          );
+        } else if (failedTitles.length > 0) {
+          alert(
+            `以下の案件のSlack通知に失敗しました。対象を再選択して送信し直してください。\n${failedTitles.join("\n")}`,
+          );
+        }
       } catch (error) {
         console.error("Slack通知に失敗しました:", error);
         alert("Slack通知に失敗しました。");
@@ -179,7 +197,7 @@ export const AccountingMatterList = ({
             <Table.Thead className="bg-white">
               {
                 <AccoutingTableHeader
-                  matterList={matterList!}
+                  matterList={matterList}
                   filters={filters}
                   setFilters={setFilters}
                 />

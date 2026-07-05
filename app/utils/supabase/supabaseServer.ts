@@ -303,6 +303,49 @@ export const updateMatterInfo = async (matterInfo: MatterType) => {
   return { status, error };
 };
 
+// 複数案件を一括で確認完了（is_completed = true）にする。
+// 1件ずつ updateMatterInfo を呼ぶと Server Action の往復が件数分発生するため、
+// 一括 UPDATE 1回にまとめる。
+export const bulkCompleteMatterInfo = async (matterIds: number[]) => {
+  const supabase = createServerComponentClient<Database>({ cookies });
+
+  const { error } = await supabase
+    .from("matters")
+    .update({ is_completed: true })
+    .in("id", matterIds);
+
+  if (error) {
+    console.error(
+      `案件ID : ${matterIds.join(", ")}の一括完了処理で失敗しました。`,
+      error
+    );
+    return { error };
+  }
+
+  return { error: null };
+};
+
+// 複数案件を一括で下書き（is_fixed = false）に戻す。
+// Slack 通知後の差し戻し処理で使用する。
+export const bulkUnfixMatterInfo = async (matterIds: number[]) => {
+  const supabase = createServerComponentClient<Database>({ cookies });
+
+  const { error } = await supabase
+    .from("matters")
+    .update({ is_fixed: false })
+    .in("id", matterIds);
+
+  if (error) {
+    console.error(
+      `案件ID : ${matterIds.join(", ")}の一括差し戻し処理で失敗しました。`,
+      error
+    );
+    return { error };
+  }
+
+  return { error: null };
+};
+
 export const deleteMatterInfo = async (id: number) => {
   const supabase = createServerComponentClient<Database>({ cookies });
 
