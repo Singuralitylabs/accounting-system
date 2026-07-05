@@ -47,12 +47,12 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 ### 状態管理
 
 - **マスタデータ**: `app/atoms/optionsAtom.ts`（Jotai）。`InitialOptionalLoader` が初回にハイドレート。
-- **サーバ状態**: `app/hooks/useMatterData.ts` の TanStack Query フック（`useUserMatterList` / `useAllMatterList` / `useTeamMatterList` ＋ ミューテーション）。Server Component から `initialData` でキャッシュを温める。
+- **サーバ状態**: `app/hooks/useMatterData.ts` の TanStack Query フック（`useUserMatterList` / `useAllMatterList` / `useMatterDetail` ＋ ミューテーション）。Server Component から `initialData` でキャッシュを温める。
 - **フォーム**: `@mantine/form`。
 
 ### データアクセス
 
-- DB ヘルパは `app/utils/supabase/*.tsx`（`addMatterInfo` / `editMatterInfo` / `deleteMatter` / `checkMatterInfoList` / `updateProfile` / `supabaseServer`）。Server Component から直接呼ぶか、TanStack Query フック経由で呼ぶ。
+- DB ヘルパは `app/utils/supabase/*`（`addMatterInfo` / `editMatterInfo` / `deleteMatter` / `checkMatterInfoList` / `updateProfile` / `supabaseServer` など。`.ts` / `.tsx` 混在）。Server Component から直接呼ぶか、TanStack Query フック経由で呼ぶ。
 - `app/actions/` は現状 Slack 通知アクションを再エクスポートしているだけ。新規 Server Action を足すならここ。
 - RLS が有効なので、すべての DB 操作は RLS を前提に書く。
 
