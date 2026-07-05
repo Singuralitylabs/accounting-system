@@ -1,21 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  getExtraEntryList,
-  bulkUpsertExtraEntry,
-} from "../utils/supabase/extraEntries";
+import { bulkUpsertExtraEntry } from "../utils/supabase/extraEntries";
+import { fetchExtraEntryList } from "../utils/supabase/clientQueries";
 import { ExtraEntryInListType, ExtraEntryType } from "../types/types";
 
 // 経理追加収支一覧
+// （読み取りはクライアントから Supabase に直接クエリする。clientQueries.ts 参照）
 export const useExtraEntryList = (initialData?: ExtraEntryType[] | null) => {
   return useQuery({
     queryKey: ["extraEntries", "all"],
-    queryFn: async () => {
-      const { extraEntryList, error } = await getExtraEntryList();
-      if (error) {
-        throw new Error("経理追加収支情報の取得に失敗しました");
-      }
-      return extraEntryList ?? [];
-    },
+    queryFn: () => fetchExtraEntryList(),
     initialData: initialData ?? undefined,
     staleTime: 2 * 60 * 1000, // 2分
   });
