@@ -1,23 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  getRecurringCostList,
-  bulkUpsertRecurringCost,
-} from "../utils/supabase/recurringCosts";
+import { bulkUpsertRecurringCost } from "../utils/supabase/recurringCosts";
+import { fetchRecurringCostList } from "../utils/supabase/clientQueries";
 import { RecurringCostInListType, RecurringCostType } from "../types/types";
 
 // 定期費用一覧
+// （読み取りはクライアントから Supabase に直接クエリする。clientQueries.ts 参照）
 export const useRecurringCostList = (
   initialData?: RecurringCostType[] | null,
 ) => {
   return useQuery({
     queryKey: ["recurringCosts", "all"],
-    queryFn: async () => {
-      const { recurringCostList, error } = await getRecurringCostList();
-      if (error) {
-        throw new Error("定期費用情報の取得に失敗しました");
-      }
-      return recurringCostList ?? [];
-    },
+    queryFn: () => fetchRecurringCostList(),
     initialData: initialData ?? undefined,
     staleTime: 2 * 60 * 1000, // 2分
   });

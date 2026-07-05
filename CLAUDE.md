@@ -52,7 +52,8 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 
 ### データアクセス
 
-- DB ヘルパは `app/utils/supabase/*.tsx`（`addMatterInfo` / `editMatterInfo` / `deleteMatter` / `checkMatterInfoList` / `updateProfile` / `supabaseServer`）。Server Component から直接呼ぶか、TanStack Query フック経由で呼ぶ。
+- **読み取り**: クライアント側は `app/utils/supabase/clientQueries.ts`（auth-helpers のブラウザクライアントで Supabase に直接クエリ。RLS が権限を担保）を TanStack Query フックから呼ぶ。Server Component の初期データ取得は `supabaseServer.ts` の関数を使う。
+- **書き込み**: `app/utils/supabase/*.tsx` の Server Action（`addMatterInfo` / `editMatterInfo` / `deleteMatter` / `checkMatterInfoList` / `updateProfile` / `supabaseServer`）を使う。読み取りを Server Action に戻さないこと（POST のためキャッシュ不可・同一クライアントから直列実行されボトルネックになる）。
 - `app/actions/` は現状 Slack 通知アクションを再エクスポートしているだけ。新規 Server Action を足すならここ。
 - RLS が有効なので、すべての DB 操作は RLS を前提に書く。
 
