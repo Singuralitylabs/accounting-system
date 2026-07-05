@@ -799,7 +799,60 @@ CREATE TRIGGER detect_matters_updates
 -- データベース側ではトリガーではなく、アプリケーションロジックで対応
 ```
 
-## 7. ER 図
+## 7. 認証フック（Custom Access Token Hook）
+
+`public.custom_access_token_hook(event jsonb)` は Supabase Auth がトークン発行/リフレッシュ時に呼び出すフック関数。`profiles.class` を JWT の `user_class` クレームに載せ、`middleware.ts` がロール判定を DB クエリなし（JWT から直接読む）で行えるようにする。
+
+```sql
+CREATE OR REPLACE FUNCTION public.custom_access_token_hook(event jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SET search_path = ''
+AS $$
+DECLARE
+  claims jsonb;
+  user_class text;
+BEGIN
+  SELECT class INTO user_class
+  FROM public.profiles
+  WHERE user_id = (event->>'user_id')::uuid;
+
+  claims := event->'claims';
+  IF user_class IS NOT NULL THEN
+    claims := jsonb_set(claims, '{user_class}', to_jsonb(user_class));
+  ELSE
+    claims := jsonb_set(claims, '{user_class}', 'null'::jsonb);
+  END IF;
+
+  event := jsonb_set(event, '{claims}', claims);
+  RETURN event;
+END;
+$$;
+
+-- 実行はフック呼び出し元の supabase_auth_admin のみに許可する
+GRANT USAGE ON SCHEMA public TO supabase_auth_admin;
+GRANT EXECUTE ON FUNCTION public.custom_access_token_hook(jsonb) TO supabase_auth_admin;
+REVOKE EXECUTE ON FUNCTION public.custom_access_token_hook(jsonb) FROM authenticated, anon, public;
+
+-- フック関数が profiles.class を読めるよう、supabase_auth_admin 向けの SELECT ポリシーを追加
+GRANT SELECT ON TABLE public.profiles TO supabase_auth_admin;
+CREATE POLICY "Auth admin can read profile class for token hook"
+  ON public.profiles AS PERMISSIVE FOR SELECT
+  TO supabase_auth_admin USING (true);
+```
+
+**有効化**:
+
+- ローカル: `supabase/config.toml` の `[auth.hook.custom_access_token]`（`enabled = true` / `uri = "pg-functions://postgres/public/custom_access_token_hook"`）。
+- 本番: Supabase ダッシュボード（Authentication > Hooks）で「Custom Access Token」に `public.custom_access_token_hook` を設定する（**手動対応が必要**）。
+
+**注意点**:
+
+- `class` を変更しても、対象ユーザーのトークンがリフレッシュ（既定で最大約 1 時間）または再ログインするまで JWT に反映されない。
+- `middleware.ts` は `user_class` クレームが無い（フック未設定 / 旧トークン）場合は `profiles` への DB クエリにフォールバックするため、フック未設定でも動作する（フェイルセーフ）。
+
+## 8. ER 図
 
 ```mermaid
 erDiagram
@@ -925,7 +978,7 @@ erDiagram
     }
 ```
 
-## 8. 初期データ
+## 9. 初期データ
 
 ### 8.1 選択肢マスタ
 
