@@ -833,7 +833,7 @@ $$;
 -- 実行はフック呼び出し元の supabase_auth_admin のみに許可する
 GRANT USAGE ON SCHEMA public TO supabase_auth_admin;
 GRANT EXECUTE ON FUNCTION public.custom_access_token_hook(jsonb) TO supabase_auth_admin;
-REVOKE EXECUTE ON FUNCTION public.custom_access_token_hook(jsonb) FROM authenticated, anon, public;
+REVOKE EXECUTE ON FUNCTION public.custom_access_token_hook(jsonb) FROM PUBLIC, authenticated, anon;
 
 -- フック関数が profiles.class を読めるよう、supabase_auth_admin 向けの SELECT ポリシーを追加
 GRANT SELECT ON TABLE public.profiles TO supabase_auth_admin;
@@ -980,7 +980,7 @@ erDiagram
 
 ## 9. 初期データ
 
-### 8.1 選択肢マスタ
+### 9.1 選択肢マスタ
 
 ```sql
 -- 選択肢の種類

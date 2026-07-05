@@ -47,7 +47,7 @@ $$;
 -- 一般ロール（authenticated / anon / public）からの直接実行は禁止する。
 GRANT USAGE ON SCHEMA public TO supabase_auth_admin;
 GRANT EXECUTE ON FUNCTION public.custom_access_token_hook(jsonb) TO supabase_auth_admin;
-REVOKE EXECUTE ON FUNCTION public.custom_access_token_hook(jsonb) FROM authenticated, anon, public;
+REVOKE EXECUTE ON FUNCTION public.custom_access_token_hook(jsonb) FROM PUBLIC, authenticated, anon;
 
 -- フック関数が profiles.class を読めるようにする。
 -- profiles は RLS 有効かつ制限付き（migration 12）のため、supabase_auth_admin 向けの
