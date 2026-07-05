@@ -1,10 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  fetchUserMatterList,
-  fetchAllMatterList,
-  fetchMatterCostList,
-  fetchMatterBusinessList,
-} from "../utils/supabase/clientQueries";
+  getUserMatterInfoList,
+  getUserCostInfoList,
+  getUserBusinessInfoList,
+  getAllMatterInfoList,
+  getTeamMatterInfoList,
+} from "../utils/supabase/supabaseServer";
 import { updateMatter } from "../utils/supabase/editMatterInfo";
 import addMatterInfo from "../utils/supabase/addMatterInfo";
 import deleteMatter from "../utils/supabase/deleteMatter";
@@ -25,15 +26,11 @@ export type MatterWithProfileType = MatterType & {
   } | null;
 };
 
-// 読み取り系は Server Action ではなくクライアントから Supabase に直接クエリする
-// （clientQueries.ts 参照。エラー時は throw されるため、TanStack Query の
-//   retry と前回データ保持に任せる）
-
 // ユーザーの案件一覧
 export const useUserMatterList = (initialData?: MatterType[]) => {
   return useQuery({
     queryKey: ["matters", "user"],
-    queryFn: async () => (await fetchUserMatterList()) as MatterType[],
+    queryFn: () => getUserMatterInfoList(),
     initialData,
     staleTime: 2 * 60 * 1000, // 2分
   });
@@ -43,9 +40,26 @@ export const useUserMatterList = (initialData?: MatterType[]) => {
 export const useAllMatterList = (initialData?: MatterWithProfileType[]) => {
   return useQuery({
     queryKey: ["matters", "all"],
-    queryFn: async () =>
-      (await fetchAllMatterList()) as MatterWithProfileType[],
+    queryFn: async () => {
+      const result = await getAllMatterInfoList();
+      // getAllMatterInfoList はエラー時に null を返す。null をそのまま返すと
+      // 成功扱いでキャッシュが null 上書きされ一覧が白紙化するため throw に変換し、
+      // TanStack Query の retry と前回データ保持に任せる
+      if (result === null) {
+        throw new Error("案件一覧の取得に失敗しました");
+      }
+      return result as MatterWithProfileType[];
+    },
     initialData,
+    staleTime: 2 * 60 * 1000,
+  });
+};
+
+// チーム案件一覧
+export const useTeamMatterList = () => {
+  return useQuery({
+    queryKey: ["matters", "team"],
+    queryFn: () => getTeamMatterInfoList(),
     staleTime: 2 * 60 * 1000,
   });
 };
@@ -55,22 +69,24 @@ export const useMatterDetail = (matterId: number, enabled = true) => {
   return useQuery({
     queryKey: ["matter", matterId, "details"],
     queryFn: async () => {
-      const [costList, businessList] = await Promise.all([
-        fetchMatterCostList(matterId),
-        fetchMatterBusinessList(matterId),
+      const [costResult, businessResult] = await Promise.all([
+        getUserCostInfoList(matterId),
+        getUserBusinessInfoList(matterId),
       ]);
 
       return {
-        costs: costList.map((cost) => ({
-          ...cost,
-          isNew: false,
-          isRemoved: false,
-        })),
-        businesses: businessList.map((business) => ({
-          ...business,
-          isNew: false,
-          isRemoved: false,
-        })),
+        costs:
+          costResult.costInfoList?.map((cost) => ({
+            ...cost,
+            isNew: false,
+            isRemoved: false,
+          })) || [],
+        businesses:
+          businessResult.businessInfoList?.map((business) => ({
+            ...business,
+            isNew: false,
+            isRemoved: false,
+          })) || [],
       };
     },
     enabled: enabled && !!matterId,
