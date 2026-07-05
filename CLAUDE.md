@@ -40,7 +40,9 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 
 ### Provider スタック（`app/layout.tsx`）
 
-`SupabaseProvider` → `QueryProvider` → `MantineProvider` → `AuthProvider` → `DatePickerProvider`
+`SupabaseProvider` → `QueryProvider` → `MantineProvider` → `AuthProvider`
+
+（react-datepicker は `app/components/datePicker.ts`（ロケール登録・CSS 読み込み済みの単一入口）経由でのみ import する。layout には置かない — バンドルが全ページに乗るため）
 
 ### 状態管理
 
@@ -79,7 +81,7 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 
 - `middleware.ts` — ルート保護 & ロール判定
 - `app/layout.tsx` — Provider スタック / `force-dynamic`
-- `app/components/providers/` — `SupabaseProvider`, `QueryProvider`, `DatePickerProvider`, `InitialOptionalLoader`
+- `app/components/providers/` — `SupabaseProvider`, `QueryProvider`, `InitialOptionalLoader`
 - `app/utils/supabase/editMatterInfo.tsx` — 案件 CRUD のコア
 - `app/hooks/useMatterData.ts` — TanStack Query フック群
 - `app/actions/slack/` — Slack 通知 Server Action
