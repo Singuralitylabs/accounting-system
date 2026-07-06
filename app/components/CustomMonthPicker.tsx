@@ -28,7 +28,7 @@ export const CustomMonthPicker = ({
     <MonthPickerInput
       className={className}
       label={label}
-      withAsterisk={required}
+      required={required}
       placeholder={placeholder}
       disabled={disabled}
       clearable={isClearable}

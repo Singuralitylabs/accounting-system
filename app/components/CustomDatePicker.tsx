@@ -43,7 +43,7 @@ export const CustomDatePicker = ({
     <DatePickerInput
       className={className}
       label={label}
-      withAsterisk={required}
+      required={required}
       placeholder={placeholder}
       disabled={disabled}
       clearable
