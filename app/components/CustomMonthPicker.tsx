@@ -1,4 +1,6 @@
-import DatePicker from "./datePicker";
+"use client";
+
+import { MonthPickerInput } from "@mantine/dates";
 import { toMonthString } from "../utils/formatter";
 
 interface CustomMonthPickerProps {
@@ -23,34 +25,16 @@ export const CustomMonthPicker = ({
   isClearable = false,
 }: CustomMonthPickerProps) => {
   return (
-    <div className={className}>
-      {label && (
-        <label className="text-sm font-medium">
-          {label}
-          {required && <span className="text-red-500 ml-1">*</span>}
-        </label>
-      )}
-      <div className="relative">
-        <DatePicker
-          selected={value ? new Date(`${value}-01T00:00:00`) : null}
-          onChange={(date: Date | null) => {
-            onChange(date ? toMonthString(date) : null);
-          }}
-          dateFormat="yyyy/MM"
-          showMonthYearPicker
-          placeholderText={placeholder}
-          disabled={disabled}
-          className={`w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-            disabled ? "text-gray-400" : ""
-          }`}
-          required={required}
-          isClearable={isClearable}
-          showPopperArrow={false}
-          locale="ja"
-          wrapperClassName="w-full"
-          calendarClassName="shadow-lg"
-        />
-      </div>
-    </div>
+    <MonthPickerInput
+      className={className}
+      label={label}
+      required={required}
+      placeholder={placeholder}
+      disabled={disabled}
+      clearable={isClearable}
+      valueFormat="YYYY/MM"
+      value={value ? new Date(`${value}-01T00:00:00`) : null}
+      onChange={(date) => onChange(date ? toMonthString(date) : null)}
+    />
   );
 };
