@@ -1,18 +1,33 @@
-import DatePicker from "./datePicker";
+"use client";
+
+import { DatePickerInput } from "@mantine/dates";
+import { FaRegCalendarAlt } from "react-icons/fa";
 
 interface CustomDatePickerProps {
   label?: string;
   required?: boolean;
   placeholder: string;
   disabled?: boolean;
-  value: string | null;
+  value: string | null; // "YYYY-MM-DD"
   onChange: (date: string | null) => void;
   className?: string;
   showIcon?: boolean;
-  // overflow を持つコンテナ（横スクロールするテーブルなど）内で使う場合に指定すると、
-  // カレンダーをポータル表示にしてコンテナにクリップされないようにする
+  // 互換のため受け付けるが、Mantine はドロップダウンを既定でポータル表示するため未使用。
   portalId?: string;
 }
+
+// "YYYY-MM-DD" 文字列 ⇔ Date（ローカルタイム）を相互変換する。
+// toISOString（UTC）を使うと JST で日付がずれ得るためローカル要素で組み立てる。
+const parseDate = (value: string | null): Date | null =>
+  value ? new Date(`${value}T00:00:00`) : null;
+
+const formatDate = (date: Date | null): string | null => {
+  if (!date) return null;
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
 
 export const CustomDatePicker = ({
   label,
@@ -23,59 +38,19 @@ export const CustomDatePicker = ({
   onChange,
   className = "",
   showIcon = false,
-  portalId,
 }: CustomDatePickerProps) => {
   return (
-    <div className={className}>
-      {label && (
-        <label className="text-sm font-medium">
-          {label}
-          {required && <span className="text-red-500 ml-1">*</span>}
-        </label>
-      )}
-      <div className="relative">
-        <DatePicker
-          showIcon={showIcon}
-          selected={value ? new Date(value) : null}
-          onChange={(date: Date | null) => {
-            if (date) {
-              const formattedDate = date.toISOString().split("T")[0];
-              onChange(formattedDate);
-            } else {
-              onChange(null);
-            }
-          }}
-          dateFormat="yyyy/MM/dd"
-          placeholderText={placeholder}
-          disabled={disabled}
-          className={`w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-            disabled ? "text-gray-400" : ""
-          }`}
-          required={required}
-          isClearable
-          showPopperArrow={false}
-          locale="ja"
-          wrapperClassName="w-full"
-          calendarClassName="shadow-lg"
-          portalId={portalId}
-          customInput={
-            <input
-              type="text"
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={
-                value
-                  ? new Date(value).toLocaleDateString("ja-JP", {
-                      year: "numeric",
-                      month: "2-digit",
-                      day: "2-digit",
-                    })
-                  : ""
-              }
-              readOnly
-            />
-          }
-        />
-      </div>
-    </div>
+    <DatePickerInput
+      className={className}
+      label={label}
+      withAsterisk={required}
+      placeholder={placeholder}
+      disabled={disabled}
+      clearable
+      valueFormat="YYYY/MM/DD"
+      value={parseDate(value)}
+      onChange={(date) => onChange(formatDate(date))}
+      leftSection={showIcon ? <FaRegCalendarAlt /> : undefined}
+    />
   );
 };
