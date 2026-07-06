@@ -30,9 +30,6 @@ type Props = {
   memberList: { value: string; label: string }[];
 };
 
-// カレンダーをテーブルの overflow にクリップさせないためのポータル ID
-const DATEPICKER_PORTAL_ID = "extra-entry-datepicker-portal";
-
 const toListRows = (extraEntries: ExtraEntryType[]): ExtraEntryInListType[] =>
   extraEntries.map((entry) => ({ ...entry, isNew: false, isRemoved: false }));
 
@@ -200,7 +197,6 @@ const ExtraEntryList = ({
       placeholder="未定は空欄"
       value={row.entry_date}
       onChange={(date) => handleUpdateRow(row.id, { entry_date: date })}
-      portalId={DATEPICKER_PORTAL_ID}
     />
   );
 

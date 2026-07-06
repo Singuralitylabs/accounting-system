@@ -5,6 +5,8 @@ import {
   formatMonthHeader,
   formatMonthLabel,
   formatTimeToJp,
+  parseDateString,
+  toDateString,
   toMonthString,
 } from "@/app/utils/formatter";
 
@@ -87,5 +89,41 @@ describe("formatTimeToJp", () => {
 
   it("null の場合は - を返す", () => {
     expect(formatTimeToJp(null)).toBe("-");
+  });
+});
+
+describe("parseDateString / toDateString", () => {
+  it("往復変換で値が保存される（YYYY-MM-DD → Date → YYYY-MM-DD）", () => {
+    for (const value of ["2025-01-01", "2025-07-15", "2026-12-31"]) {
+      expect(toDateString(parseDateString(value))).toBe(value);
+    }
+  });
+
+  it("toDateString はローカル要素で組み立て、1桁の月日をゼロ埋めする", () => {
+    expect(toDateString(new Date(2025, 0, 5))).toBe("2025-01-05");
+    expect(toDateString(new Date(2025, 11, 31))).toBe("2025-12-31");
+  });
+
+  it("JST 深夜でも toISOString の UTC ズレで前日にならない（回帰）", () => {
+    // 2025-05-01 00:00 JST は UTC では 2025-04-30 15:00。
+    // toISOString ベースだと "2025-04-30" にずれてしまう。
+    expect(toDateString(new Date("2025-05-01T00:00:00+09:00"))).toBe(
+      "2025-05-01",
+    );
+  });
+
+  it("月末・年またぎの境界を正しく扱う", () => {
+    expect(toDateString(new Date("2025-12-31T23:59:59+09:00"))).toBe(
+      "2025-12-31",
+    );
+    expect(toDateString(new Date("2026-01-01T00:00:00+09:00"))).toBe(
+      "2026-01-01",
+    );
+  });
+
+  it("null はそのまま null を返す", () => {
+    expect(parseDateString(null)).toBeNull();
+    expect(toDateString(null)).toBeNull();
+    expect(toDateString(parseDateString(null))).toBeNull();
   });
 });
