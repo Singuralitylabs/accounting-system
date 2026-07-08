@@ -1,34 +1,35 @@
 import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs";
+import { isAuthRetryableFetchError } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { ROUTE_PERMISSIONS, hasClassAccess } from "./app/utils/permissions";
+import {
+  ROUTE_PERMISSIONS,
+  hasClassAccess,
+  readClassClaim,
+} from "./app/utils/permissions";
 import type { Database } from "./app/lib/database.types";
 
 // pathname がルート自身またはその配下かどうか
 const matchesRoute = (pathname: string, route: string) =>
   pathname === route || pathname.startsWith(`${route}/`);
 
-// JWT（access_token）のペイロードから user_class クレームを読む。
-// Custom Access Token Hook（migration 15）が付与する。DB 往復なしでロールを取得できる。
-// フック未設定/旧トークンでクレームが無い場合は null を返し、呼び出し側で DB フォールバックする。
-const readClassClaim = (accessToken: string | undefined): string | null => {
-  if (!accessToken) return null;
-  try {
-    const payloadPart = accessToken.split(".")[1];
-    if (!payloadPart) return null;
-    const base64 = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
-    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-    const payload = JSON.parse(atob(padded)) as { user_class?: unknown };
-    return typeof payload.user_class === "string" ? payload.user_class : null;
-  } catch {
-    return null;
-  }
+// リダイレクト時も、getUser()/getSession() が発行したローテーション後の Cookie
+// （リフレッシュされたトークン等）を引き継ぐ。NextResponse.redirect() は新しい
+// Response を作るため、res に積まれた Set-Cookie を明示的にコピーしないと失われる。
+const redirectWithCookies = (
+  req: NextRequest,
+  res: NextResponse,
+  path: string,
+) => {
+  const redirectRes = NextResponse.redirect(new URL(path, req.url));
+  res.cookies.getAll().forEach((cookie) => redirectRes.cookies.set(cookie));
+  return redirectRes;
 };
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // 認証チェック（getSession）の前に、認証不要なパスを先に返す。
+  // ネットワークを伴う認証チェック（getUser）の前に、認証不要なパスを先に返す。
   // 除外は拡張子ホワイトリスト方式（フェイルクローズ）とし、
   // ここに該当しないパスは必ず認証チェックへ落とす
   const isPublicFile =
@@ -40,29 +41,47 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  const isProtectedRoute =
+    pathname === "/" ||
+    matchesRoute(pathname, "/new") ||
+    Object.keys(ROUTE_PERMISSIONS).some((route) =>
+      matchesRoute(pathname, route),
+    );
+  const isAuthRoute = pathname.startsWith("/login");
+
+  // どちらでもないパス（例: /auth-error）は認証状態に関係なく表示してよいため、
+  // getUser() の Auth サーバ往復自体を発生させない
+  if (!isProtectedRoute && !isAuthRoute) {
+    return NextResponse.next();
+  }
+
   const res = NextResponse.next();
   const supabase = createMiddlewareClient<Database>({ req, res });
 
   try {
-    // getSession はローカルの JWT を読む（有効期限内は Auth への往復なし。期限切れ時のみ
-    // リフレッシュで往復）。ロールは JWT の user_class クレームから取得するため、
-    // 制限ルートでも profiles への DB クエリは原則不要になる。
+    // getUser() は Supabase Auth サーバへ問い合わせてアクセストークンの署名・有効性を
+    // 検証する。getSession() はローカル Cookie の値をそのまま返すだけで署名検証を
+    // 行わないため（auth-js 自身が偽装され得る旨を警告している）、認証の可否判定には
+    // 使わない（#26: 偽造 Cookie による認証バイパスを防ぐ）。
     const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const user = session?.user ?? null;
+      data: { user },
+      error: getUserError,
+    } = await supabase.auth.getUser();
 
-    const isProtectedRoute =
-      pathname === "/" ||
-      matchesRoute(pathname, "/new") ||
-      Object.keys(ROUTE_PERMISSIONS).some((route) =>
-        matchesRoute(pathname, route),
+    if (getUserError && isAuthRetryableFetchError(getUserError)) {
+      // Supabase Auth 側のネットワークエラー・5xx（一時的障害）。攻撃者が意図的に
+      // 発生させることはできないため、ログイン中ユーザーを一律 /login へ飛ばす
+      // （＝実質ログアウト扱いにする）のではなく 503 を返し、クライアントの
+      // 再試行に委ねる。未ログイン扱いにはしない点でフェイルクローズは維持する。
+      console.error(
+        "Supabase Auth への到達に失敗しました（一時的障害）:",
+        getUserError,
       );
-
-    const isAuthRoute = pathname.startsWith("/login");
+      return new NextResponse("Service Unavailable", { status: 503 });
+    }
 
     if (!user && isProtectedRoute) {
-      return NextResponse.redirect(new URL("/login", req.url));
+      return redirectWithCookies(req, res, "/login");
     }
 
     // ロール制限のあるルートは ROUTE_PERMISSIONS に基づいて一括チェックする
@@ -70,12 +89,19 @@ export async function middleware(req: NextRequest) {
       matchesRoute(pathname, route),
     );
     if (user && restrictedRoute) {
-      // まず JWT の user_class クレームからロールを読む（DB 往復なし）
-      let userClass = readClassClaim(session?.access_token);
+      // 直前の getUser() がこのユーザーのアクセストークンの署名を検証済みのため、
+      // 同じトークンから読む user_class クレームも改ざんされていないとみなせる
+      // （ペイロードのどこかを書き換えると署名検証に失敗し getUser() がエラーになるため）。
+      // getSession() はローカル Cookie を読むだけなので追加のネットワーク往復は発生しない。
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const classClaim = readClassClaim(session?.access_token);
 
-      // クレームが無い場合（Custom Access Token Hook 未設定 / 旧トークン）は
-      // profiles への DB クエリにフォールバックする（フェイルセーフ）
-      if (userClass === null) {
+      // クレームが有効な文字列でない場合（フック未設定 / 旧トークン / プロフィール
+      // 未作成で明示的に null 等）は profiles への DB クエリにフォールバックする。
+      let userClass: string | null;
+      if (classClaim === null) {
         const { data: profile, error: profileError } = await supabase
           .from("profiles")
           .select("class")
@@ -84,24 +110,25 @@ export async function middleware(req: NextRequest) {
 
         if (profileError) {
           console.error("Profile fetch error:", profileError);
-          return NextResponse.redirect(new URL("/", req.url));
         }
         userClass = profile?.class ?? null;
+      } else {
+        userClass = classClaim;
       }
 
       if (!hasClassAccess(restrictedRoute[1], userClass)) {
-        return NextResponse.redirect(new URL("/", req.url));
+        return redirectWithCookies(req, res, "/");
       }
     }
 
     if (user && isAuthRoute) {
-      return NextResponse.redirect(new URL("/", req.url));
+      return redirectWithCookies(req, res, "/");
     }
 
     return res;
   } catch (error) {
     console.error("Middleware error:", error);
-    return NextResponse.redirect(new URL("/login", req.url));
+    return redirectWithCookies(req, res, "/login");
   }
 }
 

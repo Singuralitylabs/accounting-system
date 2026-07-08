@@ -206,6 +206,12 @@ max_frequency = "5s"
 
 # This hook runs before a token is issued and allows you to add additional claims based on the authentication method used.
 # ロール（profiles.class）を JWT の user_class クレームに載せ、middleware の DB クエリを排除する。
+#
+# 注意: このフックは custom_access_token_hook 関数（migration 15/16）の存在を前提とする。
+# 既存のローカル Supabase を `supabase stop && supabase start` で再起動しただけでは
+# 新しいマイグレーションは適用されない。関数が存在しない状態でこのフックが有効だと
+# トークン発行そのものが失敗し、全ユーザーがログインできなくなる。
+# このブランチを pull した後は必ず `supabase db reset` を実行すること。
 [auth.hook.custom_access_token]
 enabled = true
 uri = "pg-functions://postgres/public/custom_access_token_hook"
