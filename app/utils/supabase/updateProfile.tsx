@@ -1,7 +1,7 @@
 import { ProfilesType } from "../../types/types";
 import { updateUserInfo } from "./supabaseServer";
 
-export const updateProfile = async ({ profile }: { profile: ProfilesType }) => {
+const updateProfile = async ({ profile }: { profile: ProfilesType }) => {
   if (!profile.class) {
     alert(`権限が空欄のため、ユーザーの更新を中止しました。`);
     return false;

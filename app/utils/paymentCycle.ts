@@ -1,5 +1,5 @@
 // 定期費用の支払サイクル定義（recurring_costs.payment_cycle の値域）
-export const PAYMENT_CYCLE_LABELS: Record<string, string> = {
+const PAYMENT_CYCLE_LABELS: Record<string, string> = {
   monthly: "月払い",
   quarterly: "四半期払い",
   yearly: "年払い",
