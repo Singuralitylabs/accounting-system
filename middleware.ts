@@ -6,12 +6,12 @@ import {
 import type { AuthError } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import {
-  ROUTE_PERMISSIONS,
-  hasClassAccess,
-  readClassClaim,
-} from "./app/utils/permissions";
+import { ROUTE_PERMISSIONS, hasClassAccess } from "./app/utils/permissions";
+import { readClassClaim } from "./app/utils/authClaims";
 import type { Database } from "./app/lib/database.types";
+
+// 認証チェック不要な静的アセットの拡張子（ホワイトリスト）
+const PUBLIC_FILE_PATTERN = /\.(js|css|ico|png|jpg|jpeg|svg|gif)$/;
 
 // pathname がルート自身またはその配下かどうか
 const matchesRoute = (pathname: string, route: string) =>
@@ -28,19 +28,6 @@ const isTransientAuthError = (error: AuthError) =>
   isAuthRetryableFetchError(error) ||
   (isAuthApiError(error) && error.status >= 500);
 
-// リダイレクト時も、getUser()/getSession() が発行したローテーション後の Cookie
-// （リフレッシュされたトークン等）を引き継ぐ。NextResponse.redirect() は新しい
-// Response を作るため、res に積まれた Set-Cookie を明示的にコピーしないと失われる。
-const redirectWithCookies = (
-  req: NextRequest,
-  res: NextResponse,
-  path: string,
-) => {
-  const redirectRes = NextResponse.redirect(new URL(path, req.url));
-  res.cookies.getAll().forEach((cookie) => redirectRes.cookies.set(cookie));
-  return redirectRes;
-};
-
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
@@ -48,7 +35,7 @@ export async function middleware(req: NextRequest) {
   // 除外は拡張子ホワイトリスト方式（フェイルクローズ）とし、
   // ここに該当しないパスは必ず認証チェックへ落とす
   const isPublicFile =
-    pathname.match(/\.(js|css|ico|png|jpg|jpeg|svg|gif)$/) ||
+    PUBLIC_FILE_PATTERN.test(pathname) ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/api");
 
@@ -56,12 +43,12 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // ロール制限のあるルートは ROUTE_PERMISSIONS に基づいて一括判定する
+  const restrictedRoute = Object.entries(ROUTE_PERMISSIONS).find(([route]) =>
+    matchesRoute(pathname, route),
+  );
   const isProtectedRoute =
-    pathname === "/" ||
-    matchesRoute(pathname, "/new") ||
-    Object.keys(ROUTE_PERMISSIONS).some((route) =>
-      matchesRoute(pathname, route),
-    );
+    pathname === "/" || matchesRoute(pathname, "/new") || !!restrictedRoute;
   const isAuthRoute = pathname.startsWith("/login");
 
   // どちらでもないパス（例: /auth-error）は認証状態に関係なく表示してよいため、
@@ -72,6 +59,18 @@ export async function middleware(req: NextRequest) {
 
   const res = NextResponse.next();
   const supabase = createMiddlewareClient<Database>({ req, res });
+
+  // res 以外を返す場合も、getUser()/getSession() が発行したローテーション後の Cookie
+  // （リフレッシュされたトークン等）を引き継ぐ。redirect() や新規 NextResponse は
+  // 別の Response になるため、res に積まれた Set-Cookie を明示的にコピーしないと失われる。
+  // リフレッシュトークンはローテーションされる（supabase/config.toml）ため、
+  // 取りこぼすとクライアントが古いトークンを持ったままログアウトさせられる。
+  const withCookies = (response: NextResponse) => {
+    res.cookies.getAll().forEach((cookie) => response.cookies.set(cookie));
+    return response;
+  };
+  const redirectTo = (path: string) =>
+    withCookies(NextResponse.redirect(new URL(path, req.url)));
 
   try {
     // getUser() は Supabase Auth サーバへ問い合わせてアクセストークンの署名・有効性を
@@ -92,17 +91,15 @@ export async function middleware(req: NextRequest) {
         "Supabase Auth への到達に失敗しました（一時的障害）:",
         getUserError,
       );
-      return new NextResponse("Service Unavailable", { status: 503 });
+      return withCookies(
+        new NextResponse("Service Unavailable", { status: 503 }),
+      );
     }
 
     if (!user && isProtectedRoute) {
-      return redirectWithCookies(req, res, "/login");
+      return redirectTo("/login");
     }
 
-    // ロール制限のあるルートは ROUTE_PERMISSIONS に基づいて一括チェックする
-    const restrictedRoute = Object.entries(ROUTE_PERMISSIONS).find(([route]) =>
-      matchesRoute(pathname, route),
-    );
     if (user && restrictedRoute) {
       // 直前の getUser() がこのユーザーのアクセストークンの署名を検証済みのため、
       // 同じトークンから読む user_class クレームも改ざんされていないとみなせる
@@ -111,12 +108,11 @@ export async function middleware(req: NextRequest) {
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      const classClaim = readClassClaim(session?.access_token);
-
       // クレームが有効な文字列でない場合（フック未設定 / 旧トークン / プロフィール
       // 未作成で明示的に null 等）は profiles への DB クエリにフォールバックする。
-      let userClass: string | null;
-      if (classClaim === null) {
+      let userClass = readClassClaim(session?.access_token);
+
+      if (userClass === null) {
         const { data: profile, error: profileError } = await supabase
           .from("profiles")
           .select("class")
@@ -127,23 +123,21 @@ export async function middleware(req: NextRequest) {
           console.error("Profile fetch error:", profileError);
         }
         userClass = profile?.class ?? null;
-      } else {
-        userClass = classClaim;
       }
 
       if (!hasClassAccess(restrictedRoute[1], userClass)) {
-        return redirectWithCookies(req, res, "/");
+        return redirectTo("/");
       }
     }
 
     if (user && isAuthRoute) {
-      return redirectWithCookies(req, res, "/");
+      return redirectTo("/");
     }
 
     return res;
   } catch (error) {
     console.error("Middleware error:", error);
-    return redirectWithCookies(req, res, "/login");
+    return redirectTo("/login");
   }
 }
 
