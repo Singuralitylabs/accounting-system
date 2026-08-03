@@ -10,8 +10,10 @@
 --   3. claims キーは存在するが値が JSON null（event->'claims' が SQL NULL ではなく
 --      jsonb の 'null' スカラー）の場合、上記の COALESCE では救えず
 --      jsonb_set(スカラー, ...) が `cannot set path in scalar` で例外を投げる
---      （ローカル Postgres で実測確認）。claims が object 以外なら空オブジェクトに
---      リセットするガードを追加する。
+--      （ローカル Postgres で実測確認）。claims が object 以外の場合は、クレーム付与を
+--      諦めて event をそのまま返すガードを追加する（空オブジェクトにリセットすると
+--      sub / exp / role といった既存クレームを破棄した event を返すことになり、
+--      例外で abort するより悪い結果になりうるため）。
 --   4. event->>'user_id' が不正な形式の場合 ::uuid キャストが例外を投げるなど、
 --      上記以外にも権限ドリフト等 未知の失敗要因でフックが abort しうる。
 --      個別の例外コードを都度追加するのではなく、関数全体を WHEN OTHERS で
@@ -39,9 +41,18 @@ BEGIN
   WHERE user_id = (event->>'user_id')::uuid;
 
   claims := COALESCE(event->'claims', '{}'::jsonb);
+
+  -- claims が object 以外（JSON null / 配列 / スカラー）の場合、jsonb_set は
+  -- "cannot set path in scalar" で例外を投げる。ここで空オブジェクトにリセットすると
+  -- sub / exp / role 等の既存クレームを破棄した event を返すことになり、例外で
+  -- abort するより悪い結果になりうるため、クレーム付与を諦めて event をそのまま返す
+  -- （下の EXCEPTION 節と同じフェイルセーフ方針）。
   IF jsonb_typeof(claims) IS DISTINCT FROM 'object' THEN
-    claims := '{}'::jsonb;
+    RAISE WARNING 'custom_access_token_hook: claims is not an object (%) for user_id=%, skipping',
+      jsonb_typeof(claims), event->>'user_id';
+    RETURN event;
   END IF;
+
   claims := jsonb_set(claims, '{user_class}', COALESCE(to_jsonb(user_class), 'null'::jsonb));
 
   event := jsonb_set(event, '{claims}', claims);

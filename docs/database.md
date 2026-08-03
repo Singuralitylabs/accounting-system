@@ -821,12 +821,18 @@ BEGIN
   WHERE user_id = (event->>'user_id')::uuid;
 
   claims := COALESCE(event->'claims', '{}'::jsonb);
+
   -- claims キーが JSON null / 配列など object 以外の場合、jsonb_set は
   -- "cannot set path in scalar" で例外を投げる（COALESCE は SQL NULL しか
-  -- 救えないため別ガードが必要）。object 以外なら空オブジェクトにリセットする。
+  -- 救えないため別ガードが必要）。空オブジェクトにリセットすると sub / exp / role 等の
+  -- 既存クレームを破棄した event を返すことになるため、クレーム付与を諦めて
+  -- event をそのまま返す（EXCEPTION 節と同じフェイルセーフ方針）。
   IF jsonb_typeof(claims) IS DISTINCT FROM 'object' THEN
-    claims := '{}'::jsonb;
+    RAISE WARNING 'custom_access_token_hook: claims is not an object (%) for user_id=%, skipping',
+      jsonb_typeof(claims), event->>'user_id';
+    RETURN event;
   END IF;
+
   claims := jsonb_set(claims, '{user_class}', COALESCE(to_jsonb(user_class), 'null'::jsonb));
 
   event := jsonb_set(event, '{claims}', claims);
@@ -868,7 +874,7 @@ GRANT SELECT (user_id, class) ON TABLE public.profiles TO supabase_auth_admin;
 
 - `class` を変更しても、対象ユーザーのトークンがリフレッシュ（既定で最大約 1 時間）または再ログインするまで JWT に反映されない。制限ルートの `middleware.ts` によるゲーティングはこの遅延を許容する仕様とし、即時反映が必要な用途では別途対応すること。
 - `middleware.ts` は `user_class` クレームが有効な文字列でない場合（クレームキー自体が無い / 値が明示的に `null` / 空文字 / 文字列以外）は `profiles` への DB クエリにフォールバックする（フェイルセーフ）。`app/auth/callback/route.ts` はトークン発行（フック実行）の**後**に profiles 行を作成するため、新規ユーザーの初回トークンは必ず `user_class: null` になる。この場合もフォールバックすることで、直後の管理者によるロール付与を最大約 1 時間待たずに反映できる。
-- `middleware.ts` は `getUser()`（Supabase Auth サーバでの署名検証を伴う）で認証済みかどうかを判定したうえで、同じアクセストークンから `user_class` クレームを読む。`getSession()` はローカル Cookie を読むだけで署名検証を行わないため、認証の可否判定には使わない。`getUser()` が Supabase Auth 側のネットワークエラー・5xx（`AuthRetryableFetchError`）を返した場合は、ログイン中ユーザーを一律 `/login` に飛ばさず 503 を返す（一時的障害と不正トークンを区別する）。
+- `middleware.ts` は `getUser()`（Supabase Auth サーバでの署名検証を伴う）で認証済みかどうかを判定したうえで、同じアクセストークンから `user_class` クレームを読む。`getSession()` はローカル Cookie を読むだけで署名検証を行わないため、認証の可否判定には使わない。`getUser()` が Supabase Auth 側の一時的障害を返した場合は、ログイン中ユーザーを一律 `/login` に飛ばさず 503 を返す（一時的障害と不正トークンを区別する）。判定は「`AuthRetryableFetchError`（fetch 自体の失敗と 502/503/504）**または** ステータス 5xx の `AuthApiError`」で行う。auth-js が `AuthRetryableFetchError` にするのは 502/503/504 のみで 500 は `AuthApiError` になるため、後者を含めないと Auth の 500 で全ユーザーが強制ログアウトされる。偽造・期限切れトークンは 401/403 になるためこの判定には混入しない。
 
 ## 8. ER 図
 

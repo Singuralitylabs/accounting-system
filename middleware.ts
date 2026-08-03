@@ -1,5 +1,9 @@
 import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs";
-import { isAuthRetryableFetchError } from "@supabase/supabase-js";
+import {
+  isAuthApiError,
+  isAuthRetryableFetchError,
+} from "@supabase/supabase-js";
+import type { AuthError } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import {
@@ -12,6 +16,17 @@ import type { Database } from "./app/lib/database.types";
 // pathname がルート自身またはその配下かどうか
 const matchesRoute = (pathname: string, route: string) =>
   pathname === route || pathname.startsWith(`${route}/`);
+
+// getUser() のエラーが「Supabase Auth 側の一時的障害」かどうか。
+//
+// auth-js が AuthRetryableFetchError にするのは fetch 自体の失敗と 502/503/504 のみで、
+// 500 や 501 は AuthApiError になる（lib/fetch.ts の NETWORK_ERROR_CODES = [502,503,504]）。
+// どちらもトークンの正当性とは無関係なサーバ側障害なので、ステータス 5xx は一律で
+// 一時的障害として扱う。偽造・期限切れトークンは 401/403 になるため、この判定に
+// 混入することはない。
+const isTransientAuthError = (error: AuthError) =>
+  isAuthRetryableFetchError(error) ||
+  (isAuthApiError(error) && error.status >= 500);
 
 // リダイレクト時も、getUser()/getSession() が発行したローテーション後の Cookie
 // （リフレッシュされたトークン等）を引き継ぐ。NextResponse.redirect() は新しい
@@ -68,7 +83,7 @@ export async function middleware(req: NextRequest) {
       error: getUserError,
     } = await supabase.auth.getUser();
 
-    if (getUserError && isAuthRetryableFetchError(getUserError)) {
+    if (getUserError && isTransientAuthError(getUserError)) {
       // Supabase Auth 側のネットワークエラー・5xx（一時的障害）。攻撃者が意図的に
       // 発生させることはできないため、ログイン中ユーザーを一律 /login へ飛ばす
       // （＝実質ログアウト扱いにする）のではなく 503 を返し、クライアントの
