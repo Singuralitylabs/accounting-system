@@ -17,9 +17,9 @@ export type Database = {
     Functions: {
       graphql: {
         Args: {
-          query?: string
           variables?: Json
           operationName?: string
+          query?: string
           extensions?: Json
         }
         Returns: Json
@@ -435,6 +435,10 @@ export type Database = {
       auth_user_team: {
         Args: Record<PropertyKey, never>
         Returns: string
+      }
+      custom_access_token_hook: {
+        Args: { event: Json }
+        Returns: Json
       }
     }
     Enums: {

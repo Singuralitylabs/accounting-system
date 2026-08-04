@@ -801,7 +801,9 @@ CREATE TRIGGER detect_matters_updates
 
 ## 7. 認証フック（Custom Access Token Hook）
 
-`public.custom_access_token_hook(event jsonb)` は Supabase Auth がトークン発行/リフレッシュ時に呼び出すフック関数。`profiles.class` を JWT の `user_class` クレームに載せ、`middleware.ts` がロール判定を DB クエリなし（JWT から直接読む）で行えるようにする。
+`public.custom_access_token_hook(event jsonb)` は Supabase Auth がトークン発行/リフレッシュ時に呼び出すフック関数。`profiles.class` を JWT の `user_class` クレームに載せ、`middleware.ts` が制限ルートでのロール判定を DB クエリなし（JWT から直接読む）で行えるようにする。
+
+現在の定義（migration 15 を migration 16 で是正したもの）:
 
 ```sql
 CREATE OR REPLACE FUNCTION public.custom_access_token_hook(event jsonb)
@@ -818,14 +820,29 @@ BEGIN
   FROM public.profiles
   WHERE user_id = (event->>'user_id')::uuid;
 
-  claims := event->'claims';
-  IF user_class IS NOT NULL THEN
-    claims := jsonb_set(claims, '{user_class}', to_jsonb(user_class));
-  ELSE
-    claims := jsonb_set(claims, '{user_class}', 'null'::jsonb);
+  claims := COALESCE(event->'claims', '{}'::jsonb);
+
+  -- claims キーが JSON null / 配列など object 以外の場合、jsonb_set は
+  -- "cannot set path in scalar" で例外を投げる（COALESCE は SQL NULL しか
+  -- 救えないため別ガードが必要）。空オブジェクトにリセットすると sub / exp / role 等の
+  -- 既存クレームを破棄した event を返すことになるため、クレーム付与を諦めて
+  -- event をそのまま返す（EXCEPTION 節と同じフェイルセーフ方針）。
+  IF jsonb_typeof(claims) IS DISTINCT FROM 'object' THEN
+    RAISE WARNING 'custom_access_token_hook: claims is not an object (%) for user_id=%, skipping',
+      jsonb_typeof(claims), event->>'user_id';
+    RETURN event;
   END IF;
 
+  claims := jsonb_set(claims, '{user_class}', COALESCE(to_jsonb(user_class), 'null'::jsonb));
+
   event := jsonb_set(event, '{claims}', claims);
+  RETURN event;
+EXCEPTION WHEN OTHERS THEN
+  -- user_id が uuid として不正な形式、権限ドリフトによる SELECT 権限不足など、
+  -- 想定外の要因も含めて全て捕捉し、クレーム付与を諦めて event をそのまま返す
+  -- （フェイルセーフ。トークン発行自体は失敗させない）。
+  RAISE WARNING 'custom_access_token_hook failed for user_id=%: % (SQLSTATE %)',
+    event->>'user_id', SQLERRM, SQLSTATE;
   RETURN event;
 END;
 $$;
@@ -836,21 +853,28 @@ GRANT EXECUTE ON FUNCTION public.custom_access_token_hook(jsonb) TO supabase_aut
 REVOKE EXECUTE ON FUNCTION public.custom_access_token_hook(jsonb) FROM PUBLIC, authenticated, anon;
 
 -- フック関数が profiles.class を読めるよう、supabase_auth_admin 向けの SELECT ポリシーを追加
-GRANT SELECT ON TABLE public.profiles TO supabase_auth_admin;
 CREATE POLICY "Auth admin can read profile class for token hook"
   ON public.profiles AS PERMISSIVE FOR SELECT
   TO supabase_auth_admin USING (true);
+
+-- フックが実際に必要とするのは user_id / class の 2 列のみ。
+-- テーブル全体への SELECT ではなく列単位の GRANT に絞り、email / slack_id / team
+-- （migration 12 で一般ユーザーからの参照を制限した PII 列）を supabase_auth_admin から
+-- も読めない状態に保つ（RLS の USING(true) は行スコープの制御であり、列スコープは
+-- 別途この列単位 GRANT で絞る必要がある）。
+GRANT SELECT (user_id, class) ON TABLE public.profiles TO supabase_auth_admin;
 ```
 
 **有効化**:
 
-- ローカル: `supabase/config.toml` の `[auth.hook.custom_access_token]`（`enabled = true` / `uri = "pg-functions://postgres/public/custom_access_token_hook"`）。
-- 本番: Supabase ダッシュボード（Authentication > Hooks）で「Custom Access Token」に `public.custom_access_token_hook` を設定する（**手動対応が必要**）。
+- ローカル: `supabase/config.toml` の `[auth.hook.custom_access_token]`（`enabled = true` / `uri = "pg-functions://postgres/public/custom_access_token_hook"`）。フックは関数の存在を前提とするため、このブランチを pull した後は `supabase stop && supabase start` の再起動だけでなく **`supabase db reset` を実行してマイグレーションを適用すること**。関数が無い状態でフックが有効だとトークン発行自体が失敗し、全ユーザーがログインできなくなる。
+- 本番: Supabase ダッシュボード（Authentication > Hooks）で「Custom Access Token」に `public.custom_access_token_hook` を設定する（**手動対応が必要**）。マイグレーション適用前に有効化すると同様にログイン不能になるため、マイグレーション適用後に有効化すること。
 
 **注意点**:
 
-- `class` を変更しても、対象ユーザーのトークンがリフレッシュ（既定で最大約 1 時間）または再ログインするまで JWT に反映されない。
-- `middleware.ts` は `user_class` クレームが無い（フック未設定 / 旧トークン）場合は `profiles` への DB クエリにフォールバックするため、フック未設定でも動作する（フェイルセーフ）。
+- `class` を変更しても、対象ユーザーのトークンがリフレッシュ（既定で最大約 1 時間）または再ログインするまで JWT に反映されない。制限ルートの `middleware.ts` によるゲーティングはこの遅延を許容する仕様とし、即時反映が必要な用途では別途対応すること。
+- `middleware.ts` は `user_class` クレームが有効な文字列でない場合（クレームキー自体が無い / 値が明示的に `null` / 空文字 / 文字列以外）は `profiles` への DB クエリにフォールバックする（フェイルセーフ）。`app/auth/callback/route.ts` はトークン発行（フック実行）の**後**に profiles 行を作成するため、新規ユーザーの初回トークンは必ず `user_class: null` になる。この場合もフォールバックすることで、直後の管理者によるロール付与を最大約 1 時間待たずに反映できる。
+- `middleware.ts` は `getUser()`（Supabase Auth サーバでの署名検証を伴う）で認証済みかどうかを判定したうえで、同じアクセストークンから `user_class` クレームを読む。`getSession()` はローカル Cookie を読むだけで署名検証を行わないため、認証の可否判定には使わない。`getUser()` が Supabase Auth 側の一時的障害を返した場合は、ログイン中ユーザーを一律 `/login` に飛ばさず 503 を返す（一時的障害と不正トークンを区別する）。判定は「`AuthRetryableFetchError`（fetch 自体の失敗と 502/503/504）**または** ステータス 5xx の `AuthApiError`」で行う。auth-js が `AuthRetryableFetchError` にするのは 502/503/504 のみで 500 は `AuthApiError` になるため、後者を含めないと Auth の 500 で全ユーザーが強制ログアウトされる。偽造・期限切れトークンは 401/403 になるためこの判定には混入しない。
 
 ## 8. ER 図
 
