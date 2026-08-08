@@ -1,11 +1,15 @@
 {
   "mcpServers": {
     "supabase": {
-      "command": "sh",
+      "command": "npx",
       "args": [
-        "-c",
-        "set -a && . ./.env.local && set +a && exec npx -y @supabase/mcp-server-supabase@latest --project-ref=$PROJECT_ID"
-      ]
+        "-y",
+        "@supabase/mcp-server-supabase@latest",
+        "--project-ref=${PROJECT_ID}"
+      ],
+      "env": {
+        "SUPABASE_ACCESS_TOKEN": "${SUPABASE_ACCESS_TOKEN}"
+      }
     }
   }
 }
