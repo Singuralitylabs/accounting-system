@@ -25,7 +25,7 @@ export const hasClassAccess = (
 
 // ヘッダー（PC / モバイル共通）のナビゲーション項目。
 // ROUTE_PERMISSIONS に無いルートはログインユーザー全員に表示する。
-export const NAV_ITEMS: { href: string; label: string }[] = [
+const NAV_ITEMS: { href: string; label: string }[] = [
   { href: "/", label: "案件カード" },
   { href: "/new", label: "新規作成" },
   { href: "/team", label: "チーム案件一覧" },

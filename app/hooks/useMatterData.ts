@@ -169,40 +169,6 @@ export const useDeleteMatter = () => {
   });
 };
 
-// 楽観的更新用のヘルパー
-export const useOptimisticMatterUpdate = () => {
-  const queryClient = useQueryClient();
-
-  const updateMatterOptimistically = (
-    matterId: number,
-    updater: (old: MatterType) => MatterType,
-  ) => {
-    // ユーザー案件一覧の楽観的更新
-    queryClient.setQueryData(
-      ["matters", "user"],
-      (old: MatterType[] | undefined) => {
-        if (!old) return old;
-        return old.map((matter) =>
-          matter.id === matterId ? updater(matter) : matter,
-        );
-      },
-    );
-
-    // 全案件一覧の楽観的更新
-    queryClient.setQueryData(
-      ["matters", "all"],
-      (old: MatterInfoWithUserNameType[] | undefined) => {
-        if (!old) return old;
-        return old.map((matter) =>
-          matter.id === matterId ? { ...matter, ...updater(matter) } : matter,
-        );
-      },
-    );
-  };
-
-  return { updateMatterOptimistically };
-};
-
 // Slack通知（案件をis_fixed=falseに戻す）
 export const useSlackNotification = () => {
   const queryClient = useQueryClient();
