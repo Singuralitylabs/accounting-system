@@ -10,6 +10,7 @@ import { getMatterInfoById } from "@/app/utils/supabase/profitLossReport";
 import { formatCurrency, formatMonthLabel } from "@/app/utils/formatter";
 import { formatEntryType } from "@/app/utils/extraEntry";
 import { formatPaymentCycle } from "@/app/utils/paymentCycle";
+import { ORG_WIDE_TEAM_LABEL } from "@/app/utils/constants";
 import { Alert, Button, Paper, SimpleGrid, Table, Text } from "@mantine/core";
 import { Fragment, useState } from "react";
 import { FaChevronDown, FaChevronRight } from "react-icons/fa";
@@ -54,6 +55,9 @@ const toExtraEntryAmountLines = (
 
 // 定期費用の補足表示（品目 / 支払サイクル / チーム）。
 // 費目別内訳の配下では品目が見出しになるため includeItem=false で重複表示を避ける。
+// 支払サイクルは月払い（既定）以外の場合のみ併記し、月払いの表示を煩雑にしない。
+// チームは includeTeam のとき常に表示し、未指定（全体共通）も明示する
+// （全体共通（参考）セクションはすでに見出しで示しているため includeTeam=false で呼ぶ）。
 const formatRecurringCostNote = (
   recurringCost: RecurringCostType,
   { includeItem, includeTeam }: { includeItem: boolean; includeTeam: boolean },
@@ -62,8 +66,8 @@ const formatRecurringCostNote = (
   if (recurringCost.payment_cycle !== "monthly") {
     parts.push(formatPaymentCycle(recurringCost.payment_cycle));
   }
-  if (includeTeam && recurringCost.team) {
-    parts.push(recurringCost.team);
+  if (includeTeam) {
+    parts.push(recurringCost.team ?? ORG_WIDE_TEAM_LABEL);
   }
   return parts.length > 0 ? `（${parts.join(" / ")}）` : "";
 };
