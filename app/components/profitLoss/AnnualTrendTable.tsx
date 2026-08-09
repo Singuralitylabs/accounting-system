@@ -16,8 +16,9 @@ const AnnualTrendTable = ({ trend }: Props) => {
   }[] = [
     { label: "売上", getValue: (m) => m.revenueTotal },
     { label: "案件費用", getValue: (m) => m.matterCostTotal },
+    { label: "粗利", getValue: (m) => m.grossProfitTotal },
     { label: "管理費", getValue: (m) => m.recurringCostTotal },
-    { label: "営業損益", getValue: (m) => m.operatingProfit, isProfit: true },
+    { label: "経常利益", getValue: (m) => m.ordinaryProfit, isProfit: true },
   ];
 
   const totalRowValues = rows.map((row) =>

@@ -52,35 +52,42 @@ const toExtraEntryAmountLines = (
   return lines;
 };
 
-// 定期費用の補足表示（品目 / 支払サイクル / チーム）
+// 定期費用の補足表示（品目 / 支払サイクル / チーム）。
+// 費目別内訳の配下では品目が見出しになるため includeItem=false で重複表示を避ける。
 const formatRecurringCostNote = (
   recurringCost: RecurringCostType,
-  includeTeam: boolean,
+  { includeItem, includeTeam }: { includeItem: boolean; includeTeam: boolean },
 ) => {
-  const parts = [recurringCost.item];
+  const parts = includeItem ? [recurringCost.item] : [];
   if (recurringCost.payment_cycle !== "monthly") {
     parts.push(formatPaymentCycle(recurringCost.payment_cycle));
   }
   if (includeTeam && recurringCost.team) {
     parts.push(recurringCost.team);
   }
-  return `（${parts.join(" / ")}）`;
+  return parts.length > 0 ? `（${parts.join(" / ")}）` : "";
 };
 
+// 損益の符号に応じた文字色（0 は黒字扱い）
+const amountColor = (value: number) =>
+  value < 0 ? "text-red-600" : "text-green-700";
+
 const ProfitLossStatement = ({ report }: Props) => {
-  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+  // 案件費用の品目行・管理費の費目行の展開状態。
+  // 同名の品目が両方に存在しうるため、キーには種別のプレフィックスを付ける。
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [selectedMatter, setSelectedMatter] =
     useState<MatterInfoWithUserNameType | null>(null);
   const [isModalOpened, setIsModalOpened] = useState(false);
   const [loadingMatterId, setLoadingMatterId] = useState<number | null>(null);
 
-  const toggleItem = (item: string) => {
-    setExpandedItems((prev) => {
+  const toggleRow = (key: string) => {
+    setExpandedRows((prev) => {
       const next = new Set(prev);
-      if (next.has(item)) {
-        next.delete(item);
+      if (next.has(key)) {
+        next.delete(key);
       } else {
-        next.add(item);
+        next.add(key);
       }
       return next;
     });
@@ -101,9 +108,6 @@ const ProfitLossStatement = ({ report }: Props) => {
     }
   };
 
-  const profitColor =
-    report.operatingProfit < 0 ? "text-red-600" : "text-green-700";
-
   const hasUndated =
     report.undated.revenue > 0 || report.undated.matterCost > 0;
 
@@ -115,17 +119,26 @@ const ProfitLossStatement = ({ report }: Props) => {
       color: "text-red-600",
     },
     {
+      label: "粗利",
+      value: report.grossProfitTotal,
+      color: amountColor(report.grossProfitTotal),
+    },
+    {
       label: "管理費",
       value: report.recurringCostTotal,
       color: "text-red-600",
     },
-    { label: "営業損益", value: report.operatingProfit, color: profitColor },
+    {
+      label: "経常利益",
+      value: report.ordinaryProfit,
+      color: amountColor(report.ordinaryProfit),
+    },
   ];
 
   return (
     <div>
       {/* サマリーカード */}
-      <SimpleGrid cols={{ base: 2, md: 4 }} className="mb-6">
+      <SimpleGrid cols={{ base: 2, md: 5 }} className="mb-6">
         {summaryCards.map((card) => (
           <Paper key={card.label} withBorder p="md" radius="md">
             <Text size="sm" c="dimmed">
@@ -177,79 +190,113 @@ const ProfitLossStatement = ({ report }: Props) => {
               </Table.Td>
               <Table.Td />
             </Table.Tr>
-            {report.matterCostByItem.map((breakdown) => (
-              <Fragment key={`item-${breakdown.item}`}>
-                <Table.Tr
-                  className="cursor-pointer"
-                  onClick={() => toggleItem(breakdown.item)}
+            {report.matterCostByItem.map((breakdown) => {
+              const rowKey = `cost:${breakdown.item}`;
+              const isExpanded = expandedRows.has(rowKey);
+              return (
+                <Fragment key={rowKey}>
+                  <Table.Tr
+                    className="cursor-pointer"
+                    onClick={() => toggleRow(rowKey)}
+                  >
+                    <Table.Td className="pl-8 text-gray-700">
+                      <span className="inline-flex items-center gap-2">
+                        {isExpanded ? (
+                          <FaChevronDown size="0.7rem" />
+                        ) : (
+                          <FaChevronRight size="0.7rem" />
+                        )}
+                        {breakdown.item}
+                      </span>
+                    </Table.Td>
+                    <Table.Td className="text-right">
+                      {formatCurrency(breakdown.amount)}
+                    </Table.Td>
+                    <Table.Td />
+                  </Table.Tr>
+                  {isExpanded && (
+                    <>
+                      {breakdown.matters.map((matter) => (
+                        <Table.Tr
+                          key={`${rowKey}-matter-${matter.matterId}`}
+                          className="bg-gray-50"
+                        >
+                          <Table.Td className="pl-16 text-gray-600">
+                            {matter.matterTitle}
+                          </Table.Td>
+                          <Table.Td className="text-right text-gray-600">
+                            {formatCurrency(matter.amount)}
+                          </Table.Td>
+                          <Table.Td className="text-center">
+                            <Button
+                              size="xs"
+                              variant="light"
+                              loading={loadingMatterId === matter.matterId}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleShowMatter(matter.matterId);
+                              }}
+                            >
+                              案件を表示
+                            </Button>
+                          </Table.Td>
+                        </Table.Tr>
+                      ))}
+                      {/* 経理追加収支の経費明細行（案件に紐づかないため「案件を表示」ボタンなし） */}
+                      {breakdown.extraEntries.map((entry) => (
+                        <Table.Tr
+                          key={`${rowKey}-extra-${entry.id}`}
+                          className="bg-gray-50"
+                        >
+                          <Table.Td className="pl-16 text-gray-600">
+                            {entry.description}
+                            <span className="text-xs text-gray-500 ml-2">
+                              （経理追加）
+                            </span>
+                          </Table.Td>
+                          <Table.Td className="text-right text-gray-600">
+                            {formatCurrency(entry.expense_amount)}
+                          </Table.Td>
+                          <Table.Td />
+                        </Table.Tr>
+                      ))}
+                    </>
+                  )}
+                </Fragment>
+              );
+            })}
+
+            {/* 売上総利益（粗利）: 分類別に 売上 − 案件費用 を集計 */}
+            <Table.Tr className="bg-slate-50 border-t-2 border-gray-300">
+              <Table.Td className="font-bold">売上総利益（粗利）</Table.Td>
+              <Table.Td
+                className={`text-right font-bold ${amountColor(
+                  report.grossProfitTotal,
+                )}`}
+              >
+                {formatCurrency(report.grossProfitTotal)}
+              </Table.Td>
+              <Table.Td />
+            </Table.Tr>
+            {report.grossProfitByCategory.map((breakdown) => (
+              <Table.Tr key={`gross-${breakdown.category}`}>
+                <Table.Td className="pl-8 text-gray-700">
+                  {breakdown.category}
+                  <span className="text-xs text-gray-500 ml-2">
+                    （売上 {formatCurrency(breakdown.revenue)} − 案件費用{" "}
+                    {formatCurrency(breakdown.cost)}）
+                  </span>
+                </Table.Td>
+                <Table.Td
+                  className={`text-right ${amountColor(breakdown.grossProfit)}`}
                 >
-                  <Table.Td className="pl-8 text-gray-700">
-                    <span className="inline-flex items-center gap-2">
-                      {expandedItems.has(breakdown.item) ? (
-                        <FaChevronDown size="0.7rem" />
-                      ) : (
-                        <FaChevronRight size="0.7rem" />
-                      )}
-                      {breakdown.item}
-                    </span>
-                  </Table.Td>
-                  <Table.Td className="text-right">
-                    {formatCurrency(breakdown.amount)}
-                  </Table.Td>
-                  <Table.Td />
-                </Table.Tr>
-                {expandedItems.has(breakdown.item) && (
-                  <>
-                    {breakdown.matters.map((matter) => (
-                      <Table.Tr
-                        key={`item-${breakdown.item}-matter-${matter.matterId}`}
-                        className="bg-gray-50"
-                      >
-                        <Table.Td className="pl-16 text-gray-600">
-                          {matter.matterTitle}
-                        </Table.Td>
-                        <Table.Td className="text-right text-gray-600">
-                          {formatCurrency(matter.amount)}
-                        </Table.Td>
-                        <Table.Td className="text-center">
-                          <Button
-                            size="xs"
-                            variant="light"
-                            loading={loadingMatterId === matter.matterId}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              handleShowMatter(matter.matterId);
-                            }}
-                          >
-                            案件を表示
-                          </Button>
-                        </Table.Td>
-                      </Table.Tr>
-                    ))}
-                    {/* 経理追加収支の経費明細行（案件に紐づかないため「案件を表示」ボタンなし） */}
-                    {breakdown.extraEntries.map((entry) => (
-                      <Table.Tr
-                        key={`item-${breakdown.item}-extra-${entry.id}`}
-                        className="bg-gray-50"
-                      >
-                        <Table.Td className="pl-16 text-gray-600">
-                          {entry.description}
-                          <span className="text-xs text-gray-500 ml-2">
-                            （経理追加）
-                          </span>
-                        </Table.Td>
-                        <Table.Td className="text-right text-gray-600">
-                          {formatCurrency(entry.expense_amount)}
-                        </Table.Td>
-                        <Table.Td />
-                      </Table.Tr>
-                    ))}
-                  </>
-                )}
-              </Fragment>
+                  {formatCurrency(breakdown.grossProfit)}
+                </Table.Td>
+                <Table.Td />
+              </Table.Tr>
             ))}
 
-            {/* 管理費合計 */}
+            {/* 管理費合計（費目別内訳。展開で定期費用の明細を表示） */}
             <Table.Tr className="bg-slate-50">
               <Table.Td className="font-bold">管理費合計</Table.Td>
               <Table.Td className="text-right font-bold">
@@ -257,28 +304,64 @@ const ProfitLossStatement = ({ report }: Props) => {
               </Table.Td>
               <Table.Td />
             </Table.Tr>
-            {report.recurringCostDetails.map((recurringCost) => (
-              <Table.Tr key={`recurring-${recurringCost.id}`}>
-                <Table.Td className="pl-8 text-gray-700">
-                  {recurringCost.name}
-                  <span className="text-xs text-gray-500 ml-2">
-                    {formatRecurringCostNote(recurringCost, true)}
-                  </span>
-                </Table.Td>
-                <Table.Td className="text-right">
-                  {formatCurrency(recurringCost.price)}
-                </Table.Td>
-                <Table.Td />
-              </Table.Tr>
-            ))}
+            {report.recurringCostByItem.map((breakdown) => {
+              const rowKey = `recurring:${breakdown.item}`;
+              const isExpanded = expandedRows.has(rowKey);
+              return (
+                <Fragment key={rowKey}>
+                  <Table.Tr
+                    className="cursor-pointer"
+                    onClick={() => toggleRow(rowKey)}
+                  >
+                    <Table.Td className="pl-8 text-gray-700">
+                      <span className="inline-flex items-center gap-2">
+                        {isExpanded ? (
+                          <FaChevronDown size="0.7rem" />
+                        ) : (
+                          <FaChevronRight size="0.7rem" />
+                        )}
+                        {breakdown.item}
+                      </span>
+                    </Table.Td>
+                    <Table.Td className="text-right">
+                      {formatCurrency(breakdown.amount)}
+                    </Table.Td>
+                    <Table.Td />
+                  </Table.Tr>
+                  {isExpanded &&
+                    breakdown.details.map((recurringCost) => (
+                      <Table.Tr
+                        key={`${rowKey}-detail-${recurringCost.id}`}
+                        className="bg-gray-50"
+                      >
+                        <Table.Td className="pl-16 text-gray-600">
+                          {recurringCost.name}
+                          <span className="text-xs text-gray-500 ml-2">
+                            {formatRecurringCostNote(recurringCost, {
+                              includeItem: false,
+                              includeTeam: true,
+                            })}
+                          </span>
+                        </Table.Td>
+                        <Table.Td className="text-right text-gray-600">
+                          {formatCurrency(recurringCost.price)}
+                        </Table.Td>
+                        <Table.Td />
+                      </Table.Tr>
+                    ))}
+                </Fragment>
+              );
+            })}
 
-            {/* 営業損益 */}
+            {/* 経常利益 = 粗利合計 − 管理費合計 */}
             <Table.Tr className="bg-slate-100 border-t-2 border-gray-400">
-              <Table.Td className="font-bold text-lg">営業損益</Table.Td>
+              <Table.Td className="font-bold text-lg">経常利益</Table.Td>
               <Table.Td
-                className={`text-right font-bold text-lg ${profitColor}`}
+                className={`text-right font-bold text-lg ${amountColor(
+                  report.ordinaryProfit,
+                )}`}
               >
-                {formatCurrency(report.operatingProfit)}
+                {formatCurrency(report.ordinaryProfit)}
               </Table.Td>
               <Table.Td />
             </Table.Tr>
@@ -311,7 +394,10 @@ const ProfitLossStatement = ({ report }: Props) => {
                   <Table.Td className="text-gray-700">
                     {recurringCost.name}
                     <span className="text-xs text-gray-500 ml-2">
-                      {formatRecurringCostNote(recurringCost, false)}
+                      {formatRecurringCostNote(recurringCost, {
+                        includeItem: true,
+                        includeTeam: false,
+                      })}
                     </span>
                   </Table.Td>
                   <Table.Td className="text-right w-44">
@@ -348,8 +434,9 @@ const ProfitLossStatement = ({ report }: Props) => {
                 <Table.Th>チーム別内訳</Table.Th>
                 <Table.Th className="text-right">売上</Table.Th>
                 <Table.Th className="text-right">案件費用</Table.Th>
+                <Table.Th className="text-right">粗利</Table.Th>
                 <Table.Th className="text-right">管理費</Table.Th>
-                <Table.Th className="text-right">損益</Table.Th>
+                <Table.Th className="text-right">経常利益</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -362,15 +449,20 @@ const ProfitLossStatement = ({ report }: Props) => {
                   <Table.Td className="text-right">
                     {formatCurrency(teamBreakdown.matterCost)}
                   </Table.Td>
+                  <Table.Td
+                    className={`text-right ${amountColor(
+                      teamBreakdown.grossProfit,
+                    )}`}
+                  >
+                    {formatCurrency(teamBreakdown.grossProfit)}
+                  </Table.Td>
                   <Table.Td className="text-right">
                     {formatCurrency(teamBreakdown.recurringCost)}
                   </Table.Td>
                   <Table.Td
-                    className={`text-right font-bold ${
-                      teamBreakdown.profit < 0
-                        ? "text-red-600"
-                        : "text-green-700"
-                    }`}
+                    className={`text-right font-bold ${amountColor(
+                      teamBreakdown.profit,
+                    )}`}
                   >
                     {formatCurrency(teamBreakdown.profit)}
                   </Table.Td>
