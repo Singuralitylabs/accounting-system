@@ -11,7 +11,7 @@ import { formatCurrency, formatMonthLabel } from "@/app/utils/formatter";
 import { formatEntryType } from "@/app/utils/extraEntry";
 import { formatPaymentCycle } from "@/app/utils/paymentCycle";
 import { Alert, Button, Paper, SimpleGrid, Table, Text } from "@mantine/core";
-import { Fragment, useState } from "react";
+import { Fragment, KeyboardEvent, useState } from "react";
 import { FaChevronDown, FaChevronRight } from "react-icons/fa";
 import { MatterCardDetailModalReadOnly } from "../modal/MatterCardDetailReadOnly";
 import ExtraEntrySection from "./ExtraEntrySection";
@@ -92,6 +92,22 @@ const ProfitLossStatement = ({ report }: Props) => {
       return next;
     });
   };
+
+  // 展開可能な見出し行（案件費用の品目 / 管理費の費目）に共通で付ける属性。
+  // 行自体がトグルなので、マウスだけでなくキーボードでも操作できるようにする。
+  const expandableRowProps = (rowKey: string, isExpanded: boolean) => ({
+    className: "cursor-pointer",
+    role: "button",
+    tabIndex: 0,
+    "aria-expanded": isExpanded,
+    onClick: () => toggleRow(rowKey),
+    onKeyDown: (event: KeyboardEvent<HTMLTableRowElement>) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        toggleRow(rowKey);
+      }
+    },
+  });
 
   const handleShowMatter = async (matterId: number) => {
     try {
@@ -195,10 +211,7 @@ const ProfitLossStatement = ({ report }: Props) => {
               const isExpanded = expandedRows.has(rowKey);
               return (
                 <Fragment key={rowKey}>
-                  <Table.Tr
-                    className="cursor-pointer"
-                    onClick={() => toggleRow(rowKey)}
-                  >
+                  <Table.Tr {...expandableRowProps(rowKey, isExpanded)}>
                     <Table.Td className="pl-8 text-gray-700">
                       <span className="inline-flex items-center gap-2">
                         {isExpanded ? (
@@ -309,10 +322,7 @@ const ProfitLossStatement = ({ report }: Props) => {
               const isExpanded = expandedRows.has(rowKey);
               return (
                 <Fragment key={rowKey}>
-                  <Table.Tr
-                    className="cursor-pointer"
-                    onClick={() => toggleRow(rowKey)}
-                  >
+                  <Table.Tr {...expandableRowProps(rowKey, isExpanded)}>
                     <Table.Td className="pl-8 text-gray-700">
                       <span className="inline-flex items-center gap-2">
                         {isExpanded ? (
