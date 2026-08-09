@@ -8,16 +8,27 @@ type Props = {
   trend: AnnualTrendType;
 };
 
+// 損益の符号に応じた文字色（0 は黒字扱い）。月次の損益計算書と表示を揃える。
+const amountColor = (value: number) =>
+  value < 0 ? "text-red-600" : "text-green-700";
+
 const AnnualTrendTable = ({ trend }: Props) => {
   const rows: {
     label: string;
     getValue: (month: AnnualTrendType["months"][number]) => number;
-    isProfit?: boolean;
+    colorBySign?: boolean; // 損益指標（粗利・経常利益）は符号で色分けする
+    isProfit?: boolean; // 最終指標（経常利益）は太字＋区切り線で強調する
   }[] = [
     { label: "売上", getValue: (m) => m.revenueTotal },
     { label: "案件費用", getValue: (m) => m.matterCostTotal },
+    { label: "粗利", getValue: (m) => m.grossProfitTotal, colorBySign: true },
     { label: "管理費", getValue: (m) => m.recurringCostTotal },
-    { label: "営業損益", getValue: (m) => m.operatingProfit, isProfit: true },
+    {
+      label: "経常利益",
+      getValue: (m) => m.ordinaryProfit,
+      colorBySign: true,
+      isProfit: true,
+    },
   ];
 
   const totalRowValues = rows.map((row) =>
@@ -62,12 +73,8 @@ const AnnualTrendTable = ({ trend }: Props) => {
                 return (
                   <Table.Td
                     key={`${row.label}-${month.month}`}
-                    className={`text-right ${
-                      row.isProfit
-                        ? `font-bold ${
-                            value < 0 ? "text-red-600" : "text-green-700"
-                          }`
-                        : ""
+                    className={`text-right ${row.isProfit ? "font-bold" : ""} ${
+                      row.colorBySign ? amountColor(value) : ""
                     }`}
                   >
                     {formatCurrency(value)}
@@ -76,11 +83,7 @@ const AnnualTrendTable = ({ trend }: Props) => {
               })}
               <Table.Td
                 className={`text-right bg-slate-50 font-bold ${
-                  row.isProfit
-                    ? totalRowValues[rowIndex] < 0
-                      ? "text-red-600"
-                      : "text-green-700"
-                    : ""
+                  row.colorBySign ? amountColor(totalRowValues[rowIndex]) : ""
                 }`}
               >
                 {formatCurrency(totalRowValues[rowIndex])}
