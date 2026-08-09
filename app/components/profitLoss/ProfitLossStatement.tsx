@@ -11,7 +11,7 @@ import { formatCurrency, formatMonthLabel } from "@/app/utils/formatter";
 import { formatEntryType } from "@/app/utils/extraEntry";
 import { formatPaymentCycle } from "@/app/utils/paymentCycle";
 import { Alert, Button, Paper, SimpleGrid, Table, Text } from "@mantine/core";
-import { Fragment, KeyboardEvent, useState } from "react";
+import { Fragment, useState } from "react";
 import { FaChevronDown, FaChevronRight } from "react-icons/fa";
 import { MatterCardDetailModalReadOnly } from "../modal/MatterCardDetailReadOnly";
 import ExtraEntrySection from "./ExtraEntrySection";
@@ -94,20 +94,34 @@ const ProfitLossStatement = ({ report }: Props) => {
   };
 
   // 展開可能な見出し行（案件費用の品目 / 管理費の費目）に共通で付ける属性。
-  // 行自体がトグルなので、マウスだけでなくキーボードでも操作できるようにする。
-  const expandableRowProps = (rowKey: string, isExpanded: boolean) => ({
+  // 行全体をクリックできる利便性は残す。キーボード・支援技術向けの操作点は
+  // セル内の実ボタン（expandToggle）が担う（<tr> に role="button" を付けると
+  // 行としてのセマンティクスが壊れるため、行側には role / tabIndex を付けない）。
+  const expandableRowProps = (rowKey: string) => ({
     className: "cursor-pointer",
-    role: "button",
-    tabIndex: 0,
-    "aria-expanded": isExpanded,
     onClick: () => toggleRow(rowKey),
-    onKeyDown: (event: KeyboardEvent<HTMLTableRowElement>) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        toggleRow(rowKey);
-      }
-    },
   });
+
+  // 見出し行の開閉トグル。native button なので Enter / Space が既定で効く。
+  // 行の onClick との二重トグルを避けるため伝播を止める。
+  const expandToggle = (rowKey: string, isExpanded: boolean, label: string) => (
+    <button
+      type="button"
+      aria-expanded={isExpanded}
+      className="inline-flex items-center gap-2 text-left rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+      onClick={(event) => {
+        event.stopPropagation();
+        toggleRow(rowKey);
+      }}
+    >
+      {isExpanded ? (
+        <FaChevronDown size="0.7rem" />
+      ) : (
+        <FaChevronRight size="0.7rem" />
+      )}
+      {label}
+    </button>
+  );
 
   const handleShowMatter = async (matterId: number) => {
     try {
@@ -211,16 +225,9 @@ const ProfitLossStatement = ({ report }: Props) => {
               const isExpanded = expandedRows.has(rowKey);
               return (
                 <Fragment key={rowKey}>
-                  <Table.Tr {...expandableRowProps(rowKey, isExpanded)}>
+                  <Table.Tr {...expandableRowProps(rowKey)}>
                     <Table.Td className="pl-8 text-gray-700">
-                      <span className="inline-flex items-center gap-2">
-                        {isExpanded ? (
-                          <FaChevronDown size="0.7rem" />
-                        ) : (
-                          <FaChevronRight size="0.7rem" />
-                        )}
-                        {breakdown.item}
-                      </span>
+                      {expandToggle(rowKey, isExpanded, breakdown.item)}
                     </Table.Td>
                     <Table.Td className="text-right">
                       {formatCurrency(breakdown.amount)}
@@ -322,16 +329,9 @@ const ProfitLossStatement = ({ report }: Props) => {
               const isExpanded = expandedRows.has(rowKey);
               return (
                 <Fragment key={rowKey}>
-                  <Table.Tr {...expandableRowProps(rowKey, isExpanded)}>
+                  <Table.Tr {...expandableRowProps(rowKey)}>
                     <Table.Td className="pl-8 text-gray-700">
-                      <span className="inline-flex items-center gap-2">
-                        {isExpanded ? (
-                          <FaChevronDown size="0.7rem" />
-                        ) : (
-                          <FaChevronRight size="0.7rem" />
-                        )}
-                        {breakdown.item}
-                      </span>
+                      {expandToggle(rowKey, isExpanded, breakdown.item)}
                     </Table.Td>
                     <Table.Td className="text-right">
                       {formatCurrency(breakdown.amount)}
