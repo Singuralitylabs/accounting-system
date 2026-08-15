@@ -9,9 +9,10 @@ import { visibleNavItems } from "../utils/permissions";
 type Props = {
   profile: ProfilesType | null;
   onSignOut: () => Promise<void>;
+  hideNav?: boolean;
 };
 
-const MobileHeader: FC<Props> = ({ profile, onSignOut }) => {
+const MobileHeader: FC<Props> = ({ profile, onSignOut, hideNav = false }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const toggleMenu = () => {
@@ -19,38 +20,35 @@ const MobileHeader: FC<Props> = ({ profile, onSignOut }) => {
   };
 
   return (
-    <div>
-      <div className="sm:hidden flex justify-end w-full">
-        <button
-          className="text-white sm:hidden focus:outline-none"
-          aria-label="Toggle menu"
-          onClick={toggleMenu}
-        >
-          <GiHamburgerMenu size="1.5rem" />
-        </button>
-      </div>
-      <div className="relative md:hidden flex justify-end">
-        {isMenuOpen && (
-          <div className="absolute bg-gray-700 w-32 text-right ml-auto top-0 z-[15]">
-            {visibleNavItems(profile?.class).map((item) => (
+    <div className="relative">
+      <button
+        className="text-white focus:outline-none"
+        aria-label="Toggle menu"
+        onClick={toggleMenu}
+      >
+        <GiHamburgerMenu size="1.5rem" />
+      </button>
+      {isMenuOpen && (
+        <div className="absolute right-0 top-8 z-[15] w-32 bg-gray-700 text-right">
+          {!hideNav &&
+            visibleNavItems(profile?.class).map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
-                className="block rounded px-3 py-2 text-white hover:bg-gray-500 text-right w-full"
+                className="block w-full rounded px-3 py-2 text-right text-white hover:bg-gray-500"
                 onClick={toggleMenu}
               >
                 {item.label}
               </Link>
             ))}
-            <button
-              className="block rounded px-3 py-2 text-white hover:bg-gray-500 text-right w-full"
-              onClick={onSignOut}
-            >
-              ログアウト
-            </button>
-          </div>
-        )}
-      </div>
+          <button
+            className="block w-full rounded px-3 py-2 text-right text-white hover:bg-gray-500"
+            onClick={onSignOut}
+          >
+            ログアウト
+          </button>
+        </div>
+      )}
     </div>
   );
 };

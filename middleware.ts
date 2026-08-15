@@ -6,7 +6,11 @@ import {
 import type { AuthError } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { ROUTE_PERMISSIONS, hasClassAccess } from "./app/utils/permissions";
+import {
+  ROUTE_PERMISSIONS,
+  hasClassAccess,
+  isAuthOnlyPath,
+} from "./app/utils/permissions";
 import { readClassClaim } from "./app/utils/authClaims";
 import type { Database } from "./app/lib/database.types";
 
@@ -47,8 +51,7 @@ export async function middleware(req: NextRequest) {
   const restrictedRoute = Object.entries(ROUTE_PERMISSIONS).find(([route]) =>
     matchesRoute(pathname, route),
   );
-  const isProtectedRoute =
-    pathname === "/" || matchesRoute(pathname, "/new") || !!restrictedRoute;
+  const isProtectedRoute = isAuthOnlyPath(pathname) || !!restrictedRoute;
   const isAuthRoute = pathname.startsWith("/login");
 
   // どちらでもないパス（例: /auth-error）は認証状態に関係なく表示してよいため、

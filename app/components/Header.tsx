@@ -4,12 +4,12 @@ import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { User } from "@supabase/supabase-js";
 import Link from "next/link";
 import React, { FC, Suspense, useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { ProfilesType } from "../types/types";
 import { visibleNavItems } from "../utils/permissions";
 import { getProfileInfoById } from "../utils/supabase/supabaseServer";
 import MobileHeader from "./MobileHeader";
 import UserButton from "./buttons/user-button";
-import { useRouter } from "next/navigation";
 
 interface HeaderProps {
   initialUser: User | null;
@@ -31,6 +31,8 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
   );
   const supabase = createClientComponentClient();
   const router = useRouter();
+  const pathname = usePathname();
+  const isHub = pathname === "/";
 
   const isValidCache = (entry: CacheEntry) => {
     return Date.now() - entry.timestamp < CACHE_DURATION;
@@ -91,25 +93,39 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
 
   return (
     <header className="bg-gray-800 p-4">
-      <nav className="flex justify-between items-center">
-        <div className="hidden sm:flex space-x-4">
-          {visibleNavItems(profile?.class).map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
-            >
-              {item.label}
-            </Link>
-          ))}
-        </div>
+      <nav className="flex items-center gap-4">
+        <Link
+          href="/"
+          className="shrink-0 text-lg font-semibold text-white hover:text-gray-300"
+        >
+          案件管理アプリ
+        </Link>
+        {!isHub && (
+          <div className="hidden sm:flex flex-wrap gap-2">
+            {visibleNavItems(profile?.class).map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
+              >
+                {item.label}
+              </Link>
+            ))}
+          </div>
+        )}
         <div className="hidden sm:flex ml-auto rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500">
           <Suspense fallback={<div>Loading...</div>}>
             <UserButton />
           </Suspense>
         </div>
+        <div className="sm:hidden ml-auto">
+          <MobileHeader
+            profile={profile}
+            onSignOut={handleSignOut}
+            hideNav={isHub}
+          />
+        </div>
       </nav>
-      <MobileHeader profile={profile} onSignOut={handleSignOut} />
     </header>
   );
 };

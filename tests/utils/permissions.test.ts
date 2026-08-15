@@ -3,6 +3,8 @@ import {
   hasClassAccess,
   visibleNavItems,
   ROUTE_PERMISSIONS,
+  AUTH_ONLY_ROUTES,
+  isAuthOnlyPath,
 } from "@/app/utils/permissions";
 
 describe("hasClassAccess", () => {
@@ -59,13 +61,35 @@ describe("ROUTE_PERMISSIONS による各保護ルートの認可", () => {
   });
 });
 
+describe("AUTH_ONLY_ROUTES / isAuthOnlyPath", () => {
+  it("ログイン必須ルートは /, /new, /matters である", () => {
+    expect(AUTH_ONLY_ROUTES).toEqual(["/", "/new", "/matters"]);
+  });
+
+  it.each([
+    ["/", true],
+    ["/new", true],
+    ["/new/confirm", true],
+    ["/matters", true],
+    ["/matters/1", true],
+    ["/login", false],
+    ["/dashboard", false],
+    ["/team", false],
+    ["/matter", false],
+    ["/mattersome", false],
+    ["/newest", false],
+  ])("%s はログイン必須判定が %s", (pathname, expected) => {
+    expect(isAuthOnlyPath(pathname)).toBe(expected);
+  });
+});
+
 describe("visibleNavItems", () => {
   const hrefsFor = (profileClass: string | null | undefined) =>
     visibleNavItems(profileClass).map((item) => item.href);
 
   it("admin には全項目を表示する", () => {
     expect(hrefsFor("admin")).toEqual([
-      "/",
+      "/matters",
       "/new",
       "/team",
       "/accounting",
@@ -77,12 +101,12 @@ describe("visibleNavItems", () => {
   });
 
   it("public にはロール制限のない項目のみ表示する", () => {
-    expect(hrefsFor("public")).toEqual(["/", "/new"]);
+    expect(hrefsFor("public")).toEqual(["/matters", "/new"]);
   });
 
   it("teamleader にはチーム案件と損益計算書を表示する", () => {
     expect(hrefsFor("teamleader")).toEqual([
-      "/",
+      "/matters",
       "/new",
       "/team",
       "/profit-loss",
@@ -91,7 +115,7 @@ describe("visibleNavItems", () => {
 
   it("accounting には経理用一覧・損益計算書・定期費用マスタ・経理追加収支を表示する", () => {
     expect(hrefsFor("accounting")).toEqual([
-      "/",
+      "/matters",
       "/new",
       "/accounting",
       "/profit-loss",
@@ -101,6 +125,14 @@ describe("visibleNavItems", () => {
   });
 
   it("ロールが null の場合はロール制限のない項目のみ表示する", () => {
-    expect(hrefsFor(null)).toEqual(["/", "/new"]);
+    expect(hrefsFor(null)).toEqual(["/matters", "/new"]);
+  });
+
+  it("すべてのナビ項目にハブ用の説明文がある", () => {
+    const items = visibleNavItems("admin");
+    expect(items).toHaveLength(8);
+    for (const item of items) {
+      expect(item.description.length).toBeGreaterThan(0);
+    }
   });
 });
