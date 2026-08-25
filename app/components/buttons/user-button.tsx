@@ -1,16 +1,16 @@
 "use client";
 
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { useEffect, useState } from "react";
 import UserButtonMenu from "./user-buttonMenu";
 import { User } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
 import { ALLOWED_EMAIL_DOMAIN } from "@/app/utils/constants";
+import { useSupabase } from "@/app/components/providers/SupabaseProvider";
 
 const UserButton = () => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const supabase = createClientComponentClient();
+  const { supabase } = useSupabase();
   const router = useRouter();
 
   useEffect(() => {

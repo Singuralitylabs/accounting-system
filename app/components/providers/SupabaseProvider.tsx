@@ -17,7 +17,7 @@ export default function SupabaseProvider({
 }: {
   children: React.ReactNode;
 }): JSX.Element {
-  const [supabase] = useState(() => createClientComponentClient());
+  const [supabase] = useState(() => createClientComponentClient<Database>());
   const router = useRouter();
 
   useEffect(() => {

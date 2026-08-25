@@ -1,9 +1,7 @@
 "use server";
 
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
-import { cookies } from "next/headers";
-import { Database } from "../../lib/database.types";
 import { ExtraEntryInListType } from "../../types/types";
+import { createServerSupabase } from "./clients";
 
 // 一覧の行データを DB 書き込み用の形に変換する（INSERT / UPDATE 共通）
 // 種別ごとの項目の整合性（収入=請求額あり・決済方法なし / 支出=経費・決済方法あり、
@@ -30,7 +28,7 @@ const toDbRow = (entry: ExtraEntryInListType) => {
 
 // 経理追加収支一覧の取得（RLS により権限に応じた行のみ返る）
 export const getExtraEntryList = async () => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const { data: extraEntryList, error } = await supabase
     .from("extra_entries")
@@ -50,7 +48,7 @@ export const getExtraEntryList = async () => {
 export const bulkUpsertExtraEntry = async (
   extraEntries: ExtraEntryInListType[]
 ) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   // 新規作成用
   const newEntries = extraEntries.filter((ee) => ee.isNew && !ee.isRemoved);
