@@ -1,7 +1,7 @@
 "use client";
 
 import { Button, SimpleGrid, Table } from "@mantine/core";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MatterInfoWithUserNameType } from "../types/types";
 import { MatterCardDetailModalForAccounting } from "./modal/MatterCardDetailForAccounting";
 import { NotificationMessage } from "./modal/NotificationMessage";
@@ -16,18 +16,41 @@ import {
   useCheckCompleted,
   MatterWithProfileType,
 } from "../hooks/useMatterData";
+import {
+  compactMatterListFilters,
+  hasMatterListFilters,
+} from "../utils/matterListFilters";
 
 export const AccountingMatterList = ({
   initialData,
 }: {
   initialData?: MatterWithProfileType[];
 }) => {
+  const slackNotificationMutation = useSlackNotification();
+  const checkCompletedMutation = useCheckCompleted();
+  const [checkedMatterIdList, setCheckedMatterIdList] = useState<number[]>([]);
+  const [detailMatterInfo, setDetailMatterInfo] =
+    useState<MatterInfoWithUserNameType | null>(null);
+  const [detailOpened, setDetailOpened] = useState<boolean>(false);
+  const [notificationOpened, setNotificationOpened] = useState<boolean>(false);
+  const [switchDisplay, setSwitchDisplay] = useState(false);
+  const { width } = useViewportSize();
+  const [isMobileView, setIsMobileView] = useState(false);
+  const [filters, setFilters] = useState<Record<string, Set<string>>>({});
+  const compactedFilters = useMemo(
+    () => compactMatterListFilters(filters),
+    [filters],
+  );
+  const optionSourceRef = useRef<MatterInfoWithUserNameType[]>([]);
+
   // React Queryでデータを管理。
   // サーバー側で取得済みのデータを initialData としてキャッシュにシードし、
   // マウント直後の再フェッチ（同じ全件取得の二重実行）を防ぐ。
-  const { data: rawMatterList } = useAllMatterList(initialData);
-  const slackNotificationMutation = useSlackNotification();
-  const checkCompletedMutation = useCheckCompleted();
+  // フィルタ条件は queryKey に含め、変更時はサーバ側で絞り込んだ結果を取る。
+  const { data: rawMatterList } = useAllMatterList(
+    initialData,
+    compactedFilters,
+  );
 
   // rawMatterListをMatterInfoWithUserNameType[]に変換。
   // 取得前・取得失敗時も常に配列を返し、子コンポーネントへの
@@ -44,15 +67,12 @@ export const AccountingMatterList = ({
       };
     });
   }, [rawMatterList]);
-  const [checkedMatterIdList, setCheckedMatterIdList] = useState<number[]>([]);
-  const [detailMatterInfo, setDetailMatterInfo] =
-    useState<MatterInfoWithUserNameType | null>(null);
-  const [detailOpened, setDetailOpened] = useState<boolean>(false);
-  const [notificationOpened, setNotificationOpened] = useState<boolean>(false);
-  const [switchDisplay, setSwitchDisplay] = useState(false);
-  const { width } = useViewportSize();
-  const [isMobileView, setIsMobileView] = useState(false);
-  const [filters, setFilters] = useState<Record<string, Set<string>>>({});
+
+  if (!hasMatterListFilters(compactedFilters)) {
+    optionSourceRef.current = matterList;
+  }
+  const headerMatterList =
+    optionSourceRef.current.length > 0 ? optionSourceRef.current : matterList;
 
   const MD_BREAKPOINT = 768;
 
@@ -80,7 +100,7 @@ export const AccountingMatterList = ({
   );
 
   const handleCheckCompleted = useCallback(async () => {
-    const checkedMatterList = matterList?.filter(
+    const checkedMatterList = headerMatterList.filter(
       (matter: MatterInfoWithUserNameType) =>
         checkedMatterIdList.includes(matter.id),
     );
@@ -94,7 +114,7 @@ export const AccountingMatterList = ({
         alert("確認完了に失敗しました。");
       }
     }
-  }, [matterList, checkedMatterIdList, checkCompletedMutation]);
+  }, [headerMatterList, checkedMatterIdList, checkCompletedMutation]);
 
   const handleSendMessage = useCallback(
     async (message: string) => {
@@ -108,10 +128,10 @@ export const AccountingMatterList = ({
       }
 
       // チェックされた案件を取得
-      const checkedMatters =
-        matterList?.filter((matter: MatterInfoWithUserNameType) =>
+      const checkedMatters = headerMatterList.filter(
+        (matter: MatterInfoWithUserNameType) =>
           checkedMatterIdList.includes(matter.id),
-        ) || [];
+      );
 
       try {
         const { failedTitles, dbUpdateFailed } =
@@ -139,19 +159,7 @@ export const AccountingMatterList = ({
         alert("Slack通知に失敗しました。");
       }
     },
-    [checkedMatterIdList, matterList, slackNotificationMutation],
-  );
-
-  const filteredMatterList = useMemo(
-    () =>
-      matterList?.filter((matter: MatterInfoWithUserNameType) => {
-        return Object.entries(filters).every(([key, values]) => {
-          if (values.size === 0) return true;
-          const value = matter[key as keyof MatterInfoWithUserNameType];
-          return value && values.has(value.toString());
-        });
-      }),
-    [matterList, filters],
+    [checkedMatterIdList, headerMatterList, slackNotificationMutation],
   );
 
   return (
@@ -181,7 +189,7 @@ export const AccountingMatterList = ({
         {isMobileView || switchDisplay ? (
           <div className="py-4 px-8">
             <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
-              {matterList?.map((matter: MatterInfoWithUserNameType) => (
+              {matterList.map((matter: MatterInfoWithUserNameType) => (
                 <MatterCardForAccounting
                   key={matter.id}
                   matter={matter}
@@ -197,14 +205,14 @@ export const AccountingMatterList = ({
             <Table.Thead className="bg-white">
               {
                 <AccountingTableHeader
-                  matterList={matterList}
+                  matterList={headerMatterList}
                   filters={filters}
                   setFilters={setFilters}
                 />
               }
             </Table.Thead>
             <Table.Tbody>
-              {filteredMatterList?.map((matter: MatterInfoWithUserNameType) => (
+              {matterList.map((matter: MatterInfoWithUserNameType) => (
                 <AccountingTablebody
                   key={matter.id}
                   matter={matter}
