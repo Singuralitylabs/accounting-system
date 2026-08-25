@@ -1,5 +1,13 @@
 import { BusinessType, CostType, MatterType } from "@/app/types/types";
 import {
+  calcMatterTotalsForCreate,
+  sumBusinessAmounts,
+} from "@/app/utils/matterCalc";
+import {
+  MATTER_VALIDATION_ALERTS,
+  validateMatterPayload,
+} from "@/app/utils/matterValidation";
+import {
   insertBusinessInfo,
   insertCostInfo,
   insertMatterInfo,
@@ -10,12 +18,9 @@ const insertMatter = async (
   businessList: BusinessType[],
   costList: CostType[]
 ) => {
-  matterInfo.total_amount = businessList.reduce((acc, business) => {
-    return business.amount ? acc + business.amount : acc;
-  }, 0);
-  matterInfo.total_cost = costList.reduce((acc, cost) => {
-    return cost.price ? acc + cost.price : acc;
-  }, 0);
+  const totals = calcMatterTotalsForCreate(businessList, costList);
+  matterInfo.total_amount = totals.total_amount;
+  matterInfo.total_cost = totals.total_cost;
 
   const { newId, error: matterError } = await insertMatterInfo(
     matterInfo.title,
@@ -84,56 +89,17 @@ const addMatterInfo = async (
     }
   }
 
-  if (
-    !matterInfo.title ||
-    !matterInfo.category ||
-    !matterInfo.team ||
-    !matterInfo.start_date
-  ) {
-    alert(
-      `案件名、分類、チーム、案件開始日のいずれかが空欄のため、案件の作成を中止しました。`
-    );
+  const validation = validateMatterPayload(
+    matterInfo,
+    businessList,
+    costList
+  );
+  if (!validation.ok) {
+    alert(MATTER_VALIDATION_ALERTS[validation.reason]("作成"));
     return false;
   }
 
-  for (const business of businessList) {
-    if (
-      !business.name ||
-      business.amount === null ||
-      !business.invoice_date ||
-      !business.period_date
-    ) {
-      alert(`取引先情報に空欄があるため、案件の作成を中止しました。`);
-      return false;
-    }
-    const invoice_date = new Date(business.invoice_date);
-    const period_date = new Date(business.period_date);
-    if (invoice_date.getTime() > period_date.getTime()) {
-      alert(
-        `取引先情報の請求日が振込期限より後になっています。\n案件の作成を中止しました。`
-      );
-      return false;
-    }
-  }
-  for (const cost of costList) {
-    if (
-      !cost.name ||
-      !cost.item ||
-      !cost.payment_target ||
-      cost.price === null ||
-      !cost.period ||
-      !cost.certificate
-    ) {
-      alert(`コスト情報に空欄があるため、案件の作成を中止しました。`);
-      return false;
-    }
-  }
-
-  const totalCompensation = businessList.reduce(
-    (sum, business) => sum + (business.amount || 0),
-    0
-  );
-  if (totalCompensation === 0) {
+  if (sumBusinessAmounts(businessList) === 0) {
     const checkCreated = window.confirm(
       "取引先情報の報酬額の合計が0円です。このまま作成して良いでしょうか？"
     );

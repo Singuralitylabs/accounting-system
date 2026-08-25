@@ -3,6 +3,11 @@ import {
   CostInCardType,
   MatterType,
 } from "../../types/types";
+import { calcMatterTotalsForEdit } from "../matterCalc";
+import {
+  MATTER_VALIDATION_ALERTS,
+  validateMatterPayload,
+} from "../matterValidation";
 import {
   bulkUpsertBusinessInfo,
   bulkUpsertCostInfo,
@@ -14,23 +19,12 @@ export const updateMatter = async (
   businessInfoList: BusinessInCardType[],
   costInfoList: CostInCardType[]
 ) => {
-  matterInfo.total_amount = businessInfoList.reduce((acc, business) => {
-    return business.amount && !business.isRemoved ? acc + business.amount : acc;
-  }, 0);
-
-  matterInfo.business_count = businessInfoList.filter(
-    (business) => !business.isRemoved
-  ).length;
-
-  matterInfo.total_cost = costInfoList.reduce((acc, cost) => {
-    return cost.price && !cost.isRemoved ? acc + cost.price : acc;
-  }, 0);
-
-  matterInfo.cost_count = costInfoList.filter((cost) => !cost.isRemoved).length;
-
-  matterInfo.unchecked_cost_count = costInfoList.filter(
-    (cost) => !cost.isRemoved && (!cost.is_completed || cost.isNew)
-  ).length;
+  const totals = calcMatterTotalsForEdit(businessInfoList, costInfoList);
+  matterInfo.total_amount = totals.total_amount;
+  matterInfo.business_count = totals.business_count;
+  matterInfo.total_cost = totals.total_cost;
+  matterInfo.cost_count = totals.cost_count;
+  matterInfo.unchecked_cost_count = totals.unchecked_cost_count;
 
   // まず matter 情報を更新
   await updateMatterInfo(matterInfo);
@@ -43,6 +37,8 @@ export const updateMatter = async (
   return true;
 };
 
+// 現行の更新 UI は useMatterData → updateMatter を直接呼ぶため、この default
+// はどこからも import されない（バリデーションも実行されない）。配線は Phase 6 以降。
 const editMatterInfo = async (
   matterInfo: MatterType,
   businessInfoList: BusinessInCardType[],
@@ -66,51 +62,15 @@ const editMatterInfo = async (
     return false;
   }
 
-  if (
-    !matterInfo.title ||
-    !matterInfo.category ||
-    !matterInfo.team ||
-    !matterInfo.start_date
-  ) {
-    alert(
-      `案件名、分類、チーム、案件開始日のいずれかが空欄のため、案件の更新を中止しました。`
-    );
+  const validation = validateMatterPayload(
+    matterInfo,
+    businessInfoList,
+    costInfoList,
+    { skipRemoved: true }
+  );
+  if (!validation.ok) {
+    alert(MATTER_VALIDATION_ALERTS[validation.reason]("更新"));
     return false;
-  }
-
-  for (const business of businessInfoList) {
-    if (business.isRemoved) continue;
-    if (
-      !business.name ||
-      business.amount === null ||
-      !business.invoice_date ||
-      !business.period_date
-    ) {
-      alert(`取引先情報に空欄があるため、案件の更新を中止しました。`);
-      return false;
-    }
-    const invoice_date = new Date(business.invoice_date);
-    const period_date = new Date(business.period_date);
-    if (invoice_date.getTime() > period_date.getTime()) {
-      alert(
-        `取引先情報の請求日が振込期限より後になっています。\n案件の更新を中止しました。`
-      );
-      return false;
-    }
-  }
-  for (const cost of costInfoList) {
-    if (cost.isRemoved) continue;
-    if (
-      !cost.name ||
-      !cost.item ||
-      !cost.payment_target ||
-      cost.price === null ||
-      !cost.period ||
-      !cost.certificate
-    ) {
-      alert(`コスト情報に空欄があるため、案件の更新を中止しました。`);
-      return false;
-    }
   }
 
   try {
