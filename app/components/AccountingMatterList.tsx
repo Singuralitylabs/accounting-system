@@ -6,7 +6,7 @@ import { MatterInfoWithUserNameType } from "../types/types";
 import { MatterCardDetailModalForAccounting } from "./modal/MatterCardDetailForAccounting";
 import { NotificationMessage } from "./modal/NotificationMessage";
 import DisplayMenu from "./buttons/display-menu";
-import { MatterCardForAccounting } from "./MatterCardForAccounting";
+import { MatterCard } from "./MatterCard";
 import { useViewportSize } from "@mantine/hooks";
 import AccountingTableHeader from "./AccountingTableHeader";
 import AccountingTablebody from "./AccountingTablebody";
@@ -182,8 +182,9 @@ export const AccountingMatterList = ({
           <div className="py-4 px-8">
             <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
               {matterList?.map((matter: MatterInfoWithUserNameType) => (
-                <MatterCardForAccounting
+                <MatterCard
                   key={matter.id}
+                  variant="accounting"
                   matter={matter}
                   isChecked={checkedMatterIdList.includes(matter.id)}
                   onOpen={handleShowMatterInfo}
