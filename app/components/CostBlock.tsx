@@ -1,25 +1,41 @@
-import { Checkbox, NumberInput, Select, TextInput } from "@mantine/core";
+import {
+  Card,
+  Checkbox,
+  Group,
+  NumberInput,
+  Select,
+  Stack,
+  TextInput,
+} from "@mantine/core";
 import { FaRegTrashAlt } from "react-icons/fa";
-import { CostType } from "../types/types";
+import { CostInCardType, CostType } from "../types/types";
+import { formatCurrency, formatDateToJp } from "../utils/formatter";
 import { CustomDatePicker } from "./CustomDatePicker";
+import LabelText from "./LabelText";
 
-type Props = {
-  costInfo: CostType & {
-    isNew?: boolean;
-    isRemoved?: boolean;
-  };
+type UserCostBlockProps = {
+  variant: "user";
+  costInfo: CostInCardType;
   itemList: string[];
   certificateList: string[];
   formType: string;
   isFixed?: boolean;
   index: number;
   onRemoveCost: (id: number) => void;
-  onCostUpdate: (
-    updatedCost: CostType & { isNew?: boolean; isRemoved?: boolean },
-  ) => void;
+  onCostUpdate: (updatedCost: CostInCardType) => void;
 };
 
-const CostBlock = ({
+type AccountingCostBlockProps = {
+  variant: "accounting";
+  cost: CostType;
+  costList: CostType[];
+  setCostList: React.Dispatch<React.SetStateAction<CostType[]>>;
+  isCompleted: boolean;
+};
+
+export type CostBlockProps = UserCostBlockProps | AccountingCostBlockProps;
+
+const UserCostBlock = ({
   costInfo,
   itemList,
   certificateList,
@@ -28,7 +44,7 @@ const CostBlock = ({
   index,
   onRemoveCost,
   onCostUpdate,
-}: Props) => {
+}: UserCostBlockProps) => {
   const handleUpdate = (updates: Partial<CostType>) => {
     onCostUpdate({ ...costInfo, ...updates });
   };
@@ -52,6 +68,8 @@ const CostBlock = ({
           <div>コスト{index + 1}</div>
           <div className="flex gap-2">
             <button
+              type="button"
+              aria-label="コストを削除"
               className="h-full mx-4 text-lg hover:cursor-pointer w-4 ml-auto items-center justify-center hover:text-blue-500"
               onClick={() => onRemoveCost(costInfo.id)}
             >
@@ -140,6 +158,8 @@ const CostBlock = ({
       <div className="hidden lg:flex lg:self-end pb-2">
         {!isItemDisabled && (
           <button
+            type="button"
+            aria-label="コストを削除"
             className="text-lg hover:cursor-pointer w-4 ml-2 flex items-end justify-center hover:text-blue-500 h-[38px]"
             onClick={() => onRemoveCost(costInfo.id)}
           >
@@ -149,6 +169,89 @@ const CostBlock = ({
       </div>
     </div>
   );
+};
+
+const AccountingCostBlock = ({
+  cost,
+  costList,
+  setCostList,
+  isCompleted,
+}: AccountingCostBlockProps) => {
+  return (
+    <Card
+      key={cost.id}
+      className="mb-4 relative"
+      withBorder
+      radius="sm"
+      padding="sm"
+      aria-label="コスト"
+      bg="gray.0"
+    >
+      <div className="flex gap-2 items-center absolute top-2 right-2">
+        <Checkbox
+          aria-label="支払い済み"
+          checked={cost.is_completed}
+          disabled={isCompleted!}
+          onChange={(event) =>
+            setCostList(
+              costList.map((costInfo) => {
+                return costInfo.id === cost.id
+                  ? {
+                      ...cost,
+                      is_completed: event.currentTarget.checked,
+                    }
+                  : costInfo;
+              }),
+            )
+          }
+        />
+        <span>支払い完了</span>
+      </div>
+
+      <div className="flex-grow pt-8">
+        <div className="flex pb-2">
+          <Group gap="sm" className="flex-grow w-full">
+            <Stack gap="xs" className="flex-grow">
+              <LabelText label="コスト名">{cost.name}</LabelText>
+            </Stack>
+            <Stack gap="xs" className="flex-grow">
+              <LabelText label="品目">{cost.item}</LabelText>
+            </Stack>
+            <Stack gap="xs" className="flex-grow">
+              <LabelText label="価格">{formatCurrency(cost.price)}</LabelText>
+            </Stack>
+          </Group>
+        </div>
+        <div className="items-center pb-2">
+          <Group gap="sm" className="flex-grow">
+            <Stack gap="xs" className="flex-grow">
+              <LabelText label="支払い期限">
+                {formatDateToJp(cost.period)}
+              </LabelText>
+            </Stack>
+            <Stack gap="xs" className="flex-grow">
+              <LabelText label="支払い先">{cost.payment_target}</LabelText>
+            </Stack>
+            <Stack gap="xs" className="flex-grow">
+              <LabelText label="申請方法">{cost.certificate}</LabelText>
+            </Stack>
+            <Stack gap="xs" className="flex-grow">
+              <LabelText label="源泉徴収">
+                {cost.withholding ? "あり" : "なし"}
+              </LabelText>
+            </Stack>
+          </Group>
+        </div>
+      </div>
+    </Card>
+  );
+};
+
+const CostBlock = (props: CostBlockProps) => {
+  if (props.variant === "accounting") {
+    return <AccountingCostBlock {...props} />;
+  }
+  return <UserCostBlock {...props} />;
 };
 
 export default CostBlock;

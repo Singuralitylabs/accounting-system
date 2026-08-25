@@ -315,6 +315,7 @@ export const MatterCardDetailModal = ({
             !costInfo.isRemoved && (
               <CostBlock
                 key={costInfo.id}
+                variant="user"
                 costInfo={costInfo}
                 itemList={itemList}
                 certificateList={certificateList}

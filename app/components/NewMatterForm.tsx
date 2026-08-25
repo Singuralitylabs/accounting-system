@@ -203,6 +203,7 @@ const NewMatterForm = () => {
       {costList.map((costInfo, index) => (
         <CostBlock
           key={costInfo.id}
+          variant="user"
           costInfo={costInfo}
           itemList={itemList}
           certificateList={certificateList}

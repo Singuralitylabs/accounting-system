@@ -52,7 +52,7 @@ Unit Tests (多数・最優先で導入)
 
 - **狙い**: 変更頻度が高く壊れやすい領域は Unit/静的検査で早期に検知し、E2E は本数を絞って「破綻していないこと」を確認する。
 - **優先度の決め方**: 変更頻度・影響範囲・障害時コストの観点で、認可・ドメイン制限、案件ステータス遷移、金額集計（損益計算書を含む）、ビルド成立性を優先する。
-- **本プロジェクト固有の前提**: services 層が存在せず、ビジネスロジックは `app/utils/` 配下（特に `app/utils/supabase/`）に集約されている。ユニットテストの対象はこの配下の**純粋ロジック**に絞り、UI コンポーネント・Supabase クエリの薄いラッパーは対象外とする。
+- **本プロジェクト固有の前提**: services 層が存在せず、ビジネスロジックは `app/utils/` 配下（特に `app/utils/supabase/`）に集約されている。ユニットテストの対象はこの配下の**純粋ロジック**に絞り、Supabase クエリの薄いラッパーは対象外とする。UI コンポーネントも原則対象外だが、**Phase 5 の権限別統合コンポーネント**は variant ごとの主要素（出る / 出ない）を Testing Library で固定する。
 
 ### 2.2 実行タイミング（PR / リリース前）
 
@@ -271,7 +271,7 @@ CI/CD の実行基盤には GitHub Actions を利用する（origin = GitHub。g
 
 テスト基盤の導入時に、以下の追加が必要となる（本書の時点では未実施）。
 
-- **devDependencies**: `vitest`、`prettier`（`.prettierrc` は設定済みだが本体は未導入。必要に応じて `jsdom`、`@vitest/coverage-v8` も追加）
+- **devDependencies**: `vitest`、`prettier`、`jsdom`、`@testing-library/react`、`@testing-library/jest-dom`、`@testing-library/dom`、`@vitejs/plugin-react`（コンポーネントテスト用。セットアップは `tests/setup.ts`）
 - **package.json scripts**:
 
   | スクリプト     | 内容                 |
@@ -282,7 +282,7 @@ CI/CD の実行基盤には GitHub Actions を利用する（origin = GitHub。g
   | `format`       | `prettier --write .` |
   | `format:check` | `prettier --check .` |
 
-- **設定ファイル**: `vitest.config.ts`（パスエイリアス `@/*` の解決、デフォルト環境 `node`）
+- **設定ファイル**: `vitest.config.ts`（パスエイリアス `@/*` の解決、デフォルト環境 `node`、JSX 用に `@vitejs/plugin-react`。コンポーネントテストは `// @vitest-environment jsdom`）
 - **デバッグ出力検査**: `console.log` / `console.info` / `debugger` を検知するスクリプトまたは ESLint ルール（`no-console`（`allow: ["error", "warn"]`）+ `no-debugger`）。既存の `.eslintrc.json` への追加で実現できる場合は専用スクリプトを作らない。
 
 ### 4.5 Supabase DB Types チェックの前提設定
@@ -301,11 +301,14 @@ DB Types 整合性チェックのワークフローを実行するために、Gi
 - ディレクトリ構成は、対象コード（`app/` 配下）の構造に寄せて配置する。
   - 例: `app/utils/permissions.ts` → `tests/utils/permissions.test.ts`
   - 例: `app/utils/supabase/editMatterInfo.ts` → `tests/utils/supabase/editMatterInfo.test.ts`
+  - 例: `app/components/CostBlock.tsx` → `tests/components/CostBlock.test.tsx`
 
 ### ファイル名の命名
 
-- Vitest は `*.test.ts` / `*.spec.ts` をテストとして実行できるが、本プロジェクトでは `*.test.ts` に統一する。
+- Vitest は `*.test.ts` / `*.spec.ts` をテストとして実行できるが、本プロジェクトでは純粋関数は `*.test.ts`、JSX を含むコンポーネントテストは `*.test.tsx` に統一する（`*.spec.ts` は使わない）。
 - テストファイル名は「対象 + 期待する振る舞い」が想像できる名前にする。
+- コンポーネントテストはファイル先頭に `// @vitest-environment jsdom` を付ける。デフォルト環境は `node` のままにする。
+- 描画は `tests/testUtils/renderWithMantine.tsx`（`MantineProvider` + `DatesLocaleProvider`）経由で行う。
 
 ### テストの検証対象
 
@@ -330,7 +333,8 @@ DB Types 整合性チェックのワークフローを実行するために、Gi
 | 8   | 一括完了のステータス遷移チェック                                                        | `app/utils/supabase/checkMatterInfoList.ts`                                                        | 下書き（`is_fixed=false`）の完了スキップ / `unchecked_cost_count > 0` の確認分岐                                                                                                                                                  | 中       | `confirm` 分離リファクタ                                                                                                                                                                                                               | 2        |
 | 9   | bulkUpsert の操作分岐・日付フォーマット                                                 | `app/utils/supabase/costs.ts` / `businesses.ts`（`bulkUpsertCostInfo` / `bulkUpsertBusinessInfo`） | `isNew` / `isRemoved` の組による INSERT / UPDATE / DELETE 振り分け / `toISOString` 由来の JST 月ズレ回帰                                                                                                                          | 高       | 分岐・フォーマット部の純粋関数抽出（`"use server"` + Supabase 密結合のため）                                                                                                                                                           | 2〜3     |
 | 10  | Slack 通知のメッセージ組み立て                                                          | `app/utils/slack/sendMessageToSlack.ts`、`app/actions/slack/`                                      | `slackId` 有無によるメンション切替 / metadata の null-safe 処理 / 送信失敗時のエラーハンドリング                                                                                                                                  | 中       | `fetch` / `notifications.show` の分離またはモック                                                                                                                                                                                      | 3        |
-| ―   | 薄い CRUD ラッパー（`getAllMatterInfoList` 等）/ `deleteMatter` / UI コンポーネント     | 各所                                                                                               | ―                                                                                                                                                                                                                                 | 低       | テスト不要（[2.5](#25-ユニットテストの要否判断) の基準）                                                                                                                                                                               | ―        |
+| 11  | 権限別統合コンポーネント `CostBlock` ✅実装済（`tests/components/CostBlock.test.tsx`）  | `app/components/CostBlock.tsx`                                                                     | `variant="user"` で入力・削除が出て支払い完了が出ない / `variant="accounting"` で支払い完了と閲覧表示が出て入力・削除が出ない / `isFixed`・`isCompleted` による無効化                                                             | 高       | Testing Library + jsdom（Phase 5-a で導入）                                                                                                                                                                                            | 5        |
+| ―   | 薄い CRUD ラッパー（`getAllMatterInfoList` 等）/ `deleteMatter` / その他 UI             | 各所                                                                                               | ―                                                                                                                                                                                                                                 | 低       | テスト不要（[2.5](#25-ユニットテストの要否判断) の基準）。Phase 5 統合コンポーネントは例外                                                                                                                                             | ―        |
 
 ### テスト着手前のリファクタリング前提タスク
 
