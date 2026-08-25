@@ -90,6 +90,58 @@ export const deleteBusinessInfo = async (id: number) => {
   }
 };
 
+export const bulkInsertBusinessInfo = async (
+  businesses: Array<{
+    name: string;
+    amount: number;
+    invoice_date: string;
+    period_date: string;
+  }>,
+  matterId: number
+) => {
+  if (businesses.length === 0) {
+    return { error: null };
+  }
+
+  const supabase = createServerSupabase();
+
+  const { error } = await supabase.from("business").insert(
+    businesses.map((business) => ({
+      name: business.name,
+      amount: business.amount,
+      invoice_date: business.invoice_date,
+      period_date: business.period_date,
+      matter_id: matterId,
+    }))
+  );
+
+  if (error) {
+    console.error("取引先情報の一括追加処理で失敗しました。", error);
+    return { error };
+  }
+
+  return { error: null };
+};
+
+export const deleteBusinessesByMatterId = async (matterId: number) => {
+  const supabase = createServerSupabase();
+
+  const { error } = await supabase
+    .from("business")
+    .delete()
+    .eq("matter_id", matterId);
+
+  if (error) {
+    console.error(
+      `案件ID : ${matterId}の取引先情報の一括削除処理で失敗しました。`,
+      error
+    );
+    return { error };
+  }
+
+  return { error: null };
+};
+
 export const bulkUpsertBusinessInfo = async (
   businesses: Array<{
     id?: number;
