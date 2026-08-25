@@ -3,10 +3,7 @@
 import { Button, LoadingOverlay, Table, Title } from "@mantine/core";
 import { SelectOptionType } from "../types/types";
 import { useState } from "react";
-import {
-  insertSelectOption,
-  updateSelectOption,
-} from "../utils/supabase/selectOptions";
+import { bulkUpsertSelectOptions } from "../utils/supabase/selectOptions";
 import { notifyError, notifySuccess } from "../utils/notify";
 import { confirmAction } from "../utils/confirmAction";
 import {
@@ -124,23 +121,7 @@ const SelectOptionList = ({
       );
       if (!confirmed) return;
 
-      for (const option of updatedOptionList) {
-        if (option.isNew && !option.is_active) continue;
-        if (option.isNew) {
-          await insertSelectOption(
-            optionClass,
-            option.value,
-            option.display_order || updatedOptionList.length,
-          );
-        } else {
-          await updateSelectOption(
-            option.id,
-            option.value,
-            option.display_order || updatedOptionList.length,
-            option.is_active!,
-          );
-        }
-      }
+      await bulkUpsertSelectOptions(optionClass, updatedOptionList);
       notifySuccess(`${optionTitle}情報を更新しました。`);
     } catch (error) {
       console.error(`${optionTitle}情報の保存に失敗しました。`, error);
