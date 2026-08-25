@@ -2,22 +2,22 @@
 
 import { SimpleGrid, Table } from "@mantine/core";
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { MatterType } from "../types/types";
-import { MatterCard } from "./MatterCard";
-import { useDeleteMatter, useUserMatterList } from "../hooks/useMatterData";
-import TableInfo from "./TableInfo";
-import ThreedotsMenu from "./buttons/threedots-menu";
-import { useViewportSize } from "@mantine/hooks";
-import DisplayMenu from "./buttons/display-menu";
+import { useCallback, useMemo, useState } from "react";
+import { MatterType } from "../../types/types";
+import { MatterCard } from "../MatterCard";
+import { useDeleteMatter, useUserMatterList } from "../../hooks/useMatterData";
+import { useListDisplayMode } from "../../hooks/useListDisplayMode";
+import TableInfo from "../TableInfo";
+import ThreedotsMenu from "../buttons/threedots-menu";
+import DisplayMenu from "../buttons/display-menu";
 import { useAtomValue } from "jotai";
-import { optionsAtom } from "../atoms/optionsAtom";
+import { optionsAtom } from "../../atoms/optionsAtom";
 
 // 案件詳細モーダルはフォーム一式（日付ピッカー等）を含み重いため、
 // 初期バンドルから外して開くときに読み込む
 const MatterCardDetailModal = dynamic(
   () =>
-    import("./modal/MatterCardDetail").then(
+    import("../modal/MatterCardDetail").then(
       (module) => module.MatterCardDetailModal,
     ),
   { ssr: false },
@@ -34,7 +34,7 @@ const itemListInUserMatter = [
   "コスト数",
 ];
 
-export function MatterCardList({
+export function UserMatterList({
   initialData,
 }: {
   initialData?: MatterType[];
@@ -45,19 +45,12 @@ export function MatterCardList({
   const [opened, setOpened] = useState(false);
   const [matterInfo, setMatterInfo] = useState<MatterType | null>(null);
   const [isNew, setIsNew] = useState(false);
-  const [switchDisplay, setSwitchDisplay] = useState(true);
-  const { width } = useViewportSize();
-  const [isMobileView, setIsMobileView] = useState(false);
+  const { switchDisplay, setSwitchDisplay, showCards } =
+    useListDisplayMode(true);
   const deleteMatterMutation = useDeleteMatter();
 
   const { teamList, categoryList, itemList, certificateList } =
     useAtomValue(optionsAtom);
-
-  const MD_BREAKPOINT = 768;
-
-  useEffect(() => {
-    setIsMobileView(width < MD_BREAKPOINT);
-  }, [width]);
 
   const handleModalClose = useCallback(() => {
     setOpened(false);
@@ -155,7 +148,7 @@ export function MatterCardList({
         switchDisplay={switchDisplay}
         onSwitchDisplay={setSwitchDisplay}
       />
-      {isMobileView || switchDisplay ? (
+      {showCards ? (
         <div className="py-4 px-8">
           <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
             {matterList?.map((matter) => (
