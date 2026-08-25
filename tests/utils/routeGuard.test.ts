@@ -97,8 +97,9 @@ describe("classifyPath（public / protected / restricted）", () => {
     expect(classifyPath("/auth-error")).toEqual({ kind: "open" });
   });
 
-  it("ログイン画面", () => {
+  it("/login 配下は保護ルートより auth_route を優先する（現行表に /login 制限は無い）", () => {
     expect(classifyPath("/login")).toEqual({ kind: "auth_route" });
+    expect(classifyPath("/login/reset")).toEqual({ kind: "auth_route" });
   });
 
   it("ロール制限なしのログイン必須", () => {

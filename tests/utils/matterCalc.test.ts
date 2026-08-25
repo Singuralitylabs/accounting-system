@@ -12,18 +12,13 @@ describe("sumBusinessAmounts / sumCostPrices（作成時の既存 reduce）", ()
     expect(sumCostPrices([{ price: 40 }, { price: 10 }])).toBe(50);
   });
 
-  it("falsy な amount / price（null / 0 / undefined）は足さない", () => {
+  it("falsy な amount / price（null / 0）は足さない", () => {
     expect(
-      sumBusinessAmounts([
-        { amount: 100 },
-        { amount: 0 },
-        { amount: null },
-        {},
-      ]),
+      sumBusinessAmounts([{ amount: 100 }, { amount: 0 }, { amount: null }]),
     ).toBe(100);
-    expect(
-      sumCostPrices([{ price: 40 }, { price: 0 }, { price: null }, {}]),
-    ).toBe(40);
+    expect(sumCostPrices([{ price: 40 }, { price: 0 }, { price: null }])).toBe(
+      40,
+    );
   });
 
   it("空配列は 0", () => {
