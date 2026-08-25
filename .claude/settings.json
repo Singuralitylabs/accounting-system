@@ -4,6 +4,11 @@
       "Bash(yarn lint)",
       "Bash(yarn dev)",
       "Bash(yarn build)",
+      "Bash(yarn typecheck)",
+      "Bash(yarn test)",
+      "Bash(yarn format)",
+      "Bash(yarn format:check)",
+      "Bash(yarn install:*)",
       "Bash(yarn db:types-local)",
       "Bash(npx tsc:*)",
       "Bash(supabase start:*)",
@@ -14,20 +19,112 @@
       "Bash(git diff:*)",
       "Bash(git log:*)",
       "Bash(git branch:*)",
+      "Bash(git show:*)",
+      "Bash(git fetch:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(git checkout:*)",
+      "Bash(git switch:*)",
+      "Bash(git merge:*)",
+      "Bash(git stash:*)",
+      "Bash(git restore:*)",
+      "Bash(git mv:*)",
+      "Bash(git rm:*)",
       "Bash(grep:*)",
       "Bash(find:*)",
       "Bash(ls:*)",
-      "mcp__ide__getDiagnostics"
+      "Bash(jq:*)",
+      "mcp__ide__getDiagnostics",
+      "mcp__github__get_me",
+      "mcp__github__issue_write",
+      "mcp__github__sub_issue_write",
+      "mcp__github__issue_read",
+      "mcp__github__list_issues",
+      "mcp__github__search_issues",
+      "mcp__github__create_pull_request",
+      "mcp__github__update_pull_request",
+      "mcp__github__update_pull_request_branch",
+      "mcp__github__pull_request_read",
+      "mcp__github__list_pull_requests",
+      "mcp__github__search_pull_requests",
+      "mcp__github__pull_request_review_write",
+      "mcp__github__add_comment_to_pending_review",
+      "mcp__github__add_reply_to_pull_request_comment",
+      "mcp__github__add_issue_comment",
+      "mcp__github__resolve_review_thread",
+      "mcp__github__unresolve_review_thread",
+      "mcp__github__request_copilot_review",
+      "mcp__github__subscribe_pr_activity",
+      "mcp__github__unsubscribe_pr_activity",
+      "mcp__github__actions_list",
+      "mcp__github__actions_get",
+      "mcp__github__get_job_logs",
+      "mcp__github__get_check_run",
+      "mcp__github__list_commits",
+      "mcp__github__get_commit",
+      "mcp__github__list_branches",
+      "mcp__github__get_file_contents",
+      "mcp__github__search_code"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git push --delete:*)",
+      "Bash(git push --mirror:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean -f:*)",
+      "Bash(git clean -d:*)",
+      "Bash(git branch -D:*)",
+      "Bash(git filter-branch:*)",
+      "Bash(git update-ref -d:*)",
+      "Bash(git reflog delete:*)",
+      "Bash(rm -rf /:*)",
+      "Bash(rm -fr /:*)",
+      "Bash(supabase db push:*)",
+      "Bash(supabase db reset --linked:*)",
+      "Bash(supabase link:*)",
+      "mcp__github__merge_pull_request",
+      "mcp__github__delete_file",
+      "mcp__github__create_repository",
+      "mcp__github__fork_repository",
+      "mcp__Supabase__apply_migration",
+      "mcp__Supabase__execute_sql",
+      "mcp__Supabase__delete_branch",
+      "mcp__Supabase__merge_branch",
+      "mcp__Supabase__reset_branch",
+      "mcp__Supabase__pause_project",
+      "mcp__Supabase__deploy_edge_function",
+      "mcp__supabase__apply_migration",
+      "mcp__supabase__execute_sql",
+      "mcp__supabase__delete_branch",
+      "mcp__supabase__merge_branch",
+      "mcp__supabase__reset_branch",
+      "mcp__supabase__pause_project",
+      "mcp__supabase__deploy_edge_function"
     ]
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CMD=$(jq -r '.tool_input.command // empty'); case \"$CMD\" in *\"git push\"*--force*|*\"git push\"*\" -f \"*|*\"git push\"*\" -f\"|*\"git push\"*--delete*|*\"git push\"*--mirror*|*\"git push\"*\" +\"*|*\"git push\"*\" :\"*|*\"git branch\"*\" -D\"*|*\"git branch\"*--force*|*\"git branch\"*\" -f \"*|*\"git branch\"*\" -f\"|*\"git switch\"*--force*|*\"git switch\"*--discard-changes*|*\"git switch\"*\" -f \"*|*\"git switch\"*\" -f\"|*\"git checkout\"*--force*|*\"git checkout\"*--discard-changes*|*\"git checkout\"*\" -f \"*|*\"git checkout\"*\" -f\"|*\"git checkout\"*\" -- .\"|*\"git checkout\"*\" .\"|*\"git restore\"*\"--staged\"*\"--worktree\"*|*\"git restore\"*\"--worktree\"*\"--staged\"*|*\"git stash\"*clear*|*\"git stash\"*drop*|*\"git reset\"*--hard*|*\"git clean\"*-*f*|*filter-branch*|*\"rm -rf /\"*|*\"rm -fr /\"*|*\"supabase db push\"*|*\"supabase link\"*) printf '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"履歴の書き換え・強制削除・作業ツリー全体の破棄・本番DBへの直接適用にあたるコマンドのため、このリポジトリではブロックされています（.claude/settings.json）。必要な場合はユーザー自身で実行してください。\"}}' ;; esac; exit 0"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "FILE=$(jq -r '.tool_input.file_path // empty'); if [[ -n \"$FILE\" && \"$FILE\" =~ \\.(ts|tsx)$ && -f \"$FILE\" ]]; then npx --no-install eslint \"$FILE\" 2>&1 | tail -40 || true; fi"
+            "command": "FILE=$(jq -r '.tool_input.file_path // empty'); DIR=\"${CLAUDE_PROJECT_DIR:-.}\"; case \"$FILE\" in *.ts|*.tsx) [ -f \"$FILE\" ] && [ -x \"$DIR/node_modules/.bin/eslint\" ] && \"$DIR/node_modules/.bin/eslint\" \"$FILE\" 2>&1 | tail -40 ;; esac; exit 0"
           }
         ]
       }

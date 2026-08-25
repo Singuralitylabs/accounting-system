@@ -29,7 +29,9 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 
 ## 作業ルール
 
-- **ファイルを修正したら、コミットする前に必ずユーザーに確認を取る**。確認なしで `git commit` / `git push` を実行しない。
+- 作業ブランチへの commit / push は確認不要。ただし **push 前に `yarn typecheck && yarn lint && yarn test && yarn build && yarn format:check` をローカルで通すこと**。
+- `main` へ直接 push しない。変更は作業ブランチ＋PR を経由する。
+- PR のマージはユーザーが判断する。CI green ＋レビュー完了までが担当範囲。
 
 ## アーキテクチャ
 
