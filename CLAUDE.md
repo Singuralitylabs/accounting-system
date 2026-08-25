@@ -29,13 +29,9 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 
 ## 作業ルール
 
-- 作業ブランチへの `git add` / `git commit` / `git push` は確認なしで実行してよい。ただし **push 前にローカルで CI 相当の検証（`yarn typecheck && yarn lint && yarn test && yarn build && yarn format:check`）を通すこと**。
-- **`main` へ直接コミット・push しない**。変更は必ず作業ブランチ＋PR を経由する。
-- 以下は `.claude/settings.json` の `deny` と PreToolUse フックでブロックしている。必要な場合はユーザーに依頼する。
-  - 履歴の書き換え・強制系: `git push --force` / `-f` / `--force-with-lease` / `--delete` / `--mirror`、`git reset --hard`、`git clean -f`、`git branch -D`、`git filter-branch`
-  - 本番 DB への直接適用: `supabase db push` / `supabase link`、Supabase MCP の `apply_migration` / `execute_sql` / `deploy_edge_function`
-  - PR のマージ（`merge_pull_request`）、GitHub 上のファイル直接操作（`delete_file` など）
-- PR のマージはユーザーが判断する。CI が green かつレビュー完了の状態にするところまでが担当範囲。
+- 作業ブランチへの commit / push は確認不要。ただし **push 前に `yarn typecheck && yarn lint && yarn test && yarn build && yarn format:check` をローカルで通すこと**。
+- `main` へ直接 push しない。変更は作業ブランチ＋PR を経由する。
+- PR のマージはユーザーが判断する。CI green ＋レビュー完了までが担当範囲。
 
 ## アーキテクチャ
 
