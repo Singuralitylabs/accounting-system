@@ -62,12 +62,12 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 
 ロールは `profiles.class` カラムに格納：`public` / `teamleader` / `accounting` / `admin`。
 
-| パス          | 要件                        |
-| ------------- | --------------------------- |
-| `/`, `/new`   | ログイン必須                |
-| `/team`       | `teamleader` または `admin` |
-| `/accounting` | `accounting` または `admin` |
-| `/dashboard`  | `admin` のみ                |
+| パス                    | 要件                        |
+| ----------------------- | --------------------------- |
+| `/`, `/new`, `/matters` | ログイン必須                |
+| `/team`                 | `teamleader` または `admin` |
+| `/accounting`           | `accounting` または `admin` |
+| `/dashboard`            | `admin` のみ                |
 
 - middleware は `getUser()`（Supabase Auth サーバでアクセストークンの署名・有効性を検証する）で認証を確認する。`getSession()` はローカル Cookie の値をそのまま返すだけで署名検証を行わないため、認証の可否判定には使わない（偽造 Cookie による認証バイパスを防ぐ）。
 - 制限ルートのロールは、`getUser()` で検証済みの同一アクセストークンから読む JWT の `user_class` クレームを使う（`profiles` への DB クエリを排除）。`user_class` は Custom Access Token Hook（`public.custom_access_token_hook`、`docs/database.md` 参照）が付与する。クレームは同じ検証済みトークンの一部であるため、改ざんされていればトークンの署名検証自体が失敗し `getUser()` がエラーになる。
