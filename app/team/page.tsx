@@ -1,7 +1,7 @@
 import React from "react";
 import { getTeamMatterInfoList } from "../utils/supabase/matters";
 import { getProfileInfo } from "../utils/supabase/profiles";
-import TeamMatterList from "../components/team/TeamMatterList";
+import { MatterList } from "../components/MatterList";
 
 const Team = async () => {
   const matterList = await getTeamMatterInfoList();
@@ -12,7 +12,7 @@ const Team = async () => {
   return (
     <div className="p-4">
       <h1 className="text-2xl font-bold mb-4">{teamName}チーム案件一覧</h1>
-      <TeamMatterList matterList={matterList || []} />
+      <MatterList variant="readonly" matterList={matterList || []} />
     </div>
   );
 };

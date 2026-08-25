@@ -1,25 +1,25 @@
 "use client";
 
 import { Button, SimpleGrid, Table } from "@mantine/core";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MatterInfoWithUserNameType } from "../types/types";
-import { MatterCardDetailModalForAccounting } from "./modal/MatterCardDetailForAccounting";
-import { NotificationMessage } from "./modal/NotificationMessage";
-import DisplayMenu from "./buttons/display-menu";
-import { MatterCard } from "./MatterCard";
-import { useViewportSize } from "@mantine/hooks";
-import AccountingTableHeader from "./AccountingTableHeader";
-import AccountingTablebody from "./AccountingTablebody";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { MatterInfoWithUserNameType } from "../../types/types";
+import { MatterCardDetailModalForAccounting } from "../modal/MatterCardDetailForAccounting";
+import { NotificationMessage } from "../modal/NotificationMessage";
+import DisplayMenu from "../buttons/display-menu";
+import { MatterCard } from "../MatterCard";
+import { useListDisplayMode } from "../../hooks/useListDisplayMode";
+import AccountingTableHeader from "../AccountingTableHeader";
+import AccountingTablebody from "../AccountingTablebody";
 import {
   useAllMatterList,
   useSlackNotification,
   useCheckCompleted,
   MatterWithProfileType,
-} from "../hooks/useMatterData";
+} from "../../hooks/useMatterData";
 import {
   compactMatterListFilters,
   hasMatterListFilters,
-} from "../utils/matterListFilters";
+} from "../../utils/matterListFilters";
 
 export const AccountingMatterList = ({
   initialData,
@@ -33,9 +33,8 @@ export const AccountingMatterList = ({
     useState<MatterInfoWithUserNameType | null>(null);
   const [detailOpened, setDetailOpened] = useState<boolean>(false);
   const [notificationOpened, setNotificationOpened] = useState<boolean>(false);
-  const [switchDisplay, setSwitchDisplay] = useState(false);
-  const { width } = useViewportSize();
-  const [isMobileView, setIsMobileView] = useState(false);
+  const { switchDisplay, setSwitchDisplay, showCards } =
+    useListDisplayMode(false);
   const [filters, setFilters] = useState<Record<string, Set<string>>>({});
   const compactedFilters = useMemo(
     () => compactMatterListFilters(filters),
@@ -73,12 +72,6 @@ export const AccountingMatterList = ({
   }
   const headerMatterList =
     optionSourceRef.current.length > 0 ? optionSourceRef.current : matterList;
-
-  const MD_BREAKPOINT = 768;
-
-  useEffect(() => {
-    setIsMobileView(width < MD_BREAKPOINT);
-  }, [width]);
 
   const handleShowMatterInfo = useCallback(
     (matter: MatterInfoWithUserNameType) => {
@@ -186,7 +179,7 @@ export const AccountingMatterList = ({
         </div>
       </div>
       <div className="overflow-auto h-[calc(100vh-200px)]">
-        {isMobileView || switchDisplay ? (
+        {showCards ? (
           <div className="py-4 px-8">
             <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
               {matterList.map((matter: MatterInfoWithUserNameType) => (

@@ -8,7 +8,7 @@ import DisplayMenu from "../buttons/display-menu";
 import { Badge } from "@mantine/core";
 
 // チーム案件一覧で使用する型（担当者情報を含む）
-type TeamMatterType = {
+export type TeamMatterType = {
   id: number;
   title: string;
   category: string;
@@ -26,11 +26,11 @@ type TeamMatterType = {
   } | null;
 };
 
-interface TeamMatterListProps {
+interface ReadonlyMatterListProps {
   matterList: TeamMatterType[];
 }
 
-const TeamMatterList: FC<TeamMatterListProps> = ({ matterList }) => {
+const ReadonlyMatterList: FC<ReadonlyMatterListProps> = ({ matterList }) => {
   const [switchDisplay, setSwitchDisplay] = useState(false); // false: カード表示, true: テーブル表示
   const [selectedMatter, setSelectedMatter] = useState<TeamMatterType | null>(
     null,
@@ -235,4 +235,5 @@ const TeamMatterList: FC<TeamMatterListProps> = ({ matterList }) => {
   );
 };
 
-export default TeamMatterList;
+export { ReadonlyMatterList };
+export default ReadonlyMatterList;

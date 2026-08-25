@@ -1,6 +1,6 @@
 import { getAllMatterInfoList } from "@/app/utils/supabase/matters";
 import type { MatterWithProfileType } from "@/app/hooks/useMatterData";
-import { AccountingMatterList } from "../AccountingMatterList";
+import { MatterList } from "../MatterList";
 
 const DynamicAccouting = async () => {
   const matterListWithProfile = await getAllMatterInfoList();
@@ -9,7 +9,8 @@ const DynamicAccouting = async () => {
   // （MatterInfoWithUserNameType への変換はクライアント側の useMemo で行う）
   return (
     <main>
-      <AccountingMatterList
+      <MatterList
+        variant="accounting"
         initialData={
           (matterListWithProfile as MatterWithProfileType[] | null) ?? undefined
         }
