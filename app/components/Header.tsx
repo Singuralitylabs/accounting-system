@@ -6,7 +6,7 @@ import React, { FC, Suspense, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ProfilesType } from "../types/types";
 import { visibleNavItems } from "../utils/permissions";
-import { getProfileInfoById } from "../utils/supabase/supabaseServer";
+import { getProfileInfoById } from "../utils/supabase/profiles";
 import { useSupabase } from "./providers/SupabaseProvider";
 import MobileHeader from "./MobileHeader";
 import UserButton from "./buttons/user-button";

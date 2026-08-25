@@ -1,5 +1,5 @@
 import { MatterType } from "@/app/types/types";
-import { getUserMatterInfoList } from "@/app/utils/supabase/supabaseServer";
+import { getUserMatterInfoList } from "@/app/utils/supabase/matters";
 import { MatterCardList } from "../MatterCardList";
 
 const DynamicMatterList = async () => {

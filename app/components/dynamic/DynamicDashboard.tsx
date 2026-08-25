@@ -1,7 +1,5 @@
-import {
-  getAllUserInfo,
-  getSelectOptions,
-} from "@/app/utils/supabase/supabaseServer";
+import { getAllUserInfo } from "@/app/utils/supabase/profiles";
+import { getSelectOptions } from "@/app/utils/supabase/selectOptions";
 import UserList from "../UserList";
 import { Title } from "@mantine/core";
 import SelectOptionList from "../SelectOptionList";

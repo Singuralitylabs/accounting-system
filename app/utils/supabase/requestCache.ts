@@ -8,7 +8,7 @@ import { createServerSupabase } from "./clients";
 // Supabase への往復はリクエストごとに 1 回で済む。
 // Server Action として直接エクスポートすると Next.js の
 // 「"use server" ファイルのエクスポートは async 関数のみ」という制約に反するため、
-// このファイルは "use server" にせず、supabaseServer.ts の async ラッパー経由で公開する。
+// このファイルは "use server" にせず、profiles.ts の async ラッパー経由で公開する。
 
 type ProfilesRow = Database["public"]["Tables"]["profiles"]["Row"];
 

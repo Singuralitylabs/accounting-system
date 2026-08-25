@@ -1,4 +1,4 @@
-import { getAllMatterInfoList } from "@/app/utils/supabase/supabaseServer";
+import { getAllMatterInfoList } from "@/app/utils/supabase/matters";
 import type { MatterWithProfileType } from "@/app/hooks/useMatterData";
 import { AccountingMatterList } from "../AccountingMatterList";
 

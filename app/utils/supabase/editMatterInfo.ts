@@ -5,11 +5,9 @@ import {
 } from "../../types/types";
 import { calcMatterTotalsForEdit } from "../matterCalc";
 import { validateMatterPayload } from "../matterValidation";
-import {
-  bulkUpsertBusinessInfo,
-  bulkUpsertCostInfo,
-  updateMatterInfo,
-} from "./supabaseServer";
+import { bulkUpsertBusinessInfo } from "./businesses";
+import { bulkUpsertCostInfo } from "./costs";
+import { updateMatterInfo } from "./matters";
 
 export const updateMatter = async (
   matterInfo: MatterType,

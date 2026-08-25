@@ -1,8 +1,5 @@
 import { isAllowedEmailDomain } from "@/app/utils/constants";
-import {
-  getProfileInfo,
-  insertUserInfo,
-} from "@/app/utils/supabase/supabaseServer";
+import { getProfileInfo, insertUserInfo } from "@/app/utils/supabase/profiles";
 import { createServerSupabase } from "@/app/utils/supabase/clients";
 import { NextResponse } from "next/server";
 

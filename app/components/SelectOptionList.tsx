@@ -6,7 +6,7 @@ import { useState } from "react";
 import {
   insertSelectOption,
   updateSelectOption,
-} from "../utils/supabase/supabaseServer";
+} from "../utils/supabase/selectOptions";
 import {
   DndContext,
   closestCenter,
