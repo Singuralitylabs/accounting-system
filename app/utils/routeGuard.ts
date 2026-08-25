@@ -3,12 +3,16 @@ import {
   isAuthRetryableFetchError,
 } from "@supabase/supabase-js";
 import type { AuthError } from "@supabase/supabase-js";
-import { ROUTE_PERMISSIONS, isAuthOnlyPath, type Role } from "./permissions";
+import {
+  ROUTE_PERMISSIONS,
+  isAuthOnlyPath,
+  matchesRoute,
+  type Role,
+} from "./permissions";
 
-export const PUBLIC_FILE_PATTERN = /\.(js|css|ico|png|jpg|jpeg|svg|gif)$/;
+export { matchesRoute };
 
-export const matchesRoute = (pathname: string, route: string) =>
-  pathname === route || pathname.startsWith(`${route}/`);
+const PUBLIC_FILE_PATTERN = /\.(js|css|ico|png|jpg|jpeg|svg|gif)$/;
 
 // getUser() のエラーが「Supabase Auth 側の一時的障害」かどうか。
 //
@@ -29,7 +33,7 @@ export const isPublicSkipPath = (pathname: string) =>
 
 export const isAuthRoute = (pathname: string) => pathname.startsWith("/login");
 
-export const findRestrictedRoute = (pathname: string) =>
+const findRestrictedRoute = (pathname: string) =>
   Object.entries(ROUTE_PERMISSIONS).find(([route]) =>
     matchesRoute(pathname, route),
   );
@@ -53,6 +57,11 @@ export const classifyPath = (pathname: string): PathClass => {
   const restrictedRoute = findRestrictedRoute(pathname);
   const isProtectedRoute = isAuthOnlyPath(pathname) || !!restrictedRoute;
 
+  // /login 配下は restricted / auth_only より先に auth_route へ分類する。
+  // 旧 middleware では isAuthRoute と isProtectedRoute は独立フラグだったが、
+  // 現行の ROUTE_PERMISSIONS / AUTH_ONLY_ROUTES に /login プレフィックスの
+  // 保護ルートは無いため、今日の到達可能なパスでは結果が一致する。
+  // 将来 /login/admin のような restricted を足す場合は、この優先順を見直すこと。
   if (isAuthRoute(pathname)) {
     return { kind: "auth_route" };
   }

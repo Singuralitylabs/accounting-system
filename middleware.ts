@@ -18,10 +18,6 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  const isProtectedRoute =
-    pathClass.kind === "auth_only" || pathClass.kind === "restricted";
-  const isAuthRoute = pathClass.kind === "auth_route";
-
   let res = NextResponse.next({ request: req });
   const supabase = createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -80,45 +76,55 @@ export async function middleware(req: NextRequest) {
       );
     }
 
-    if (!user && isProtectedRoute) {
-      return redirectTo("/login");
-    }
-
-    if (user && pathClass.kind === "restricted") {
-      // 直前の getUser() がこのユーザーのアクセストークンの署名を検証済みのため、
-      // 同じトークンから読む user_class クレームも改ざんされていないとみなせる
-      // （ペイロードのどこかを書き換えると署名検証に失敗し getUser() がエラーになるため）。
-      // getSession() はローカル Cookie を読むだけなので追加のネットワーク往復は発生しない。
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      // クレームが有効な文字列でない場合（フック未設定 / 旧トークン / プロフィール
-      // 未作成で明示的に null 等）は profiles への DB クエリにフォールバックする。
-      let userClass = readClassClaim(session?.access_token);
-
-      if (userClass === null) {
-        const { data: profile, error: profileError } = await supabase
-          .from("profiles")
-          .select("class")
-          .eq("user_id", user.id)
-          .single();
-
-        if (profileError) {
-          console.error("Profile fetch error:", profileError);
+    switch (pathClass.kind) {
+      case "auth_only":
+        if (!user) {
+          return redirectTo("/login");
         }
-        userClass = profile?.class ?? null;
-      }
+        return res;
+      case "restricted": {
+        if (!user) {
+          return redirectTo("/login");
+        }
+        // 直前の getUser() がこのユーザーのアクセストークンの署名を検証済みのため、
+        // 同じトークンから読む user_class クレームも改ざんされていないとみなせる
+        // （ペイロードのどこかを書き換えると署名検証に失敗し getUser() がエラーになるため）。
+        // getSession() はローカル Cookie を読むだけなので追加のネットワーク往復は発生しない。
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        // クレームが有効な文字列でない場合（フック未設定 / 旧トークン / プロフィール
+        // 未作成で明示的に null 等）は profiles への DB クエリにフォールバックする。
+        let userClass = readClassClaim(session?.access_token);
 
-      if (!hasClassAccess(pathClass.allowed, userClass)) {
-        return redirectTo("/");
+        if (userClass === null) {
+          const { data: profile, error: profileError } = await supabase
+            .from("profiles")
+            .select("class")
+            .eq("user_id", user.id)
+            .single();
+
+          if (profileError) {
+            console.error("Profile fetch error:", profileError);
+          }
+          userClass = profile?.class ?? null;
+        }
+
+        if (!hasClassAccess(pathClass.allowed, userClass)) {
+          return redirectTo("/");
+        }
+        return res;
+      }
+      case "auth_route":
+        if (user) {
+          return redirectTo("/");
+        }
+        return res;
+      default: {
+        pathClass satisfies never;
+        return res;
       }
     }
-
-    if (user && isAuthRoute) {
-      return redirectTo("/");
-    }
-
-    return res;
   } catch (error) {
     console.error("Middleware error:", error);
     return redirectTo("/login");

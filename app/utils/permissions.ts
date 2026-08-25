@@ -23,16 +23,17 @@ export const hasClassAccess = (
   !!profileClass &&
   (allowedClasses as readonly string[]).includes(profileClass);
 
+export const matchesRoute = (pathname: string, route: string) =>
+  pathname === route || pathname.startsWith(`${route}/`);
+
 // ロール制限は無いが、未ログインではアクセスできないルート。
-// `/` は完全一致のみ（`matchesRoute("/", pathname)` だと全パスにマッチするため）。
+// matchesRoute の引数は (pathname, route)。`matchesRoute("/matters", "/")` は
+// `"/matters" === "/"` でも `"/matters".startsWith("//")` でもないので false。
+// そのため AUTH_ONLY_ROUTES の "/" はトップページだけにマッチする。
 export const AUTH_ONLY_ROUTES = ["/", "/new", "/matters"] as const;
 
 export const isAuthOnlyPath = (pathname: string) =>
-  AUTH_ONLY_ROUTES.some((route) =>
-    route === "/"
-      ? pathname === "/"
-      : pathname === route || pathname.startsWith(`${route}/`),
-  );
+  AUTH_ONLY_ROUTES.some((route) => matchesRoute(pathname, route));
 
 export type NavItem = {
   href: string;
