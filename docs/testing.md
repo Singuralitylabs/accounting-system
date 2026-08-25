@@ -93,8 +93,8 @@ CI のワークフロー計画は [4.2](#42-github-actions-ワークフロー計
 
 本プロジェクトでは、テスト価値の高いロジックの一部が以下の形でテスト困難な構造になっている。
 
-1. **ブラウザ API との密結合**: `editMatterInfo.ts` 等で `window.confirm` / `alert` / `@mantine/notifications` の呼び出しがバリデーション・遷移判定ロジックの内部に混入している。
-2. **純粋関数が module-private**: `middleware.ts` の `matchesRoute` は export されておらず直接 import してテストできない。（損益計算書の集計ロジックは `app/utils/profitLossLogic.ts` への抽出済み。`app/utils/supabase/profitLossReport.ts` は Supabase アクセスと権限確認のみを担う）
+1. **ブラウザ API との密結合**: `editMatterInfo.ts` 等で `window.confirm` / `alert` がステータス遷移判定の内部に残っている（必須チェックと請求日/振込期限の検証は `matterValidation.ts` へ抽出済み。`confirm` / `alert` のコンポーネント側移動は Phase 6）。
+2. ~~**純粋関数が module-private**: `middleware.ts` の `matchesRoute` は export されておらず直接 import してテストできない。~~ → **完了**（`app/utils/routeGuard.ts`）。損益計算書の集計は `app/utils/profitLossLogic.ts`。
 3. **Supabase クライアント生成との密結合**: `bulkUpsertCostInfo` / `bulkUpsertBusinessInfo` の日付フォーマット・操作分岐ロジックが DB 呼び出しと同一関数内にある。
 
 これらに対する方針は以下のとおり。

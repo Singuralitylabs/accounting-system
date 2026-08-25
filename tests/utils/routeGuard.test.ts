@@ -144,5 +144,11 @@ describe("classifyPath（public / protected / restricted）", () => {
       route: "/dashboard",
       allowed: ["admin"],
     });
+    expect(classifyPath("/team/sub")).toEqual({
+      kind: "restricted",
+      route: "/team",
+      allowed: ["teamleader", "admin"],
+    });
+    expect(classifyPath("/teamX")).toEqual({ kind: "open" });
   });
 });
