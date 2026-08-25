@@ -21,6 +21,17 @@
       "Bash(git branch:*)",
       "Bash(git show:*)",
       "Bash(git fetch:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(git checkout:*)",
+      "Bash(git switch:*)",
+      "Bash(git merge:*)",
+      "Bash(git stash:*)",
+      "Bash(git restore:*)",
+      "Bash(git mv:*)",
+      "Bash(git rm:*)",
       "Bash(grep:*)",
       "Bash(find:*)",
       "Bash(ls:*)",
@@ -56,16 +67,57 @@
       "mcp__github__list_branches",
       "mcp__github__get_file_contents",
       "mcp__github__search_code"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git push --delete:*)",
+      "Bash(git push --mirror:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean -f:*)",
+      "Bash(git clean -d:*)",
+      "Bash(git branch -D:*)",
+      "Bash(git filter-branch:*)",
+      "Bash(git update-ref -d:*)",
+      "Bash(git reflog delete:*)",
+      "Bash(rm -rf /:*)",
+      "Bash(rm -fr /:*)",
+      "Bash(supabase db push:*)",
+      "Bash(supabase db reset --linked:*)",
+      "Bash(supabase link:*)",
+      "mcp__github__merge_pull_request",
+      "mcp__github__delete_file",
+      "mcp__github__create_repository",
+      "mcp__github__fork_repository",
+      "mcp__Supabase__apply_migration",
+      "mcp__Supabase__execute_sql",
+      "mcp__Supabase__delete_branch",
+      "mcp__Supabase__merge_branch",
+      "mcp__Supabase__reset_branch",
+      "mcp__Supabase__pause_project",
+      "mcp__Supabase__deploy_edge_function"
     ]
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CMD=$(jq -r '.tool_input.command // empty'); case \"$CMD\" in *\"git push\"*--force*|*\"git push\"*\" -f \"*|*\"git push\"*\" -f\"|*\"git push\"*--delete*|*\"git push\"*--mirror*|*\"git branch\"*\" -D\"*|*\"git reset\"*--hard*|*\"git clean\"*-*f*|*filter-branch*|*\"rm -rf /\"*|*\"rm -fr /\"*|*\"supabase db push\"*|*\"supabase link\"*) printf '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"履歴の書き換え・強制削除・本番DBへの直接適用にあたるコマンドのため、このリポジトリではブロックされています（.claude/settings.json）。必要な場合はユーザー自身で実行してください。\"}}' ;; esac; exit 0"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "FILE=$(jq -r '.tool_input.file_path // empty'); if [[ -n \"$FILE\" && \"$FILE\" =~ \\.(ts|tsx)$ && -f \"$FILE\" ]]; then npx --no-install eslint \"$FILE\" 2>&1 | tail -40 || true; fi"
+            "command": "FILE=$(jq -r '.tool_input.file_path // empty'); DIR=\"${CLAUDE_PROJECT_DIR:-.}\"; case \"$FILE\" in *.ts|*.tsx) [ -f \"$FILE\" ] && [ -x \"$DIR/node_modules/.bin/eslint\" ] && \"$DIR/node_modules/.bin/eslint\" \"$FILE\" 2>&1 | tail -40 ;; esac; exit 0"
           }
         ]
       }
