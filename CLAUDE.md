@@ -61,12 +61,7 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 
 ロールは `profiles.class` カラムに格納：`public` / `teamleader` / `accounting` / `admin`。
 
-| パス                    | 要件                        |
-| ----------------------- | --------------------------- |
-| `/`, `/new`, `/matters` | ログイン必須                |
-| `/team`                 | `teamleader` または `admin` |
-| `/accounting`           | `accounting` または `admin` |
-| `/dashboard`            | `admin` のみ                |
+ルートごとの閲覧許可ロールは `app/utils/permissions.ts` の `ROUTE_PERMISSIONS` が単一の定義（`/team` / `/accounting` / `/profit-loss` / `/recurring-costs` / `/extra-entries` / `/dashboard`）。`/`, `/new`, `/matters` はロール制限なし（ログイン必須）。権限クラス×ページの手動確認表は `docs/testing.md` の「3.7 手動確認（RLS・権限クラス別）」を参照。
 
 - middleware は `getUser()`（Supabase Auth サーバでアクセストークンの署名・有効性を検証する）で認証を確認する。`getSession()` はローカル Cookie の値をそのまま返すだけで署名検証を行わないため、認証の可否判定には使わない（偽造 Cookie による認証バイパスを防ぐ）。
 - 制限ルートのロールは、`getUser()` で検証済みの同一アクセストークンから読む JWT の `user_class` クレームを使う（`profiles` への DB クエリを排除）。`user_class` は Custom Access Token Hook（`public.custom_access_token_hook`、`docs/database.md` 参照）が付与する。クレームは同じ検証済みトークンの一部であるため、改ざんされていればトークンの署名検証自体が失敗し `getUser()` がエラーになる。
@@ -93,4 +88,4 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 - `app/utils/supabase/editMatterInfo.ts` — 案件 CRUD のコア
 - `app/hooks/useMatterData.ts` — TanStack Query フック群
 - `app/actions/slack/` — Slack 通知 Server Action
-- `docs/setup.md` / `docs/specification.md` / `docs/database.md` / `docs/testing.md` / `docs/manual-check.md` — セットアップ・仕様・DB 設計・テスト設計・手動確認（日本語）
+- `docs/setup.md` / `docs/specification.md` / `docs/database.md` / `docs/testing.md` — セットアップ・仕様・DB 設計・テスト設計（手動確認の手順は testing.md 3.7）
