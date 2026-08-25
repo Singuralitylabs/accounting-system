@@ -17,6 +17,7 @@
    - [3.4 ビルドテスト](#34-ビルドテスト)
    - [3.5 コード品質テスト](#35-コード品質テスト)
    - [3.6 E2Eテスト（未実装・リリース前のみ）](#36-e2eテスト未実装リリース前のみ)
+   - [3.7 手動確認（RLS・権限クラス別）](#37-手動確認rls権限クラス別)
 4. [CI / ツール構成](#4-ci--ツール構成)
    - [4.1 導入フェーズとロードマップ](#41-導入フェーズとロードマップ)
    - [4.2 GitHub Actions ワークフロー計画](#42-github-actions-ワークフロー計画)
@@ -66,7 +67,7 @@ CI のワークフロー計画は [4.2](#42-github-actions-ワークフロー計
 
 - **原則**: Unit テストは固定のインメモリ・フィクスチャ（型は `app/lib/database.types.ts` 由来の型に揃える）で独立性を確保し、Supabase・Slack 等の外部依存は直接叩かない。
 - **統合確認が必要な場合**: ローカル Supabase（初回の `supabase start` または `supabase db reset` で `supabase/migrations/` が適用される）を前提に、対象を最小限に絞って再現性を担保する。当面は自動テストの範囲に含めない。
-- **RLS の検証**: ユニットテストでは検証困難なため、RLS ポリシー自体は `supabase/migrations/` のレビューと手動確認でカバーする（[3.2](#32-セキュリティテスト) 参照）。
+- **RLS の検証**: ユニットテストでは検証困難なため、RLS ポリシー自体は `supabase/migrations/` のレビューと [3.7 手動確認](#37-手動確認rls権限クラス別) でカバーする。失敗モードはエラーではなく **サイレント 0 行**（画面は空のまま描画される）である。
 
 ### 2.4 可観測性
 
@@ -93,8 +94,8 @@ CI のワークフロー計画は [4.2](#42-github-actions-ワークフロー計
 
 本プロジェクトでは、テスト価値の高いロジックの一部が以下の形でテスト困難な構造になっている。
 
-1. **ブラウザ API との密結合**: `editMatterInfo.ts` 等で `window.confirm` / `alert` がステータス遷移判定の内部に残っている（必須チェックと請求日/振込期限の検証は `matterValidation.ts` へ抽出済み。`confirm` / `alert` のコンポーネント側移動は Phase 6）。
-2. ~~**純粋関数が module-private**: `middleware.ts` の `matchesRoute` は export されておらず直接 import してテストできない。~~ → **完了**（`app/utils/routeGuard.ts`）。損益計算書の集計は `app/utils/profitLossLogic.ts`。
+1. **ブラウザ API との密結合**: `editMatterInfo.ts` 等で `window.confirm` / `alert` がステータス遷移判定の内部に残っている（必須チェックと請求日/振込期限の検証は `matterValidation.ts` へ抽出済み。現行の更新 UI は `updateMatter` を直接呼ぶため、抽出したバリデーションは作成経路（`addMatterInfo`）でのみ実行される。`confirm` / `alert` のコンポーネント側移動と編集経路への配線は Phase 6）。
+2. ~~**純粋関数が module-private**: `middleware.ts` の `matchesRoute` は export されておらず直接 import してテストできない。~~ → **完了**（`app/utils/permissions.ts` に定義し `routeGuard.ts` から re-export）。損益計算書の集計は `app/utils/profitLossLogic.ts`。
 3. **Supabase クライアント生成との密結合**: `bulkUpsertCostInfo` / `bulkUpsertBusinessInfo` の日付フォーマット・操作分岐ロジックが DB 呼び出しと同一関数内にある。
 
 これらに対する方針は以下のとおり。
@@ -125,12 +126,12 @@ CI のワークフロー計画は [4.2](#42-github-actions-ワークフロー計
 
 本プロジェクトのセキュリティテストは、**単体で確認できる部分はユニット**、**実際の認証フロー・RLS に関わる部分は手動**に分類する。
 
-| 観点           | CI（自動）                                                                                                                               | 手動                                                                                                            |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| 認証制御       | ―                                                                                                                                        | 未ログインユーザーの `/login` リダイレクト                                                                      |
-| 認可制御       | `hasClassAccess` / `visibleNavItems` / ルートマッチングの判定ロジック（`ROUTE_PERMISSIONS` のロール別許可/拒否）                         | middleware 経由の実アクセス制御（`/team` / `/accounting` / `/profit-loss` / `/recurring-costs` / `/dashboard`） |
-| ドメイン制限   | `isAllowedEmailDomain`（完全一致のみ許可、`evil-future-tech-association.org` のような部分一致の拒否、null/空文字/大文字小文字/前後空白） | Google OAuth コールバックでの実挙動                                                                             |
-| データアクセス | ―（ユニットでは検証困難）                                                                                                                | RLS によるデータ分離（チームリーダーの自チーム案件閲覧など）                                                    |
+| 観点           | CI（自動）                                                                                                                               | 手動                                                                                        |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| 認証制御       | ―                                                                                                                                        | 未ログインユーザーの `/login` リダイレクト（手順は [3.7](#37-手動確認rls権限クラス別)）     |
+| 認可制御       | `hasClassAccess` / `visibleNavItems` / ルートマッチングの判定ロジック（`ROUTE_PERMISSIONS` のロール別許可/拒否）                         | middleware 経由の実アクセス制御（権限クラス×ページ表は [3.7](#37-手動確認rls権限クラス別)） |
+| ドメイン制限   | `isAllowedEmailDomain`（完全一致のみ許可、`evil-future-tech-association.org` のような部分一致の拒否、null/空文字/大文字小文字/前後空白） | Google OAuth コールバックでの実挙動                                                         |
+| データアクセス | ―（ユニットでは検証困難）                                                                                                                | RLS によるデータ分離。サイレント 0 行の切り分けは [3.7](#37-手動確認rls権限クラス別)        |
 
 - **実行タイミング**: [2.2 実行タイミング](#22-実行タイミングpr--リリース前) に従う。
 
@@ -174,6 +175,59 @@ TypeScript と型生成の運用によって、型の破綻を早期に検知す
   - teamleader / accounting / admin / public 各ロールでの保護ページアクセス → 適切なリダイレクト
   - 損益計算書の月次・年間表示（ロールによる表示範囲の違い）
 - **実行タイミング**: リリース前のみ。
+
+### 3.7 手動確認（RLS・権限クラス別）
+
+認証フローと RLS はユニットテストでは検証できない。許可ロールの**実体**は `app/utils/permissions.ts` の `ROUTE_PERMISSIONS`（変更時はそこだけ直す）。本節は確認手順であり、ロール表のコピーではない。
+
+認証スタックの入れ替え（Cookie 形式の変更）や権限別 UI の統合では、エラーなしで一覧が空になる事故を権限クラスごとに確認する。実施記録（実施日・実施者・環境・結果）は、その変更を含む PR 説明に残す。フェーズ固有の追加確認点もその PR 本文に書く。
+
+#### 前提（データ準備）
+
+- 確認用に、各ロールの Google アカウント（`@future-tech-association.org`）でログインできること
+- データが空だと「RLS で見えない」と「本当に 0 件」を区別できない。**確認前に次が揃っていること**
+  - `/matters` を確認する **public / teamleader / accounting / admin の各アカウント自身**が、1 件以上の案件を持っていること（このページは自分の案件だけを取る。他人の案件では埋まらない）
+  - `public` の案件に下書きと経理申請中が 1 件ずつあると、ライフサイクル確認に便利
+  - 同じチームの別ユーザーの案件（teamleader の `/team` 用）
+  - 別チームの案件（teamleader の `/team` には見えてはいけない）
+  - `/team` を確認する teamleader / admin は `profiles.team` が設定済みであること。未設定だとアプリがチーム案件を取らず空一覧を返す（RLS とは別原因）
+  - 経理追加収支・定期費用マスタの行（accounting / admin 用）
+- ブラウザの開発者ツール Network で、対象 API が 200 かつ配列が空、になっていないかを補助的に見る。画面上は「スピナー後に空」でもエラーは出ない
+
+#### 記号
+
+- **表示**: ページが開き、想定どおりデータ行が見える
+- **空でない**: 前提データを置いたうえで、一覧・表が 0 件のままにならない
+- **拒否**: `/` へリダイレクト、または未ログインなら `/login`
+- **対象外**: ナビに出ない / ロール的に開けない
+
+#### 権限クラス × ページ
+
+| ページ             | public                                     | teamleader                                             | accounting                                           | admin                                                  | RLS / データの確認観点                                                                                          |
+| ------------------ | ------------------------------------------ | ------------------------------------------------------ | ---------------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `/login`           | 未ログインで表示。ログイン済みなら `/`     | 同左                                                   | 同左                                                 | 同左                                                   | 認証画面。DB は読まない                                                                                         |
+| `/`                | 表示。ナビは「案件カード」「新規作成」のみ | 表示。加えてチーム案件・損益計算書                     | 表示。加えて経理用一覧・損益・定期費用・経理追加収支 | 全項目                                                 | ハブのリンク先がロールと一致すること。データ件数は問わない                                                      |
+| `/matters`         | **表示かつ空でない**。自分の案件だけ       | 同左（自分の案件。チーム全員分ではない）               | 同左（自分の案件。全案件ではない）                   | 同左                                                   | 他人の案件が混ざっていたら RLS またはクエリの不具合。0 件なら自分の案件が無いのか RLS かを切り分ける            |
+| `/new`             | 表示。作成できる                           | 同左                                                   | 同左                                                 | 同左                                                   | 作成後 `/matters` に自分の案件が増えること                                                                      |
+| `/team`            | **拒否**（`/`）                            | **表示かつ空でない**。自チームの案件（自分以外を含む） | **拒否**                                             | **表示かつ空でない**。自チーム（`profiles.team` 必須） | teamleader に別チーム案件が出たら失敗。accounting が開けたら失敗。admin のチーム未設定は空でも RLS 失敗ではない |
+| `/accounting`      | **拒否**                                   | **拒否**                                               | **表示かつ空でない**。全案件                         | **表示かつ空でない**。全案件                           | 他チーム・他担当の案件が見えること。0 件は ssr 混在やセッション喪失の典型                                       |
+| `/profit-loss`     | **拒否**                                   | **表示かつ空でない**（自チーム範囲）                   | **表示かつ空でない**（全体）                         | **表示かつ空でない**（全体）                           | 月を選んで売上一覧が数字として出ること。0 円ばかりで内訳が空なら RLS を疑う                                     |
+| `/recurring-costs` | **拒否**                                   | **拒否**                                               | **表示かつ空でない**                                 | **表示かつ空でない**                                   | マスタ行が見えること。保存して再読込しても残ること                                                              |
+| `/extra-entries`   | **拒否**                                   | **拒否**                                               | **表示かつ空でない**                                 | **表示かつ空でない**                                   | 経理追加収支の行が見えること                                                                                    |
+| `/dashboard`       | **拒否**                                   | **拒否**                                               | **拒否**                                             | **表示かつ空でない**。ユーザー一覧・マスタ             | プロフィール行が 0 件なら profiles RLS またはセッション不備                                                     |
+| `/auth-error`      | 未ログインでも表示                         | 同左                                                   | 同左                                                 | 同左                                                   | 認証往復が発生しないこと（middleware の open パス）                                                             |
+
+未ログインで保護ページ（`/`, `/matters`, `/new`, `/team`, `/accounting`, `/profit-loss`, `/recurring-costs`, `/extra-entries`, `/dashboard`）を開くと `/login` へ飛ぶこと。
+
+#### 案件詳細モーダル
+
+同一案件を、許可されたロールで開いたときに **案件名・金額・取引先・コストが空欄にならない** こと。認証スタック変更後にモーダルだけ 0 件になる事故をここで拾う。
+
+| 操作                                       | public         | teamleader       | accounting        | admin |
+| ------------------------------------------ | -------------- | ---------------- | ----------------- | ----- |
+| `/matters` から自分の案件を開く            | 表示（編集可） | 同左             | 同左              | 同左  |
+| `/team` から他メンバーの自チーム案件を開く | 対象外         | 表示（参照中心） | 対象外            | 表示  |
+| `/accounting` から任意案件を開く           | 対象外         | 対象外           | 表示（経理用 UI） | 表示  |
 
 ## 4. CI / ツール構成
 
@@ -267,27 +321,27 @@ DB Types 整合性チェックのワークフローを実行するために、Gi
 
 テスト未実装の現状を踏まえ、「実装済みテスト一覧」の代わりに優先度・前提条件付きの対象カタログを定義する。テストを実装したら本表のステータスを更新していく。
 
-| #   | 対象                                                                                           | ファイル                                                                                           | 主なテスト観点                                                                                                                                                                                                                    | 価値     | 前提                                                                                                                    | フェーズ |
-| --- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------- | -------- |
-| 1   | ドメイン制限 `isAllowedEmailDomain`                                                            | `app/utils/constants.ts`                                                                           | 完全一致のみ許可 / 部分一致ドメインの拒否 / null・空文字・`@`なし / 大文字小文字・前後空白                                                                                                                                        | 高       | なし（純粋関数・export 済）                                                                                             | 1        |
-| 2   | 認可判定 `hasClassAccess` / `visibleNavItems`                                                  | `app/utils/permissions.ts`                                                                         | `ROUTE_PERMISSIONS` のロール別許可/拒否 / null・undefined・未知ロール / ナビ項目のロール別フィルタ                                                                                                                                | 高       | なし（純粋関数・export 済）                                                                                             | 1        |
-| 3   | 日付・金額フォーマッタ                                                                         | `app/utils/formatter.ts`                                                                           | `toMonthString` の月境界（ローカル時刻基準で UTC ズレがないこと）/ `formatCurrency` の null / `formatMonthLabel` 等                                                                                                               | 中       | なし（純粋関数・export 済）                                                                                             | 1        |
-| 4   | 案件の金額集計 ✅実装済（`tests/utils/matterCalc.test.ts`）                                    | `app/utils/matterCalc.ts`                                                                          | `isRemoved` 行の集計除外 / `total_amount` / `total_cost` / `unchecked_cost_count`（`is_completed` と `isNew` の扱い）/ 作成時の falsy 金額スキップ                                                                                | 非常に高 | 済（`addMatterInfo` / `editMatterInfo` から抽出）                                                                       | 1〜2     |
-| 5   | ステータス遷移 + バリデーション `editMatterInfo`                                               | `app/utils/supabase/editMatterInfo.ts` / `app/utils/matterValidation.ts`                           | `isNewApplication`（下書き→申請）/ `isPostSubmissionUpdate`（申請後更新で `has_updates`）/ 必須項目 / 請求日 > 振込期限の検出                                                                                                     | 非常に高 | バリデーションは抽出済（`tests/utils/matterValidation.test.ts`）。遷移判定と `confirm` のコンポーネント側移動は Phase 6 | 2        |
-| 6   | 損益計算書の計上月判定・月次集計 ✅実装済（`tests/utils/profitLossLogic.test.ts`）             | `app/utils/profitLossLogic.ts`                                                                     | `monthDiff` / `isRecurringCostChargedInMonth`（月払い・四半期・年払いの計上月、年度跨ぎ、`end_month` null）/ `buildMonthlyReport`（分類別粗利、費目別管理費、経常利益と刷新前の営業損益の一致、ロール別集計、全体共通費用の分離） | 非常に高 | 済（`app/utils/profitLossLogic.ts` へ抽出 + export 済）                                                                 | 2        |
-| 7   | ルート判定 `matchesRoute` + `classifyPath` ✅実装済（`tests/utils/routeGuard.test.ts`）        | `app/utils/routeGuard.ts`                                                                          | 完全一致・配下パス（`/team/sub`）の一致 / 前方一致の誤検知（`/teamX`）がないこと / public_skip・auth_only・restricted の分類 / `isTransientAuthError` の 5xx                                                                      | 高       | 済（`middleware.ts` から抽出）                                                                                          | 2        |
-| 8   | 一括完了のステータス遷移チェック                                                               | `app/utils/supabase/checkMatterInfoList.ts`                                                        | 下書き（`is_fixed=false`）の完了スキップ / `unchecked_cost_count > 0` の確認分岐                                                                                                                                                  | 中       | `confirm` 分離リファクタ                                                                                                | 2        |
-| 9   | bulkUpsert の操作分岐・日付フォーマット                                                        | `app/utils/supabase/costs.ts` / `businesses.ts`（`bulkUpsertCostInfo` / `bulkUpsertBusinessInfo`） | `isNew` / `isRemoved` の組による INSERT / UPDATE / DELETE 振り分け / `toISOString` 由来の JST 月ズレ回帰                                                                                                                          | 高       | 分岐・フォーマット部の純粋関数抽出（`"use server"` + Supabase 密結合のため）                                            | 2〜3     |
-| 10  | Slack 通知のメッセージ組み立て                                                                 | `app/utils/slack/sendMessageToSlack.ts`、`app/actions/slack/`                                      | `slackId` 有無によるメンション切替 / metadata の null-safe 処理 / 送信失敗時のエラーハンドリング                                                                                                                                  | 中       | `fetch` / `notifications.show` の分離またはモック                                                                       | 3        |
-| 11  | 権限別統合コンポーネント `CostBlock` ✅実装済（`tests/components/CostBlock.test.tsx`）         | `app/components/CostBlock.tsx`                                                                     | `variant="user"` で入力・削除が出て支払い完了が出ない / `variant="accounting"` で支払い完了と閲覧表示が出て入力・削除が出ない / `isFixed`・`isCompleted` による無効化                                                             | 高       | Testing Library + jsdom（Phase 5-a で導入）                                                                             | 5        |
-| 12  | 権限別統合コンポーネント `BusinessBlock` ✅実装済（`tests/components/BusinessBlock.test.tsx`） | `app/components/BusinessBlock.tsx`                                                                 | `variant="user"` で入力・削除が出て確認完了が出ない / `variant="accounting"` で確認完了と閲覧表示が出て入力・削除が出ない / `isFixed`・`isCompleted` による無効化                                                                 | 高       | Testing Library + jsdom（Phase 5-a）                                                                                    | 5        |
-| ―   | 薄い CRUD ラッパー（`getAllMatterInfoList` 等）/ `deleteMatter` / その他 UI                    | 各所                                                                                               | ―                                                                                                                                                                                                                                 | 低       | テスト不要（[2.5](#25-ユニットテストの要否判断) の基準）。Phase 5 統合コンポーネントは例外                              | ―        |
+| #   | 対象                                                                                           | ファイル                                                                                           | 主なテスト観点                                                                                                                                                                                                                    | 価値     | 前提                                                                                                                                                                                                                                   | フェーズ |
+| --- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| 1   | ドメイン制限 `isAllowedEmailDomain`                                                            | `app/utils/constants.ts`                                                                           | 完全一致のみ許可 / 部分一致ドメインの拒否 / null・空文字・`@`なし / 大文字小文字・前後空白                                                                                                                                        | 高       | なし（純粋関数・export 済）                                                                                                                                                                                                            | 1        |
+| 2   | 認可判定 `hasClassAccess` / `visibleNavItems`                                                  | `app/utils/permissions.ts`                                                                         | `ROUTE_PERMISSIONS` のロール別許可/拒否 / null・undefined・未知ロール / ナビ項目のロール別フィルタ                                                                                                                                | 高       | なし（純粋関数・export 済）                                                                                                                                                                                                            | 1        |
+| 3   | 日付・金額フォーマッタ                                                                         | `app/utils/formatter.ts`                                                                           | `toMonthString` の月境界（ローカル時刻基準で UTC ズレがないこと）/ `formatCurrency` の null / `formatMonthLabel` 等                                                                                                               | 中       | なし（純粋関数・export 済）                                                                                                                                                                                                            | 1        |
+| 4   | 案件の金額集計 ✅実装済（`tests/utils/matterCalc.test.ts`）                                    | `app/utils/matterCalc.ts`                                                                          | `isRemoved` 行の集計除外 / `total_amount` / `total_cost` / `unchecked_cost_count`（`is_completed` と `isNew` の扱い）/ 作成時の falsy 金額スキップ                                                                                | 非常に高 | 済（`addMatterInfo` / `editMatterInfo` から抽出）                                                                                                                                                                                      | 1〜2     |
+| 5   | ステータス遷移 + バリデーション `editMatterInfo`                                               | `app/utils/supabase/editMatterInfo.ts` / `app/utils/matterValidation.ts`                           | `isNewApplication`（下書き→申請）/ `isPostSubmissionUpdate`（申請後更新で `has_updates`）/ 必須項目 / 請求日 > 振込期限の検出                                                                                                     | 非常に高 | バリデーションは抽出済（`tests/utils/matterValidation.test.ts`）。**実更新経路の `updateMatter` はバリデーション未実行**（`editMatterInfo` default は未使用）。遷移判定と `confirm` のコンポーネント側移動・編集経路への配線は Phase 6 | 2        |
+| 6   | 損益計算書の計上月判定・月次集計 ✅実装済（`tests/utils/profitLossLogic.test.ts`）             | `app/utils/profitLossLogic.ts`                                                                     | `monthDiff` / `isRecurringCostChargedInMonth`（月払い・四半期・年払いの計上月、年度跨ぎ、`end_month` null）/ `buildMonthlyReport`（分類別粗利、費目別管理費、経常利益と刷新前の営業損益の一致、ロール別集計、全体共通費用の分離） | 非常に高 | 済（`app/utils/profitLossLogic.ts` へ抽出 + export 済）                                                                                                                                                                                | 2        |
+| 7   | ルート判定 `matchesRoute` + `classifyPath` ✅実装済（`tests/utils/routeGuard.test.ts`）        | `app/utils/permissions.ts` / `app/utils/routeGuard.ts`                                             | 完全一致・配下パス（`/team/sub`）の一致 / 前方一致の誤検知（`/teamX`）がないこと / public_skip・auth_only・restricted の分類 / `isTransientAuthError` の 5xx                                                                      | 高       | 済（`matchesRoute` は `permissions.ts`、分類は `routeGuard.ts`）                                                                                                                                                                       | 2        |
+| 8   | 一括完了のステータス遷移チェック                                                               | `app/utils/supabase/checkMatterInfoList.ts`                                                        | 下書き（`is_fixed=false`）の完了スキップ / `unchecked_cost_count > 0` の確認分岐                                                                                                                                                  | 中       | `confirm` 分離リファクタ                                                                                                                                                                                                               | 2        |
+| 9   | bulkUpsert の操作分岐・日付フォーマット                                                        | `app/utils/supabase/costs.ts` / `businesses.ts`（`bulkUpsertCostInfo` / `bulkUpsertBusinessInfo`） | `isNew` / `isRemoved` の組による INSERT / UPDATE / DELETE 振り分け / `toISOString` 由来の JST 月ズレ回帰                                                                                                                          | 高       | 分岐・フォーマット部の純粋関数抽出（`"use server"` + Supabase 密結合のため）                                                                                                                                                           | 2〜3     |
+| 10  | Slack 通知のメッセージ組み立て                                                                 | `app/utils/slack/sendMessageToSlack.ts`、`app/actions/slack/`                                      | `slackId` 有無によるメンション切替 / metadata の null-safe 処理 / 送信失敗時のエラーハンドリング                                                                                                                                  | 中       | `fetch` / `notifications.show` の分離またはモック                                                                                                                                                                                      | 3        |
+| 11  | 権限別統合コンポーネント `CostBlock` ✅実装済（`tests/components/CostBlock.test.tsx`）         | `app/components/CostBlock.tsx`                                                                     | `variant="user"` で入力・削除が出て支払い完了が出ない / `variant="accounting"` で支払い完了と閲覧表示が出て入力・削除が出ない / `isFixed`・`isCompleted` による無効化                                                             | 高       | Testing Library + jsdom（Phase 5-a で導入）                                                                                                                                                                                            | 5        |
+| 12  | 権限別統合コンポーネント `BusinessBlock` ✅実装済（`tests/components/BusinessBlock.test.tsx`） | `app/components/BusinessBlock.tsx`                                                                 | `variant="user"` で入力・削除が出て確認完了が出ない / `variant="accounting"` で確認完了と閲覧表示が出て入力・削除が出ない / `isFixed`・`isCompleted` による無効化                                                                 | 高       | Testing Library + jsdom（Phase 5-a）                                                                                                                                                                                                   | 5        |
+| ―   | 薄い CRUD ラッパー（`getAllMatterInfoList` 等）/ `deleteMatter` / その他 UI                    | 各所                                                                                               | ―                                                                                                                                                                                                                                 | 低       | テスト不要（[2.5](#25-ユニットテストの要否判断) の基準）。Phase 5 統合コンポーネントは例外                                                                                                                                             | ―        |
 
 ### テスト着手前のリファクタリング前提タスク
 
 上表の「前提」列のうちリファクタリングを要するものを集約する。いずれも**挙動を変えない構造変更**であり、テスト追加とは別 PR で実施する。
 
 1. ~~**損益計算書の純粋ヘルパー抽出**（#6 の前提）: `monthDiff` / `isRecurringCostChargedInMonth` / `buildMonthlyReport` 等を `"use server"` の付かないファイルへ移動して export する。~~ → **完了**（`app/utils/profitLossLogic.ts`）
-2. ~~**`matchesRoute` の共有化**（#7 の前提）: `middleware.ts` 内のプライベート関数を export するか、`app/utils/permissions.ts` へ移動する。~~ → **完了**（`app/utils/routeGuard.ts`）
-3. **案件編集ロジックの UI 副作用分離**（#5, #8 の前提）: バリデーションは `matterValidation.ts` へ抽出済。`editMatterInfo` / `checkMatterInfoList` の遷移判定と `confirm` / `alert` を呼び出し側（コンポーネント）へ移す作業は Phase 6。
+2. ~~**`matchesRoute` の共有化**（#7 の前提）: `middleware.ts` 内のプライベート関数を export するか、`app/utils/permissions.ts` へ移動する。~~ → **完了**（`app/utils/permissions.ts` に定義し `routeGuard.ts` から re-export）
+3. **案件編集ロジックの UI 副作用分離**（#5, #8 の前提）: バリデーションは `matterValidation.ts` へ抽出済。現行 UI は `updateMatter` を直接呼ぶため編集時バリデーションは未実行。`editMatterInfo` / `checkMatterInfoList` の遷移判定と `confirm` / `alert` を呼び出し側へ移し、編集経路へバリデーションを配線する作業は Phase 6。
 4. **bulkUpsert の分岐・日付整形の抽出**（#9 の前提）: `isNew` / `isRemoved` による振り分けと日付フォーマットを純粋関数として切り出す（あわせて JST 月ズレの有無を確認し、必要なら `toMonthString` と同様のローカル時刻基準へ修正する）。
