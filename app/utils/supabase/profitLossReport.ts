@@ -17,7 +17,7 @@ import {
 import { getProfileInfo } from "./supabaseServer";
 
 // 集計に必要な行をまとめて取得する（RLS により権限に応じた行のみ返る）
-// セッション Cookie は auth-helpers 形式のため、既存コードと同じクライアントを使う
+// セッション Cookie は @supabase/ssr 形式。createServerSupabase() 以外のクライアントを混ぜない
 // NOTE: business / costs は全件取得している。データが数年分蓄積して
 // ペイロードが問題になったら、対象期間（invoice_date / period の範囲＋ NULL 行）で
 // 絞り込む WHERE 句の追加を検討する。
