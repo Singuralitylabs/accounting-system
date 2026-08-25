@@ -5,6 +5,7 @@ import "@mantine/core/styles.css";
 import "@mantine/dates/styles.css";
 import "@mantine/notifications/styles.css";
 import { MantineProvider, ColorSchemeScript } from "@mantine/core";
+import { ModalsProvider } from "@mantine/modals";
 import { Notifications } from "@mantine/notifications";
 import SupabaseProvider from "./components/providers/SupabaseProvider";
 import AuthProvider from "./components/auth/AuthProvider";
@@ -32,13 +33,15 @@ export default async function RootLayout({
         <SupabaseProvider>
           <QueryProvider>
             <MantineProvider>
-              <Notifications />
-              <DatesLocaleProvider>
-                <AuthProvider>
-                  {children}
-                  <Footer />
-                </AuthProvider>
-              </DatesLocaleProvider>
+              <ModalsProvider labels={{ confirm: "OK", cancel: "キャンセル" }}>
+                <Notifications />
+                <DatesLocaleProvider>
+                  <AuthProvider>
+                    {children}
+                    <Footer />
+                  </AuthProvider>
+                </DatesLocaleProvider>
+              </ModalsProvider>
             </MantineProvider>
           </QueryProvider>
         </SupabaseProvider>

@@ -18,6 +18,12 @@ import {
   useCreateMatter,
   useDeleteMatter,
 } from "@/app/hooks/useMatterData";
+import {
+  confirmAction,
+  confirmCreateMatter,
+  DELETE_MATTER_CONFIRM_MESSAGE,
+  getUpdateMatterConfirmMessage,
+} from "@/app/utils/confirmAction";
 
 type Props = {
   matterInfo: MatterType;
@@ -110,15 +116,22 @@ export function UserMatterDetail({
       updated_at: "",
     };
 
+    const businesses = businessInfoInCardList.filter(
+      (businessInfo) => !businessInfo.isRemoved,
+    );
+    const costs = costInfoInCardList.filter((costInfo) => !costInfo.isRemoved);
+    const confirmed = await confirmCreateMatter(
+      matterInfo.title,
+      isFixed,
+      businesses.map((business) => business.amount),
+    );
+    if (!confirmed) return;
+
     try {
       await createMatterMutation.mutateAsync({
         matterInfo,
-        businessInfoList: businessInfoInCardList.filter(
-          (businessInfo) => !businessInfo.isRemoved,
-        ),
-        costInfoList: costInfoInCardList.filter(
-          (costInfo) => !costInfo.isRemoved,
-        ),
+        businessInfoList: businesses,
+        costInfoList: costs,
       });
       form.reset();
       closeModal();
@@ -142,6 +155,15 @@ export function UserMatterDetail({
       has_updates: isPostSubmissionUpdate ? true : matterInfo.has_updates, // 経理申請後の更新ならtrue
     };
 
+    const confirmed = await confirmAction(
+      getUpdateMatterConfirmMessage(
+        matterInfo.title,
+        matterInfo.is_fixed,
+        isFixed,
+      ),
+    );
+    if (!confirmed) return;
+
     try {
       await updateMatterMutation.mutateAsync({
         matterInfo: updatedMatterInfo,
@@ -155,6 +177,12 @@ export function UserMatterDetail({
   };
 
   const handleDeleteMatterInfo = async () => {
+    const confirmed = await confirmAction(DELETE_MATTER_CONFIRM_MESSAGE, {
+      confirmLabel: "削除",
+      confirmColor: "red",
+    });
+    if (!confirmed) return;
+
     try {
       await deleteMatterMutation.mutateAsync(matterInfo);
       closeModal();
@@ -232,6 +260,12 @@ export function UserMatterDetail({
     );
   };
 
+  const isBusy =
+    isLoading ||
+    updateMatterMutation.isPending ||
+    createMatterMutation.isPending ||
+    deleteMatterMutation.isPending;
+
   return (
     <Modal
       opened={opened}
@@ -244,14 +278,7 @@ export function UserMatterDetail({
           handleUpdateMatterInfo(matterInfo.is_fixed || false),
         )}
       >
-        <LoadingOverlay
-          visible={
-            isLoading ||
-            updateMatterMutation.isPending ||
-            createMatterMutation.isPending ||
-            deleteMatterMutation.isPending
-          }
-        />
+        <LoadingOverlay visible={isBusy} />
         <div className="flex justify-end">
           {isNew ? (
             <Badge color="pink">新規作成</Badge>
@@ -354,6 +381,7 @@ export function UserMatterDetail({
               <Button
                 type="button"
                 color="gray"
+                disabled={isBusy}
                 onClick={handleDeleteMatterInfo}
               >
                 削除
@@ -364,6 +392,7 @@ export function UserMatterDetail({
             {isNew ? (
               <>
                 <Button
+                  disabled={isBusy}
                   onClick={() => {
                     const validation = form.validate();
                     if (validation.hasErrors) {
@@ -377,6 +406,7 @@ export function UserMatterDetail({
                 <Button
                   type="button"
                   color="red"
+                  disabled={isBusy}
                   onClick={() => {
                     const validation = form.validate();
                     if (validation.hasErrors) {
@@ -393,6 +423,7 @@ export function UserMatterDetail({
                 <Button
                   type="submit"
                   color={matterInfo.is_fixed ? "red" : undefined}
+                  disabled={isBusy}
                 >
                   更新
                 </Button>
@@ -400,6 +431,7 @@ export function UserMatterDetail({
                   <Button
                     type="button"
                     color="red"
+                    disabled={isBusy}
                     onClick={() => {
                       const validation = form.validate();
                       if (validation.hasErrors) {

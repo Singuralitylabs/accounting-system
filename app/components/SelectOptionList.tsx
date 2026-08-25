@@ -5,6 +5,7 @@ import { SelectOptionType } from "../types/types";
 import { useState } from "react";
 import { bulkUpsertSelectOptions } from "../utils/supabase/selectOptions";
 import { notifyError, notifySuccess } from "../utils/notify";
+import { confirmAction } from "../utils/confirmAction";
 import {
   DndContext,
   closestCenter,
@@ -115,8 +116,10 @@ const SelectOptionList = ({
         }
       }
 
-      const confirm = window.confirm(`${optionTitle}の項目を更新しますか？`);
-      if (!confirm) return;
+      const confirmed = await confirmAction(
+        `${optionTitle}の項目を更新しますか？`,
+      );
+      if (!confirmed) return;
 
       await bulkUpsertSelectOptions(optionClass, updatedOptionList);
       notifySuccess(`${optionTitle}情報を更新しました。`);
@@ -134,7 +137,7 @@ const SelectOptionList = ({
         <Title order={3} className="pb-4">
           {optionTitle}
         </Title>
-        <Button type="button" onClick={handleSaveOption}>
+        <Button type="button" disabled={isLoading} onClick={handleSaveOption}>
           更新
         </Button>
       </div>

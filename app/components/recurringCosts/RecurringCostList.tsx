@@ -16,6 +16,7 @@ import { CiSquarePlus } from "react-icons/ci";
 import { RiDeleteBin6Line } from "react-icons/ri";
 import { ORG_WIDE_TEAM_LABEL } from "@/app/utils/constants";
 import { notifyError, notifySuccess } from "@/app/utils/notify";
+import { confirmAction } from "@/app/utils/confirmAction";
 import { PAYMENT_CYCLE_OPTIONS } from "@/app/utils/paymentCycle";
 import { CustomMonthPicker } from "../CustomMonthPicker";
 
@@ -110,7 +111,7 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
       }
     }
 
-    const confirmed = window.confirm("定期費用の項目を更新しますか？");
+    const confirmed = await confirmAction("定期費用の項目を更新しますか？");
     if (!confirmed) return;
 
     try {
@@ -134,7 +135,11 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
         <p className="text-sm text-gray-600">
           定期的にかかる管理費を登録します。支払月（適用開始月を起点に支払サイクルごと）の損益計算書に支払額が全額算入されます。
         </p>
-        <Button type="button" onClick={handleSave}>
+        <Button
+          type="button"
+          disabled={upsertMutation.isPending}
+          onClick={handleSave}
+        >
           保存
         </Button>
       </div>

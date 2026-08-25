@@ -7,6 +7,7 @@ import {
 } from "@/app/hooks/useExtraEntryData";
 import { ORG_WIDE_TEAM_LABEL } from "@/app/utils/constants";
 import { notifyError, notifySuccess } from "@/app/utils/notify";
+import { confirmAction } from "@/app/utils/confirmAction";
 import {
   Autocomplete,
   Button,
@@ -163,7 +164,7 @@ const ExtraEntryList = ({
       }
     }
 
-    const confirmed = window.confirm("経理追加収支の項目を更新しますか？");
+    const confirmed = await confirmAction("経理追加収支の項目を更新しますか？");
     if (!confirmed) return;
 
     try {
@@ -277,7 +278,11 @@ const ExtraEntryList = ({
         <p className="text-sm text-gray-600">
           案件に紐づかない収入・支出を登録します。日付の属する月の損益計算書に算入されます（日付未入力は月未確定）。金額は税別で、マイナス値による減額調整も登録できます。
         </p>
-        <Button type="button" onClick={handleSave}>
+        <Button
+          type="button"
+          disabled={upsertMutation.isPending}
+          onClick={handleSave}
+        >
           保存
         </Button>
       </div>
