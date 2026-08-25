@@ -14,10 +14,11 @@
 
 ### 1.3 タイムゾーン方針
 
-- **セッションタイムゾーンは UTC**（PostgreSQL / Supabase の既定）。`supabase/migrations/` は `ALTER DATABASE ... SET timezone` を含まない。旧ローカル手適用 SQL にあった当該設定は、正であるマイグレーション経路では一度も適用されていなかった。
-- **業務日時の JST 変換はカラムデフォルトとトリガーで明示する**。案件系テーブルの `inserted_at` / `updated_at` は `timezone('Asia/Tokyo'::text, now())`、`handle_updated_at` も同様。`timestamptz` の保存値は絶対時刻であり、セッション TZ に依存しない。
+- **セッションタイムゾーンは UTC**（PostgreSQL / Supabase の既定）。`supabase/migrations/` は `ALTER DATABASE ... SET timezone` を含まない。旧ローカル手適用 SQL にあった当該設定は、正であるマイグレーション経路では一度も適用されていなかった。hosted Supabase では `ALTER DATABASE` が失敗しうるため、Phase 0 でも追加しない。
+- **案件系の `inserted_at` / `updated_at` は `timezone('Asia/Tokyo'::text, now())`**（カラム DEFAULT と `update_updated_at_column` トリガー）。`timezone(zone, timestamptz)` の戻りは **TZ なし `timestamp`**（そのゾーンの壁時計）である。これを `timestamptz` 列へ入れると **セッション `TimeZone` のローカル時刻として解釈**される。セッションが UTC のとき、保存される絶対時刻は「今」から約 9 時間ずれる。セッションが `Asia/Tokyo` ならずれない。つまり現行 DEFAULT / トリガーの保存値はセッション TZ に依存する。
+- **絶対時刻をセッション非依存で残す**なら DEFAULT / トリガーは `now()`（`timestamptz`）である。実装変更は後続フェーズで検討する。
 - **アドホック SQL で日付境界を切る場合**はセッション TZ に頼らず、`timezone('Asia/Tokyo', ...)` または `AT TIME ZONE 'Asia/Tokyo'` を明示すること。`now()::date` や素の `date_trunc` は UTC 日付になり、JST 0:00〜9:00 で日付がずれる。
-- アプリケーションと Vitest は `TZ=Asia/Tokyo`（`docs/testing.md` 参照）。
+- **Vitest** は `vitest.config.ts` で `TZ=Asia/Tokyo` を固定する。Next.js アプリのプロセス TZ は実行環境依存であり、日付表示は `app/utils/formatter.ts` などが `new Date()` のローカル TZ に従う。
 
 ## 2. テーブル一覧
 
