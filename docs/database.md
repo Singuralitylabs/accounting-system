@@ -12,6 +12,13 @@
 
 - public
 
+### 1.3 タイムゾーン方針
+
+- **セッションタイムゾーンは UTC**（PostgreSQL / Supabase の既定）。`supabase/migrations/` は `ALTER DATABASE ... SET timezone` を含まない。旧ローカル手適用 SQL にあった当該設定は、正であるマイグレーション経路では一度も適用されていなかった。
+- **業務日時の JST 変換はカラムデフォルトとトリガーで明示する**。案件系テーブルの `inserted_at` / `updated_at` は `timezone('Asia/Tokyo'::text, now())`、`handle_updated_at` も同様。`timestamptz` の保存値は絶対時刻であり、セッション TZ に依存しない。
+- **アドホック SQL で日付境界を切る場合**はセッション TZ に頼らず、`timezone('Asia/Tokyo', ...)` または `AT TIME ZONE 'Asia/Tokyo'` を明示すること。`now()::date` や素の `date_trunc` は UTC 日付になり、JST 0:00〜9:00 で日付がずれる。
+- アプリケーションと Vitest は `TZ=Asia/Tokyo`（`docs/testing.md` 参照）。
+
 ## 2. テーブル一覧
 
 | テーブル名          | 説明                                                         |

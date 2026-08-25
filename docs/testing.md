@@ -65,7 +65,7 @@ CI のワークフロー計画は [4.2](#42-github-actions-ワークフロー計
 ### 2.3 テストデータ方針
 
 - **原則**: Unit テストは固定のインメモリ・フィクスチャ（型は `app/lib/database.types.ts` 由来の型に揃える）で独立性を確保し、Supabase・Slack 等の外部依存は直接叩かない。
-- **統合確認が必要な場合**: ローカル Supabase（`supabase start`。スキーマと選択肢マスタは `supabase/migrations/` が適用される）を前提に、対象を最小限に絞って再現性を担保する。当面は自動テストの範囲に含めない。
+- **統合確認が必要な場合**: ローカル Supabase（初回の `supabase start` または `supabase db reset` で `supabase/migrations/` が適用される）を前提に、対象を最小限に絞って再現性を担保する。当面は自動テストの範囲に含めない。
 - **RLS の検証**: ユニットテストでは検証困難なため、RLS ポリシー自体は `supabase/migrations/` のレビューと手動確認でカバーする（[3.2](#32-セキュリティテスト) 参照）。
 
 ### 2.4 可観測性

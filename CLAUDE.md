@@ -88,7 +88,7 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 
 - `middleware.ts` — ルート保護 & ロール判定
 - `app/layout.tsx` — Provider スタック / `force-dynamic`
-- `app/components/providers/` — `SupabaseProvider`, `QueryProvider`, `InitialOptionalLoader`
+- `app/components/providers/` — `SupabaseProvider`, `QueryProvider`, `DatesLocaleProvider`, `InitialOptionalLoader`
 - `app/utils/supabase/editMatterInfo.ts` — 案件 CRUD のコア
 - `app/hooks/useMatterData.ts` — TanStack Query フック群
 - `app/actions/slack/` — Slack 通知 Server Action

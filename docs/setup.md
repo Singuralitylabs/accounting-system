@@ -152,13 +152,7 @@ service_role key: eyJhbGciOiJIUzI1NiIs... # これをSUPABASE_SERVICE_ROLE_KEY�
 
 ### 4. 環境変数の設定
 
-`.env.local`ファイルを作成・編集：
-
-```bash
-cp .env.local.development .env.local
-```
-
-`.env.local`の内容を以下のように更新：
+プロジェクトルートに `.env.local` を新規作成する（リポジトリにテンプレートファイルは同梱していない）：
 
 ```env
 # ローカル開発環境のSupabase設定
@@ -188,7 +182,7 @@ SLACK_WEBHOOK_URL=your-slack-webhook-url
 
 ### 5. データベーススキーマの作成
 
-スキーマの正は `supabase/migrations/` 配下のマイグレーションです。`supabase start` 時に自動適用されます。
+スキーマの正は `supabase/migrations/` 配下のマイグレーションです。適用されるのは **初回の `supabase start`（ボリューム新規作成時）** と **`supabase db reset`** です。既存の Docker ボリュームがある状態で `supabase start` しただけでは、追加分のマイグレーションは適用されません。
 
 既存のローカル DB をマイグレーションと一致させたい場合:
 
@@ -214,7 +208,7 @@ npm run dev
 
 ### 1. マイグレーションで投入される初期データ
 
-`supabase start` / `supabase db reset` で適用されるマイグレーションに、選択肢マスタ（チーム・分類・品目など）の初期データが含まれます。案件・取引先・コストのサンプル行はリポジトリに含めていないため、ログイン後に画面から作成してください。
+初回の `supabase start` または `supabase db reset` で適用されるマイグレーションに、選択肢マスタ（チーム・分類・品目など）の初期データが含まれます。案件・取引先・コストのサンプル行はリポジトリに含めていないため、ログイン後に画面から作成してください。
 
 ### 2. データ確認
 
@@ -222,13 +216,11 @@ npm run dev
 # テーブル一覧確認
 psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -c "\dt"
 
-# レコード数確認
+# マイグレーションで投入される選択肢マスタの件数確認
 psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -c "
-SELECT 'matters' as table_name, COUNT(*) as record_count FROM matters
+SELECT 'select_option_types' as table_name, COUNT(*) as record_count FROM select_option_types
 UNION ALL
-SELECT 'business' as table_name, COUNT(*) as record_count FROM business
-UNION ALL
-SELECT 'costs' as table_name, COUNT(*) as record_count FROM costs;
+SELECT 'select_options' as table_name, COUNT(*) as record_count FROM select_options;
 "
 ```
 
@@ -356,7 +348,10 @@ yarn dev
 # ビルド
 yarn build
 
-# 型定義の更新（スキーマ変更時）
+# 型定義の更新（ローカルでスキーマ変更したとき）
+yarn db:types-local
+
+# 型定義の更新（本番 Supabase から生成するとき）
 yarn db:types
 
 # リント
@@ -400,19 +395,11 @@ pg_dump postgresql://postgres:postgres@127.0.0.1:54322/postgres > backup.sql
 
 ```
 matter-controller/
-├── .env.local                 # 環境変数（ローカル用）
-├── .env.local.development     # 環境変数テンプレート
+├── .env.local                 # 環境変数（ローカル用。gitignore。手順 4 で新規作成）
 ├── supabase/
 │   ├── .gitignore            # Supabase用gitignore
 │   ├── config.toml           # Supabase設定
-│   └── migrations/           # データベーススキーマ（正）
-│       ├── 20260523053648_01_enums.sql
-│       ├── 20260523053709_02_tables.sql
-│       ├── 20260523053721_03_indexes.sql
-│       ├── 20260523053734_04_triggers.sql
-│       ├── 20260523053819_05_rls_policies.sql
-│       ├── 20260523053842_06_seed_select_options.sql
-│       └── ...               # 以降のマイグレーション（定期費用・追加収支・JWT hook 等）
+│   └── migrations/           # データベーススキーマ（正。ファイル名順に適用）
 └── docs/
     ├── setup.md           # 開発環境構築手順（本ファイル）
     ├── specification.md   # 詳細設計書
@@ -515,7 +502,7 @@ supa-db -c "SELECT count(*) FROM pg_stat_activity;"
 
 - **ローカル環境のデータ**は`supabase stop`時に Docker ボリュームに保存されます
 - **重要なデータ変更前**は必ずバックアップを取ってください
-- **スキーマ変更後**は`yarn db:types`で型定義を更新してください
+- **スキーマ変更後**は`yarn db:types-local`で型定義を更新してください（本番から生成する場合のみ `yarn db:types`）
 
 ### セキュリティ
 
