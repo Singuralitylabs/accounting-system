@@ -280,6 +280,7 @@ export const MatterCardDetailModal = ({
             !businessInfo.isRemoved && (
               <BusinessBlock
                 key={businessInfo.id}
+                variant="user"
                 businessInfo={businessInfo}
                 formType="card"
                 index={index}
