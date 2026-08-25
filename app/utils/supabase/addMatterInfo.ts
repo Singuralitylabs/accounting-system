@@ -1,6 +1,12 @@
 import { BusinessType, CostType, MatterType } from "@/app/types/types";
-import { calcMatterTotalsForCreate } from "@/app/utils/matterCalc";
-import { validateMatterPayload } from "@/app/utils/matterValidation";
+import {
+  calcMatterTotalsForCreate,
+  sumBusinessAmounts,
+} from "@/app/utils/matterCalc";
+import {
+  MATTER_VALIDATION_ALERTS,
+  validateMatterPayload,
+} from "@/app/utils/matterValidation";
 import { bulkInsertBusinessInfo } from "./businesses";
 import { bulkInsertCostInfo } from "./costs";
 import { insertMatterInfo } from "./matters";
@@ -88,27 +94,11 @@ const addMatterInfo = async (
     costList
   );
   if (!validation.ok) {
-    if (validation.reason === "matter_required") {
-      alert(
-        `案件名、分類、チーム、案件開始日のいずれかが空欄のため、案件の作成を中止しました。`
-      );
-    } else if (validation.reason === "business_required") {
-      alert(`取引先情報に空欄があるため、案件の作成を中止しました。`);
-    } else if (validation.reason === "business_date_order") {
-      alert(
-        `取引先情報の請求日が振込期限より後になっています。\n案件の作成を中止しました。`
-      );
-    } else if (validation.reason === "cost_required") {
-      alert(`コスト情報に空欄があるため、案件の作成を中止しました。`);
-    }
+    alert(MATTER_VALIDATION_ALERTS[validation.reason]("作成"));
     return false;
   }
 
-  const totalCompensation = businessList.reduce(
-    (sum, business) => sum + (business.amount || 0),
-    0
-  );
-  if (totalCompensation === 0) {
+  if (sumBusinessAmounts(businessList) === 0) {
     const checkCreated = window.confirm(
       "取引先情報の報酬額の合計が0円です。このまま作成して良いでしょうか？"
     );

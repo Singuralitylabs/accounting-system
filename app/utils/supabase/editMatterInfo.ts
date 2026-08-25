@@ -4,7 +4,10 @@ import {
   MatterType,
 } from "../../types/types";
 import { calcMatterTotalsForEdit } from "../matterCalc";
-import { validateMatterPayload } from "../matterValidation";
+import {
+  MATTER_VALIDATION_ALERTS,
+  validateMatterPayload,
+} from "../matterValidation";
 import { bulkUpsertBusinessInfo } from "./businesses";
 import { bulkUpsertCostInfo } from "./costs";
 import { updateMatterInfo } from "./matters";
@@ -32,6 +35,8 @@ export const updateMatter = async (
   return true;
 };
 
+// 現行の更新 UI は useMatterData → updateMatter を直接呼ぶため、この default
+// はどこからも import されない（バリデーションも実行されない）。配線は Phase 6 以降。
 const editMatterInfo = async (
   matterInfo: MatterType,
   businessInfoList: BusinessInCardType[],
@@ -62,19 +67,7 @@ const editMatterInfo = async (
     { skipRemoved: true }
   );
   if (!validation.ok) {
-    if (validation.reason === "matter_required") {
-      alert(
-        `案件名、分類、チーム、案件開始日のいずれかが空欄のため、案件の更新を中止しました。`
-      );
-    } else if (validation.reason === "business_required") {
-      alert(`取引先情報に空欄があるため、案件の更新を中止しました。`);
-    } else if (validation.reason === "business_date_order") {
-      alert(
-        `取引先情報の請求日が振込期限より後になっています。\n案件の更新を中止しました。`
-      );
-    } else if (validation.reason === "cost_required") {
-      alert(`コスト情報に空欄があるため、案件の更新を中止しました。`);
-    }
+    alert(MATTER_VALIDATION_ALERTS[validation.reason]("更新"));
     return false;
   }
 
