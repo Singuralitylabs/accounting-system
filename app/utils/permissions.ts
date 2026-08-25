@@ -27,7 +27,7 @@ export const matchesRoute = (pathname: string, route: string) =>
   pathname === route || pathname.startsWith(`${route}/`);
 
 // ロール制限は無いが、未ログインではアクセスできないルート。
-// `matchesRoute("/", pathname)` は `pathname === "/" || pathname.startsWith("//")`
+// `matchesRoute(pathname, "/")` は `pathname === "/" || pathname.startsWith("//")`
 // なので `/matters` 等の配下にはマッチしない。
 export const AUTH_ONLY_ROUTES = ["/", "/new", "/matters"] as const;
 
