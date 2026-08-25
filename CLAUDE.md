@@ -23,7 +23,7 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 - スキーマ変更後は `yarn db:types-local` を必ず実行し `app/lib/database.types.ts` を更新する。
 - スキーマ変更（テーブル / RLS / トリガー / enum / 初期データなど）は **必ず `supabase/migrations/` に SQL ファイルとして追加する**。命名は `YYYYMMDDHHMMSS_<snake_case_name>.sql`。リモートに直接当てた変更も後追いで同形式のファイルを追加し、ローカルから `supabase db reset` で同じ状態を再現できる状態を維持する。
 - マイグレーションを足したら同じ PR で `docs/database.md` も更新する（テーブル定義 / RLS / トリガーの記載と実物を一致させる）。
-- テストは Vitest（`tests/` 配下、`*.test.ts` 統一、TZ=Asia/Tokyo 固定）。方針・対象・規約は `docs/testing.md` を参照。テスト済みコードを修正したら対応するテストも更新する。
+- テストは Vitest（`tests/` 配下。純粋関数は `*.test.ts`、コンポーネントは `*.test.tsx` + jsdom。TZ=Asia/Tokyo 固定）。方針・対象・規約は `docs/testing.md` を参照。テスト済みコードを修正したら対応するテストも更新する。
 - CI は GitHub Actions（`.github/workflows/`: typecheck+lint / test / build / format-check）。
 
 ## 作業ルール

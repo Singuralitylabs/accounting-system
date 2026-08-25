@@ -15,7 +15,7 @@ import {
 import { useEffect, useState } from "react";
 import LabelText from "../LabelText";
 import BusinessBlockForAccounting from "../BusinessBlockForAccounting";
-import CostBlockForAccounting from "../CostBlockForAccounting";
+import CostBlock from "../CostBlock";
 import {
   useMatterDetail,
   useRevertToFixed,
@@ -242,7 +242,8 @@ export const MatterCardDetailModalForAccounting = ({
       <Grid gutter="md">
         {costList?.map((cost) => (
           <Grid.Col key={cost.id} span={{ base: 12, md: 6, lg: 4 }}>
-            <CostBlockForAccounting
+            <CostBlock
+              variant="accounting"
               cost={cost}
               costList={costList}
               setCostList={setCostList}
