@@ -152,4 +152,24 @@ describe("validateMatterPayload", () => {
       ),
     ).toEqual({ ok: false, reason: "business_required" });
   });
+
+  it("取引先の必須欠落は business_required", () => {
+    expect(
+      validateMatterPayload(
+        validMatter,
+        [{ ...validBusiness, amount: null }],
+        [validCost],
+      ),
+    ).toEqual({ ok: false, reason: "business_required" });
+  });
+
+  it("費用の必須欠落は cost_required", () => {
+    expect(
+      validateMatterPayload(
+        validMatter,
+        [validBusiness],
+        [{ ...validCost, name: "" }],
+      ),
+    ).toEqual({ ok: false, reason: "cost_required" });
+  });
 });
