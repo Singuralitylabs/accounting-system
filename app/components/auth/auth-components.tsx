@@ -6,6 +6,7 @@ import {
 } from "@/app/utils/constants";
 import { useRouter } from "next/navigation";
 import { useSupabase } from "@/app/components/providers/SupabaseProvider";
+import { notifyError } from "@/app/utils/notify";
 
 export const SignIn = () => {
   const { supabase } = useSupabase();
@@ -22,7 +23,7 @@ export const SignIn = () => {
         // 実際の強制はサーバの /auth/callback で行う）
         if (!isAllowedEmailDomain(user.email)) {
           await supabase.auth.signOut();
-          alert(
+          notifyError(
             `${ALLOWED_EMAIL_DOMAIN}のメールアドレスのみログイン可能です。`,
           );
           return;
@@ -49,7 +50,7 @@ export const SignIn = () => {
       }
     } catch (error) {
       console.error("ログイン処理でエラーが発生しました:", error);
-      alert("ログイン処理でエラーが発生しました。");
+      notifyError("ログイン処理でエラーが発生しました。");
     }
   };
 

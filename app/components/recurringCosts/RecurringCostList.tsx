@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import { CiSquarePlus } from "react-icons/ci";
 import { RiDeleteBin6Line } from "react-icons/ri";
 import { ORG_WIDE_TEAM_LABEL } from "@/app/utils/constants";
+import { notifyError, notifySuccess } from "@/app/utils/notify";
 import { PAYMENT_CYCLE_OPTIONS } from "@/app/utils/paymentCycle";
 import { CustomMonthPicker } from "../CustomMonthPicker";
 
@@ -91,18 +92,20 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
     const activeRows = rows.filter((row) => !row.isRemoved);
     for (const row of activeRows) {
       if (!row.name || !row.item || !row.start_month) {
-        alert("名称・品目・適用開始月は必須です。未入力の欄があります。");
+        notifyError("名称・品目・適用開始月は必須です。未入力の欄があります。");
         return;
       }
       if (row.price <= 0) {
-        alert(`「${row.name}」の支払額を入力してください。`);
+        notifyError(`「${row.name}」の支払額を入力してください。`);
         return;
       }
       if (
         row.end_month &&
         row.end_month.slice(0, 7) < row.start_month.slice(0, 7)
       ) {
-        alert(`「${row.name}」の適用終了月が適用開始月より前になっています。`);
+        notifyError(
+          `「${row.name}」の適用終了月が適用開始月より前になっています。`,
+        );
         return;
       }
     }
@@ -113,10 +116,10 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
     try {
       await upsertMutation.mutateAsync(rows);
       setIsDirty(false); // 保存成功後は再取得結果との同期を再開する
-      alert("定期費用情報を更新しました。");
+      notifySuccess("定期費用情報を更新しました。");
     } catch (error) {
       console.error("定期費用情報の保存に失敗しました。", error);
-      alert(
+      notifyError(
         "定期費用情報の更新に失敗しました。一部のみ反映されている可能性があるため、画面を再読み込みして内容を確認してください。",
       );
     }

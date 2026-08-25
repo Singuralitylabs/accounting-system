@@ -1,32 +1,30 @@
-import { notifications } from "@mantine/notifications";
 import { bulkCompleteMatterInfo } from "./matters";
 import { MatterInfoWithUserNameType } from "@/app/types/types";
 
 const checkMatterInfoList = async (
-  matterInfoList: MatterInfoWithUserNameType[]
+  matterInfoList: MatterInfoWithUserNameType[],
 ) => {
   if (matterInfoList.length === 0) {
-    alert("完了にする案件にチェックを入れてください。");
-    return;
+    throw new Error("完了にする案件にチェックを入れてください。");
   }
   const isCompleted = window.confirm(
-    `${matterInfoList.length}件の案件を完了にしますか？`
+    `${matterInfoList.length}件の案件を完了にしますか？`,
   );
   if (!isCompleted) {
-    alert("案件の完了処理を中止しました。");
-    return;
+    return { cancelled: true as const };
   }
 
   // 完了対象を先に選別する（下書きはスキップ、未払いコストありは個別確認）
   const targetMatterIds: number[] = [];
+  const skippedDraftTitles: string[] = [];
   for (const matterInfo of matterInfoList) {
     if (!matterInfo.is_fixed) {
-      alert(`${matterInfo.title}は下書きのため、完了できません。`);
+      skippedDraftTitles.push(matterInfo.title);
       continue;
     }
     if (matterInfo.unchecked_cost_count > 0) {
       const hasUncheckedCost = window.confirm(
-        `${matterInfo.title}には未払いコストがあります。完了してよろしいですか？`
+        `${matterInfo.title}には未払いコストがあります。完了してよろしいですか？`,
       );
       if (!hasUncheckedCost) continue;
     }
@@ -34,26 +32,24 @@ const checkMatterInfoList = async (
   }
 
   if (targetMatterIds.length === 0) {
-    alert("完了対象の案件がありませんでした。");
-    return;
+    throw new Error(
+      skippedDraftTitles.length > 0
+        ? `下書きのため完了できません: ${skippedDraftTitles.join("、")}`
+        : "完了対象の案件がありませんでした。",
+    );
   }
 
-  try {
-    // 1件ずつの更新（件数分の往復）ではなく、一括UPDATE 1回で完了にする
-    const { error } = await bulkCompleteMatterInfo(targetMatterIds);
-    if (error) {
-      throw error;
-    }
-  } catch (error) {
+  const { error } = await bulkCompleteMatterInfo(targetMatterIds);
+  if (error) {
     console.error("案件の完了処理エラー:", error);
-    notifications.show({
-      title: "エラー",
-      message: "案件の完了処理に失敗しました",
-      color: "red",
-    });
-    throw error;
+    throw new Error("案件の完了処理に失敗しました");
   }
-  alert(`案件のチェック処理を完了しました。`);
+
+  return {
+    cancelled: false as const,
+    completedCount: targetMatterIds.length,
+    skippedDraftTitles,
+  };
 };
 
 export default checkMatterInfoList;

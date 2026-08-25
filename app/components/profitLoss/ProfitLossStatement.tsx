@@ -16,6 +16,7 @@ import { Fragment, useState } from "react";
 import { FaChevronDown, FaChevronRight } from "react-icons/fa";
 import { MatterCardDetail } from "../modal/MatterCardDetail";
 import ExtraEntrySection from "./ExtraEntrySection";
+import { notifyError } from "@/app/utils/notify";
 
 type Props = {
   report: PLReportType;
@@ -132,7 +133,7 @@ const ProfitLossStatement = ({ report }: Props) => {
       setLoadingMatterId(matterId);
       const { matterInfo, error } = await getMatterInfoById(matterId);
       if (error || !matterInfo) {
-        alert("案件情報の取得に失敗しました。");
+        notifyError("案件情報の取得に失敗しました。");
         return;
       }
       setSelectedMatter(matterInfo);

@@ -35,8 +35,9 @@ const deleteMatter = async (matter: MatterType) => {
       }
     }
     await deleteMatterInfo(matter.id);
-    alert(`案件[${matter.title}]を削除しました。`);
+    return true;
   }
+  return false;
 };
 
 export default deleteMatter;

@@ -9,6 +9,7 @@ import BusinessBlock from "./BusinessBlock";
 import CostBlock from "./CostBlock";
 import { MatterInfoBlock } from "./MatterInfoBlock";
 import addMatterInfo from "../utils/supabase/addMatterInfo";
+import { notifyError, notifySuccess, toErrorMessage } from "../utils/notify";
 import { useRouter } from "next/navigation";
 import { useAtomValue } from "jotai";
 import { optionsAtom } from "../atoms/optionsAtom";
@@ -134,13 +135,25 @@ const NewMatterForm = () => {
       inserted_at: "",
       updated_at: "",
     };
-    const ret = await addMatterInfo(matterInfo, businessList, costList);
-    if (ret) {
-      form.reset();
-      form.setValues(initialFormValues);
-      setCostList([]);
-      setBusinessList([]);
-      refreshData();
+    try {
+      const ret = await addMatterInfo(matterInfo, businessList, costList);
+      if (ret) {
+        if (is_fixed) {
+          notifySuccess(`${matterInfo.title}の経理申請を完了しました。`);
+        } else {
+          notifySuccess(
+            `${matterInfo.title}の下書き作成を完了しました。\n経理申請まで忘れずご対応をお願い致します。`,
+          );
+        }
+        form.reset();
+        form.setValues(initialFormValues);
+        setCostList([]);
+        setBusinessList([]);
+        refreshData();
+      }
+    } catch (error) {
+      console.error("案件作成に失敗しました:", error);
+      notifyError(toErrorMessage(error, "案件作成に失敗しました。"));
     }
     setIsLoading(false);
   };

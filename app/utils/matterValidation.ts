@@ -104,3 +104,20 @@ export const validateMatterPayload = (
 
   return { ok: true };
 };
+
+export const getMatterValidationMessage = (
+  reason: MatterValidationReason,
+  action: "create" | "update",
+) => {
+  const verb = action === "create" ? "作成" : "更新";
+  if (reason === "matter_required") {
+    return `案件名、分類、チーム、案件開始日のいずれかが空欄のため、案件の${verb}を中止しました。`;
+  }
+  if (reason === "business_required") {
+    return `取引先情報に空欄があるため、案件の${verb}を中止しました。`;
+  }
+  if (reason === "business_date_order") {
+    return `取引先情報の請求日が振込期限より後になっています。\n案件の${verb}を中止しました。`;
+  }
+  return `コスト情報に空欄があるため、案件の${verb}を中止しました。`;
+};

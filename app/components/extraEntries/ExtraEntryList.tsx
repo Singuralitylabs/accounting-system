@@ -6,6 +6,7 @@ import {
   useUpsertExtraEntry,
 } from "@/app/hooks/useExtraEntryData";
 import { ORG_WIDE_TEAM_LABEL } from "@/app/utils/constants";
+import { notifyError, notifySuccess } from "@/app/utils/notify";
 import {
   Autocomplete,
   Button,
@@ -124,37 +125,39 @@ const ExtraEntryList = ({
     for (const row of activeRows) {
       const label = row.description || "（内容未入力の行）";
       if (!row.description) {
-        alert("内容は必須です。未入力の欄があります。");
+        notifyError("内容は必須です。未入力の欄があります。");
         return;
       }
       if (!row.category) {
-        alert(`「${label}」の分類を選択してください。`);
+        notifyError(`「${label}」の分類を選択してください。`);
         return;
       }
       if (!row.manager_id) {
-        alert(`「${label}」の責任者を選択してください。`);
+        notifyError(`「${label}」の責任者を選択してください。`);
         return;
       }
       if (row.entry_type === "income") {
         if (row.billing_amount === null || row.billing_amount === 0) {
-          alert(
+          notifyError(
             `「${label}」の請求額を入力してください（0 は登録できません）。`,
           );
           return;
         }
         if (row.expense_amount === 0) {
-          alert(
+          notifyError(
             `「${label}」の経費が 0 円です。経費が無い場合は空欄にしてください。`,
           );
           return;
         }
       } else {
         if (row.expense_amount === null || row.expense_amount === 0) {
-          alert(`「${label}」の経費を入力してください（0 は登録できません）。`);
+          notifyError(
+            `「${label}」の経費を入力してください（0 は登録できません）。`,
+          );
           return;
         }
         if (!row.payment_method) {
-          alert(`「${label}」の決済方法を選択してください。`);
+          notifyError(`「${label}」の決済方法を選択してください。`);
           return;
         }
       }
@@ -166,10 +169,10 @@ const ExtraEntryList = ({
     try {
       await upsertMutation.mutateAsync(rows);
       setIsDirty(false); // 保存成功後は再取得結果との同期を再開する
-      alert("経理追加収支情報を更新しました。");
+      notifySuccess("経理追加収支情報を更新しました。");
     } catch (error) {
       console.error("経理追加収支情報の保存に失敗しました。", error);
-      alert(
+      notifyError(
         "経理追加収支情報の更新に失敗しました。一部のみ反映されている可能性があるため、画面を再読み込みして内容を確認してください。",
       );
     }

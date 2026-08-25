@@ -20,6 +20,7 @@ import {
   compactMatterListFilters,
   hasMatterListFilters,
 } from "../../utils/matterListFilters";
+import { notifyError } from "../../utils/notify";
 
 export const AccountingMatterList = ({
   initialData,
@@ -104,7 +105,6 @@ export const AccountingMatterList = ({
         setCheckedMatterIdList([]);
       } catch (error) {
         console.error("確認完了に失敗しました:", error);
-        alert("確認完了に失敗しました。");
       }
     }
   }, [headerMatterList, checkedMatterIdList, checkCompletedMutation]);
@@ -112,11 +112,11 @@ export const AccountingMatterList = ({
   const handleSendMessage = useCallback(
     async (message: string) => {
       if (checkedMatterIdList.length === 0) {
-        alert("送信対象となる案件にチェックを入れてください。");
+        notifyError("送信対象となる案件にチェックを入れてください。");
         return;
       }
       if (!message.trim()) {
-        alert("メッセージを入力してください。");
+        notifyError("メッセージを入力してください。");
         return;
       }
 
@@ -139,17 +139,17 @@ export const AccountingMatterList = ({
         setCheckedMatterIdList([]);
 
         if (dbUpdateFailed) {
-          alert(
+          notifyError(
             "Slack通知は送信しましたが、案件のステータス更新に失敗しました。\n画面を再読み込みして状態を確認してください。",
           );
         } else if (failedTitles.length > 0) {
-          alert(
+          notifyError(
             `以下の案件のSlack通知に失敗しました。対象を再選択して送信し直してください。\n${failedTitles.join("\n")}`,
           );
         }
       } catch (error) {
         console.error("Slack通知に失敗しました:", error);
-        alert("Slack通知に失敗しました。");
+        notifyError("Slack通知に失敗しました。");
       }
     },
     [checkedMatterIdList, headerMatterList, slackNotificationMutation],

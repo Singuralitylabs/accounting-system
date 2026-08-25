@@ -4,6 +4,7 @@ import { Table, Title, LoadingOverlay } from "@mantine/core";
 import { ProfilesType } from "../types/types";
 import { useState } from "react";
 import updateProfile from "../utils/supabase/updateProfile";
+import { notifyError, notifySuccess, toErrorMessage } from "../utils/notify";
 import { useViewportSize } from "@mantine/hooks";
 import UserCard from "./UserCard";
 import UserTable from "./UserTable";
@@ -45,9 +46,12 @@ const UserList = ({ userList }: { userList: ProfilesType[] }) => {
         return;
       }
       await updateProfile({ profile: user });
+      notifySuccess("ユーザー情報を保存しました。");
       setIsLoading(false);
     } catch (error) {
       console.error("ユーザー情報の保存に失敗しました:", error);
+      notifyError(toErrorMessage(error, "ユーザー情報の保存に失敗しました。"));
+      setIsLoading(false);
     }
   };
 

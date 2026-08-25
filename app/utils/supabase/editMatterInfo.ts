@@ -4,7 +4,10 @@ import {
   MatterType,
 } from "../../types/types";
 import { calcMatterTotalsForEdit } from "../matterCalc";
-import { validateMatterPayload } from "../matterValidation";
+import {
+  getMatterValidationMessage,
+  validateMatterPayload,
+} from "../matterValidation";
 import { bulkUpsertBusinessInfo } from "./businesses";
 import { bulkUpsertCostInfo } from "./costs";
 import { updateMatterInfo } from "./matters";
@@ -62,40 +65,17 @@ const editMatterInfo = async (
     { skipRemoved: true }
   );
   if (!validation.ok) {
-    if (validation.reason === "matter_required") {
-      alert(
-        `案件名、分類、チーム、案件開始日のいずれかが空欄のため、案件の更新を中止しました。`
-      );
-    } else if (validation.reason === "business_required") {
-      alert(`取引先情報に空欄があるため、案件の更新を中止しました。`);
-    } else if (validation.reason === "business_date_order") {
-      alert(
-        `取引先情報の請求日が振込期限より後になっています。\n案件の更新を中止しました。`
-      );
-    } else if (validation.reason === "cost_required") {
-      alert(`コスト情報に空欄があるため、案件の更新を中止しました。`);
-    }
-    return false;
+    throw new Error(getMatterValidationMessage(validation.reason, "update"));
   }
 
   try {
-    const ret = await updateMatter(matterInfo, businessInfoList, costInfoList);
-    if (ret) {
-      if (matterInfo.is_fixed) {
-        alert(`案件[${matterInfo.title}]を経理申請しました。`);
-      } else {
-        alert(`案件[${matterInfo.title}]を更新しました。`);
-      }
-      return true;
-    }
+    return await updateMatter(matterInfo, businessInfoList, costInfoList);
   } catch (err) {
-    if (matterInfo.is_fixed) {
-      alert(`案件[${matterInfo.title}]の経理申請に失敗しました。`);
-      console.error(`案件[${matterInfo.title}]の経理申請に失敗しました。`, err);
-    } else {
-      alert(`案件[${matterInfo.title}]の更新に失敗しました。`);
-      console.error(`案件[${matterInfo.title}]の更新に失敗しました。`, err);
-    }
+    const message = matterInfo.is_fixed
+      ? `案件[${matterInfo.title}]の経理申請に失敗しました。`
+      : `案件[${matterInfo.title}]の更新に失敗しました。`;
+    console.error(message, err);
+    throw new Error(message);
   }
 };
 

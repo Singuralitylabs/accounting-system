@@ -3,7 +3,9 @@ import { Footer } from "./components/Footer";
 import "./globals.css";
 import "@mantine/core/styles.css";
 import "@mantine/dates/styles.css";
+import "@mantine/notifications/styles.css";
 import { MantineProvider, ColorSchemeScript } from "@mantine/core";
+import { Notifications } from "@mantine/notifications";
 import SupabaseProvider from "./components/providers/SupabaseProvider";
 import AuthProvider from "./components/auth/AuthProvider";
 import { QueryProvider } from "./components/providers/QueryProvider";
@@ -30,6 +32,7 @@ export default async function RootLayout({
         <SupabaseProvider>
           <QueryProvider>
             <MantineProvider>
+              <Notifications />
               <DatesLocaleProvider>
                 <AuthProvider>
                   {children}
