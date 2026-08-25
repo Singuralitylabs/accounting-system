@@ -86,7 +86,7 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 
 ## 主要ファイル
 
-- `middleware.ts` — ルート保護 & ロール判定（判定ロジックは `app/utils/routeGuard.ts`）
+- `middleware.ts` — ルート保護 & ロール判定（判定ロジックは `app/utils/routeGuard.ts`。`matchesRoute` は `permissions.ts`）
 - `app/layout.tsx` — Provider スタック / `force-dynamic`
 - `app/components/providers/` — `SupabaseProvider`, `QueryProvider`, `DatesLocaleProvider`, `InitialOptionalLoader`
 - `app/utils/matterCalc.ts` / `app/utils/matterValidation.ts` — 案件の金額集計と必須・日付バリデーション

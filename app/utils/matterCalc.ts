@@ -1,23 +1,24 @@
-type AmountRow = {
-  amount?: number | null;
-};
+import type {
+  BusinessInCardType,
+  BusinessType,
+  CostInCardType,
+  CostType,
+} from "../types/types";
+
+type AmountRow = Pick<BusinessType, "amount">;
 
 type PriceRow = {
-  price?: number | null;
+  price: CostType["price"] | null;
 };
 
-type EditableBusiness = AmountRow & {
-  isRemoved?: boolean;
-};
+type EditableBusiness = AmountRow &
+  Pick<Partial<BusinessInCardType>, "isRemoved">;
 
-type EditableCost = PriceRow & {
-  isRemoved?: boolean;
-  is_completed?: boolean | null;
-  isNew?: boolean;
-};
+type EditableCost = PriceRow &
+  Pick<Partial<CostInCardType>, "isRemoved" | "is_completed" | "isNew">;
 
 /**
- * 案件作成時の合計請求額。`amount` が falsy（null / 0 / undefined）の行は足さない。
+ * 案件作成時の合計請求額。`amount` が falsy（null / 0）の行は足さない。
  * `addMatterInfo` の既存 reduce と同一。
  */
 export const sumBusinessAmounts = (businessList: AmountRow[]) =>
