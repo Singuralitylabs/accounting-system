@@ -3,8 +3,7 @@ import {
   getProfileInfo,
   insertUserInfo,
 } from "@/app/utils/supabase/supabaseServer";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
-import { cookies } from "next/headers";
+import { createServerSupabase } from "@/app/utils/supabase/clients";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
@@ -12,7 +11,7 @@ export async function GET(request: Request) {
   const code = requestUrl.searchParams.get("code");
 
   if (code) {
-    const supabase = createRouteHandlerClient({ cookies });
+    const supabase = createServerSupabase();
     const { error: exchangeError } =
       await supabase.auth.exchangeCodeForSession(code);
 
