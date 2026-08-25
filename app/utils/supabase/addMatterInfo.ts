@@ -4,7 +4,7 @@ import {
   sumBusinessAmounts,
 } from "@/app/utils/matterCalc";
 import {
-  MATTER_VALIDATION_ALERTS,
+  getMatterValidationMessage,
   validateMatterPayload,
 } from "@/app/utils/matterValidation";
 import { bulkInsertBusinessInfo } from "./businesses";
@@ -75,7 +75,6 @@ const addMatterInfo = async (
       `案件[${matterInfo.title}]を経理申請しますか？`
     );
     if (!checkCreated) {
-      alert(`案件[${matterInfo.title}]の経理申請を中止しました。`);
       return;
     }
   } else {
@@ -83,7 +82,6 @@ const addMatterInfo = async (
       `案件[${matterInfo.title}]の下書きを作成しますか？\n作成した案件は経理申請扱いにはなりませんが、経理に共有はされます。`
     );
     if (!checkCreated) {
-      alert(`案件[${matterInfo.title}]の下書き作成を中止しました。`);
       return;
     }
   }
@@ -94,8 +92,7 @@ const addMatterInfo = async (
     costList
   );
   if (!validation.ok) {
-    alert(MATTER_VALIDATION_ALERTS[validation.reason]("作成"));
-    return false;
+    throw new Error(getMatterValidationMessage(validation.reason, "create"));
   }
 
   if (sumBusinessAmounts(businessList) === 0) {
@@ -103,30 +100,19 @@ const addMatterInfo = async (
       "取引先情報の報酬額の合計が0円です。このまま作成して良いでしょうか？"
     );
     if (!checkCreated) {
-      alert("経理申請を中止しました。");
       return;
     }
   }
 
   try {
-    const ret = await insertMatter(matterInfo, businessList, costList);
-    if (ret) {
-      if (matterInfo.is_fixed) {
-        alert(`${matterInfo.title}の経理申請を完了しました。`);
-      } else {
-        alert(
-          `${matterInfo.title}の下書き作成を完了しました。\n経理申請まで忘れずご対応をお願い致します。`
-        );
-      }
-    }
-    return ret;
+    return await insertMatter(matterInfo, businessList, costList);
   } catch (error) {
-    if (matterInfo.is_fixed) {
-      alert(`${matterInfo.title}の経理申請に失敗しました。`);
-    } else {
-      alert(`${matterInfo.title}の下書き作成に失敗しました。`);
-    }
     console.error(error);
+    throw new Error(
+      matterInfo.is_fixed
+        ? `${matterInfo.title}の経理申請に失敗しました。`
+        : `${matterInfo.title}の下書き作成に失敗しました。`,
+    );
   }
 };
 

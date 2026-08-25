@@ -4,6 +4,7 @@ import { Button, LoadingOverlay, Table, Title } from "@mantine/core";
 import { SelectOptionType } from "../types/types";
 import { useState } from "react";
 import { bulkUpsertSelectOptions } from "../utils/supabase/selectOptions";
+import { notifyError, notifySuccess } from "../utils/notify";
 import {
   DndContext,
   closestCenter,
@@ -109,7 +110,7 @@ const SelectOptionList = ({
       setIsLoading(true);
       for (const option of updatedOptionList) {
         if (!option.value && option.is_active) {
-          alert("未入力の欄があります。");
+          notifyError("未入力の欄があります。");
           return;
         }
       }
@@ -118,9 +119,10 @@ const SelectOptionList = ({
       if (!confirm) return;
 
       await bulkUpsertSelectOptions(optionClass, updatedOptionList);
-      alert(`${optionTitle}情報を更新しました。`);
+      notifySuccess(`${optionTitle}情報を更新しました。`);
     } catch (error) {
       console.error(`${optionTitle}情報の保存に失敗しました。`, error);
+      notifyError(`${optionTitle}情報の保存に失敗しました。`);
     } finally {
       setIsLoading(false);
     }

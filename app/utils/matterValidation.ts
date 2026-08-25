@@ -114,3 +114,8 @@ export const validateMatterPayload = (
 
   return { ok: true };
 };
+
+export const getMatterValidationMessage = (
+  reason: MatterValidationReason,
+  action: "create" | "update",
+) => MATTER_VALIDATION_ALERTS[reason](action === "create" ? "作成" : "更新");

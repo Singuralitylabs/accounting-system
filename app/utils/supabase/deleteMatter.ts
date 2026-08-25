@@ -26,8 +26,9 @@ const deleteMatter = async (matter: MatterType) => {
       console.error("Error deleting matter:", matterError);
       throw new Error("案件情報の削除に失敗しました。");
     }
-    alert(`案件[${matter.title}]を削除しました。`);
+    return true;
   }
+  return false;
 };
 
 export default deleteMatter;

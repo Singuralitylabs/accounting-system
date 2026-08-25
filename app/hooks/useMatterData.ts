@@ -13,6 +13,16 @@ import {
   MatterListFilters,
 } from "../utils/matterListFilters";
 import {
+  getMatterValidationMessage,
+  validateMatterPayload,
+} from "../utils/matterValidation";
+import {
+  notifyError,
+  notifyInfo,
+  notifySuccess,
+  toErrorMessage,
+} from "../utils/notify";
+import {
   MatterType,
   CostInCardType,
   BusinessInCardType,
@@ -121,8 +131,24 @@ export const useUpdateMatter = () => {
       matterInfo: MatterType;
       businessInfoList: BusinessInCardType[];
       costInfoList: CostInCardType[];
-    }) =>
-      updateMatter(data.matterInfo, data.businessInfoList, data.costInfoList),
+    }) => {
+      const validation = validateMatterPayload(
+        data.matterInfo,
+        data.businessInfoList,
+        data.costInfoList,
+        { skipRemoved: true },
+      );
+      if (!validation.ok) {
+        throw new Error(
+          getMatterValidationMessage(validation.reason, "update"),
+        );
+      }
+      return updateMatter(
+        data.matterInfo,
+        data.businessInfoList,
+        data.costInfoList,
+      );
+    },
     onSuccess: (_, variables) => {
       // 特定の matter だけを無効化
       queryClient.invalidateQueries({
@@ -133,6 +159,7 @@ export const useUpdateMatter = () => {
     },
     onError: (error) => {
       console.error("案件更新エラー:", error);
+      notifyError(toErrorMessage(error, "案件の更新に失敗しました。"));
     },
   });
 };
@@ -148,12 +175,22 @@ export const useCreateMatter = () => {
       costInfoList: CostInCardType[];
     }) =>
       addMatterInfo(data.matterInfo, data.businessInfoList, data.costInfoList),
-    onSuccess: () => {
-      // 全ての案件一覧を無効化
+    onSuccess: (created, variables) => {
+      if (!created) return;
       queryClient.invalidateQueries({ queryKey: ["matters"] });
+      if (variables.matterInfo.is_fixed) {
+        notifySuccess(
+          `${variables.matterInfo.title}の経理申請を完了しました。`,
+        );
+      } else {
+        notifySuccess(
+          `${variables.matterInfo.title}の下書き作成を完了しました。\n経理申請まで忘れずご対応をお願い致します。`,
+        );
+      }
     },
     onError: (error) => {
       console.error("案件作成エラー:", error);
+      notifyError(toErrorMessage(error, "案件作成に失敗しました。"));
     },
   });
 };
@@ -164,14 +201,15 @@ export const useDeleteMatter = () => {
 
   return useMutation({
     mutationFn: (matter: MatterType) => deleteMatter(matter),
-    onSuccess: (_, deletedMatter) => {
-      // 削除された案件のキャッシュを削除
+    onSuccess: (deleted, deletedMatter) => {
+      if (!deleted) return;
       queryClient.removeQueries({ queryKey: ["matter", deletedMatter.id] });
-      // 一覧を無効化
       queryClient.invalidateQueries({ queryKey: ["matters"] });
+      notifySuccess(`案件[${deletedMatter.title}]を削除しました。`);
     },
     onError: (error) => {
       console.error("案件削除エラー:", error);
+      notifyError(toErrorMessage(error, "案件削除に失敗しました。"));
     },
   });
 };
@@ -251,14 +289,21 @@ export const useCheckCompleted = () => {
       const checkMatterInfoList = (
         await import("../utils/supabase/checkMatterInfoList")
       ).default;
-      await checkMatterInfoList(matters);
+      return checkMatterInfoList(matters);
     },
-    onSuccess: () => {
-      // 全ての案件一覧を無効化
+    onSuccess: (result) => {
+      if (!result || result.cancelled) return;
       queryClient.invalidateQueries({ queryKey: ["matters"] });
+      if (result.skippedDraftTitles.length > 0) {
+        notifyInfo(
+          `下書きのため完了できません: ${result.skippedDraftTitles.join("、")}`,
+        );
+      }
+      notifySuccess("案件のチェック処理を完了しました。");
     },
     onError: (error) => {
       console.error("確認完了エラー:", error);
+      notifyError(toErrorMessage(error, "確認完了に失敗しました。"));
     },
   });
 };

@@ -1,5 +1,5 @@
 import { sendSlackNotification } from "@/app/actions";
-import { notifications } from "@mantine/notifications";
+import { notifyError, notifySuccess } from "@/app/utils/notify";
 
 const sendMessageToSlack = async (
   slackId: string,
@@ -15,19 +15,11 @@ const sendMessageToSlack = async (
     if (slackResult.error) {
       throw new Error(slackResult.error);
     }
-    notifications.show({
-      title: "通知成功",
-      message: "担当者への通知が完了しました",
-      color: "green",
-    });
+    notifySuccess("担当者への通知が完了しました", "通知成功");
     return true; // 成功時にtrueを返す
   } catch (error) {
     console.error("通知送信エラー:", error);
-    notifications.show({
-      title: "エラー",
-      message: `${title}の通知に失敗しました`,
-      color: "red",
-    });
+    notifyError(`${title}の通知に失敗しました`);
     return false;
   }
 };

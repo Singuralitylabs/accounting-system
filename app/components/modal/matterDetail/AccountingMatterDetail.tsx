@@ -18,6 +18,7 @@ import { useEffect, useState } from "react";
 import LabelText from "../../LabelText";
 import BusinessBlock from "../../BusinessBlock";
 import CostBlock from "../../CostBlock";
+import { notifyError } from "@/app/utils/notify";
 import {
   useMatterDetail,
   useRevertToFixed,
@@ -112,7 +113,7 @@ export function AccountingMatterDetail({
       closeModal();
     } catch (error) {
       console.error("保存に失敗しました:", error);
-      alert("保存に失敗しました。");
+      notifyError("保存に失敗しました。");
     }
   };
 
@@ -134,7 +135,7 @@ export function AccountingMatterDetail({
       closeModal();
     } catch (error) {
       console.error("確認完了に失敗しました:", error);
-      alert("確認完了に失敗しました。");
+      notifyError("確認完了に失敗しました。");
     }
   };
 
@@ -154,7 +155,7 @@ export function AccountingMatterDetail({
       closeModal();
     } catch (error) {
       console.error("申請中に戻すのに失敗しました:", error);
-      alert("申請中に戻すのに失敗しました。");
+      notifyError("申請中に戻すのに失敗しました。");
     }
   };
 
@@ -174,7 +175,7 @@ export function AccountingMatterDetail({
       closeModal();
     } catch (error) {
       console.error("下書きに戻すのに失敗しました:", error);
-      alert("下書きに戻すのに失敗しました。");
+      notifyError("下書きに戻すのに失敗しました。");
     }
   };
 

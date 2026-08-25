@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  getMatterValidationMessage,
   hasCostRequiredFields,
   hasMatterRequiredFields,
   MATTER_VALIDATION_ALERTS,
@@ -186,5 +187,25 @@ describe("validateMatterPayload", () => {
       expect(MATTER_VALIDATION_ALERTS[reason]("作成")).toContain("作成");
       expect(MATTER_VALIDATION_ALERTS[reason]("更新")).toContain("更新");
     }
+  });
+});
+
+describe("getMatterValidationMessage", () => {
+  it("作成と更新で動詞だけが変わる", () => {
+    expect(getMatterValidationMessage("matter_required", "create")).toBe(
+      "案件名、分類、チーム、案件開始日のいずれかが空欄のため、案件の作成を中止しました。",
+    );
+    expect(getMatterValidationMessage("matter_required", "update")).toBe(
+      "案件名、分類、チーム、案件開始日のいずれかが空欄のため、案件の更新を中止しました。",
+    );
+  });
+
+  it("取引先の日付順とコスト必須の文言を返す", () => {
+    expect(getMatterValidationMessage("business_date_order", "create")).toBe(
+      "取引先情報の請求日が振込期限より後になっています。\n案件の作成を中止しました。",
+    );
+    expect(getMatterValidationMessage("cost_required", "update")).toBe(
+      "コスト情報に空欄があるため、案件の更新を中止しました。",
+    );
   });
 });

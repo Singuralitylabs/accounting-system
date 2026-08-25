@@ -5,7 +5,7 @@ import {
 } from "../../types/types";
 import { calcMatterTotalsForEdit } from "../matterCalc";
 import {
-  MATTER_VALIDATION_ALERTS,
+  getMatterValidationMessage,
   validateMatterPayload,
 } from "../matterValidation";
 import { bulkUpsertBusinessInfo } from "./businesses";
@@ -67,28 +67,17 @@ const editMatterInfo = async (
     { skipRemoved: true }
   );
   if (!validation.ok) {
-    alert(MATTER_VALIDATION_ALERTS[validation.reason]("更新"));
-    return false;
+    throw new Error(getMatterValidationMessage(validation.reason, "update"));
   }
 
   try {
-    const ret = await updateMatter(matterInfo, businessInfoList, costInfoList);
-    if (ret) {
-      if (matterInfo.is_fixed) {
-        alert(`案件[${matterInfo.title}]を経理申請しました。`);
-      } else {
-        alert(`案件[${matterInfo.title}]を更新しました。`);
-      }
-      return true;
-    }
+    return await updateMatter(matterInfo, businessInfoList, costInfoList);
   } catch (err) {
-    if (matterInfo.is_fixed) {
-      alert(`案件[${matterInfo.title}]の経理申請に失敗しました。`);
-      console.error(`案件[${matterInfo.title}]の経理申請に失敗しました。`, err);
-    } else {
-      alert(`案件[${matterInfo.title}]の更新に失敗しました。`);
-      console.error(`案件[${matterInfo.title}]の更新に失敗しました。`, err);
-    }
+    const message = matterInfo.is_fixed
+      ? `案件[${matterInfo.title}]の経理申請に失敗しました。`
+      : `案件[${matterInfo.title}]の更新に失敗しました。`;
+    console.error(message, err);
+    throw new Error(message);
   }
 };
 
