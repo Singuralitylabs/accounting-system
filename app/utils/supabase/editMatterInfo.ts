@@ -3,6 +3,8 @@ import {
   CostInCardType,
   MatterType,
 } from "../../types/types";
+import { calcMatterTotalsForEdit } from "../matterCalc";
+import { validateMatterPayload } from "../matterValidation";
 import {
   bulkUpsertBusinessInfo,
   bulkUpsertCostInfo,
@@ -14,23 +16,12 @@ export const updateMatter = async (
   businessInfoList: BusinessInCardType[],
   costInfoList: CostInCardType[]
 ) => {
-  matterInfo.total_amount = businessInfoList.reduce((acc, business) => {
-    return business.amount && !business.isRemoved ? acc + business.amount : acc;
-  }, 0);
-
-  matterInfo.business_count = businessInfoList.filter(
-    (business) => !business.isRemoved
-  ).length;
-
-  matterInfo.total_cost = costInfoList.reduce((acc, cost) => {
-    return cost.price && !cost.isRemoved ? acc + cost.price : acc;
-  }, 0);
-
-  matterInfo.cost_count = costInfoList.filter((cost) => !cost.isRemoved).length;
-
-  matterInfo.unchecked_cost_count = costInfoList.filter(
-    (cost) => !cost.isRemoved && (!cost.is_completed || cost.isNew)
-  ).length;
+  const totals = calcMatterTotalsForEdit(businessInfoList, costInfoList);
+  matterInfo.total_amount = totals.total_amount;
+  matterInfo.business_count = totals.business_count;
+  matterInfo.total_cost = totals.total_cost;
+  matterInfo.cost_count = totals.cost_count;
+  matterInfo.unchecked_cost_count = totals.unchecked_cost_count;
 
   // まず matter 情報を更新
   await updateMatterInfo(matterInfo);
@@ -66,51 +57,27 @@ const editMatterInfo = async (
     return false;
   }
 
-  if (
-    !matterInfo.title ||
-    !matterInfo.category ||
-    !matterInfo.team ||
-    !matterInfo.start_date
-  ) {
-    alert(
-      `案件名、分類、チーム、案件開始日のいずれかが空欄のため、案件の更新を中止しました。`
-    );
-    return false;
-  }
-
-  for (const business of businessInfoList) {
-    if (business.isRemoved) continue;
-    if (
-      !business.name ||
-      business.amount === null ||
-      !business.invoice_date ||
-      !business.period_date
-    ) {
+  const validation = validateMatterPayload(
+    matterInfo,
+    businessInfoList,
+    costInfoList,
+    { skipRemoved: true }
+  );
+  if (!validation.ok) {
+    if (validation.reason === "matter_required") {
+      alert(
+        `案件名、分類、チーム、案件開始日のいずれかが空欄のため、案件の更新を中止しました。`
+      );
+    } else if (validation.reason === "business_required") {
       alert(`取引先情報に空欄があるため、案件の更新を中止しました。`);
-      return false;
-    }
-    const invoice_date = new Date(business.invoice_date);
-    const period_date = new Date(business.period_date);
-    if (invoice_date.getTime() > period_date.getTime()) {
+    } else if (validation.reason === "business_date_order") {
       alert(
         `取引先情報の請求日が振込期限より後になっています。\n案件の更新を中止しました。`
       );
-      return false;
-    }
-  }
-  for (const cost of costInfoList) {
-    if (cost.isRemoved) continue;
-    if (
-      !cost.name ||
-      !cost.item ||
-      !cost.payment_target ||
-      cost.price === null ||
-      !cost.period ||
-      !cost.certificate
-    ) {
+    } else if (validation.reason === "cost_required") {
       alert(`コスト情報に空欄があるため、案件の更新を中止しました。`);
-      return false;
     }
+    return false;
   }
 
   try {
