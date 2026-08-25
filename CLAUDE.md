@@ -30,7 +30,7 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 
 - 作業ブランチへの commit / push は確認不要。ただし **push 前に `yarn typecheck && yarn lint && yarn test && yarn build && yarn format:check` をローカルで通すこと**。
 - `main` へ直接 push しない。変更は作業ブランチ＋PR を経由する。
-- PR のマージはユーザーが判断する。CI green ＋レビュー完了までが担当範囲。
+- **PR のマージは禁止。** `gh pr merge`、GitHub MCP の merge、`main` への merge / push をエージェントが実行してはならない。マージはユーザーだけが行う。担当範囲は CI green ＋レビュー完了まで。
 
 ## アーキテクチャ
 
