@@ -1,9 +1,7 @@
 "use server";
 
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
-import { cookies } from "next/headers";
-import { Database } from "../../lib/database.types";
 import { RecurringCostInListType } from "../../types/types";
+import { createServerSupabase } from "./clients";
 
 // 月初日（YYYY-MM-01）の date 文字列に正規化する
 const toFirstOfMonth = (dateStr: string | null): string | null =>
@@ -23,7 +21,7 @@ const toDbRow = (rc: RecurringCostInListType) => ({
 });
 
 export const getRecurringCostList = async () => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const { data: recurringCostList, error } = await supabase
     .from("recurring_costs")
@@ -40,7 +38,7 @@ export const getRecurringCostList = async () => {
 export const bulkUpsertRecurringCost = async (
   recurringCosts: RecurringCostInListType[]
 ) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   // 新規作成用
   const newCosts = recurringCosts.filter((rc) => rc.isNew && !rc.isRemoved);

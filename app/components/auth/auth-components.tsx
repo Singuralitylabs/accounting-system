@@ -1,14 +1,14 @@
 "use client";
 
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import {
   ALLOWED_EMAIL_DOMAIN,
   isAllowedEmailDomain,
 } from "@/app/utils/constants";
 import { useRouter } from "next/navigation";
+import { useSupabase } from "@/app/components/providers/SupabaseProvider";
 
 export const SignIn = () => {
-  const supabase = createClientComponentClient();
+  const { supabase } = useSupabase();
   const router = useRouter();
 
   const handleSignIn = async () => {

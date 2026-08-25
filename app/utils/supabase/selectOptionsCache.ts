@@ -1,7 +1,5 @@
 import { cache } from "react";
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
-import { cookies } from "next/headers";
-import { Database } from "../../lib/database.types";
+import { createServerSupabase } from "./clients";
 
 export type ActiveSelectOptionType = {
   id: number;
@@ -28,7 +26,7 @@ export type ActiveSelectOptionsResult = {
 // 古い選択肢を配信しうるため使わない。
 const fetchActiveSelectOptions = cache(
   async (): Promise<ActiveSelectOptionsResult> => {
-    const supabase = createServerComponentClient<Database>({ cookies });
+    const supabase = createServerSupabase();
 
     const { data, error } = await supabase
       .from("select_options")

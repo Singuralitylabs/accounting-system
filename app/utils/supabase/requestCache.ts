@@ -1,7 +1,6 @@
 import { cache } from "react";
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
-import { cookies } from "next/headers";
 import { Database } from "../../lib/database.types";
+import { createServerSupabase } from "./clients";
 
 // 同一リクエスト（RSC レンダリング）内での auth.getUser() / プロフィール取得を
 // 1 回にデデュープするためのキャッシュ。
@@ -20,7 +19,7 @@ export type ProfileInfoResult =
   | { profileInfo?: undefined; error: Error };
 
 export const getCachedUser = cache(async () => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const {
     data: { user },
@@ -32,7 +31,7 @@ export const getCachedUser = cache(async () => {
 
 export const getCachedProfileInfoById = cache(
   async (userId: string): Promise<ProfileInfoResult> => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const { data: profileInfo, error: profileError } = await supabase
     .from("profiles")

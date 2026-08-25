@@ -1,14 +1,12 @@
 "use server";
 
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
-import { cookies } from "next/headers";
-import { Database } from "../../lib/database.types";
 import {
   AnnualTrendType,
   MatterInfoWithUserNameType,
   PLReportType,
 } from "../../types/types";
 import { PL_ALLOWED_CLASSES, hasClassAccess } from "../permissions";
+import { createServerSupabase } from "./clients";
 import {
   BusinessRow,
   CostRow,
@@ -24,7 +22,7 @@ import { getProfileInfo } from "./supabaseServer";
 // ペイロードが問題になったら、対象期間（invoice_date / period の範囲＋ NULL 行）で
 // 絞り込む WHERE 句の追加を検討する。
 const fetchReportSourceRows = async () => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const [businessResult, costResult, recurringResult, extraResult] =
     await Promise.all([
@@ -135,7 +133,7 @@ export const getAnnualTrend = async (
 
 // 案件情報の単体取得（損益計算書の「案件を表示」ボタン → 案件詳細モーダル用）
 export const getMatterInfoById = async (matterId: number) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const { data, error } = await supabase
     .from("matters")

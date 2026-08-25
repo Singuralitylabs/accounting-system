@@ -1,15 +1,11 @@
 "use server";
 
-import {
-  createServerComponentClient,
-  User,
-} from "@supabase/auth-helpers-nextjs";
-import { cookies } from "next/headers";
-import { Database } from "../../lib/database.types";
+import { User } from "@supabase/auth-helpers-nextjs";
 import { MatterType, ProfilesType } from "../../types/types";
 import { isAllowedEmailDomain } from "../constants";
 import { getCachedProfileInfo, getCachedProfileInfoById } from "./requestCache";
 import { getActiveSelectOptionsByType } from "./selectOptionsCache";
+import { createServerSupabase } from "./clients";
 
 export const getProfileInfo = async () => {
   try {
@@ -30,7 +26,7 @@ export const getProfileInfoById = async (userId: string) => {
 };
 
 export const getAllUserInfo = async () => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const { data: userInfoList } = await supabase
     .from("profiles")
@@ -56,7 +52,7 @@ export const insertUserInfo = async ({
     return { error: new Error("許可されていないドメインのメールアドレスです。") };
   }
 
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   try {
     const { error: insertError } = await supabase
@@ -94,7 +90,7 @@ export const updateUserInfo = async ({
 }: {
   profile: ProfilesType;
 }) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   try {
     const { error: updateError } = await supabase
@@ -124,7 +120,7 @@ export const updateUserInfo = async ({
 };
 
 export const getAllMatterInfoList = async () => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const { data: matterList, error } = await supabase
     .from("matters")
@@ -150,7 +146,7 @@ export const getAllMatterInfoList = async () => {
 };
 
 export const getUserMatterInfoList = async () => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const { profileInfo: profileInfo, error } = await getProfileInfo();
   if (error || !profileInfo) {
@@ -175,7 +171,7 @@ export const getUserMatterInfoList = async () => {
 };
 
 export const getTeamMatterInfoList = async () => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const { profileInfo, error } = await getProfileInfo();
   if (error || !profileInfo) {
@@ -215,7 +211,7 @@ export const getTeamMatterInfoList = async () => {
 };
 
 export const getCompletedUserMatterInfoList = async () => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const { data: matterList } = await supabase
     .from("matters")
@@ -237,7 +233,7 @@ export const insertMatterInfo = async (
   cost_count: number,
   description: string | null
 ) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const { profileInfo: profileInfo, error } = await getProfileInfo();
   if (error || !profileInfo) {
@@ -284,7 +280,7 @@ export const insertMatterInfo = async (
 };
 
 export const updateMatterInfo = async (matterInfo: MatterType) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const { data: status, error } = await supabase
     .from("matters")
@@ -307,7 +303,7 @@ export const updateMatterInfo = async (matterInfo: MatterType) => {
 // 1件ずつ updateMatterInfo を呼ぶと Server Action の往復が件数分発生するため、
 // 一括 UPDATE 1回にまとめる。
 export const bulkCompleteMatterInfo = async (matterIds: number[]) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const { error } = await supabase
     .from("matters")
@@ -328,7 +324,7 @@ export const bulkCompleteMatterInfo = async (matterIds: number[]) => {
 // 複数案件を一括で下書き（is_fixed = false）に戻す。
 // Slack 通知後の差し戻し処理で使用する。
 export const bulkUnfixMatterInfo = async (matterIds: number[]) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const { error } = await supabase
     .from("matters")
@@ -347,7 +343,7 @@ export const bulkUnfixMatterInfo = async (matterIds: number[]) => {
 };
 
 export const deleteMatterInfo = async (id: number) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const { data: status, error } = await supabase
     .from("matters")
@@ -363,7 +359,7 @@ export const deleteMatterInfo = async (id: number) => {
 };
 
 export const getUserCostInfoList = async (matter_id: number) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const { data: costInfoList, error } = await supabase
     .from("costs")
@@ -387,7 +383,7 @@ export const updateCostInfo = async (
   comment: string,
   is_completed: boolean
 ) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const formattedPeriod = period
     ? new Date(period).toISOString().split("T")[0]
@@ -426,7 +422,7 @@ export const insertCostInfo = async (
   matter_id: number,
   comment: string
 ) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const { error } = await supabase
     .from("costs")
@@ -452,7 +448,7 @@ export const insertCostInfo = async (
 };
 
 export const deleteCostInfo = async (id: number) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const { error } = await supabase.from("costs").delete().eq("id", id);
 
@@ -463,7 +459,7 @@ export const deleteCostInfo = async (id: number) => {
 };
 
 export const getUserBusinessInfoList = async (matter_id: number) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const { data: businessInfoList, error } = await supabase
     .from("business")
@@ -481,7 +477,7 @@ export const insertBusinessInfo = async (
   period_date: string,
   matter_id: number
 ) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const { error } = await supabase
     .from("business")
@@ -511,7 +507,7 @@ export const updateBusinessInfo = async (
   matter_id: number,
   is_completed: boolean
 ) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const formattedInvoice = invoice_date
     ? new Date(invoice_date).toISOString().split("T")[0]
@@ -540,7 +536,7 @@ export const updateBusinessInfo = async (
 };
 
 export const deleteBusinessInfo = async (id: number) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const { error } = await supabase.from("business").delete().eq("id", id);
 
@@ -565,7 +561,7 @@ export const insertSelectOption = async (
   value: string,
   display_order: number
 ) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const { data: typeData, error: typeError } = await supabase
     .from("select_option_types")
@@ -599,7 +595,7 @@ export const updateSelectOption = async (
   display_order: number,
   is_active: boolean
 ) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
 
   const { error } = await supabase
     .from("select_options")
@@ -639,7 +635,7 @@ export const bulkUpsertCostInfo = async (
   }>,
   matterId: number
 ) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
   
   // 新規作成用
   const newCosts = costs.filter(c => c.isNew && !c.isRemoved);
@@ -739,7 +735,7 @@ export const bulkUpsertBusinessInfo = async (
   }>,
   matterId: number
 ) => {
-  const supabase = createServerComponentClient<Database>({ cookies });
+  const supabase = createServerSupabase();
   
   // 新規作成用
   const newBusinesses = businesses.filter(b => b.isNew && !b.isRemoved);

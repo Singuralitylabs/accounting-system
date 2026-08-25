@@ -1,6 +1,5 @@
 "use client";
 
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { User } from "@supabase/supabase-js";
 import Link from "next/link";
 import React, { FC, Suspense, useEffect, useState } from "react";
@@ -8,6 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { ProfilesType } from "../types/types";
 import { visibleNavItems } from "../utils/permissions";
 import { getProfileInfoById } from "../utils/supabase/supabaseServer";
+import { useSupabase } from "./providers/SupabaseProvider";
 import MobileHeader from "./MobileHeader";
 import UserButton from "./buttons/user-button";
 
@@ -29,7 +29,7 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
   const [profileCache, setProfileCache] = useState<Record<string, CacheEntry>>(
     {},
   );
-  const supabase = createClientComponentClient();
+  const { supabase } = useSupabase();
   const router = useRouter();
   const pathname = usePathname();
   const isHub = pathname === "/";
