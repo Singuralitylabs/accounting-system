@@ -2,7 +2,7 @@ import { Table } from "@mantine/core";
 import { MatterInfoWithUserNameType } from "../types/types";
 import AccountingCheckbox from "./buttons/accounting-checkbox";
 import TableInfo from "./TableInfo";
-import { headerConfig } from "./AccoutingTableHeader";
+import { headerConfig } from "./AccountingTableHeader";
 
 type Props = {
   matter: MatterInfoWithUserNameType;

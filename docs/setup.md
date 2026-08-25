@@ -152,13 +152,7 @@ service_role key: eyJhbGciOiJIUzI1NiIs... # これをSUPABASE_SERVICE_ROLE_KEY�
 
 ### 4. 環境変数の設定
 
-`.env.local`ファイルを作成・編集：
-
-```bash
-cp .env.local.development .env.local
-```
-
-`.env.local`の内容を以下のように更新：
+プロジェクトルートに `.env.local` を新規作成する（リポジトリにテンプレートファイルは同梱していない）：
 
 ```env
 # ローカル開発環境のSupabase設定
@@ -188,15 +182,15 @@ SLACK_WEBHOOK_URL=your-slack-webhook-url
 
 ### 5. データベーススキーマの作成
 
+スキーマの正は `supabase/migrations/` 配下のマイグレーションです。適用されるのは **初回の `supabase start`（ボリューム新規作成時）** と **`supabase db reset`** です。既存の Docker ボリュームがある状態で `supabase start` しただけでは、追加分のマイグレーションは適用されません。
+
+既存のローカル DB をマイグレーションと一致させたい場合:
+
 ```bash
-# 順番に実行
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/00_config.sql
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/01_profiles.sql
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/02_matters.sql
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/03_costs.sql
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/04_business.sql
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/05_select_options.sql
+supabase db reset
 ```
+
+これにより `supabase/migrations/` の SQL がファイル名順に適用されます（enum / テーブル / インデックス / トリガー / RLS / 選択肢マスタの初期データ など）。スキーマ変更は必ずこのディレクトリに追加してください。
 
 ### 6. 開発サーバーの起動
 
@@ -212,13 +206,9 @@ npm run dev
 
 ## サンプルデータ投入
 
-### 1. サンプルデータの作成
+### 1. マイグレーションで投入される初期データ
 
-開発・テスト用のサンプルデータを投入します：
-
-```bash
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/06_sample_data.sql
-```
+初回の `supabase start` または `supabase db reset` で適用されるマイグレーションに、選択肢マスタ（チーム・分類・品目など）の初期データが含まれます。案件・取引先・コストのサンプル行はリポジトリに含めていないため、ログイン後に画面から作成してください。
 
 ### 2. データ確認
 
@@ -226,13 +216,11 @@ psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/06_sample
 # テーブル一覧確認
 psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -c "\dt"
 
-# レコード数確認
+# マイグレーションで投入される選択肢マスタの件数確認
 psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -c "
-SELECT 'matters' as table_name, COUNT(*) as record_count FROM matters
+SELECT 'select_option_types' as table_name, COUNT(*) as record_count FROM select_option_types
 UNION ALL
-SELECT 'business' as table_name, COUNT(*) as record_count FROM business
-UNION ALL
-SELECT 'costs' as table_name, COUNT(*) as record_count FROM costs;
+SELECT 'select_options' as table_name, COUNT(*) as record_count FROM select_options;
 "
 ```
 
@@ -360,7 +348,10 @@ yarn dev
 # ビルド
 yarn build
 
-# 型定義の更新（スキーマ変更時）
+# 型定義の更新（ローカルでスキーマ変更したとき）
+yarn db:types-local
+
+# 型定義の更新（本番 Supabase から生成するとき）
 yarn db:types
 
 # リント
@@ -404,24 +395,16 @@ pg_dump postgresql://postgres:postgres@127.0.0.1:54322/postgres > backup.sql
 
 ```
 matter-controller/
-├── .env.local                 # 環境変数（ローカル用）
-├── .env.local.development     # 環境変数テンプレート
+├── .env.local                 # 環境変数（ローカル用。gitignore。手順 4 で新規作成）
 ├── supabase/
 │   ├── .gitignore            # Supabase用gitignore
-│   └── config.toml           # Supabase設定
-├── app/
-│   └── db/                   # データベーススキーマ
-│       ├── 00_config.sql
-│       ├── 01_profiles.sql
-│       ├── 02_matters.sql
-│       ├── 03_costs.sql
-│       ├── 04_business.sql
-│       ├── 05_select_options.sql
-│       └── 06_sample_data.sql
+│   ├── config.toml           # Supabase設定
+│   └── migrations/           # データベーススキーマ（正。ファイル名順に適用）
 └── docs/
     ├── setup.md           # 開発環境構築手順（本ファイル）
     ├── specification.md   # 詳細設計書
-    └── database.md        # データベース設計書
+    ├── database.md        # データベース設計書
+    └── testing.md         # テスト設計書
 ```
 
 ---
@@ -491,15 +474,11 @@ yarn dev --port 3001
 ### スキーマエラー
 
 ```bash
-# データベースリセット
+# データベースをリセットし、supabase/migrations/ を再適用
 supabase db reset
 
-# スキーマ再適用
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/00_config.sql
-# ... 他のSQLファイルも順番に実行
-
-# 型定義更新
-yarn db:types
+# 型定義更新（ローカル）
+yarn db:types-local
 ```
 
 ### パフォーマンス問題
@@ -523,7 +502,7 @@ supa-db -c "SELECT count(*) FROM pg_stat_activity;"
 
 - **ローカル環境のデータ**は`supabase stop`時に Docker ボリュームに保存されます
 - **重要なデータ変更前**は必ずバックアップを取ってください
-- **スキーマ変更後**は`yarn db:types`で型定義を更新してください
+- **スキーマ変更後**は`yarn db:types-local`で型定義を更新してください（本番から生成する場合のみ `yarn db:types`）
 
 ### セキュリティ
 

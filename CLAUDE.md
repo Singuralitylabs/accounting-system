@@ -16,9 +16,8 @@ yarn format:check     # Prettier チェック
 
 yarn db:types         # 本番 Supabase からの型生成（.env.local の PROJECT_ID を参照）
 yarn db:types-local   # ローカル Supabase からの型生成
-yarn db:seed          # scripts/seed-dev-data.sql を流す（※このファイルはリポジトリに含まれない）
 
-supabase start | stop | reset   # ローカル Supabase の起動・停止・リセット
+supabase start | stop | reset   # ローカル Supabase の起動・停止・リセット（reset で supabase/migrations/ を再適用）
 ```
 
 - スキーマ変更後は `yarn db:types-local` を必ず実行し `app/lib/database.types.ts` を更新する。
@@ -42,9 +41,9 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 
 ### Provider スタック（`app/layout.tsx`）
 
-`SupabaseProvider` → `QueryProvider` → `MantineProvider` → `AuthProvider`
+`SupabaseProvider` → `QueryProvider` → `MantineProvider` → `DatesLocaleProvider` → `AuthProvider`
 
-（react-datepicker は `app/components/datePicker.ts`（ロケール登録・CSS 読み込み済みの単一入口）経由でのみ import する。layout には置かない — バンドルが全ページに乗るため）
+（日付 UI は `@mantine/dates`。ロケールは `DatesLocaleProvider`、入力は `CustomDatePicker` / `CustomMonthPicker` 経由。layout に日付ピッカー本体を置かない）
 
 ### 状態管理
 
@@ -54,7 +53,7 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 
 ### データアクセス
 
-- DB ヘルパは `app/utils/supabase/*`（`addMatterInfo` / `editMatterInfo` / `deleteMatter` / `checkMatterInfoList` / `updateProfile` / `supabaseServer` など。`.ts` / `.tsx` 混在）。Server Component から直接呼ぶか、TanStack Query フック経由で呼ぶ。
+- DB ヘルパは `app/utils/supabase/*`（`addMatterInfo` / `editMatterInfo` / `deleteMatter` / `checkMatterInfoList` / `updateProfile` / `supabaseServer` など）。Server Component から直接呼ぶか、TanStack Query フック経由で呼ぶ。
 - `app/actions/` は現状 Slack 通知アクションを再エクスポートしているだけ。新規 Server Action を足すならここ。
 - RLS が有効なので、すべての DB 操作は RLS を前提に書く。
 
@@ -89,8 +88,8 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 
 - `middleware.ts` — ルート保護 & ロール判定
 - `app/layout.tsx` — Provider スタック / `force-dynamic`
-- `app/components/providers/` — `SupabaseProvider`, `QueryProvider`, `InitialOptionalLoader`
-- `app/utils/supabase/editMatterInfo.tsx` — 案件 CRUD のコア
+- `app/components/providers/` — `SupabaseProvider`, `QueryProvider`, `DatesLocaleProvider`, `InitialOptionalLoader`
+- `app/utils/supabase/editMatterInfo.ts` — 案件 CRUD のコア
 - `app/hooks/useMatterData.ts` — TanStack Query フック群
 - `app/actions/slack/` — Slack 通知 Server Action
 - `docs/setup.md` / `docs/specification.md` / `docs/database.md` / `docs/testing.md` — セットアップ・仕様・DB 設計・テスト設計（日本語）

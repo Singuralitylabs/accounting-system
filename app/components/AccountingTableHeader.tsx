@@ -21,7 +21,7 @@ export const headerConfig = [
   { label: "未払いコスト数", key: "unchecked_cost_count" },
 ];
 
-const AccoutingTableHeader = ({ matterList, filters, setFilters }: Props) => {
+const AccountingTableHeader = ({ matterList, filters, setFilters }: Props) => {
   const getUniqueValues = (key: string) => {
     return Array.from(
       new Set(
@@ -63,4 +63,4 @@ const AccoutingTableHeader = ({ matterList, filters, setFilters }: Props) => {
   );
 };
 
-export default AccoutingTableHeader;
+export default AccountingTableHeader;
