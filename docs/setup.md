@@ -188,15 +188,15 @@ SLACK_WEBHOOK_URL=your-slack-webhook-url
 
 ### 5. データベーススキーマの作成
 
+スキーマの正は `supabase/migrations/` 配下のマイグレーションです。`supabase start` 時に自動適用されます。
+
+既存のローカル DB をマイグレーションと一致させたい場合:
+
 ```bash
-# 順番に実行
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/00_config.sql
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/01_profiles.sql
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/02_matters.sql
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/03_costs.sql
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/04_business.sql
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/05_select_options.sql
+supabase db reset
 ```
+
+これにより `supabase/migrations/` の SQL がファイル名順に適用されます（enum / テーブル / インデックス / トリガー / RLS / 選択肢マスタの初期データ など）。スキーマ変更は必ずこのディレクトリに追加してください。
 
 ### 6. 開発サーバーの起動
 
@@ -212,13 +212,9 @@ npm run dev
 
 ## サンプルデータ投入
 
-### 1. サンプルデータの作成
+### 1. マイグレーションで投入される初期データ
 
-開発・テスト用のサンプルデータを投入します：
-
-```bash
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/06_sample_data.sql
-```
+`supabase start` / `supabase db reset` で適用されるマイグレーションに、選択肢マスタ（チーム・分類・品目など）の初期データが含まれます。案件・取引先・コストのサンプル行はリポジトリに含めていないため、ログイン後に画面から作成してください。
 
 ### 2. データ確認
 
@@ -408,16 +404,15 @@ matter-controller/
 ├── .env.local.development     # 環境変数テンプレート
 ├── supabase/
 │   ├── .gitignore            # Supabase用gitignore
-│   └── config.toml           # Supabase設定
-├── app/
-│   └── db/                   # データベーススキーマ
-│       ├── 00_config.sql
-│       ├── 01_profiles.sql
-│       ├── 02_matters.sql
-│       ├── 03_costs.sql
-│       ├── 04_business.sql
-│       ├── 05_select_options.sql
-│       └── 06_sample_data.sql
+│   ├── config.toml           # Supabase設定
+│   └── migrations/           # データベーススキーマ（正）
+│       ├── 20260523053648_01_enums.sql
+│       ├── 20260523053709_02_tables.sql
+│       ├── 20260523053721_03_indexes.sql
+│       ├── 20260523053734_04_triggers.sql
+│       ├── 20260523053819_05_rls_policies.sql
+│       ├── 20260523053842_06_seed_select_options.sql
+│       └── ...               # 以降のマイグレーション（定期費用・追加収支・JWT hook 等）
 └── docs/
     ├── setup.md           # 開発環境構築手順（本ファイル）
     ├── specification.md   # 詳細設計書
@@ -491,15 +486,11 @@ yarn dev --port 3001
 ### スキーマエラー
 
 ```bash
-# データベースリセット
+# データベースをリセットし、supabase/migrations/ を再適用
 supabase db reset
 
-# スキーマ再適用
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/00_config.sql
-# ... 他のSQLファイルも順番に実行
-
-# 型定義更新
-yarn db:types
+# 型定義更新（ローカル）
+yarn db:types-local
 ```
 
 ### パフォーマンス問題

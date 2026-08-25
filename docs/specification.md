@@ -932,11 +932,11 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 | 関数名              | 説明                           | ファイル                               |
 | ------------------- | ------------------------------ | -------------------------------------- |
-| addMatterInfo       | 案件情報の登録処理             | utils/supabase/addMatterInfo.tsx       |
-| editMatterInfo      | 案件情報の更新処理             | utils/supabase/editMatterInfo.tsx      |
-| deleteMatter        | 案件の削除処理                 | utils/supabase/deleteMatter.tsx        |
-| checkMatterInfoList | 案件の完了処理                 | utils/supabase/checkMatterInfoList.tsx |
-| updateProfile       | ユーザープロフィールの更新処理 | utils/supabase/updateProfile.tsx       |
+| addMatterInfo       | 案件情報の登録処理             | utils/supabase/addMatterInfo.ts        |
+| editMatterInfo      | 案件情報の更新処理             | utils/supabase/editMatterInfo.ts       |
+| deleteMatter        | 案件の削除処理                 | utils/supabase/deleteMatter.ts         |
+| checkMatterInfoList | 案件の完了処理                 | utils/supabase/checkMatterInfoList.ts  |
+| updateProfile       | ユーザープロフィールの更新処理 | utils/supabase/updateProfile.ts        |
 | sendMessageToSlack  | Slack 通知の送信処理           | utils/slack/sendMessageToSlack.ts      |
 | formatCurrency      | 金額のフォーマット             | utils/formatter.ts                     |
 | formatTimeToJp      | 日時のフォーマット             | utils/formatter.ts                     |

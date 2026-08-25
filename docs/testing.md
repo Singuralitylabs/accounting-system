@@ -65,7 +65,7 @@ CI のワークフロー計画は [4.2](#42-github-actions-ワークフロー計
 ### 2.3 テストデータ方針
 
 - **原則**: Unit テストは固定のインメモリ・フィクスチャ（型は `app/lib/database.types.ts` 由来の型に揃える）で独立性を確保し、Supabase・Slack 等の外部依存は直接叩かない。
-- **統合確認が必要な場合**: ローカル Supabase（`supabase start` + `yarn db:seed`）を前提に、対象を最小限に絞って再現性を担保する。当面は自動テストの範囲に含めない。
+- **統合確認が必要な場合**: ローカル Supabase（`supabase start`。スキーマと選択肢マスタは `supabase/migrations/` が適用される）を前提に、対象を最小限に絞って再現性を担保する。当面は自動テストの範囲に含めない。
 - **RLS の検証**: ユニットテストでは検証困難なため、RLS ポリシー自体は `supabase/migrations/` のレビューと手動確認でカバーする（[3.2](#32-セキュリティテスト) 参照）。
 
 ### 2.4 可観測性
@@ -83,7 +83,7 @@ CI のワークフロー計画は [4.2](#42-github-actions-ワークフロー計
 | 対象                                                | 理由                                                                                                      | 本プロジェクトでの例                                                                                                                                 |
 | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 認可・ドメイン制限ロジック                          | 壊れるとセキュリティ事故につながる。手動確認では全パターンの網羅が困難                                    | `hasClassAccess` / `visibleNavItems`（`app/utils/permissions.ts`）、`isAllowedEmailDomain`（`app/utils/constants.ts`）、`middleware.ts` のルート判定 |
-| 状態遷移・分岐・計算を含むビジネスロジック          | 案件ライフサイクル（下書き→経理申請中→経理確認完了→完了）と金額集計はシステムの中核。回帰時の影響が大きい | `editMatterInfo.tsx` のステータス遷移判定・バリデーション・金額集計、`profitLossLogic.ts` の支払サイクル判定・月次集計                               |
+| 状態遷移・分岐・計算を含むビジネスロジック          | 案件ライフサイクル（下書き→経理申請中→経理確認完了→完了）と金額集計はシステムの中核。回帰時の影響が大きい | `editMatterInfo.ts` のステータス遷移判定・バリデーション・金額集計、`profitLossLogic.ts` の支払サイクル判定・月次集計                                |
 | 日付・タイムゾーン変換                              | JST/UTC の月ズレは静かに壊れ、発見が遅れる                                                                | `toMonthString`（`app/utils/formatter.ts`）、`bulkUpsertCostInfo` 等の日付フォーマット処理                                                           |
 | 外部API連携のメッセージ組み立て・エラーハンドリング | 障害時の挙動はテストなしでは確認できない                                                                  | Slack 通知（`app/utils/slack/sendMessageToSlack.ts`、`app/actions/slack/`）                                                                          |
 
@@ -93,7 +93,7 @@ CI のワークフロー計画は [4.2](#42-github-actions-ワークフロー計
 
 本プロジェクトでは、テスト価値の高いロジックの一部が以下の形でテスト困難な構造になっている。
 
-1. **ブラウザ API との密結合**: `editMatterInfo.tsx` 等で `window.confirm` / `alert` / `@mantine/notifications` の呼び出しがバリデーション・遷移判定ロジックの内部に混入している。
+1. **ブラウザ API との密結合**: `editMatterInfo.ts` 等で `window.confirm` / `alert` / `@mantine/notifications` の呼び出しがバリデーション・遷移判定ロジックの内部に混入している。
 2. **純粋関数が module-private**: `middleware.ts` の `matchesRoute` は export されておらず直接 import してテストできない。（損益計算書の集計ロジックは `app/utils/profitLossLogic.ts` への抽出済み。`app/utils/supabase/profitLossReport.ts` は Supabase アクセスと権限確認のみを担う）
 3. **Supabase クライアント生成との密結合**: `bulkUpsertCostInfo` / `bulkUpsertBusinessInfo` の日付フォーマット・操作分岐ロジックが DB 呼び出しと同一関数内にある。
 
@@ -246,7 +246,7 @@ DB Types 整合性チェックのワークフローを実行するために、Gi
 - 原則としてテストコードは `tests/` 配下に配置する。
 - ディレクトリ構成は、対象コード（`app/` 配下）の構造に寄せて配置する。
   - 例: `app/utils/permissions.ts` → `tests/utils/permissions.test.ts`
-  - 例: `app/utils/supabase/editMatterInfo.tsx` → `tests/utils/supabase/editMatterInfo.test.ts`
+  - 例: `app/utils/supabase/editMatterInfo.ts` → `tests/utils/supabase/editMatterInfo.test.ts`
 
 ### ファイル名の命名
 
@@ -269,11 +269,11 @@ DB Types 整合性チェックのワークフローを実行するために、Gi
 | 1   | ドメイン制限 `isAllowedEmailDomain`                                                 | `app/utils/constants.ts`                                                                  | 完全一致のみ許可 / 部分一致ドメインの拒否 / null・空文字・`@`なし / 大文字小文字・前後空白                                                                                                                                        | 高       | なし（純粋関数・export 済）                                                         | 1        |
 | 2   | 認可判定 `hasClassAccess` / `visibleNavItems`                                       | `app/utils/permissions.ts`                                                                | `ROUTE_PERMISSIONS` のロール別許可/拒否 / null・undefined・未知ロール / ナビ項目のロール別フィルタ                                                                                                                                | 高       | なし（純粋関数・export 済）                                                         | 1        |
 | 3   | 日付・金額フォーマッタ                                                              | `app/utils/formatter.ts`                                                                  | `toMonthString` の月境界（ローカル時刻基準で UTC ズレがないこと）/ `formatCurrency` の null / `formatMonthLabel` 等                                                                                                               | 中       | なし（純粋関数・export 済）                                                         | 1        |
-| 4   | 案件更新の金額集計 `updateMatter`                                                   | `app/utils/supabase/editMatterInfo.tsx`                                                   | `isRemoved` 行の集計除外 / `total_amount` / `total_cost` / `unchecked_cost_count`（`is_completed` と `isNew` の扱い）                                                                                                             | 非常に高 | 集計部の純粋関数抽出を推奨（暫定は依存モジュールのモック）                          | 1〜2     |
-| 5   | ステータス遷移 + バリデーション `editMatterInfo`                                    | `app/utils/supabase/editMatterInfo.tsx`                                                   | `isNewApplication`（下書き→申請）/ `isPostSubmissionUpdate`（申請後更新で `has_updates`）/ 必須項目 / 請求日 > 振込期限の検出                                                                                                     | 非常に高 | `confirm` / `alert` の分離リファクタ（[2.6](#26-テスト容易化リファクタリング方針)） | 2        |
+| 4   | 案件更新の金額集計 `updateMatter`                                                   | `app/utils/supabase/editMatterInfo.ts`                                                    | `isRemoved` 行の集計除外 / `total_amount` / `total_cost` / `unchecked_cost_count`（`is_completed` と `isNew` の扱い）                                                                                                             | 非常に高 | 集計部の純粋関数抽出を推奨（暫定は依存モジュールのモック）                          | 1〜2     |
+| 5   | ステータス遷移 + バリデーション `editMatterInfo`                                    | `app/utils/supabase/editMatterInfo.ts`                                                    | `isNewApplication`（下書き→申請）/ `isPostSubmissionUpdate`（申請後更新で `has_updates`）/ 必須項目 / 請求日 > 振込期限の検出                                                                                                     | 非常に高 | `confirm` / `alert` の分離リファクタ（[2.6](#26-テスト容易化リファクタリング方針)） | 2        |
 | 6   | 損益計算書の計上月判定・月次集計 ✅実装済（`tests/utils/profitLossLogic.test.ts`）  | `app/utils/profitLossLogic.ts`                                                            | `monthDiff` / `isRecurringCostChargedInMonth`（月払い・四半期・年払いの計上月、年度跨ぎ、`end_month` null）/ `buildMonthlyReport`（分類別粗利、費目別管理費、経常利益と刷新前の営業損益の一致、ロール別集計、全体共通費用の分離） | 非常に高 | 済（`app/utils/profitLossLogic.ts` へ抽出 + export 済）                             | 2        |
 | 7   | ルート判定 `matchesRoute` + `ROUTE_PERMISSIONS` 連動                                | `middleware.ts`                                                                           | 完全一致・配下パス（`/team/sub`）の一致 / 前方一致の誤検知（`/teamX`）がないこと / 保護対象ルートの網羅                                                                                                                           | 高       | `matchesRoute` の export 化（または `permissions.ts` への移動）                     | 2        |
-| 8   | 一括完了のステータス遷移チェック                                                    | `app/utils/supabase/checkMatterInfoList.tsx`                                              | 下書き（`is_fixed=false`）の完了スキップ / `unchecked_cost_count > 0` の確認分岐                                                                                                                                                  | 中       | `confirm` 分離リファクタ                                                            | 2        |
+| 8   | 一括完了のステータス遷移チェック                                                    | `app/utils/supabase/checkMatterInfoList.ts`                                               | 下書き（`is_fixed=false`）の完了スキップ / `unchecked_cost_count > 0` の確認分岐                                                                                                                                                  | 中       | `confirm` 分離リファクタ                                                            | 2        |
 | 9   | bulkUpsert の操作分岐・日付フォーマット                                             | `app/utils/supabase/supabaseServer.ts`（`bulkUpsertCostInfo` / `bulkUpsertBusinessInfo`） | `isNew` / `isRemoved` の組による INSERT / UPDATE / DELETE 振り分け / `toISOString` 由来の JST 月ズレ回帰                                                                                                                          | 高       | 分岐・フォーマット部の純粋関数抽出（`"use server"` + Supabase 密結合のため）        | 2〜3     |
 | 10  | Slack 通知のメッセージ組み立て                                                      | `app/utils/slack/sendMessageToSlack.ts`、`app/actions/slack/`                             | `slackId` 有無によるメンション切替 / metadata の null-safe 処理 / 送信失敗時のエラーハンドリング                                                                                                                                  | 中       | `fetch` / `notifications.show` の分離またはモック                                   | 3        |
 | ―   | 薄い CRUD ラッパー（`getAllMatterInfoList` 等）/ `deleteMatter` / UI コンポーネント | 各所                                                                                      | ―                                                                                                                                                                                                                                 | 低       | テスト不要（[2.5](#25-ユニットテストの要否判断) の基準）                            | ―        |

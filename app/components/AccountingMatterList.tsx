@@ -8,7 +8,7 @@ import { NotificationMessage } from "./modal/NotificationMessage";
 import DisplayMenu from "./buttons/display-menu";
 import { MatterCardForAccounting } from "./MatterCardForAccounting";
 import { useViewportSize } from "@mantine/hooks";
-import AccoutingTableHeader from "./AccoutingTableHeader";
+import AccountingTableHeader from "./AccountingTableHeader";
 import AccountingTablebody from "./AccountingTablebody";
 import {
   useAllMatterList,
@@ -196,7 +196,7 @@ export const AccountingMatterList = ({
           <Table stickyHeader>
             <Table.Thead className="bg-white">
               {
-                <AccoutingTableHeader
+                <AccountingTableHeader
                   matterList={matterList}
                   filters={filters}
                   setFilters={setFilters}
