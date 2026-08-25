@@ -102,6 +102,66 @@ export const deleteCostInfo = async (id: number) => {
   }
 };
 
+export const bulkInsertCostInfo = async (
+  costs: Array<{
+    name: string;
+    item: string;
+    payment_target: string;
+    price: number;
+    period: string;
+    certificate: string;
+    withholding: boolean;
+    comment: string | null;
+  }>,
+  matterId: number
+) => {
+  if (costs.length === 0) {
+    return { error: null };
+  }
+
+  const supabase = createServerSupabase();
+
+  const { error } = await supabase.from("costs").insert(
+    costs.map((cost) => ({
+      name: cost.name,
+      item: cost.item,
+      payment_target: cost.payment_target,
+      price: cost.price,
+      period: cost.period === "" ? null : cost.period,
+      certificate: cost.certificate,
+      withholding: cost.withholding,
+      matter_id: matterId,
+      comment: cost.comment,
+    }))
+  );
+
+  if (error) {
+    console.error("コスト情報の一括追加処理で失敗しました。", error);
+    return { error };
+  }
+
+  return { error: null };
+};
+
+export const deleteCostsByMatterId = async (matterId: number) => {
+  const supabase = createServerSupabase();
+
+  const { error } = await supabase
+    .from("costs")
+    .delete()
+    .eq("matter_id", matterId);
+
+  if (error) {
+    console.error(
+      `案件ID : ${matterId}のコスト情報の一括削除処理で失敗しました。`,
+      error
+    );
+    return { error };
+  }
+
+  return { error: null };
+};
+
 // バルク操作関数
 
 export const bulkUpsertCostInfo = async (
