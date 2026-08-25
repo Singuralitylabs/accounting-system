@@ -35,6 +35,8 @@ export const updateMatter = async (
   return true;
 };
 
+// 現行の更新 UI は useMatterData → updateMatter を直接呼ぶため、この default
+// はどこからも import されない（バリデーションも実行されない）。配線は Phase 6 以降。
 const editMatterInfo = async (
   matterInfo: MatterType,
   businessInfoList: BusinessInCardType[],

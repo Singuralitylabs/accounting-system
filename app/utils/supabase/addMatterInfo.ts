@@ -1,5 +1,7 @@
 import { BusinessType, CostType, MatterType } from "@/app/types/types";
-import { calcMatterTotalsForCreate } from "@/app/utils/matterCalc";
+import {
+  calcMatterTotalsForCreate,
+} from "@/app/utils/matterCalc";
 import {
   getMatterValidationMessage,
   validateMatterPayload,
