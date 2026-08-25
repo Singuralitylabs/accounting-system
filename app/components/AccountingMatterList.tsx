@@ -181,7 +181,7 @@ export const AccountingMatterList = ({
         {isMobileView || switchDisplay ? (
           <div className="py-4 px-8">
             <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
-              {matterList?.map((matter: MatterInfoWithUserNameType) => (
+              {filteredMatterList?.map((matter: MatterInfoWithUserNameType) => (
                 <MatterCardForAccounting
                   key={matter.id}
                   matter={matter}
