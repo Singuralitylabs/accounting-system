@@ -53,7 +53,7 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 
 ### データアクセス
 
-- DB ヘルパは `app/utils/supabase/*`（`addMatterInfo` / `editMatterInfo` / `deleteMatter` / `checkMatterInfoList` / `updateProfile` / `supabaseServer` など）。Server Component から直接呼ぶか、TanStack Query フック経由で呼ぶ。
+- DB ヘルパは `app/utils/supabase/*`（`addMatterInfo` / `editMatterInfo` / `deleteMatter` / `checkMatterInfoList` / `updateProfile` / `profiles` / `matters` / `costs` / `businesses` / `selectOptions` など）。Server Component から直接呼ぶか、TanStack Query フック経由で呼ぶ。
 - `app/actions/` は現状 Slack 通知アクションを再エクスポートしているだけ。新規 Server Action を足すならここ。
 - RLS が有効なので、すべての DB 操作は RLS を前提に書く。
 
@@ -86,6 +86,7 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 - `app/components/providers/` — `SupabaseProvider`, `QueryProvider`, `DatesLocaleProvider`, `InitialOptionalLoader`
 - `app/utils/matterCalc.ts` / `app/utils/matterValidation.ts` — 案件の金額集計と必須・日付バリデーション
 - `app/utils/supabase/editMatterInfo.ts` — 案件 CRUD のコア
+- `app/utils/supabase/profiles.ts` / `matters.ts` / `costs.ts` / `businesses.ts` / `selectOptions.ts` — ドメイン別 DB ヘルパ
 - `app/hooks/useMatterData.ts` — TanStack Query フック群
 - `app/actions/slack/` — Slack 通知 Server Action
 - `docs/setup.md` / `docs/specification.md` / `docs/database.md` / `docs/testing.md` — セットアップ・仕様・DB 設計・テスト設計（手動確認の手順は testing.md 3.7）

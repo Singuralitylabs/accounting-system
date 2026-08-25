@@ -14,7 +14,7 @@ import {
   fiscalYearMonths,
   reportFlags,
 } from "../profitLossLogic";
-import { getProfileInfo } from "./supabaseServer";
+import { getProfileInfo } from "./profiles";
 
 // 集計に必要な行をまとめて取得する（RLS により権限に応じた行のみ返る）
 // セッション Cookie は @supabase/ssr 形式。createServerSupabase() 以外のクライアントを混ぜない

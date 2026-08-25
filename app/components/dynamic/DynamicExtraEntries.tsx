@@ -1,8 +1,6 @@
 import { getExtraEntryList } from "@/app/utils/supabase/extraEntries";
-import {
-  getAllUserInfo,
-  getSelectOptions,
-} from "@/app/utils/supabase/supabaseServer";
+import { getAllUserInfo } from "@/app/utils/supabase/profiles";
+import { getSelectOptions } from "@/app/utils/supabase/selectOptions";
 import ExtraEntryList from "../extraEntries/ExtraEntryList";
 
 const DynamicExtraEntries = async () => {

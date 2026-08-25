@@ -1,10 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getUserMatterInfoList,
-  getUserCostInfoList,
-  getUserBusinessInfoList,
   getAllMatterInfoList,
-} from "../utils/supabase/supabaseServer";
+} from "../utils/supabase/matters";
+import { getUserCostInfoList } from "../utils/supabase/costs";
+import { getUserBusinessInfoList } from "../utils/supabase/businesses";
 import { updateMatter } from "../utils/supabase/editMatterInfo";
 import addMatterInfo from "../utils/supabase/addMatterInfo";
 import deleteMatter from "../utils/supabase/deleteMatter";
@@ -187,7 +187,7 @@ export const useSlackNotification = () => {
       const [{ default: sendMessageToSlack }, { bulkUnfixMatterInfo }] =
         await Promise.all([
           import("../utils/slack/sendMessageToSlack"),
-          import("../utils/supabase/supabaseServer"),
+          import("../utils/supabase/matters"),
         ]);
 
       // Server Action は同一クライアントからは直列実行される上、Slack 側の
@@ -406,8 +406,7 @@ export const useRevertToFixed = () => {
       accountingMemo?: string;
       clearHasUpdates?: boolean;
     }) => {
-      const { updateMatterInfo } =
-        await import("../utils/supabase/supabaseServer");
+      const { updateMatterInfo } = await import("../utils/supabase/matters");
 
       const matterToUpdate: MatterType = {
         id: data.matterInfo.id,
@@ -461,8 +460,7 @@ export const useRevertToDraft = () => {
       accountingMemo?: string;
       clearHasUpdates?: boolean;
     }) => {
-      const { updateMatterInfo } =
-        await import("../utils/supabase/supabaseServer");
+      const { updateMatterInfo } = await import("../utils/supabase/matters");
 
       const matterToUpdate: MatterType = {
         id: data.matterInfo.id,

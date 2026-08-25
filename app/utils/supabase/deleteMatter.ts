@@ -1,11 +1,7 @@
 import { MatterType } from "../../types/types";
-import {
-  deleteBusinessInfo,
-  deleteCostInfo,
-  deleteMatterInfo,
-  getUserBusinessInfoList,
-  getUserCostInfoList,
-} from "./supabaseServer";
+import { deleteBusinessInfo, getUserBusinessInfoList } from "./businesses";
+import { deleteCostInfo, getUserCostInfoList } from "./costs";
+import { deleteMatterInfo } from "./matters";
 
 const deleteMatter = async (matter: MatterType) => {
   const confirm = window.confirm(

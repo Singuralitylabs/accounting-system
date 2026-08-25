@@ -2,7 +2,7 @@ import { Button, Group, Select, Table, TextInput } from "@mantine/core";
 import { ProfilesType } from "../types/types";
 import { classList } from "./UserList";
 import { useEffect, useState } from "react";
-import { getSelectOptions } from "../utils/supabase/supabaseServer";
+import { getSelectOptions } from "../utils/supabase/selectOptions";
 
 type Props = {
   userInfo: ProfilesType;

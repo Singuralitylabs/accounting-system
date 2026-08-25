@@ -1,5 +1,5 @@
 import { getRecurringCostList } from "@/app/utils/supabase/recurringCosts";
-import { getSelectOptions } from "@/app/utils/supabase/supabaseServer";
+import { getSelectOptions } from "@/app/utils/supabase/selectOptions";
 import RecurringCostList from "../recurringCosts/RecurringCostList";
 
 const DynamicRecurringCosts = async () => {

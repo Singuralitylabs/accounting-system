@@ -1,5 +1,5 @@
 import { ProfilesType } from "../../types/types";
-import { updateUserInfo } from "./supabaseServer";
+import { updateUserInfo } from "./profiles";
 
 const updateProfile = async ({ profile }: { profile: ProfilesType }) => {
   if (!profile.class) {

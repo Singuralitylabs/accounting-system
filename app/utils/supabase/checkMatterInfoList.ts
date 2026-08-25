@@ -1,5 +1,5 @@
 import { notifications } from "@mantine/notifications";
-import { bulkCompleteMatterInfo } from "./supabaseServer";
+import { bulkCompleteMatterInfo } from "./matters";
 import { MatterInfoWithUserNameType } from "@/app/types/types";
 
 const checkMatterInfoList = async (

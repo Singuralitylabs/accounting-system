@@ -7,11 +7,9 @@ import {
   MATTER_VALIDATION_ALERTS,
   validateMatterPayload,
 } from "@/app/utils/matterValidation";
-import {
-  insertBusinessInfo,
-  insertCostInfo,
-  insertMatterInfo,
-} from "./supabaseServer";
+import { insertBusinessInfo } from "./businesses";
+import { insertCostInfo } from "./costs";
+import { insertMatterInfo } from "./matters";
 
 const insertMatter = async (
   matterInfo: MatterType,

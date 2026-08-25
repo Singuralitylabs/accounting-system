@@ -3,10 +3,8 @@ import {
   CostType,
   MatterInfoWithUserNameType,
 } from "@/app/types/types";
-import {
-  getUserBusinessInfoList,
-  getUserCostInfoList,
-} from "@/app/utils/supabase/supabaseServer";
+import { getUserBusinessInfoList } from "@/app/utils/supabase/businesses";
+import { getUserCostInfoList } from "@/app/utils/supabase/costs";
 import { Modal, Badge, Grid, LoadingOverlay } from "@mantine/core";
 import { useEffect, useState } from "react";
 import LabelText from "../LabelText";

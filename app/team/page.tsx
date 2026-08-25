@@ -1,8 +1,6 @@
 import React from "react";
-import {
-  getTeamMatterInfoList,
-  getProfileInfo,
-} from "../utils/supabase/supabaseServer";
+import { getTeamMatterInfoList } from "../utils/supabase/matters";
+import { getProfileInfo } from "../utils/supabase/profiles";
 import TeamMatterList from "../components/team/TeamMatterList";
 
 const Team = async () => {
