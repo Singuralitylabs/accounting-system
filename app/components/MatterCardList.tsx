@@ -161,6 +161,7 @@ export function MatterCardList({
             {matterList?.map((matter) => (
               <MatterCard
                 key={matter.id}
+                variant="user"
                 matter={matter}
                 onOpen={handleOpenCard}
                 onCopy={handleCopyCard}
