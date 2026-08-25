@@ -473,7 +473,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 - 全体共通（参考）セクション（チームリーダーのみ。全体共通の管理費・経理追加収支を参考表示し、チーム損益には算入しない）
 - 月未確定の注記（該当データがある場合のみ。経理追加収支の日付未入力分を含む）
 
-「案件を表示」ボタンは閲覧専用の案件詳細モーダル（MatterCardDetailModalReadOnly）を開く。案件の閲覧可否は RLS により担保される。
+「案件を表示」ボタンは閲覧専用の案件詳細モーダル（`MatterCardDetail` の `variant="readonly"`）を開く。案件の閲覧可否は RLS により担保される。
 
 #### 4.16.4 権限によるスコープ
 

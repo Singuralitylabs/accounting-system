@@ -1,3 +1,5 @@
+"use client";
+
 import {
   BusinessType,
   CostType,
@@ -13,9 +15,9 @@ import {
   Checkbox,
 } from "@mantine/core";
 import { useEffect, useState } from "react";
-import LabelText from "../LabelText";
-import BusinessBlock from "../BusinessBlock";
-import CostBlock from "../CostBlock";
+import LabelText from "../../LabelText";
+import BusinessBlock from "../../BusinessBlock";
+import CostBlock from "../../CostBlock";
 import {
   useMatterDetail,
   useRevertToFixed,
@@ -30,11 +32,11 @@ type Props = {
   setOpened: React.Dispatch<React.SetStateAction<boolean>>;
 };
 
-export const MatterCardDetailModalForAccounting = ({
+export function AccountingMatterDetail({
   matterInfo,
   opened,
   setOpened,
-}: Props) => {
+}: Props) {
   const [costList, setCostList] = useState<CostType[]>([]);
   const [businessList, setBusinessList] = useState<BusinessType[]>([]);
   const [checkhasUpdates, setCheckhasUpdates] = useState<boolean>(false);
@@ -299,4 +301,4 @@ export const MatterCardDetailModalForAccounting = ({
       </div>
     </Modal>
   );
-};
+}

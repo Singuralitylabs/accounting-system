@@ -15,10 +15,10 @@ import { optionsAtom } from "../../atoms/optionsAtom";
 
 // 案件詳細モーダルはフォーム一式（日付ピッカー等）を含み重いため、
 // 初期バンドルから外して開くときに読み込む
-const MatterCardDetailModal = dynamic(
+const MatterCardDetail = dynamic(
   () =>
     import("../modal/MatterCardDetail").then(
-      (module) => module.MatterCardDetailModal,
+      (module) => module.MatterCardDetail,
     ),
   { ssr: false },
 );
@@ -172,7 +172,8 @@ export function UserMatterList({
         </div>
       )}
       {opened && matterInfo && (
-        <MatterCardDetailModal
+        <MatterCardDetail
+          variant="user"
           matterInfo={matterInfo}
           teamList={teamList}
           categoryList={categoryList}

@@ -3,7 +3,7 @@
 import React, { FC, useState } from "react";
 import { formatCurrency } from "../../utils/formatter";
 import { formatTimeToJp } from "../../utils/formatter";
-import { MatterCardDetailModalReadOnly } from "../modal/MatterCardDetailReadOnly";
+import { MatterCardDetail } from "../modal/MatterCardDetail";
 import DisplayMenu from "../buttons/display-menu";
 import { Badge } from "@mantine/core";
 
@@ -213,7 +213,8 @@ const ReadonlyMatterList: FC<ReadonlyMatterListProps> = ({ matterList }) => {
 
       {/* 詳細モーダル */}
       {selectedMatter && (
-        <MatterCardDetailModalReadOnly
+        <MatterCardDetail
+          variant="readonly"
           matterInfo={{
             ...selectedMatter,
             user_name: selectedMatter.profiles?.name || "不明",

@@ -14,7 +14,7 @@ import { ORG_WIDE_TEAM_LABEL } from "@/app/utils/constants";
 import { Alert, Button, Paper, SimpleGrid, Table, Text } from "@mantine/core";
 import { Fragment, useState } from "react";
 import { FaChevronDown, FaChevronRight } from "react-icons/fa";
-import { MatterCardDetailModalReadOnly } from "../modal/MatterCardDetailReadOnly";
+import { MatterCardDetail } from "../modal/MatterCardDetail";
 import ExtraEntrySection from "./ExtraEntrySection";
 
 type Props = {
@@ -498,7 +498,8 @@ const ProfitLossStatement = ({ report }: Props) => {
 
       {/* 案件詳細モーダル（閲覧専用） */}
       {selectedMatter && (
-        <MatterCardDetailModalReadOnly
+        <MatterCardDetail
+          variant="readonly"
           matterInfo={selectedMatter}
           opened={isModalOpened}
           setOpened={setIsModalOpened}
