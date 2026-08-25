@@ -169,6 +169,7 @@ const NewMatterForm = () => {
       {businessList.map((businessInfo, index) => (
         <BusinessBlock
           key={businessInfo.id}
+          variant="user"
           businessInfo={businessInfo}
           formType="new"
           index={index}

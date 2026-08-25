@@ -14,7 +14,7 @@ import {
 } from "@mantine/core";
 import { useEffect, useState } from "react";
 import LabelText from "../LabelText";
-import BusinessBlockForAccounting from "../BusinessBlockForAccounting";
+import BusinessBlock from "../BusinessBlock";
 import CostBlock from "../CostBlock";
 import {
   useMatterDetail,
@@ -229,7 +229,8 @@ export const MatterCardDetailModalForAccounting = ({
       <Grid gutter="md">
         {businessList?.map((business) => (
           <Grid.Col key={business.id} span={{ base: 12, md: 6, lg: 4 }}>
-            <BusinessBlockForAccounting
+            <BusinessBlock
+              variant="accounting"
               business={business}
               businessList={businessList}
               setBusinessList={setBusinessList}
