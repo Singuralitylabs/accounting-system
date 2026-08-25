@@ -6,6 +6,10 @@ import { useCallback, useMemo, useState } from "react";
 import { MatterType } from "../../types/types";
 import { MatterCard } from "../MatterCard";
 import { useDeleteMatter, useUserMatterList } from "../../hooks/useMatterData";
+import {
+  confirmAction,
+  DELETE_MATTER_CONFIRM_MESSAGE,
+} from "../../utils/confirmAction";
 import { useListDisplayMode } from "../../hooks/useListDisplayMode";
 import TableInfo from "../TableInfo";
 import ThreedotsMenu from "../buttons/threedots-menu";
@@ -76,6 +80,12 @@ export function UserMatterList({
 
   const handleDeleteCard = useCallback(
     async (matter: MatterType) => {
+      const confirmed = await confirmAction(DELETE_MATTER_CONFIRM_MESSAGE, {
+        confirmLabel: "削除",
+        confirmColor: "red",
+      });
+      if (!confirmed) return;
+
       try {
         await deleteMatterMutation.mutateAsync(matter);
       } catch (error) {

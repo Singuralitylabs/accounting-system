@@ -9,6 +9,7 @@ import BusinessBlock from "./BusinessBlock";
 import CostBlock from "./CostBlock";
 import { MatterInfoBlock } from "./MatterInfoBlock";
 import addMatterInfo from "../utils/supabase/addMatterInfo";
+import { confirmCreateMatter } from "../utils/confirmAction";
 import { notifyError, notifySuccess, toErrorMessage } from "../utils/notify";
 import { useRouter } from "next/navigation";
 import { useAtomValue } from "jotai";
@@ -113,6 +114,13 @@ const NewMatterForm = () => {
   };
 
   const handleAddMatterInfo = async (is_fixed: boolean) => {
+    const confirmed = await confirmCreateMatter(
+      form.getValues().title,
+      is_fixed,
+      businessList.map((business) => business.amount),
+    );
+    if (!confirmed) return;
+
     setIsLoading(true);
     const matterInfo: MatterType = {
       id: 0,

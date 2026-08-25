@@ -8,6 +8,7 @@ import {
   updateSelectOption,
 } from "../utils/supabase/selectOptions";
 import { notifyError, notifySuccess } from "../utils/notify";
+import { confirmAction } from "../utils/confirmAction";
 import {
   DndContext,
   closestCenter,
@@ -118,8 +119,10 @@ const SelectOptionList = ({
         }
       }
 
-      const confirm = window.confirm(`${optionTitle}の項目を更新しますか？`);
-      if (!confirm) return;
+      const confirmed = await confirmAction(
+        `${optionTitle}の項目を更新しますか？`,
+      );
+      if (!confirmed) return;
 
       for (const option of updatedOptionList) {
         if (option.isNew && !option.is_active) continue;
@@ -153,7 +156,7 @@ const SelectOptionList = ({
         <Title order={3} className="pb-4">
           {optionTitle}
         </Title>
-        <Button type="button" onClick={handleSaveOption}>
+        <Button type="button" disabled={isLoading} onClick={handleSaveOption}>
           更新
         </Button>
       </div>

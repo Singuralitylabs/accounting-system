@@ -20,7 +20,8 @@ import {
   compactMatterListFilters,
   hasMatterListFilters,
 } from "../../utils/matterListFilters";
-import { notifyError } from "../../utils/notify";
+import { notifyError, notifyInfo } from "../../utils/notify";
+import { confirmAction } from "../../utils/confirmAction";
 
 export const AccountingMatterList = ({
   initialData,
@@ -99,13 +100,51 @@ export const AccountingMatterList = ({
         checkedMatterIdList.includes(matter.id),
     );
 
-    if (checkedMatterList && checkedMatterList.length > 0) {
-      try {
-        await checkCompletedMutation.mutateAsync(checkedMatterList);
-        setCheckedMatterIdList([]);
-      } catch (error) {
-        console.error("確認完了に失敗しました:", error);
+    if (!checkedMatterList || checkedMatterList.length === 0) {
+      return;
+    }
+
+    const confirmed = await confirmAction(
+      `${checkedMatterList.length}件の案件を完了にしますか？`,
+    );
+    if (!confirmed) return;
+
+    const skippedDraftTitles: string[] = [];
+    const targetMatterIds: number[] = [];
+    for (const matterInfo of checkedMatterList) {
+      if (!matterInfo.is_fixed) {
+        skippedDraftTitles.push(matterInfo.title);
+        continue;
       }
+      if (matterInfo.unchecked_cost_count > 0) {
+        const hasUncheckedCost = await confirmAction(
+          `${matterInfo.title}には未払いコストがあります。完了してよろしいですか？`,
+        );
+        if (!hasUncheckedCost) continue;
+      }
+      targetMatterIds.push(matterInfo.id);
+    }
+
+    if (targetMatterIds.length === 0) {
+      notifyError(
+        skippedDraftTitles.length > 0
+          ? `下書きのため完了できません: ${skippedDraftTitles.join("、")}`
+          : "完了対象の案件がありませんでした。",
+      );
+      return;
+    }
+
+    if (skippedDraftTitles.length > 0) {
+      notifyInfo(
+        `下書きのため完了できません: ${skippedDraftTitles.join("、")}`,
+      );
+    }
+
+    try {
+      await checkCompletedMutation.mutateAsync(targetMatterIds);
+      setCheckedMatterIdList([]);
+    } catch (error) {
+      console.error("確認完了に失敗しました:", error);
     }
   }, [headerMatterList, checkedMatterIdList, checkCompletedMutation]);
 
@@ -159,10 +198,18 @@ export const AccountingMatterList = ({
     <div className="my-4">
       <div className="sticky top-4 bg-white z-[5]">
         <div className="flex justify-end gap-4 my-4 px-4">
-          <Button color="green" onClick={handleCheckCompleted}>
+          <Button
+            color="green"
+            disabled={checkCompletedMutation.isPending}
+            onClick={handleCheckCompleted}
+          >
             確認完了
           </Button>
-          <Button color="indigo" onClick={() => setNotificationOpened(true)}>
+          <Button
+            color="indigo"
+            disabled={slackNotificationMutation.isPending}
+            onClick={() => setNotificationOpened(true)}
+          >
             担当者に連絡
           </Button>
         </div>

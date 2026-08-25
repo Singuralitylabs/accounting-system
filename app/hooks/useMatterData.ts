@@ -16,12 +16,7 @@ import {
   getMatterValidationMessage,
   validateMatterPayload,
 } from "../utils/matterValidation";
-import {
-  notifyError,
-  notifyInfo,
-  notifySuccess,
-  toErrorMessage,
-} from "../utils/notify";
+import { notifyError, notifySuccess, toErrorMessage } from "../utils/notify";
 import {
   MatterType,
   CostInCardType,
@@ -285,20 +280,14 @@ export const useCheckCompleted = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (matters: MatterInfoWithUserNameType[]) => {
+    mutationFn: async (targetMatterIds: number[]) => {
       const checkMatterInfoList = (
         await import("../utils/supabase/checkMatterInfoList")
       ).default;
-      return checkMatterInfoList(matters);
+      return checkMatterInfoList(targetMatterIds);
     },
-    onSuccess: (result) => {
-      if (!result || result.cancelled) return;
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["matters"] });
-      if (result.skippedDraftTitles.length > 0) {
-        notifyInfo(
-          `下書きのため完了できません: ${result.skippedDraftTitles.join("、")}`,
-        );
-      }
       notifySuccess("案件のチェック処理を完了しました。");
     },
     onError: (error) => {

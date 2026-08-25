@@ -19,6 +19,7 @@ import LabelText from "../../LabelText";
 import BusinessBlock from "../../BusinessBlock";
 import CostBlock from "../../CostBlock";
 import { notifyError } from "@/app/utils/notify";
+import { confirmAction } from "@/app/utils/confirmAction";
 import {
   useMatterDetail,
   useRevertToFixed,
@@ -91,8 +92,7 @@ export function AccountingMatterDetail({
   };
 
   const handleSaveMatterInfo = async () => {
-    const isUpdated = window.confirm(`保存しますか？`);
-
+    const isUpdated = await confirmAction("保存しますか？");
     if (!isUpdated) {
       return;
     }
@@ -118,8 +118,7 @@ export function AccountingMatterDetail({
   };
 
   const handleCheckCompleted = async () => {
-    const isCompleted = window.confirm(`確認完了しますか？`);
-
+    const isCompleted = await confirmAction("確認完了しますか？");
     if (!isCompleted) {
       return;
     }
@@ -140,8 +139,7 @@ export function AccountingMatterDetail({
   };
 
   const handleBackToFixedMatter = async () => {
-    const isRevert = window.confirm(`申請中に戻しますか？`);
-
+    const isRevert = await confirmAction("申請中に戻しますか？");
     if (!isRevert) {
       return;
     }
@@ -160,8 +158,7 @@ export function AccountingMatterDetail({
   };
 
   const handleBackToDraft = async () => {
-    const isRevert = window.confirm(`下書きに戻しますか？`);
-
+    const isRevert = await confirmAction("下書きに戻しますか？");
     if (!isRevert) {
       return;
     }
@@ -179,6 +176,13 @@ export function AccountingMatterDetail({
     }
   };
 
+  const isBusy =
+    isLoading ||
+    revertToFixedMutation.isPending ||
+    revertToDraftMutation.isPending ||
+    checkCompletedSingleMutation.isPending ||
+    saveAccountingMemoMutation.isPending;
+
   if (error) {
     return (
       <Modal opened={opened} onClose={closeModal} title="エラー">
@@ -194,15 +198,7 @@ export function AccountingMatterDetail({
       title={matterInfo.title}
       size="100%"
     >
-      <LoadingOverlay
-        visible={
-          isLoading ||
-          revertToFixedMutation.isPending ||
-          revertToDraftMutation.isPending ||
-          checkCompletedSingleMutation.isPending ||
-          saveAccountingMemoMutation.isPending
-        }
-      />
+      <LoadingOverlay visible={isBusy} />
       <div className="flex justify-end">
         {matterInfo.is_completed ? (
           <Badge color="green">経理確認完了</Badge>
@@ -280,22 +276,42 @@ export function AccountingMatterDetail({
       <div className="my-4">
         {!matterInfo.is_completed ? (
           <div className="flex gap-2">
-            <Button fullWidth color="indigo" onClick={handleSaveMatterInfo}>
+            <Button
+              fullWidth
+              color="indigo"
+              disabled={isBusy}
+              onClick={handleSaveMatterInfo}
+            >
               保存
             </Button>
             {matterInfo.is_fixed && (
-              <Button fullWidth color="blue" onClick={handleBackToDraft}>
+              <Button
+                fullWidth
+                color="blue"
+                disabled={isBusy}
+                onClick={handleBackToDraft}
+              >
                 下書きに戻す
               </Button>
             )}
             {matterInfo.is_fixed && (
-              <Button fullWidth color="green" onClick={handleCheckCompleted}>
+              <Button
+                fullWidth
+                color="green"
+                disabled={isBusy}
+                onClick={handleCheckCompleted}
+              >
                 確認完了
               </Button>
             )}
           </div>
         ) : (
-          <Button fullWidth color="red" onClick={handleBackToFixedMatter}>
+          <Button
+            fullWidth
+            color="red"
+            disabled={isBusy}
+            onClick={handleBackToFixedMatter}
+          >
             経理申請中に戻す
           </Button>
         )}

@@ -66,22 +66,6 @@ const addMatterInfo = async (
   businessList: BusinessType[],
   costList: CostType[]
 ) => {
-  if (matterInfo.is_fixed) {
-    const checkCreated = window.confirm(
-      `案件[${matterInfo.title}]を経理申請しますか？`
-    );
-    if (!checkCreated) {
-      return;
-    }
-  } else {
-    const checkCreated = window.confirm(
-      `案件[${matterInfo.title}]の下書きを作成しますか？\n作成した案件は経理申請扱いにはなりませんが、経理に共有はされます。`
-    );
-    if (!checkCreated) {
-      return;
-    }
-  }
-
   const validation = validateMatterPayload(
     matterInfo,
     businessList,
@@ -89,19 +73,6 @@ const addMatterInfo = async (
   );
   if (!validation.ok) {
     throw new Error(getMatterValidationMessage(validation.reason, "create"));
-  }
-
-  const totalCompensation = businessList.reduce(
-    (sum, business) => sum + (business.amount || 0),
-    0
-  );
-  if (totalCompensation === 0) {
-    const checkCreated = window.confirm(
-      "取引先情報の報酬額の合計が0円です。このまま作成して良いでしょうか？"
-    );
-    if (!checkCreated) {
-      return;
-    }
   }
 
   try {
