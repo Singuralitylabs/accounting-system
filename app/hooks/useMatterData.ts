@@ -9,6 +9,10 @@ import { updateMatter } from "../utils/supabase/editMatterInfo";
 import addMatterInfo from "../utils/supabase/addMatterInfo";
 import deleteMatter from "../utils/supabase/deleteMatter";
 import {
+  hasMatterListFilters,
+  MatterListFilters,
+} from "../utils/matterListFilters";
+import {
   MatterType,
   CostInCardType,
   BusinessInCardType,
@@ -45,11 +49,14 @@ export const useUserMatterList = (initialData?: MatterType[]) => {
 };
 
 // 全案件一覧（経理用）
-export const useAllMatterList = (initialData?: MatterWithProfileType[]) => {
+export const useAllMatterList = (
+  initialData?: MatterWithProfileType[],
+  filters: MatterListFilters = {},
+) => {
   return useQuery({
-    queryKey: ["matters", "all"],
+    queryKey: ["matters", "all", filters],
     queryFn: async () => {
-      const result = await getAllMatterInfoList();
+      const result = await getAllMatterInfoList(filters);
       // getAllMatterInfoList はエラー時に null を返す。null をそのまま返すと
       // 成功扱いでキャッシュが null 上書きされ一覧が白紙化するため throw に変換し、
       // TanStack Query の retry と前回データ保持に任せる
@@ -58,7 +65,7 @@ export const useAllMatterList = (initialData?: MatterWithProfileType[]) => {
       }
       return result as MatterWithProfileType[];
     },
-    initialData,
+    initialData: hasMatterListFilters(filters) ? undefined : initialData,
     staleTime: 2 * 60 * 1000,
   });
 };

@@ -1,26 +1,63 @@
 "use server";
 
 import { MatterType } from "../../types/types";
+import {
+  MATTER_LIST_FILTER_KEYS,
+  MatterListFilters,
+  isNumericMatterFilterKey,
+} from "../matterListFilters";
 import { createServerSupabase } from "./clients";
 import { getProfileInfo } from "./profiles";
 
-export const getAllMatterInfoList = async () => {
+export const getAllMatterInfoList = async (
+  filters: MatterListFilters = {}
+) => {
   const supabase = createServerSupabase();
-
-  const { data: matterList, error } = await supabase
-    .from("matters")
-    .select(
-      `
-      *,
+  const userNames =
+    filters.user_name && filters.user_name.length > 0
+      ? filters.user_name
+      : undefined;
+  const profileJoin = userNames
+    ? `
+      profiles!matters_user_id_fkey!inner (
+        name,
+        slack_id
+      )
+    `
+    : `
       profiles!matters_user_id_fkey (
         name,
         slack_id
       )
+    `;
+
+  let query = supabase
+    .from("matters")
+    .select(
+      `
+      *,
+      ${profileJoin}
     `
     )
     .order("is_completed", { ascending: true })
     .order("is_fixed", { ascending: false })
     .order("id", { ascending: true });
+
+  for (const key of MATTER_LIST_FILTER_KEYS) {
+    if (key === "user_name") continue;
+    const values = filters[key];
+    if (!values || values.length === 0) continue;
+    const columnValues = isNumericMatterFilterKey(key)
+      ? values.map(Number)
+      : values;
+    query = query.in(key, columnValues);
+  }
+
+  if (userNames) {
+    query = query.in("profiles.name", userNames);
+  }
+
+  const { data: matterList, error } = await query;
 
   if (error) {
     console.error("Error fetching matters:", error);
