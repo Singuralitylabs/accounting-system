@@ -36,7 +36,7 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 
 - Next.js 14 (App Router) / TypeScript / Mantine + Tailwind
 - 認証は Supabase Auth + Google OAuth。`@future-tech-association.org` ドメイン限定。
-- 認証・DB アクセスは全面的に `@supabase/auth-helpers-nextjs` を使用。`@supabase/ssr` は依存に入っているが**未使用**であり、セッション Cookie が auth-helpers 形式のため **`@supabase/ssr` クライアントを混在させるとセッションを読めず、RLS で全クエリが 0 行になる**（エラーは出ない）。認証スタック全体を `@supabase/ssr` へ移行するまでは、新規コードも `createServerComponentClient` 等の auth-helpers を使うこと。
+- 認証・DB アクセスは `@supabase/ssr`（`createServerClient` / `createBrowserClient`）を使う。生成は `app/utils/supabase/clients.ts` の `createServerSupabase()` と `SupabaseProvider` の `createBrowserClient` に集約する。middleware は同じ `@supabase/ssr` の `createServerClient` と request cookies。**`@supabase/auth-helpers-nextjs` は使用禁止**（ESLint `no-restricted-imports`）。Cookie 形式が異なるため、旧 auth-helpers クライアントを混在させるとセッションを読めず、RLS で全クエリが 0 行になる（エラーは出ない）。
 - `app/layout.tsx` で `export const dynamic = "force-dynamic"` を指定しており、ページは静的キャッシュされない。
 
 ### Provider スタック（`app/layout.tsx`）

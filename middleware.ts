@@ -1,4 +1,4 @@
-import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs";
+import { createServerClient } from "@supabase/ssr";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { hasClassAccess } from "./app/utils/permissions";
@@ -22,8 +22,27 @@ export async function middleware(req: NextRequest) {
     pathClass.kind === "auth_only" || pathClass.kind === "restricted";
   const isAuthRoute = pathClass.kind === "auth_route";
 
-  const res = NextResponse.next();
-  const supabase = createMiddlewareClient<Database>({ req, res });
+  let res = NextResponse.next({ request: req });
+  const supabase = createServerClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return req.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value }) =>
+            req.cookies.set(name, value),
+          );
+          res = NextResponse.next({ request: req });
+          cookiesToSet.forEach(({ name, value, options }) =>
+            res.cookies.set(name, value, options),
+          );
+        },
+      },
+    },
+  );
 
   // res 以外を返す場合も、getUser()/getSession() が発行したローテーション後の Cookie
   // （リフレッシュされたトークン等）を引き継ぐ。redirect() や新規 NextResponse は

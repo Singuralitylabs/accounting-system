@@ -1,6 +1,6 @@
 "use server";
 
-import { User } from "@supabase/auth-helpers-nextjs";
+import { User } from "@supabase/supabase-js";
 import { MatterType, ProfilesType } from "../../types/types";
 import { isAllowedEmailDomain } from "../constants";
 import { getCachedProfileInfo, getCachedProfileInfoById } from "./requestCache";
