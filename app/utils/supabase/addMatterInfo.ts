@@ -1,8 +1,8 @@
 import { BusinessType, CostType, MatterType } from "@/app/types/types";
 import { calcMatterTotalsForCreate } from "@/app/utils/matterCalc";
 import { validateMatterPayload } from "@/app/utils/matterValidation";
-import { insertBusinessInfo } from "./businesses";
-import { insertCostInfo } from "./costs";
+import { bulkInsertBusinessInfo } from "./businesses";
+import { bulkInsertCostInfo } from "./costs";
 import { insertMatterInfo } from "./matters";
 
 const insertMatter = async (
@@ -29,31 +29,32 @@ const insertMatter = async (
   if (matterError) throw new Error(matterError.message);
   if (!newId) throw new Error("案件IDの取得に失敗しました。");
 
-  for (const cost of costList) {
-    const { error: costError } = await insertCostInfo(
-      cost.name,
-      cost.item,
-      cost.payment_target,
-      cost.price,
-      cost.period!,
-      cost.certificate,
-      cost.withholding,
-      newId,
-      cost.comment!
-    );
-    if (costError) throw new Error(costError.message);
-  }
-
-  for (const business of businessList) {
-    const { error: businessError } = await insertBusinessInfo(
-      business.name,
-      business.amount!,
-      business.invoice_date!,
-      business.period_date!,
+  const [{ error: costError }, { error: businessError }] = await Promise.all([
+    bulkInsertCostInfo(
+      costList.map((cost) => ({
+        name: cost.name,
+        item: cost.item,
+        payment_target: cost.payment_target,
+        price: cost.price,
+        period: cost.period!,
+        certificate: cost.certificate,
+        withholding: cost.withholding,
+        comment: cost.comment,
+      })),
       newId
-    );
-    if (businessError) throw new Error(businessError.message);
-  }
+    ),
+    bulkInsertBusinessInfo(
+      businessList.map((business) => ({
+        name: business.name,
+        amount: business.amount!,
+        invoice_date: business.invoice_date!,
+        period_date: business.period_date!,
+      })),
+      newId
+    ),
+  ]);
+  if (costError) throw new Error(costError.message);
+  if (businessError) throw new Error(businessError.message);
 
   return true;
 };
