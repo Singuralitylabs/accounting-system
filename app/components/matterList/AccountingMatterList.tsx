@@ -3,7 +3,7 @@
 import { Button, SimpleGrid, Table } from "@mantine/core";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { MatterInfoWithUserNameType } from "../../types/types";
-import { MatterCardDetailModalForAccounting } from "../modal/MatterCardDetailForAccounting";
+import { MatterCardDetail } from "../modal/MatterCardDetail";
 import { NotificationMessage } from "../modal/NotificationMessage";
 import DisplayMenu from "../buttons/display-menu";
 import { MatterCard } from "../MatterCard";
@@ -222,7 +222,8 @@ export const AccountingMatterList = ({
       </div>
 
       {detailOpened && detailMatterInfo && (
-        <MatterCardDetailModalForAccounting
+        <MatterCardDetail
+          variant="accounting"
           matterInfo={detailMatterInfo}
           opened={detailOpened}
           setOpened={setDetailOpened}

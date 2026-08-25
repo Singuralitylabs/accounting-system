@@ -103,6 +103,16 @@ Phase 3（`@supabase/ssr` 一括移行）と Phase 5（権限別コンポーネ�
 | モバイル幅     | カード強制（従来どおり）                | カード強制（従来どおり）                                               | カード強制しない（従来どおり）                   |
 | フィルタ       | なし                                    | 4-c のサーバ側フィルタ。ヘッダ unique 値は未フィルタ snapshot          | なし                                             |
 
+### Phase 5-e（案件詳細モーダル 3 種の統合）
+
+`MatterCardDetailModal` / `MatterCardDetailModalForAccounting` / `MatterCardDetailModalReadOnly` は削除済み。呼び出しは `MatterCardDetail` の `variant` のみ。閲覧専用は `useEffect` + `Promise.all` ではなく `useMatterDetail` でコスト・取引先を取る（失敗時は空配列にフォールバックしない）。
+
+| 操作                         | public / teamleader（`variant="user"`）                                  | accounting（`variant="accounting"`）                                       | teamleader / admin（`variant="readonly"`）                       |
+| ---------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `/matters` の詳細            | 更新・経理申請・取引先追加・コスト追加。下書きなら削除。経理メモは出ない | 対象外                                                                     | 対象外                                                           |
+| `/accounting` の詳細         | 対象外                                                                   | 経理メモ・保存。申請中なら確認完了・下書きに戻す。追加・更新ボタンは出ない | 対象外                                                           |
+| `/team` および損益の案件表示 | 対象外                                                                   | 対象外                                                                     | 閲覧専用バナーと収支サマリー。保存・更新・経理申請ボタンは出ない |
+
 ## 実施記録
 
 実施日・実施者・環境（ローカル / preview）・結果（OK / NG と画面）を、Phase 3 / Phase 5 の PR 説明に転記する。

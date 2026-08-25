@@ -1,15 +1,10 @@
-import {
-  BusinessType,
-  CostType,
-  MatterInfoWithUserNameType,
-} from "@/app/types/types";
-import { getUserBusinessInfoList } from "@/app/utils/supabase/businesses";
-import { getUserCostInfoList } from "@/app/utils/supabase/costs";
+"use client";
+
+import { MatterInfoWithUserNameType } from "@/app/types/types";
 import { Modal, Badge, Grid, LoadingOverlay } from "@mantine/core";
-import { useEffect, useState } from "react";
-import LabelText from "../LabelText";
-import { formatCurrency } from "@/app/utils/formatter";
-import { formatDateToJp } from "@/app/utils/formatter";
+import LabelText from "../../LabelText";
+import { formatCurrency, formatDateToJp } from "@/app/utils/formatter";
+import { useMatterDetail } from "@/app/hooks/useMatterData";
 
 type Props = {
   matterInfo: MatterInfoWithUserNameType;
@@ -17,45 +12,10 @@ type Props = {
   setOpened: React.Dispatch<React.SetStateAction<boolean>>;
 };
 
-export const MatterCardDetailModalReadOnly = ({
-  matterInfo,
-  opened,
-  setOpened,
-}: Props) => {
-  const [costList, setCostList] = useState<CostType[]>([]);
-  const [businessList, setBusinessList] = useState<BusinessType[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-
-  useEffect(() => {
-    if (opened) {
-      const getBusinessInfo = async () => {
-        const { businessInfoList, error } = await getUserBusinessInfoList(
-          matterInfo.id,
-        );
-        if (error) {
-          console.error("取引先情報の取得に失敗しました:", error);
-        } else {
-          setBusinessList(businessInfoList || []);
-        }
-      };
-
-      const getCostInfo = async () => {
-        const { costInfoList, error } = await getUserCostInfoList(
-          matterInfo.id,
-        );
-        if (error) {
-          console.error("コスト情報の取得に失敗しました:", error);
-        } else {
-          setCostList(costInfoList || []);
-        }
-      };
-
-      setIsLoading(true);
-      Promise.all([getBusinessInfo(), getCostInfo()]).finally(() => {
-        setIsLoading(false);
-      });
-    }
-  }, [opened, matterInfo.id]);
+export function ReadonlyMatterDetail({ matterInfo, opened, setOpened }: Props) {
+  const { data, isLoading } = useMatterDetail(matterInfo.id, opened);
+  const businessList = data?.businesses ?? [];
+  const costList = data?.costs ?? [];
 
   const getStatusBadge = () => {
     if (matterInfo.is_completed) {
@@ -303,4 +263,4 @@ export const MatterCardDetailModalReadOnly = ({
       </div>
     </Modal>
   );
-};
+}
