@@ -96,7 +96,14 @@
       "mcp__Supabase__merge_branch",
       "mcp__Supabase__reset_branch",
       "mcp__Supabase__pause_project",
-      "mcp__Supabase__deploy_edge_function"
+      "mcp__Supabase__deploy_edge_function",
+      "mcp__supabase__apply_migration",
+      "mcp__supabase__execute_sql",
+      "mcp__supabase__delete_branch",
+      "mcp__supabase__merge_branch",
+      "mcp__supabase__reset_branch",
+      "mcp__supabase__pause_project",
+      "mcp__supabase__deploy_edge_function"
     ]
   },
   "hooks": {
@@ -106,7 +113,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "CMD=$(jq -r '.tool_input.command // empty'); case \"$CMD\" in *\"git push\"*--force*|*\"git push\"*\" -f \"*|*\"git push\"*\" -f\"|*\"git push\"*--delete*|*\"git push\"*--mirror*|*\"git branch\"*\" -D\"*|*\"git reset\"*--hard*|*\"git clean\"*-*f*|*filter-branch*|*\"rm -rf /\"*|*\"rm -fr /\"*|*\"supabase db push\"*|*\"supabase link\"*) printf '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"履歴の書き換え・強制削除・本番DBへの直接適用にあたるコマンドのため、このリポジトリではブロックされています（.claude/settings.json）。必要な場合はユーザー自身で実行してください。\"}}' ;; esac; exit 0"
+            "command": "CMD=$(jq -r '.tool_input.command // empty'); case \"$CMD\" in *\"git push\"*--force*|*\"git push\"*\" -f \"*|*\"git push\"*\" -f\"|*\"git push\"*--delete*|*\"git push\"*--mirror*|*\"git push\"*\" +\"*|*\"git push\"*\" :\"*|*\"git branch\"*\" -D\"*|*\"git branch\"*--force*|*\"git branch\"*\" -f \"*|*\"git branch\"*\" -f\"|*\"git switch\"*--force*|*\"git switch\"*--discard-changes*|*\"git switch\"*\" -f \"*|*\"git switch\"*\" -f\"|*\"git checkout\"*--force*|*\"git checkout\"*--discard-changes*|*\"git checkout\"*\" -f \"*|*\"git checkout\"*\" -f\"|*\"git checkout\"*\" -- .\"|*\"git checkout\"*\" .\"|*\"git restore\"*\"--staged\"*\"--worktree\"*|*\"git restore\"*\"--worktree\"*\"--staged\"*|*\"git stash\"*clear*|*\"git stash\"*drop*|*\"git reset\"*--hard*|*\"git clean\"*-*f*|*filter-branch*|*\"rm -rf /\"*|*\"rm -fr /\"*|*\"supabase db push\"*|*\"supabase link\"*) printf '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"履歴の書き換え・強制削除・作業ツリー全体の破棄・本番DBへの直接適用にあたるコマンドのため、このリポジトリではブロックされています（.claude/settings.json）。必要な場合はユーザー自身で実行してください。\"}}' ;; esac; exit 0"
           }
         ]
       }
