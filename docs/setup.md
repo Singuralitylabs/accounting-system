@@ -416,7 +416,8 @@ matter-controller/
 └── docs/
     ├── setup.md           # 開発環境構築手順（本ファイル）
     ├── specification.md   # 詳細設計書
-    └── database.md        # データベース設計書
+    ├── database.md        # データベース設計書
+    └── testing.md         # テスト設計書
 ```
 
 ---

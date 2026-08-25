@@ -41,7 +41,7 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 
 ### Provider スタック（`app/layout.tsx`）
 
-`SupabaseProvider` → `QueryProvider` → `MantineProvider` → `AuthProvider`
+`SupabaseProvider` → `QueryProvider` → `MantineProvider` → `DatesLocaleProvider` → `AuthProvider`
 
 （日付 UI は `@mantine/dates`。ロケールは `DatesLocaleProvider`、入力は `CustomDatePicker` / `CustomMonthPicker` 経由。layout に日付ピッカー本体を置かない）
 
