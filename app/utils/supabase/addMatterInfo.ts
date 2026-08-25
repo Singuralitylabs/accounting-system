@@ -1,5 +1,8 @@
 import { BusinessType, CostType, MatterType } from "@/app/types/types";
-import { calcMatterTotalsForCreate } from "@/app/utils/matterCalc";
+import {
+  calcMatterTotalsForCreate,
+  sumBusinessAmounts,
+} from "@/app/utils/matterCalc";
 import {
   getMatterValidationMessage,
   validateMatterPayload,
@@ -91,11 +94,7 @@ const addMatterInfo = async (
     throw new Error(getMatterValidationMessage(validation.reason, "create"));
   }
 
-  const totalCompensation = businessList.reduce(
-    (sum, business) => sum + (business.amount || 0),
-    0
-  );
-  if (totalCompensation === 0) {
+  if (sumBusinessAmounts(businessList) === 0) {
     const checkCreated = window.confirm(
       "取引先情報の報酬額の合計が0円です。このまま作成して良いでしょうか？"
     );

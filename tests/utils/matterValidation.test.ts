@@ -3,8 +3,10 @@ import {
   getMatterValidationMessage,
   hasCostRequiredFields,
   hasMatterRequiredFields,
+  MATTER_VALIDATION_ALERTS,
   validateBusinessEntry,
   validateMatterPayload,
+  type MatterValidationReason,
 } from "@/app/utils/matterValidation";
 
 const validMatter = {
@@ -152,6 +154,39 @@ describe("validateMatterPayload", () => {
         [],
       ),
     ).toEqual({ ok: false, reason: "business_required" });
+  });
+
+  it("取引先の必須欠落は business_required", () => {
+    expect(
+      validateMatterPayload(
+        validMatter,
+        [{ ...validBusiness, amount: null }],
+        [validCost],
+      ),
+    ).toEqual({ ok: false, reason: "business_required" });
+  });
+
+  it("費用の必須欠落は cost_required", () => {
+    expect(
+      validateMatterPayload(
+        validMatter,
+        [validBusiness],
+        [{ ...validCost, name: "" }],
+      ),
+    ).toEqual({ ok: false, reason: "cost_required" });
+  });
+
+  it("reason ごとの alert 文言マップが揃っている", () => {
+    const reasons: MatterValidationReason[] = [
+      "matter_required",
+      "business_required",
+      "business_date_order",
+      "cost_required",
+    ];
+    for (const reason of reasons) {
+      expect(MATTER_VALIDATION_ALERTS[reason]("作成")).toContain("作成");
+      expect(MATTER_VALIDATION_ALERTS[reason]("更新")).toContain("更新");
+    }
   });
 });
 
