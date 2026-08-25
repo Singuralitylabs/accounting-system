@@ -1,25 +1,21 @@
-export type MatterRequiredFields = {
-  title?: string | null;
-  category?: string | null;
-  team?: string | null;
-  start_date?: string | Date | null;
-};
+import type { BusinessType, CostType, MatterType } from "../types/types";
 
-export type BusinessValidationFields = {
-  name?: string | null;
-  amount?: number | null;
-  invoice_date?: string | Date | null;
-  period_date?: string | Date | null;
-  isRemoved?: boolean;
-};
+export type MatterRequiredFields = Pick<
+  MatterType,
+  "title" | "category" | "team" | "start_date"
+>;
 
-export type CostValidationFields = {
-  name?: string | null;
-  item?: string | null;
-  payment_target?: string | null;
-  price?: number | null;
-  period?: string | Date | null;
-  certificate?: string | null;
+export type BusinessValidationFields = Pick<
+  BusinessType,
+  "name" | "amount" | "invoice_date" | "period_date"
+> & { isRemoved?: boolean };
+
+export type CostValidationFields = Pick<
+  CostType,
+  "name" | "item" | "payment_target" | "period" | "certificate"
+> & {
+  // フォーム上は未入力を null とし得る（既存の必須チェック）
+  price: CostType["price"] | null;
   isRemoved?: boolean;
 };
 
@@ -32,6 +28,20 @@ export type MatterValidationReason =
 export type MatterValidationResult =
   | { ok: true }
   | { ok: false; reason: MatterValidationReason };
+
+export const MATTER_VALIDATION_ALERTS: Record<
+  MatterValidationReason,
+  (action: "作成" | "更新") => string
+> = {
+  matter_required: (action) =>
+    `案件名、分類、チーム、案件開始日のいずれかが空欄のため、案件の${action}を中止しました。`,
+  business_required: (action) =>
+    `取引先情報に空欄があるため、案件の${action}を中止しました。`,
+  business_date_order: (action) =>
+    `取引先情報の請求日が振込期限より後になっています。\n案件の${action}を中止しました。`,
+  cost_required: (action) =>
+    `コスト情報に空欄があるため、案件の${action}を中止しました。`,
+};
 
 export const hasMatterRequiredFields = (matterInfo: MatterRequiredFields) =>
   !!(
