@@ -1,4 +1,6 @@
 import { BusinessType, CostType, MatterType } from "@/app/types/types";
+import { calcMatterTotalsForCreate } from "@/app/utils/matterCalc";
+import { validateMatterPayload } from "@/app/utils/matterValidation";
 import {
   insertBusinessInfo,
   insertCostInfo,
@@ -10,12 +12,9 @@ const insertMatter = async (
   businessList: BusinessType[],
   costList: CostType[]
 ) => {
-  matterInfo.total_amount = businessList.reduce((acc, business) => {
-    return business.amount ? acc + business.amount : acc;
-  }, 0);
-  matterInfo.total_cost = costList.reduce((acc, cost) => {
-    return cost.price ? acc + cost.price : acc;
-  }, 0);
+  const totals = calcMatterTotalsForCreate(businessList, costList);
+  matterInfo.total_amount = totals.total_amount;
+  matterInfo.total_cost = totals.total_cost;
 
   const { newId, error: matterError } = await insertMatterInfo(
     matterInfo.title,
@@ -84,49 +83,26 @@ const addMatterInfo = async (
     }
   }
 
-  if (
-    !matterInfo.title ||
-    !matterInfo.category ||
-    !matterInfo.team ||
-    !matterInfo.start_date
-  ) {
-    alert(
-      `案件名、分類、チーム、案件開始日のいずれかが空欄のため、案件の作成を中止しました。`
-    );
-    return false;
-  }
-
-  for (const business of businessList) {
-    if (
-      !business.name ||
-      business.amount === null ||
-      !business.invoice_date ||
-      !business.period_date
-    ) {
+  const validation = validateMatterPayload(
+    matterInfo,
+    businessList,
+    costList
+  );
+  if (!validation.ok) {
+    if (validation.reason === "matter_required") {
+      alert(
+        `案件名、分類、チーム、案件開始日のいずれかが空欄のため、案件の作成を中止しました。`
+      );
+    } else if (validation.reason === "business_required") {
       alert(`取引先情報に空欄があるため、案件の作成を中止しました。`);
-      return false;
-    }
-    const invoice_date = new Date(business.invoice_date);
-    const period_date = new Date(business.period_date);
-    if (invoice_date.getTime() > period_date.getTime()) {
+    } else if (validation.reason === "business_date_order") {
       alert(
         `取引先情報の請求日が振込期限より後になっています。\n案件の作成を中止しました。`
       );
-      return false;
-    }
-  }
-  for (const cost of costList) {
-    if (
-      !cost.name ||
-      !cost.item ||
-      !cost.payment_target ||
-      cost.price === null ||
-      !cost.period ||
-      !cost.certificate
-    ) {
+    } else if (validation.reason === "cost_required") {
       alert(`コスト情報に空欄があるため、案件の作成を中止しました。`);
-      return false;
     }
+    return false;
   }
 
   const totalCompensation = businessList.reduce(

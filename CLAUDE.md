@@ -72,7 +72,7 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 - 制限ルートのロールは、`getUser()` で検証済みの同一アクセストークンから読む JWT の `user_class` クレームを使う（`profiles` への DB クエリを排除）。`user_class` は Custom Access Token Hook（`public.custom_access_token_hook`、`docs/database.md` 参照）が付与する。クレームは同じ検証済みトークンの一部であるため、改ざんされていればトークンの署名検証自体が失敗し `getUser()` がエラーになる。
 - `user_class` クレームが有効な文字列でない場合（クレームキー自体が無い / 値が明示的に `null` / 空文字 / 文字列以外）は `profiles` への DB クエリにフォールバックするため、フック未有効化でも動作する（フェイルセーフ）。**本番では Supabase ダッシュボードでフックを有効化する必要がある**（マイグレーション適用後に有効化すること。適用前に有効化すると全ユーザーがログインできなくなる）。新規ユーザーはトークン発行後にプロフィールが作成されるため初回トークンは必ず `user_class: null` になるが、この場合もフォールバックするため直後のロール付与は即座に反映される。
 - ロール変更は対象ユーザーのトークンリフレッシュ（既定で最大約1時間）または再ログインまで JWT に反映されない（JWT にロールが既に載っている場合のみ）。即時反映が必要な用途では middleware だけに依存しないこと。
-- `getUser()` が Supabase Auth 側の一時的障害（fetch 自体の失敗、またはステータス 5xx）を返した場合、middleware はログイン中ユーザーを一律 `/login` に飛ばさず 503 を返す（一時的障害と偽造トークンを区別する）。auth-js の `isAuthRetryableFetchError` は 502/503/504 しか拾わず 500 は `AuthApiError` になるため、判定には 5xx の `AuthApiError` も含める必要がある（`middleware.ts` の `isTransientAuthError`）。
+- `getUser()` が Supabase Auth 側の一時的障害（fetch 自体の失敗、またはステータス 5xx）を返した場合、middleware はログイン中ユーザーを一律 `/login` に飛ばさず 503 を返す（一時的障害と偽造トークンを区別する）。auth-js の `isAuthRetryableFetchError` は 502/503/504 しか拾わず 500 は `AuthApiError` になるため、判定には 5xx の `AuthApiError` も含める必要がある（`app/utils/routeGuard.ts` の `isTransientAuthError`）。
 
 ## 業務ロジック
 
@@ -86,10 +86,11 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 
 ## 主要ファイル
 
-- `middleware.ts` — ルート保護 & ロール判定
+- `middleware.ts` — ルート保護 & ロール判定（判定ロジックは `app/utils/routeGuard.ts`）
 - `app/layout.tsx` — Provider スタック / `force-dynamic`
 - `app/components/providers/` — `SupabaseProvider`, `QueryProvider`, `DatesLocaleProvider`, `InitialOptionalLoader`
+- `app/utils/matterCalc.ts` / `app/utils/matterValidation.ts` — 案件の金額集計と必須・日付バリデーション
 - `app/utils/supabase/editMatterInfo.ts` — 案件 CRUD のコア
 - `app/hooks/useMatterData.ts` — TanStack Query フック群
 - `app/actions/slack/` — Slack 通知 Server Action
-- `docs/setup.md` / `docs/specification.md` / `docs/database.md` / `docs/testing.md` — セットアップ・仕様・DB 設計・テスト設計（日本語）
+- `docs/setup.md` / `docs/specification.md` / `docs/database.md` / `docs/testing.md` / `docs/manual-check.md` — セットアップ・仕様・DB 設計・テスト設計・手動確認（日本語）
