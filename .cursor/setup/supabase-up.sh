@@ -20,36 +20,42 @@ fi
 export GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-local-dev-placeholder.apps.googleusercontent.com}"
 export GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET:-local-dev-placeholder-secret}"
 
-# --- Start the stack and wait for the database to become ready ---
+# --- Bring the stack to a fully healthy state ---
 # `supabase start` is not reliable to gate on: when booting from a snapshot the
 # containers are restored in a "running but still initializing" state, so the
-# CLI reports "already running" and exits non-zero while Postgres is not yet
-# accepting connections. Instead we kick a start (tolerating that error) and
-# then poll the database until it is actually ready.
-db_ready() { pg_isready -h 127.0.0.1 -p 54322 -U postgres >/dev/null 2>&1; }
+# CLI reports "already running" and exits non-zero while services are unhealthy.
+# We therefore treat a successful `supabase status -o env` (only returns 0 once
+# the stack is healthy) as the readiness signal, and force a clean stop/start
+# when the restored state is stuck.
+status_env() { supabase status -o env 2>/dev/null; }
 
-wait_for_db() {
-  for _ in $(seq 1 90); do
-    db_ready && return 0
-    sleep 2
+wait_for_status() {
+  for _ in $(seq 1 60); do
+    if status_env | grep -q '^API_URL='; then return 0; fi
+    sleep 3
   done
   return 1
 }
 
-if ! db_ready; then
+if ! status_env | grep -q '^API_URL='; then
   echo "[supabase-up] Starting Supabase (first run pulls images)..."
-  supabase start || true
-  if ! wait_for_db; then
-    echo "[supabase-up] Database still not ready; restarting the stack..."
+  if ! supabase start >/dev/null 2>&1; then
+    # Restored-from-snapshot containers are stuck; recreate them cleanly.
+    echo "[supabase-up] Recreating the stack for a clean, healthy start..."
     supabase stop --no-backup >/dev/null 2>&1 || true
-    supabase start || true
-    wait_for_db || {
-      echo "[supabase-up] Supabase database failed to become ready."
-      supabase status || true
-      exit 1
-    }
+    supabase start >/dev/null 2>&1 || true
   fi
+  wait_for_status || echo "[supabase-up] WARN: supabase status not healthy; using default local keys."
 fi
+
+# Wait until Postgres actually accepts connections before touching the DB.
+for _ in $(seq 1 60); do
+  pg_isready -h 127.0.0.1 -p 54322 -U postgres >/dev/null 2>&1 && break
+  sleep 2
+done
+pg_isready -h 127.0.0.1 -p 54322 -U postgres >/dev/null 2>&1 || {
+  echo "[supabase-up] Postgres never became ready."; exit 1;
+}
 echo "[supabase-up] Supabase database is accepting connections."
 
 # --- Restore standard public-schema CRUD grants ---
@@ -62,7 +68,16 @@ psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
 echo "[supabase-up] Public-schema CRUD grants applied."
 
 # --- Generate .env.local from the live Supabase status ---
-eval "$(supabase status -o env)"
+# These are Supabase's deterministic local-development demo values (JWTs signed
+# with the fixed local JWT secret); they are identical on every machine and are
+# used as a fallback if `supabase status` is momentarily unavailable.
+API_URL="http://127.0.0.1:54321"
+ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU"
+STATUS_ENV="$(status_env || true)"
+if echo "$STATUS_ENV" | grep -q '^API_URL='; then
+  eval "$STATUS_ENV"
+fi
 cat > .env.local <<EOF
 NEXT_PUBLIC_ENV=development
 NEXT_PUBLIC_SUPABASE_URL=${API_URL}
