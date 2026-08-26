@@ -106,6 +106,26 @@ describe("SignIn", () => {
     expect(mockSignInWithOAuth).not.toHaveBeenCalled();
   });
 
+  it("OAuth 画面から bfcache で戻ったらボタンを再有効化する", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    mockSignInWithOAuth.mockImplementation(() => new Promise(() => {}));
+
+    renderWithMantine(<SignIn />);
+    fireEvent.click(screen.getByRole("button", { name: "Google でログイン" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button")).toBeDisabled();
+    });
+
+    const pageShow = new Event("pageshow");
+    Object.defineProperty(pageShow, "persisted", { value: true });
+    window.dispatchEvent(pageShow);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button")).not.toBeDisabled();
+    });
+  });
+
   it("既存ユーザーが許可ドメイン外ならサインアウトしてボタンを再有効化する", async () => {
     mockGetUser.mockResolvedValue({
       data: { user: { email: "outsider@example.com" } },

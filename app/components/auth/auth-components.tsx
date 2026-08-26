@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FcGoogle } from "react-icons/fc";
 import {
   ALLOWED_EMAIL_DOMAIN,
@@ -15,6 +15,18 @@ export const SignIn = () => {
   const { supabase } = useSupabase();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      // クロスオリジンの OAuth 画面から「戻る」と bfcache で state が残るため、
+      // スピナー付き disabled のまま固まらないよう loading を解除する。
+      if (event.persisted) {
+        setLoading(false);
+      }
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
 
   const handleSignIn = async () => {
     if (loading) {

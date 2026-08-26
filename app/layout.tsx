@@ -36,9 +36,11 @@ export default async function RootLayout({
               <ModalsProvider labels={{ confirm: "OK", cancel: "キャンセル" }}>
                 <Notifications />
                 <DatesLocaleProvider>
-                  <div className="flex min-h-screen flex-col">
+                  <div className="flex min-h-dvh flex-col">
                     <AuthProvider>
-                      <div className="flex flex-grow flex-col">{children}</div>
+                      <div className="flex flex-grow flex-col [&>main]:flex-1">
+                        {children}
+                      </div>
                     </AuthProvider>
                     <Footer />
                   </div>
