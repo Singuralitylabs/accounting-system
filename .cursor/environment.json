@@ -1,0 +1,12 @@
+{
+  "name": "accounting-system",
+  "install": "bash .cursor/setup/install.sh",
+  "start": "bash .cursor/setup/start.sh",
+  "terminals": [
+    {
+      "name": "next-dev",
+      "command": "yarn dev"
+    }
+  ],
+  "ports": [3000, 54321, 54323]
+}
