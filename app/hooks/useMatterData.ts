@@ -76,7 +76,11 @@ export const useAllMatterList = (
 };
 
 // 案件詳細（コスト・ビジネス情報含む）
-export const useMatterDetail = (matterId: number, enabled = true) => {
+export const useMatterDetail = (
+  matterId: number,
+  enabled = true,
+  options?: { staleTime?: number },
+) => {
   return useQuery({
     queryKey: ["matter", matterId, "details"],
     queryFn: async () => {
@@ -113,7 +117,7 @@ export const useMatterDetail = (matterId: number, enabled = true) => {
       };
     },
     enabled: enabled && !!matterId,
-    staleTime: 1 * 60 * 1000, // 1分（詳細データはより頻繁に更新）
+    staleTime: options?.staleTime ?? 1 * 60 * 1000, // 既定1分。閲覧専用は 0 を指定
   });
 };
 
@@ -131,7 +135,7 @@ export const useUpdateMatter = () => {
         data.matterInfo,
         data.businessInfoList,
         data.costInfoList,
-        { skipRemoved: true },
+        { skipRemoved: true, requireStartDate: false },
       );
       if (!validation.ok) {
         throw new Error(

@@ -43,13 +43,18 @@ export const MATTER_VALIDATION_ALERTS: Record<
     `コスト情報に空欄があるため、案件の${action}を中止しました。`,
 };
 
-export const hasMatterRequiredFields = (matterInfo: MatterRequiredFields) =>
-  !!(
+export const hasMatterRequiredFields = (
+  matterInfo: MatterRequiredFields,
+  options?: { requireStartDate?: boolean },
+) => {
+  const requireStartDate = options?.requireStartDate !== false;
+  return !!(
     matterInfo.title &&
     matterInfo.category &&
     matterInfo.team &&
-    matterInfo.start_date
+    (!requireStartDate || matterInfo.start_date)
   );
+};
 
 export const validateBusinessEntry = (
   business: BusinessValidationFields,
@@ -83,14 +88,20 @@ export const hasCostRequiredFields = (cost: CostValidationFields) =>
 /**
  * 案件作成・更新で共通の必須チェックと請求日/振込期限の前後チェック。
  * `skipRemoved: true` のとき `isRemoved` 行は見ない（更新時の既存挙動）。
+ * `requireStartDate: false` のとき開始日は必須にしない（DB 上 nullable な
+ * 既存データが、他項目だけの編集で更新できなくなるのを防ぐ。作成時は必須）。
  */
 export const validateMatterPayload = (
   matterInfo: MatterRequiredFields,
   businessList: BusinessValidationFields[],
   costList: CostValidationFields[],
-  options?: { skipRemoved?: boolean },
+  options?: { skipRemoved?: boolean; requireStartDate?: boolean },
 ): MatterValidationResult => {
-  if (!hasMatterRequiredFields(matterInfo)) {
+  if (
+    !hasMatterRequiredFields(matterInfo, {
+      requireStartDate: options?.requireStartDate,
+    })
+  ) {
     return { ok: false, reason: "matter_required" };
   }
 

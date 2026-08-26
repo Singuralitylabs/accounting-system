@@ -47,6 +47,15 @@ describe("hasMatterRequiredFields", () => {
       false,
     );
   });
+
+  it("start_date が null でも requireStartDate: false なら true", () => {
+    expect(
+      hasMatterRequiredFields(
+        { ...validMatter, start_date: null },
+        { requireStartDate: false },
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("validateBusinessEntry", () => {
@@ -144,6 +153,26 @@ describe("validateMatterPayload", () => {
         { skipRemoved: true },
       ),
     ).toEqual({ ok: true });
+  });
+
+  it("更新時は start_date が空でも他必須が揃っていれば通る", () => {
+    expect(
+      validateMatterPayload({ ...validMatter, start_date: "" }, [], [], {
+        skipRemoved: true,
+        requireStartDate: false,
+      }),
+    ).toEqual({ ok: true });
+  });
+
+  it("更新時でも案件名・分類・チームが空なら拒否する", () => {
+    expect(
+      validateMatterPayload(
+        { ...validMatter, title: "", start_date: "" },
+        [],
+        [],
+        { skipRemoved: true, requireStartDate: false },
+      ),
+    ).toEqual({ ok: false, reason: "matter_required" });
   });
 
   it("skipRemoved なしでは削除行も検証する", () => {

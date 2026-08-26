@@ -22,6 +22,7 @@ import {
 } from "../../utils/matterListFilters";
 import { notifyError, notifyInfo } from "../../utils/notify";
 import { confirmAction } from "../../utils/confirmAction";
+import { ActiveMatterFilterBar } from "./ActiveMatterFilterBar";
 
 export const AccountingMatterList = ({
   initialData,
@@ -95,12 +96,15 @@ export const AccountingMatterList = ({
   );
 
   const handleCheckCompleted = useCallback(async () => {
-    const checkedMatterList = headerMatterList.filter(
+    // フィルタ適用中も、凍結スナップショット（headerMatterList）ではなく
+    // 最新の表示リストから対象を解決する
+    const checkedMatterList = matterList.filter(
       (matter: MatterInfoWithUserNameType) =>
         checkedMatterIdList.includes(matter.id),
     );
 
-    if (!checkedMatterList || checkedMatterList.length === 0) {
+    if (checkedMatterList.length === 0) {
+      notifyError("完了にする案件にチェックを入れてください。");
       return;
     }
 
@@ -146,7 +150,7 @@ export const AccountingMatterList = ({
     } catch (error) {
       console.error("確認完了に失敗しました:", error);
     }
-  }, [headerMatterList, checkedMatterIdList, checkCompletedMutation]);
+  }, [matterList, checkedMatterIdList, checkCompletedMutation]);
 
   const handleSendMessage = useCallback(
     async (message: string) => {
@@ -159,11 +163,15 @@ export const AccountingMatterList = ({
         return;
       }
 
-      // チェックされた案件を取得
-      const checkedMatters = headerMatterList.filter(
+      // チェックされた案件を取得（最新の表示リストから解決する）
+      const checkedMatters = matterList.filter(
         (matter: MatterInfoWithUserNameType) =>
           checkedMatterIdList.includes(matter.id),
       );
+      if (checkedMatters.length === 0) {
+        notifyError("送信対象となる案件にチェックを入れてください。");
+        return;
+      }
 
       try {
         const { failedTitles, dbUpdateFailed } =
@@ -191,7 +199,7 @@ export const AccountingMatterList = ({
         notifyError("Slack通知に失敗しました。");
       }
     },
-    [checkedMatterIdList, headerMatterList, slackNotificationMutation],
+    [checkedMatterIdList, matterList, slackNotificationMutation],
   );
 
   return (
@@ -225,6 +233,16 @@ export const AccountingMatterList = ({
           </div>
         </div>
       </div>
+      <ActiveMatterFilterBar
+        filters={filters}
+        onClearKey={(key) =>
+          setFilters((prev) => ({
+            ...prev,
+            [key]: new Set(),
+          }))
+        }
+        onClearAll={() => setFilters({})}
+      />
       <div className="overflow-auto h-[calc(100vh-200px)]">
         {showCards ? (
           <div className="py-4 px-8">

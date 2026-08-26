@@ -1,0 +1,105 @@
+// @vitest-environment jsdom
+
+import { fireEvent, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AccountingMatterList } from "@/app/components/matterList/AccountingMatterList";
+import { renderWithMantine } from "../testUtils/renderWithMantine";
+
+const { listState, mutateAsync, slackMutateAsync, notifyError, confirmAction } =
+  vi.hoisted(() => ({
+    listState: { is_fixed: true },
+    mutateAsync: vi.fn(),
+    slackMutateAsync: vi.fn(),
+    notifyError: vi.fn(),
+    confirmAction: vi.fn(async () => true),
+  }));
+
+vi.mock("@/app/hooks/useMatterData", () => ({
+  useAllMatterList: () => ({
+    data: [
+      {
+        id: 42,
+        title: "テスト案件",
+        category: "セミナー",
+        team: "開発",
+        total_amount: 100000,
+        total_cost: 20000,
+        unchecked_cost_count: 0,
+        has_updates: false,
+        is_completed: false,
+        is_fixed: listState.is_fixed,
+        inserted_at: "2026-01-15T00:00:00+09:00",
+        updated_at: "2026-01-15T00:00:00+09:00",
+        accounting_memo: null,
+        business_count: 1,
+        cost_count: 1,
+        description: null,
+        parent_matter_id: null,
+        start_date: null,
+        user_id: 1,
+        profiles: { name: "山田太郎", slack_id: "U123" },
+      },
+    ],
+  }),
+  useCheckCompleted: () => ({ mutateAsync, isPending: false }),
+  useSlackNotification: () => ({
+    mutateAsync: slackMutateAsync,
+    isPending: false,
+  }),
+}));
+
+vi.mock("@/app/utils/notify", () => ({
+  notifyError,
+  notifyInfo: vi.fn(),
+  notifySuccess: vi.fn(),
+}));
+
+vi.mock("@/app/utils/confirmAction", () => ({
+  confirmAction,
+}));
+
+vi.mock("@mantine/hooks", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@mantine/hooks")>();
+  return {
+    ...actual,
+    useViewportSize: () => ({ width: 1024, height: 800 }),
+  };
+});
+
+describe("AccountingMatterList", () => {
+  beforeEach(() => {
+    listState.is_fixed = true;
+    mutateAsync.mockReset();
+    slackMutateAsync.mockReset();
+    notifyError.mockReset();
+    confirmAction.mockReset();
+    confirmAction.mockResolvedValue(true);
+  });
+
+  it("未選択で確認完了を押すと案内を出す", () => {
+    renderWithMantine(<AccountingMatterList />);
+
+    fireEvent.click(screen.getByRole("button", { name: "確認完了" }));
+
+    expect(notifyError).toHaveBeenCalledWith(
+      "完了にする案件にチェックを入れてください。",
+    );
+    expect(confirmAction).not.toHaveBeenCalled();
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("表示中リストの is_fixed=false なら完了対象から除外する", async () => {
+    listState.is_fixed = false;
+    renderWithMantine(<AccountingMatterList />);
+
+    fireEvent.click(screen.getByLabelText("案件チェック"));
+    fireEvent.click(screen.getByRole("button", { name: "確認完了" }));
+
+    await vi.waitFor(() => {
+      expect(notifyError).toHaveBeenCalledWith(
+        "下書きのため完了できません: テスト案件",
+      );
+    });
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
+});

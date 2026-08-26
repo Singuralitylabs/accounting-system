@@ -13,7 +13,9 @@ type Props = {
 };
 
 export function ReadonlyMatterDetail({ matterInfo, opened, setOpened }: Props) {
-  const { data, isLoading } = useMatterDetail(matterInfo.id, opened);
+  const { data, isLoading } = useMatterDetail(matterInfo.id, opened, {
+    staleTime: 0,
+  });
   const businessList = data?.businesses ?? [];
   const costList = data?.costs ?? [];
 

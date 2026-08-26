@@ -38,6 +38,10 @@ export const confirmAction = (
         : undefined,
       onConfirm: () => settle(true),
       onCancel: () => settle(false),
+      // Mantine 7.13 は Esc / X / オーバーレイクリックで closeModal のみ呼び、
+      // onCancel が発火しない。閉じたら必ず Promise を解決して呼び出し側の
+      // finally（LoadingOverlay 解除など）が走るようにする。
+      onClose: () => settle(false),
     });
   });
 

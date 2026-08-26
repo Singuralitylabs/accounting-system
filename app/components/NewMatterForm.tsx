@@ -8,12 +8,11 @@ import { CiSquarePlus } from "react-icons/ci";
 import BusinessBlock from "./BusinessBlock";
 import CostBlock from "./CostBlock";
 import { MatterInfoBlock } from "./MatterInfoBlock";
-import addMatterInfo from "../utils/supabase/addMatterInfo";
 import { confirmCreateMatter } from "../utils/confirmAction";
-import { notifyError, notifySuccess, toErrorMessage } from "../utils/notify";
 import { useRouter } from "next/navigation";
 import { useAtomValue } from "jotai";
 import { optionsAtom } from "../atoms/optionsAtom";
+import { useCreateMatter } from "../hooks/useMatterData";
 
 const NewMatterForm = () => {
   const initialFormValues: MatterType = {
@@ -51,6 +50,7 @@ const NewMatterForm = () => {
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
   const [, startTransition] = useTransition();
+  const createMatterMutation = useCreateMatter();
 
   const refreshData = () => {
     startTransition(() => {
@@ -144,24 +144,26 @@ const NewMatterForm = () => {
       updated_at: "",
     };
     try {
-      const ret = await addMatterInfo(matterInfo, businessList, costList);
-      if (ret) {
-        if (is_fixed) {
-          notifySuccess(`${matterInfo.title}の経理申請を完了しました。`);
-        } else {
-          notifySuccess(
-            `${matterInfo.title}の下書き作成を完了しました。\n経理申請まで忘れずご対応をお願い致します。`,
-          );
-        }
-        form.reset();
-        form.setValues(initialFormValues);
-        setCostList([]);
-        setBusinessList([]);
-        refreshData();
-      }
+      await createMatterMutation.mutateAsync({
+        matterInfo,
+        businessInfoList: businessList.map((business) => ({
+          ...business,
+          isNew: true,
+          isRemoved: false,
+        })),
+        costInfoList: costList.map((cost) => ({
+          ...cost,
+          isNew: true,
+          isRemoved: false,
+        })),
+      });
+      form.reset();
+      form.setValues(initialFormValues);
+      setCostList([]);
+      setBusinessList([]);
+      refreshData();
     } catch (error) {
       console.error("案件作成に失敗しました:", error);
-      notifyError(toErrorMessage(error, "案件作成に失敗しました。"));
     }
     setIsLoading(false);
   };

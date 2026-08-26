@@ -301,6 +301,7 @@ export function UserMatterDetail({
           teamList={teamList}
           categoryList={categoryList}
           isFixedMode={matterInfo.is_fixed || false}
+          requireStartDate={isNew}
         />
 
         <h2 className="my-4">取引先情報</h2>
