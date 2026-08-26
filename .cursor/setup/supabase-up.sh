@@ -20,11 +20,37 @@ fi
 export GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-local-dev-placeholder.apps.googleusercontent.com}"
 export GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET:-local-dev-placeholder-secret}"
 
-# --- Start the stack (idempotent; no-op if already running) ---
-if ! supabase status >/dev/null 2>&1; then
+# --- Start the stack and wait for the database to become ready ---
+# `supabase start` is not reliable to gate on: when booting from a snapshot the
+# containers are restored in a "running but still initializing" state, so the
+# CLI reports "already running" and exits non-zero while Postgres is not yet
+# accepting connections. Instead we kick a start (tolerating that error) and
+# then poll the database until it is actually ready.
+db_ready() { pg_isready -h 127.0.0.1 -p 54322 -U postgres >/dev/null 2>&1; }
+
+wait_for_db() {
+  for _ in $(seq 1 90); do
+    db_ready && return 0
+    sleep 2
+  done
+  return 1
+}
+
+if ! db_ready; then
   echo "[supabase-up] Starting Supabase (first run pulls images)..."
-  supabase start
+  supabase start || true
+  if ! wait_for_db; then
+    echo "[supabase-up] Database still not ready; restarting the stack..."
+    supabase stop --no-backup >/dev/null 2>&1 || true
+    supabase start || true
+    wait_for_db || {
+      echo "[supabase-up] Supabase database failed to become ready."
+      supabase status || true
+      exit 1
+    }
+  fi
 fi
+echo "[supabase-up] Supabase database is accepting connections."
 
 # --- Restore standard public-schema CRUD grants ---
 # Newer Supabase Postgres images ship restrictive DEFAULT PRIVILEGES, so tables
