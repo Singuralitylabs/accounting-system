@@ -1,17 +1,13 @@
--- Local-development grants for Cloud Agent environment.
---
 -- Newer Supabase Postgres images set restrictive DEFAULT PRIVILEGES on the
 -- `public` schema: tables created by migrations only grant
 -- TRUNCATE/REFERENCES/TRIGGER/MAINTAIN to anon/authenticated/service_role, not
--- SELECT/INSERT/UPDATE/DELETE. This project's migrations never grant CRUD
--- explicitly (they relied on Supabase's older permissive default), so a fresh
--- `supabase start` / `supabase db reset` leaves every PostgREST query returning
--- HTTP 403 and the app unusable after login.
+-- SELECT/INSERT/UPDATE/DELETE. RLS then never runs — PostgREST returns HTTP 403
+-- for every query and the app is unusable after login.
 --
--- This script restores the standard Supabase table/sequence grants so RLS (which
--- is enabled on every table) becomes the effective access gate again. It does
--- NOT grant EXECUTE on functions, preserving migration 15/16's deliberate
--- REVOKE of custom_access_token_hook from anon/authenticated. It is idempotent.
+-- Restore the standard Supabase table/sequence grants so RLS (enabled on every
+-- table) is the effective access gate. Do NOT grant EXECUTE on functions,
+-- preserving migration 15/16's REVOKE of custom_access_token_hook from
+-- anon/authenticated. Idempotent.
 
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 
