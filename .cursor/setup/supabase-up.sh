@@ -6,11 +6,17 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
+# Pin the CLI version validated with this environment (do not follow
+# releases/latest — that would pull different embedded service images).
+SUPABASE_CLI_VERSION="2.115.0"
+SUPABASE_CLI_DEB_SHA256="7f69e3d1ee45efd3ea0524c1628768217667b498162d647713a10fd5ecbd0275"
+
 # --- Install the Supabase CLI if missing (defensive; normally baked in) ---
 if ! command -v supabase >/dev/null 2>&1; then
-  echo "[supabase-up] Installing Supabase CLI..."
-  SUPA_VER="$(curl -fsSL https://api.github.com/repos/supabase/cli/releases/latest | grep -oP '"tag_name": "\K[^"]+')"
-  curl -fsSL "https://github.com/supabase/cli/releases/download/${SUPA_VER}/supabase_${SUPA_VER#v}_linux_amd64.deb" -o /tmp/supabase.deb
+  echo "[supabase-up] Installing Supabase CLI ${SUPABASE_CLI_VERSION}..."
+  curl -fsSL "https://github.com/supabase/cli/releases/download/v${SUPABASE_CLI_VERSION}/supabase_${SUPABASE_CLI_VERSION}_linux_amd64.deb" \
+    -o /tmp/supabase.deb
+  echo "${SUPABASE_CLI_DEB_SHA256}  /tmp/supabase.deb" | sha256sum -c -
   sudo dpkg -i /tmp/supabase.deb
 fi
 
@@ -24,9 +30,8 @@ export GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET:-local-dev-placeholder-secre
 # `supabase start` is not reliable to gate on: when booting from a snapshot the
 # containers are restored in a "running but still initializing" state, so the
 # CLI reports "already running" and exits non-zero while services are unhealthy.
-# We therefore treat a successful `supabase status -o env` (only returns 0 once
-# the stack is healthy) as the readiness signal, and force a clean stop/start
-# when the restored state is stuck.
+# Treat a successful `supabase status -o env` as the readiness signal. If start
+# fails, restart without `--no-backup` so developer data volumes are preserved.
 status_env() { supabase status -o env 2>/dev/null; }
 
 wait_for_status() {
@@ -40,13 +45,17 @@ wait_for_status() {
 if ! status_env | grep -q '^API_URL='; then
   echo "[supabase-up] Starting Supabase (first run pulls images)..."
   if ! supabase start >/dev/null 2>&1; then
-    # Restored-from-snapshot containers are stuck; recreate them cleanly.
-    echo "[supabase-up] Recreating the stack for a clean, healthy start..."
-    supabase stop --no-backup >/dev/null 2>&1 || true
+    echo "[supabase-up] Restarting the stack (preserving data volumes)..."
+    supabase stop >/dev/null 2>&1 || true
     supabase start >/dev/null 2>&1 || true
   fi
-  wait_for_status || echo "[supabase-up] WARN: supabase status not healthy; using default local keys."
 fi
+
+wait_for_status || {
+  echo "[supabase-up] Supabase stack never became healthy."
+  supabase status || true
+  exit 1
+}
 
 # Wait until Postgres actually accepts connections before touching the DB.
 for _ in $(seq 1 60); do
@@ -58,26 +67,12 @@ pg_isready -h 127.0.0.1 -p 54322 -U postgres >/dev/null 2>&1 || {
 }
 echo "[supabase-up] Supabase database is accepting connections."
 
-# --- Restore standard public-schema CRUD grants ---
-# Newer Supabase Postgres images ship restrictive DEFAULT PRIVILEGES, so tables
-# created by migrations lack SELECT/INSERT/UPDATE/DELETE for anon/authenticated
-# and every PostgREST query returns 403. This migration-independent grant script
-# re-enables them (RLS remains the row-level gate). Idempotent.
-psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
-  -v ON_ERROR_STOP=1 -f .cursor/setup/grant-public-crud.sql >/dev/null
-echo "[supabase-up] Public-schema CRUD grants applied."
+# Apply any migrations that were added after this volume was first created
+# (`supabase start` alone does not apply later files). Idempotent.
+supabase migration up --local
 
-# --- Generate .env.local from the live Supabase status ---
-# These are Supabase's deterministic local-development demo values (JWTs signed
-# with the fixed local JWT secret); they are identical on every machine and are
-# used as a fallback if `supabase status` is momentarily unavailable.
-API_URL="http://127.0.0.1:54321"
-ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
-SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU"
-STATUS_ENV="$(status_env || true)"
-if echo "$STATUS_ENV" | grep -q '^API_URL='; then
-  eval "$STATUS_ENV"
-fi
+# --- Generate .env.local from the live, healthy Supabase status ---
+eval "$(status_env)"
 cat > .env.local <<EOF
 NEXT_PUBLIC_ENV=development
 NEXT_PUBLIC_SUPABASE_URL=${API_URL}

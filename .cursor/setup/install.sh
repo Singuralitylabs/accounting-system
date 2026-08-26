@@ -15,7 +15,7 @@ fi
 echo "[install] Installing Node dependencies..."
 yarn install --frozen-lockfile
 
-echo "[install] Bringing up Docker + Supabase to apply migrations and grants..."
+echo "[install] Bringing up Docker + Supabase to apply migrations..."
 bash .cursor/setup/docker-up.sh
 bash .cursor/setup/supabase-up.sh
 
