@@ -14,39 +14,58 @@ const { listState, mutateAsync, slackMutateAsync, notifyError, confirmAction } =
     confirmAction: vi.fn(async () => true),
   }));
 
-vi.mock("@/app/hooks/useMatterData", () => ({
-  useAllMatterList: () => ({
-    data: [
-      {
-        id: 42,
-        title: "テスト案件",
-        category: "セミナー",
-        team: "開発",
-        total_amount: 100000,
-        total_cost: 20000,
-        unchecked_cost_count: 0,
-        has_updates: false,
-        is_completed: false,
-        is_fixed: listState.is_fixed,
-        inserted_at: "2026-01-15T00:00:00+09:00",
-        updated_at: "2026-01-15T00:00:00+09:00",
-        accounting_memo: null,
-        business_count: 1,
-        cost_count: 1,
-        description: null,
-        parent_matter_id: null,
-        start_date: null,
-        user_id: 1,
-        profiles: { name: "山田太郎", slack_id: "U123" },
-      },
-    ],
-  }),
-  useCheckCompleted: () => ({ mutateAsync, isPending: false }),
-  useSlackNotification: () => ({
-    mutateAsync: slackMutateAsync,
-    isPending: false,
-  }),
-}));
+vi.mock("@/app/hooks/useMatterData", () => {
+  const base = {
+    category: "セミナー",
+    total_amount: 100000,
+    total_cost: 20000,
+    unchecked_cost_count: 0,
+    has_updates: false,
+    is_completed: false,
+    inserted_at: "2026-01-15T00:00:00+09:00",
+    updated_at: "2026-01-15T00:00:00+09:00",
+    accounting_memo: null,
+    business_count: 1,
+    cost_count: 1,
+    description: null,
+    parent_matter_id: null,
+    start_date: null,
+    user_id: 1,
+    profiles: { name: "山田太郎", slack_id: "U123" },
+  };
+  return {
+    useAllMatterList: (
+      _initial?: unknown,
+      filters: { team?: string[] } = {},
+    ) => {
+      const all = [
+        {
+          ...base,
+          id: 42,
+          title: "テスト案件",
+          team: "開発",
+          is_fixed: listState.is_fixed,
+        },
+        {
+          ...base,
+          id: 43,
+          title: "別チーム案件",
+          team: "営業",
+          is_fixed: true,
+        },
+      ];
+      const data = filters.team?.length
+        ? all.filter((matter) => filters.team?.includes(matter.team))
+        : all;
+      return { data };
+    },
+    useCheckCompleted: () => ({ mutateAsync, isPending: false }),
+    useSlackNotification: () => ({
+      mutateAsync: slackMutateAsync,
+      isPending: false,
+    }),
+  };
+});
 
 vi.mock("@/app/utils/notify", () => ({
   notifyError,
@@ -92,7 +111,7 @@ describe("AccountingMatterList", () => {
     listState.is_fixed = false;
     renderWithMantine(<AccountingMatterList />);
 
-    fireEvent.click(screen.getByLabelText("案件チェック"));
+    fireEvent.click(screen.getAllByLabelText("案件チェック")[0]);
     fireEvent.click(screen.getByRole("button", { name: "確認完了" }));
 
     await vi.waitFor(() => {
@@ -134,5 +153,32 @@ describe("AccountingMatterList", () => {
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "すべて解除" }));
     expect(screen.queryByText("絞り込み中:")).not.toBeInTheDocument();
+  });
+
+  it("一部が非表示のとき対象外を確認し、完了した ID だけチェックを外す", async () => {
+    mutateAsync.mockResolvedValue(true);
+    renderWithMantine(<AccountingMatterList />);
+
+    const checkboxes = screen.getAllByLabelText("案件チェック");
+    fireEvent.click(checkboxes[0]);
+    fireEvent.click(checkboxes[1]);
+    fireEvent.click(screen.getByRole("button", { name: "チームの絞り込み" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "開発" }));
+    fireEvent.click(screen.getByRole("button", { name: "確認完了" }));
+
+    await vi.waitFor(() => {
+      expect(confirmAction).toHaveBeenCalledWith(
+        expect.stringContaining("非表示のため対象外"),
+      );
+      expect(mutateAsync).toHaveBeenCalledWith([42]);
+    });
+    await vi.waitFor(() => {
+      expect(screen.getByLabelText("案件チェック")).not.toBeChecked();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "すべて解除" }));
+    const remaining = screen.getAllByLabelText("案件チェック");
+    expect(remaining[0]).not.toBeChecked();
+    expect(remaining[1]).toBeChecked();
   });
 });

@@ -4,6 +4,7 @@ import {
   getActiveMatterFilterChips,
   hasMatterListFilters,
   isNumericMatterFilterKey,
+  partitionCheckedMatters,
 } from "@/app/utils/matterListFilters";
 
 describe("compactMatterListFilters", () => {
@@ -74,5 +75,29 @@ describe("getActiveMatterFilterChips", () => {
       { key: "team", label: "チーム", values: ["営業", "開発"] },
       { key: "category", label: "分類", values: ["講演"] },
     ]);
+  });
+});
+
+describe("partitionCheckedMatters", () => {
+  it("表示中と非表示のチェックを分ける", () => {
+    expect(
+      partitionCheckedMatters(
+        [
+          { id: 1, title: "A" },
+          { id: 2, title: "B" },
+        ],
+        [1, 3],
+      ),
+    ).toEqual({
+      visibleChecked: [{ id: 1, title: "A" }],
+      hiddenCheckedIds: [3],
+    });
+  });
+
+  it("全部表示中なら hidden は空", () => {
+    expect(partitionCheckedMatters([{ id: 1 }], [1])).toEqual({
+      visibleChecked: [{ id: 1 }],
+      hiddenCheckedIds: [],
+    });
   });
 });

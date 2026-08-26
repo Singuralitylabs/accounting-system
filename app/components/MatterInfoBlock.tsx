@@ -72,7 +72,7 @@ export const MatterInfoBlock = ({
           key={form.key("start_date")}
           {...form.getInputProps("start_date")}
           value={form.getValues().start_date}
-          onChange={(date) => form.setFieldValue("start_date", date || "")}
+          onChange={(date) => form.setFieldValue("start_date", date || null)}
         />
       </div>
 

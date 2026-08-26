@@ -56,6 +56,10 @@ export const hasMatterRequiredFields = (
   );
 };
 
+export const normalizeMatterStartDate = (
+  start_date: MatterRequiredFields["start_date"],
+): MatterRequiredFields["start_date"] => start_date || null;
+
 export const validateBusinessEntry = (
   business: BusinessValidationFields,
 ): "ok" | "required" | "date_order" => {
@@ -89,7 +93,8 @@ export const hasCostRequiredFields = (cost: CostValidationFields) =>
  * 案件作成・更新で共通の必須チェックと請求日/振込期限の前後チェック。
  * `skipRemoved: true` のとき `isRemoved` 行は見ない（更新時の既存挙動）。
  * `requireStartDate: false` のとき開始日は必須にしない（DB 上 nullable な
- * 既存データが、他項目だけの編集で更新できなくなるのを防ぐ。作成時は必須）。
+ * 既存下書きを、他項目だけの編集で更新できるようにするため。作成時と
+ * 経理申請時（`is_fixed === true`）は必須）。
  */
 export const validateMatterPayload = (
   matterInfo: MatterRequiredFields,

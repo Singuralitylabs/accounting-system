@@ -75,15 +75,35 @@ export type ActiveMatterFilterChip = {
 
 export const getActiveMatterFilterChips = (
   filters: Record<string, Set<string>>,
-): ActiveMatterFilterChip[] =>
-  MATTER_LIST_FILTER_KEYS.flatMap((key) => {
-    const values = filters[key];
-    if (!values || values.size === 0) return [];
+): ActiveMatterFilterChip[] => {
+  const compacted = compactMatterListFilters(filters);
+  return MATTER_LIST_FILTER_KEYS.flatMap((key) => {
+    const values = compacted[key];
+    if (!values || values.length === 0) return [];
     return [
       {
         key,
         label: MATTER_LIST_FILTER_LABELS[key],
-        values: Array.from(values).sort(),
+        values,
       },
     ];
   });
+};
+
+export type CheckedMatterPartition<T extends { id: number }> = {
+  visibleChecked: T[];
+  hiddenCheckedIds: number[];
+};
+
+export const partitionCheckedMatters = <T extends { id: number }>(
+  displayedMatters: T[],
+  checkedIds: number[],
+): CheckedMatterPartition<T> => {
+  const displayedIds = new Set(displayedMatters.map((matter) => matter.id));
+  return {
+    visibleChecked: displayedMatters.filter((matter) =>
+      checkedIds.includes(matter.id),
+    ),
+    hiddenCheckedIds: checkedIds.filter((id) => !displayedIds.has(id)),
+  };
+};

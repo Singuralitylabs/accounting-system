@@ -19,6 +19,7 @@ import {
 import {
   compactMatterListFilters,
   hasMatterListFilters,
+  partitionCheckedMatters,
 } from "../../utils/matterListFilters";
 import { notifyError, notifyInfo } from "../../utils/notify";
 import { confirmAction } from "../../utils/confirmAction";
@@ -96,30 +97,32 @@ export const AccountingMatterList = ({
   );
 
   const handleCheckCompleted = useCallback(async () => {
-    // フィルタ適用中も、凍結スナップショット（headerMatterList）ではなく
-    // 最新の表示リストから対象を解決する
-    const checkedMatterList = matterList.filter(
-      (matter: MatterInfoWithUserNameType) =>
-        checkedMatterIdList.includes(matter.id),
+    const { visibleChecked, hiddenCheckedIds } = partitionCheckedMatters(
+      matterList,
+      checkedMatterIdList,
     );
 
-    if (checkedMatterList.length === 0) {
+    if (visibleChecked.length === 0) {
       notifyError(
-        checkedMatterIdList.length > 0
+        hiddenCheckedIds.length > 0
           ? "表示中の案件にチェックが入っていません。絞り込みを解除するか、表示中の案件にチェックを入れてください。"
           : "完了にする案件にチェックを入れてください。",
       );
       return;
     }
 
+    const hiddenNote =
+      hiddenCheckedIds.length > 0
+        ? `\n（チェック済み ${checkedMatterIdList.length} 件のうち ${hiddenCheckedIds.length} 件は絞り込みで非表示のため対象外です）`
+        : "";
     const confirmed = await confirmAction(
-      `${checkedMatterList.length}件の案件を完了にしますか？`,
+      `${visibleChecked.length}件の案件を完了にしますか？${hiddenNote}`,
     );
     if (!confirmed) return;
 
     const skippedDraftTitles: string[] = [];
     const targetMatterIds: number[] = [];
-    for (const matterInfo of checkedMatterList) {
+    for (const matterInfo of visibleChecked) {
       if (!matterInfo.is_fixed) {
         skippedDraftTitles.push(matterInfo.title);
         continue;
@@ -150,7 +153,10 @@ export const AccountingMatterList = ({
 
     try {
       await checkCompletedMutation.mutateAsync(targetMatterIds);
-      setCheckedMatterIdList([]);
+      const completedIds = new Set(targetMatterIds);
+      setCheckedMatterIdList((prev) =>
+        prev.filter((id) => !completedIds.has(id)),
+      );
     } catch (error) {
       console.error("確認完了に失敗しました:", error);
     }
@@ -168,28 +174,36 @@ export const AccountingMatterList = ({
       }
 
       // チェックされた案件を取得（最新の表示リストから解決する）
-      const checkedMatters = matterList.filter(
-        (matter: MatterInfoWithUserNameType) =>
-          checkedMatterIdList.includes(matter.id),
+      const { visibleChecked, hiddenCheckedIds } = partitionCheckedMatters(
+        matterList,
+        checkedMatterIdList,
       );
-      if (checkedMatters.length === 0) {
+      if (visibleChecked.length === 0) {
         notifyError(
           "表示中の案件にチェックが入っていません。絞り込みを解除するか、表示中の案件にチェックを入れてください。",
         );
         return;
       }
 
+      if (hiddenCheckedIds.length > 0) {
+        const confirmed = await confirmAction(
+          `チェック済み ${checkedMatterIdList.length} 件のうち ${hiddenCheckedIds.length} 件は絞り込みで非表示のため対象外です。表示中の ${visibleChecked.length} 件に送信しますか？`,
+        );
+        if (!confirmed) return;
+      }
+
       try {
         const { failedTitles, dbUpdateFailed } =
           await slackNotificationMutation.mutateAsync({
-            matters: checkedMatters,
+            matters: visibleChecked,
             message,
           });
 
-        // 成功した案件は差し戻し済みのため、部分失敗でもモーダルとチェックは
-        // クリアする（チェックを残すと再送信で成功済み案件に二重通知されるため）
+        // 送信対象（表示中）のチェックだけ外す。非表示のチェックは残す。
+        // 部分失敗でも送信済み ID を残すと再送信で二重通知になるため外す。
+        const sentIds = new Set(visibleChecked.map((matter) => matter.id));
         setNotificationOpened(false);
-        setCheckedMatterIdList([]);
+        setCheckedMatterIdList((prev) => prev.filter((id) => !sentIds.has(id)));
 
         if (dbUpdateFailed) {
           notifyError(
