@@ -53,7 +53,14 @@ for f in bridge-nf-call-iptables bridge-nf-call-ip6tables bridge-nf-call-arptabl
   fi
 done
 
-# Allow the non-root user to talk to the daemon without sudo.
-sudo chmod 666 /var/run/docker.sock 2>/dev/null || true
+# Grant the Cloud Agent user access to the daemon. Do not chmod 666 — a
+# world-writable socket would give every local account root-equivalent
+# control through the Docker API. Group membership from usermod does not
+# apply to this already-running shell, so own the socket as that user.
+DOCKER_USER="$(id -un)"
+getent group docker >/dev/null || sudo groupadd docker
+sudo usermod -aG docker "$DOCKER_USER" 2>/dev/null || true
+sudo chown "$DOCKER_USER":docker /var/run/docker.sock
+sudo chmod 660 /var/run/docker.sock
 
 echo "[docker-up] Docker is ready (storage-driver=$(sudo docker info --format '{{.Driver}}'))."
