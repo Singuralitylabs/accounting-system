@@ -13,8 +13,8 @@ import { QueryProvider } from "./components/providers/QueryProvider";
 import { DatesLocaleProvider } from "./components/providers/DatesLocaleProvider";
 
 export const metadata: Metadata = {
-  title: "案件管理アプリ",
-  description: "未来技術推進協会用の案件管理アプリです。",
+  title: "経理システム",
+  description: "未来技術推進協会用の経理システムです。",
 };
 
 export const dynamic = "force-dynamic";
