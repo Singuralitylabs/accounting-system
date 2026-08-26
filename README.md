@@ -137,8 +137,7 @@ https://matter-controller.vercel.app/
 - Tailwind CSS、Mantine UI（デザインシステム）
 - Supabase（データベース・認証）
 
-**🚀 開発環境構築の詳細手順については、[docs/setup.md](./docs/setup.md) をご確認ください。**  
-本番を `accounting-system` へ一本化する運用手順は [docs/production-cutover.md](./docs/production-cutover.md) を参照してください。
+**🚀 開発環境構築の詳細手順については、[docs/setup.md](./docs/setup.md) をご確認ください。**
 
 ## お問い合わせ
 

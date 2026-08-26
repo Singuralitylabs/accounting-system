@@ -89,4 +89,4 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 - `app/utils/supabase/profiles.ts` / `matters.ts` / `costs.ts` / `businesses.ts` / `selectOptions.ts` — ドメイン別 DB ヘルパ
 - `app/hooks/useMatterData.ts` — TanStack Query フック群
 - `app/actions/slack/` — Slack 通知 Server Action
-- `docs/setup.md` / `docs/specification.md` / `docs/database.md` / `docs/testing.md` / `docs/production-cutover.md` — セットアップ・仕様・DB 設計・テスト設計・本番カットオーバー手順（手動確認の手順は testing.md 3.7）
+- `docs/setup.md` / `docs/specification.md` / `docs/database.md` / `docs/testing.md` — セットアップ・仕様・DB 設計・テスト設計（手動確認の手順は testing.md 3.7）
