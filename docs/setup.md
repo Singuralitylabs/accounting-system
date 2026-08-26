@@ -1,6 +1,6 @@
 # 開発環境構築ガイド
 
-このドキュメントでは、案件管理アプリケーションの開発環境構築手順を詳しく説明します。
+このドキュメントでは、経理システムの開発環境構築手順を詳しく説明します。
 
 ## 📋 目次
 
@@ -43,7 +43,7 @@ psql --version    # 13.0 以上
 
 ```bash
 git clone [リポジトリURL]
-cd matter-controller
+cd accounting-system
 ```
 
 ### 2. 依存関係のインストール
@@ -161,7 +161,7 @@ NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
 NEXT_PUBLIC_SUPABASE_ANON_KEY=[supabase start実行後に表示されたanon key]
 SUPABASE_URL=http://127.0.0.1:54321
 SUPABASE_SERVICE_ROLE_KEY=[supabase start実行後に表示されたservice_role key]
-PROJECT_ID=matter-controller
+PROJECT_ID=accounting-system
 LOCAL_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
 # Google認証設定（Google Cloud Consoleで取得した値に置き換え）
@@ -335,8 +335,8 @@ supa-db  # エイリアス設定後
 
 # ログ確認
 supabase logs
-docker logs supabase_db_matter-controller
-docker logs supabase_auth_matter-controller
+docker logs supabase_db_accounting-system
+docker logs supabase_auth_accounting-system
 ```
 
 ### アプリケーション
@@ -394,7 +394,7 @@ pg_dump postgresql://postgres:postgres@127.0.0.1:54322/postgres > backup.sql
 ### ファイル構成
 
 ```
-matter-controller/
+accounting-system/
 ├── .env.local                 # 環境変数（ローカル用。gitignore。手順 4 で新規作成）
 ├── supabase/
 │   ├── .gitignore            # Supabase用gitignore
@@ -425,7 +425,7 @@ docker ps
 supabase stop && supabase start
 
 # Dockerボリュームの確認
-docker volume ls --filter label=com.supabase.cli.project=matter-controller
+docker volume ls --filter label=com.supabase.cli.project=accounting-system
 ```
 
 ### データベース接続エラー
