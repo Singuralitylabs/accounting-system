@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { FcGoogle } from "react-icons/fc";
 import {
   ALLOWED_EMAIL_DOMAIN,
   isAllowedEmailDomain,
@@ -7,12 +9,20 @@ import {
 import { useRouter } from "next/navigation";
 import { useSupabase } from "@/app/components/providers/SupabaseProvider";
 import { notifyError } from "@/app/utils/notify";
+import { authPrimaryButtonClassName } from "./authButtonStyles";
 
 export const SignIn = () => {
   const { supabase } = useSupabase();
   const router = useRouter();
+  const [loading, setLoading] = useState(false);
 
   const handleSignIn = async () => {
+    if (loading) {
+      return;
+    }
+
+    setLoading(true);
+
     try {
       const {
         data: { user },
@@ -26,6 +36,7 @@ export const SignIn = () => {
           notifyError(
             `${ALLOWED_EMAIL_DOMAIN}のメールアドレスのみログイン可能です。`,
           );
+          setLoading(false);
           return;
         }
         router.push("/");
@@ -51,19 +62,31 @@ export const SignIn = () => {
     } catch (error) {
       console.error("ログイン処理でエラーが発生しました:", error);
       notifyError("ログイン処理でエラーが発生しました。");
+      setLoading(false);
     }
   };
 
   return (
     <button
+      type="button"
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        handleSignIn();
+        void handleSignIn();
       }}
-      className="flex justify-center h-12 items-center bg-blue-600 text-lg rounded text-white w-32 text-center my-4 hover:cursor-pointer hover:bg-blue-300"
+      disabled={loading}
+      aria-busy={loading}
+      className={authPrimaryButtonClassName}
     >
-      Google認証
+      {loading ? (
+        <span
+          className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"
+          aria-hidden
+        />
+      ) : (
+        <FcGoogle className="h-6 w-6" aria-hidden />
+      )}
+      Google でログイン
     </button>
   );
 };
