@@ -79,7 +79,7 @@ export const useAllMatterList = (
 export const useMatterDetail = (
   matterId: number,
   enabled = true,
-  options?: { staleTime?: number },
+  options?: { staleTime?: number; refetchOnMount?: boolean | "always" },
 ) => {
   return useQuery({
     queryKey: ["matter", matterId, "details"],
@@ -118,6 +118,7 @@ export const useMatterDetail = (
     },
     enabled: enabled && !!matterId,
     staleTime: options?.staleTime ?? 1 * 60 * 1000, // 既定1分。閲覧専用は 0 を指定
+    refetchOnMount: options?.refetchOnMount,
   });
 };
 

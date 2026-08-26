@@ -102,4 +102,37 @@ describe("AccountingMatterList", () => {
     });
     expect(mutateAsync).not.toHaveBeenCalled();
   });
+
+  it("フィルタ適用後の最新 is_fixed をスナップショットより優先する", async () => {
+    renderWithMantine(<AccountingMatterList />);
+
+    fireEvent.click(screen.getByRole("button", { name: "チームの絞り込み" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "開発" }));
+
+    listState.is_fixed = false;
+    fireEvent.click(screen.getByLabelText("案件チェック"));
+    fireEvent.click(screen.getByRole("button", { name: "確認完了" }));
+
+    await vi.waitFor(() => {
+      expect(notifyError).toHaveBeenCalledWith(
+        "下書きのため完了できません: テスト案件",
+      );
+    });
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("カード表示でもアクティブなフィルタを解除できる", async () => {
+    renderWithMantine(<AccountingMatterList />);
+
+    fireEvent.click(screen.getByRole("button", { name: "チームの絞り込み" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "開発" }));
+    fireEvent.click(screen.getByRole("button", { name: "カード表示" }));
+
+    expect(screen.getByText("絞り込み中:")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "チームの絞り込みを解除" }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "すべて解除" }));
+    expect(screen.queryByText("絞り込み中:")).not.toBeInTheDocument();
+  });
 });

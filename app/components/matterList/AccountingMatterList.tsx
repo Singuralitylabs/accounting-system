@@ -104,7 +104,11 @@ export const AccountingMatterList = ({
     );
 
     if (checkedMatterList.length === 0) {
-      notifyError("完了にする案件にチェックを入れてください。");
+      notifyError(
+        checkedMatterIdList.length > 0
+          ? "表示中の案件にチェックが入っていません。絞り込みを解除するか、表示中の案件にチェックを入れてください。"
+          : "完了にする案件にチェックを入れてください。",
+      );
       return;
     }
 
@@ -169,7 +173,9 @@ export const AccountingMatterList = ({
           checkedMatterIdList.includes(matter.id),
       );
       if (checkedMatters.length === 0) {
-        notifyError("送信対象となる案件にチェックを入れてください。");
+        notifyError(
+          "表示中の案件にチェックが入っていません。絞り込みを解除するか、表示中の案件にチェックを入れてください。",
+        );
         return;
       }
 
