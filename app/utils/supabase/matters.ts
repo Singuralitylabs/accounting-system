@@ -213,12 +213,21 @@ export const updateMatterInfo = async (matterInfo: MatterType) => {
   if (error) {
     console.error(
       `${matterInfo.title}の案件情報の更新処理で失敗しました。`,
-      error
+      error,
     );
     return { status: null, error };
   }
 
-  return { status, error };
+  // RLS で 0 行 / 削除済みでも PostgREST は error なしで [] を返す。
+  if (!status || status.length !== 1) {
+    const emptyUpdateError = {
+      message: `${matterInfo.title}の案件情報の更新対象が見つかりませんでした。`,
+    };
+    console.error(emptyUpdateError.message, { status });
+    return { status: null, error: emptyUpdateError };
+  }
+
+  return { status, error: null };
 };
 
 // 複数案件を一括で確認完了（is_completed = true）にする。

@@ -23,11 +23,12 @@ export const updateMatter = async (
   matterInfo.unchecked_cost_count = totals.unchecked_cost_count;
   matterInfo.start_date = matterInfo.start_date || null;
 
-  // updateMatterInfo は throw せず { error } を返す。戻り値を捨てると
-  // 案件行の保存失敗が成功扱いになり、後続のコスト・取引先だけ更新される。
-  const { error } = await updateMatterInfo(matterInfo);
-  if (error) {
-    console.error(UPDATE_FAILED_MESSAGE, error);
+  // updateMatterInfo は throw せず { status, error } を返す。error が無くても
+  // RLS / 削除済みでは status が [] になり、案件行は保存されていない。
+  const { status, error } = await updateMatterInfo(matterInfo);
+  const updatedCount = Array.isArray(status) ? status.length : 0;
+  if (error || updatedCount !== 1) {
+    console.error(UPDATE_FAILED_MESSAGE, error ?? status);
     throw new Error(UPDATE_FAILED_MESSAGE);
   }
 

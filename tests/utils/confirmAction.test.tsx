@@ -1,70 +1,92 @@
 // @vitest-environment jsdom
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const { openConfirmModal } = vi.hoisted(() => ({
-  openConfirmModal: vi.fn(),
-}));
-
-vi.mock("@mantine/modals", () => ({
-  modals: {
-    openConfirmModal,
-  },
-}));
-
+import { MantineProvider } from "@mantine/core";
+import { ModalsProvider } from "@mantine/modals";
+import { fireEvent, render } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 import { confirmAction } from "@/app/utils/confirmAction";
 
+function renderModalsHost() {
+  return render(
+    <MantineProvider>
+      <ModalsProvider modalProps={{ transitionProps: { duration: 0 } }}>
+        <div>host</div>
+      </ModalsProvider>
+    </MantineProvider>,
+  );
+}
+
+async function flushUi() {
+  await new Promise((resolve) => setTimeout(resolve, 50));
+}
+
+async function openConfirm(message = "実行しますか？") {
+  const pending = confirmAction(message);
+  await flushUi();
+  expect(document.body.textContent).toContain(message);
+  return { pending };
+}
+
+function buttonByLabel(label: string) {
+  return Array.from(document.querySelectorAll("button")).find((button) =>
+    button.textContent?.includes(label),
+  );
+}
+
 describe("confirmAction", () => {
-  beforeEach(() => {
-    openConfirmModal.mockReset();
-  });
+  it("確認ボタンで true に解決する（続けて onClose が来ても true を維持）", async () => {
+    renderModalsHost();
+    const { pending } = await openConfirm();
 
-  it("確認ボタンで true に解決する", async () => {
-    openConfirmModal.mockImplementation(
-      (options: { onConfirm: () => void }) => {
-        options.onConfirm();
-      },
-    );
+    fireEvent.click(buttonByLabel("OK")!);
+    await flushUi();
 
-    await expect(confirmAction("実行しますか？")).resolves.toBe(true);
+    await expect(pending).resolves.toBe(true);
   });
 
   it("キャンセルボタンで false に解決する", async () => {
-    openConfirmModal.mockImplementation((options: { onCancel: () => void }) => {
-      options.onCancel();
-    });
+    renderModalsHost();
+    const { pending } = await openConfirm();
 
-    await expect(confirmAction("実行しますか？")).resolves.toBe(false);
+    fireEvent.click(buttonByLabel("キャンセル")!);
+    await flushUi();
+
+    await expect(pending).resolves.toBe(false);
   });
 
-  it("Esc 相当の onClose で false に解決しハングしない", async () => {
-    openConfirmModal.mockImplementation((options: { onClose: () => void }) => {
-      options.onClose();
-    });
+  it("Esc で閉じても Promise が false に解決しハングしない", async () => {
+    renderModalsHost();
+    const { pending } = await openConfirm();
 
-    await expect(confirmAction("実行しますか？")).resolves.toBe(false);
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+    fireEvent.keyDown(dialog!, { key: "Escape", bubbles: true });
+    await flushUi();
+
+    await expect(pending).resolves.toBe(false);
   });
 
-  it("onConfirm のあとに onClose が来ても true のまま", async () => {
-    openConfirmModal.mockImplementation(
-      (options: { onConfirm: () => void; onClose: () => void }) => {
-        options.onConfirm();
-        options.onClose();
-      },
-    );
+  it("閉じるボタンで Promise が false に解決する", async () => {
+    renderModalsHost();
+    const { pending } = await openConfirm();
 
-    await expect(confirmAction("実行しますか？")).resolves.toBe(true);
+    const closeButton = document.querySelector(".mantine-Modal-close");
+    expect(closeButton).not.toBeNull();
+    fireEvent.click(closeButton!);
+    await flushUi();
+
+    await expect(pending).resolves.toBe(false);
   });
 
-  it("onClose が渡されている", () => {
-    openConfirmModal.mockImplementation(() => undefined);
-    void confirmAction("実行しますか？");
-    expect(openConfirmModal.mock.calls[0]?.[0]).toEqual(
-      expect.objectContaining({
-        onClose: expect.any(Function),
-        onConfirm: expect.any(Function),
-        onCancel: expect.any(Function),
-      }),
-    );
+  it("オーバーレイクリックで Promise が false に解決する", async () => {
+    renderModalsHost();
+    const { pending } = await openConfirm();
+
+    const overlay = document.querySelector(".mantine-Modal-overlay");
+    expect(overlay).not.toBeNull();
+    fireEvent.click(overlay!);
+    await flushUi();
+
+    await expect(pending).resolves.toBe(false);
   });
 });

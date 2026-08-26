@@ -66,6 +66,16 @@ describe("updateMatter", () => {
     expect(bulkUpsertBusinessInfo).not.toHaveBeenCalled();
   });
 
+  it("更新行が 0 件なら throw し、バルク更新しない", async () => {
+    updateMatterInfo.mockResolvedValue({ status: [], error: null });
+
+    await expect(updateMatter({ ...matter }, [], [])).rejects.toThrow(
+      "案件の更新に失敗しました。",
+    );
+    expect(bulkUpsertCostInfo).not.toHaveBeenCalled();
+    expect(bulkUpsertBusinessInfo).not.toHaveBeenCalled();
+  });
+
   it("案件更新が成功したらコスト・取引先も更新する", async () => {
     updateMatterInfo.mockResolvedValue({ status: [{}], error: null });
 
