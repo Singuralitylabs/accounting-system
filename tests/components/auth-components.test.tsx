@@ -91,4 +91,35 @@ describe("SignIn", () => {
     });
     expect(screen.getByRole("button")).not.toBeDisabled();
   });
+
+  it("既存ユーザーが許可ドメインなら / へ遷移する", async () => {
+    mockGetUser.mockResolvedValue({
+      data: { user: { email: "member@future-tech-association.org" } },
+    });
+
+    renderWithMantine(<SignIn />);
+    fireEvent.click(screen.getByRole("button", { name: "Google でログイン" }));
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith("/");
+    });
+    expect(mockSignInWithOAuth).not.toHaveBeenCalled();
+  });
+
+  it("既存ユーザーが許可ドメイン外ならサインアウトしてボタンを再有効化する", async () => {
+    mockGetUser.mockResolvedValue({
+      data: { user: { email: "outsider@example.com" } },
+    });
+    mockSignOut.mockResolvedValue({ error: null });
+
+    renderWithMantine(<SignIn />);
+    fireEvent.click(screen.getByRole("button", { name: "Google でログイン" }));
+
+    await waitFor(() => {
+      expect(mockSignOut).toHaveBeenCalled();
+      expect(mockNotifyError).toHaveBeenCalled();
+    });
+    expect(mockSignInWithOAuth).not.toHaveBeenCalled();
+    expect(screen.getByRole("button")).not.toBeDisabled();
+  });
 });
