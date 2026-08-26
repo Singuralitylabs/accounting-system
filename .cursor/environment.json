@@ -8,5 +8,9 @@
       "command": "yarn dev"
     }
   ],
-  "ports": [3000, 54321, 54323]
+  "ports": [
+    { "name": "next-dev", "port": 3000 },
+    { "name": "supabase-api", "port": 54321 },
+    { "name": "supabase-studio", "port": 54323 }
+  ]
 }
