@@ -35,7 +35,7 @@
 
 本ドキュメントは経理システム（accounting-system）のテスト方針、テスト対象と観点、CI/ツール構成を整理する。
 
-**現状、本プロジェクトにはテストフレームワーク・テストコード・CI のいずれも導入されていない**（TypeScript 型チェック + ESLint + 手動確認のみ）。本書は「あるべきテスト体制」とそこへ到達するための**段階的導入計画**を定義するものであり、各節の内容は導入フェーズ（[4.1](#41-導入フェーズとロードマップ)）に沿って順次実現する。
+ユニット／コンポーネントテストは Vitest（`tests/`、`vitest.config.ts`）、CI は GitHub Actions（`.github/workflows/` の typecheck・lint / test / build / format-check）で実行する。E2E は未実装（[3.6](#36-e2eテスト未実装リリース前のみ)）。導入フェーズの残りは [4.1](#41-導入フェーズとロードマップ) を参照する。
 
 - **前提環境**: Next.js 14.2.35（App Router）/ TypeScript 5.6.3（strict）/ Supabase / yarn
 - **関連ドキュメント**: [setup.md](./setup.md) / [specification.md](./specification.md) / [database.md](./database.md)

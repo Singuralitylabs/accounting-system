@@ -32,7 +32,22 @@ export GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET:-local-dev-placeholder-secre
 # CLI reports "already running" and exits non-zero while services are unhealthy.
 # Treat a successful `supabase status -o env` as the readiness signal. If start
 # fails, restart without `--no-backup` so developer data volumes are preserved.
+#
+# `config.toml` project_id was renamed from matter-controller. A snapshot or
+# developer machine may still have that stack holding 54321–54324. `supabase
+# status` / `stop` without --project-id only see the current id, so start
+# would fail with "port is already allocated".
+LEGACY_LOCAL_PROJECT_IDS=(matter-controller)
+
 status_env() { supabase status -o env 2>/dev/null; }
+
+stop_legacy_local_stacks() {
+  local id
+  for id in "${LEGACY_LOCAL_PROJECT_IDS[@]}"; do
+    echo "[supabase-up] Stopping leftover stack (project_id=${id})..."
+    supabase stop --project-id "$id" >/dev/null 2>&1 || true
+  done
+}
 
 wait_for_status() {
   for _ in $(seq 1 60); do
@@ -43,10 +58,12 @@ wait_for_status() {
 }
 
 if ! status_env | grep -q '^API_URL='; then
+  stop_legacy_local_stacks
   echo "[supabase-up] Starting Supabase (first run pulls images)..."
   if ! supabase start >/dev/null 2>&1; then
     echo "[supabase-up] Restarting the stack (preserving data volumes)..."
     supabase stop >/dev/null 2>&1 || true
+    stop_legacy_local_stacks
     supabase start >/dev/null 2>&1 || true
   fi
 fi
@@ -72,6 +89,19 @@ echo "[supabase-up] Supabase database is accepting connections."
 supabase migration up --local
 
 # --- Generate .env.local from the live, healthy Supabase status ---
+# PROJECT_ID is the remote Supabase project ref (20-char) for `yarn db:types`
+# and MCP. It is not config.toml project_id. Keep a previous valid ref; drop
+# local Docker names that used to be written here by mistake.
+EXISTING_PROJECT_ID=""
+if [[ -f .env.local ]]; then
+  EXISTING_PROJECT_ID="$(grep -E '^PROJECT_ID=' .env.local | head -n1 | cut -d= -f2- || true)"
+fi
+case "${EXISTING_PROJECT_ID}" in
+  matter-controller | accounting-system | "")
+    EXISTING_PROJECT_ID=""
+    ;;
+esac
+
 eval "$(status_env)"
 cat > .env.local <<EOF
 NEXT_PUBLIC_ENV=development
@@ -79,7 +109,7 @@ NEXT_PUBLIC_SUPABASE_URL=${API_URL}
 NEXT_PUBLIC_SUPABASE_ANON_KEY=${ANON_KEY}
 SUPABASE_URL=${API_URL}
 SUPABASE_SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}
-PROJECT_ID=accounting-system
+PROJECT_ID=${EXISTING_PROJECT_ID}
 LOCAL_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
 GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
 GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}

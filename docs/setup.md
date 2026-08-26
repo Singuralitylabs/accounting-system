@@ -162,7 +162,9 @@ NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
 NEXT_PUBLIC_SUPABASE_ANON_KEY=[supabase start実行後に表示されたanon key]
 SUPABASE_URL=http://127.0.0.1:54321
 SUPABASE_SERVICE_ROLE_KEY=[supabase start実行後に表示されたservice_role key]
-PROJECT_ID=accounting-system
+# 本番 Supabase の Reference ID（20文字の英小文字）。yarn db:types / MCP 用。
+# ローカル Docker の config.toml project_id（accounting-system）ではない。
+PROJECT_ID=[your-project-ref]
 LOCAL_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
 # Google認証設定（Google Cloud Consoleで取得した値に置き換え）
@@ -179,7 +181,7 @@ SLACK_WEBHOOK_URL=your-slack-webhook-url
 - `SUPABASE_SERVICE_ROLE_KEY`: **秘匿情報** - サーバー側でのみ使用し、決して公開しないでください
 - `GOOGLE_CLIENT_SECRET`: **秘匿情報** - 必ず秘匿してください
 - `SLACK_WEBHOOK_URL`: **秘匿情報** - Slack ワークスペースの機密情報です
-- `PROJECT_ID`: **公開可能** - プロジェクトの識別子であり、公開されても問題ありません
+- `PROJECT_ID`: **公開可能** - 本番（または型生成対象）Supabase の project ref。ローカル `config.toml` の `project_id` とは別物
 
 ### 5. データベーススキーマの作成
 
@@ -412,6 +414,25 @@ accounting-system/
 ---
 
 ## トラブルシューティング
+
+### project_id 変更後のローカル再起動
+
+`supabase/config.toml` の `project_id` が変わると、Docker のコンテナ／ボリューム名も変わる。旧 id のスタックがポート 54321〜54324 を掴んだままだと `supabase start` は `port is already allocated` で失敗する。`supabase db reset` は **いまの** `project_id` にしか効かない。
+
+```bash
+# pull 前なら
+supabase stop
+
+# すでに pull 済みで旧スタックが残っている場合
+supabase stop --project-id matter-controller
+supabase start
+```
+
+`supabase start` は新規ボリュームにマイグレーションを適用する。この切り替えだけでは `db reset` は不要。
+
+旧ボリューム（例: `supabase_db_matter-controller`）に入っていたローカル開発データは新しいスタックからは見えず、ディスク上には残る。本番データには影響しない。不要になったら `docker volume ls` で確認して削除する。
+
+Cloud Agent 向けの `.cursor/setup/supabase-up.sh` は、起動時に旧 `project_id` のスタックを `supabase stop --project-id` してから現在の id で `start` する。
 
 ### Docker 関連のエラー
 

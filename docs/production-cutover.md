@@ -71,4 +71,4 @@ Cloud Agent / 開発コンテナからは次ができない。担当者が Verce
 - ローカル `project_id` と Docker コンテナ名例を `accounting-system` に変更
 - カットオーバー手順の文書化（本ファイル）
 
-`project_id` 変更を pull した開発者は、ローカル Docker ボリューム名が変わるため `supabase db reset` が必要。本番データには影響しない。
+ローカル `project_id` 変更後の再起動手順は [setup.md](./setup.md) の「project_id 変更後のローカル再起動」を参照する。`supabase db reset` では旧スタックを止められない。本番データには影響しない。
