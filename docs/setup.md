@@ -12,6 +12,7 @@
 6. [データ移行（ローカル ↔ クラウド）](#データ移行)
 7. [開発コマンド一覧](#開発コマンド一覧)
 8. [トラブルシューティング](#トラブルシューティング)
+9. [本番カットオーバー](./production-cutover.md)（旧本番 → `accounting-system` への一本化。ダッシュボード作業）
 
 ---
 
@@ -401,10 +402,11 @@ accounting-system/
 │   ├── config.toml           # Supabase設定
 │   └── migrations/           # データベーススキーマ（正。ファイル名順に適用）
 └── docs/
-    ├── setup.md           # 開発環境構築手順（本ファイル）
-    ├── specification.md   # 詳細設計書
-    ├── database.md        # データベース設計書
-    └── testing.md         # テスト設計書
+    ├── setup.md                 # 開発環境構築手順（本ファイル）
+    ├── specification.md         # 詳細設計書
+    ├── database.md              # データベース設計書
+    ├── testing.md               # テスト設計書
+    └── production-cutover.md    # 本番カットオーバー手順（運用）
 ```
 
 ---
