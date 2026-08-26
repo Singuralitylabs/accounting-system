@@ -14,6 +14,7 @@ import {
 } from "../utils/matterListFilters";
 import {
   getMatterValidationMessage,
+  normalizeMatterStartDate,
   validateMatterPayload,
 } from "../utils/matterValidation";
 import { notifyError, notifySuccess, toErrorMessage } from "../utils/notify";
@@ -76,7 +77,11 @@ export const useAllMatterList = (
 };
 
 // 案件詳細（コスト・ビジネス情報含む）
-export const useMatterDetail = (matterId: number, enabled = true) => {
+export const useMatterDetail = (
+  matterId: number,
+  enabled = true,
+  options?: { staleTime?: number; refetchOnMount?: boolean | "always" },
+) => {
   return useQuery({
     queryKey: ["matter", matterId, "details"],
     queryFn: async () => {
@@ -113,7 +118,10 @@ export const useMatterDetail = (matterId: number, enabled = true) => {
       };
     },
     enabled: enabled && !!matterId,
-    staleTime: 1 * 60 * 1000, // 1分（詳細データはより頻繁に更新）
+    staleTime: options?.staleTime ?? 1 * 60 * 1000, // 既定1分。閲覧専用は 0 を指定
+    ...(options?.refetchOnMount !== undefined && {
+      refetchOnMount: options.refetchOnMount,
+    }),
   });
 };
 
@@ -122,27 +130,33 @@ export const useUpdateMatter = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
+    // コスト・取引先の isNew INSERT を含む非冪等更新のため、
+    // グローバル retry: 1 による mutationFn 再実行を防ぐ
+    retry: 0,
     mutationFn: (data: {
       matterInfo: MatterType;
       businessInfoList: BusinessInCardType[];
       costInfoList: CostInCardType[];
     }) => {
+      const matterInfo = {
+        ...data.matterInfo,
+        start_date: normalizeMatterStartDate(data.matterInfo.start_date),
+      };
       const validation = validateMatterPayload(
-        data.matterInfo,
+        matterInfo,
         data.businessInfoList,
         data.costInfoList,
-        { skipRemoved: true },
+        {
+          skipRemoved: true,
+          requireStartDate: matterInfo.is_fixed === true,
+        },
       );
       if (!validation.ok) {
         throw new Error(
           getMatterValidationMessage(validation.reason, "update"),
         );
       }
-      return updateMatter(
-        data.matterInfo,
-        data.businessInfoList,
-        data.costInfoList,
-      );
+      return updateMatter(matterInfo, data.businessInfoList, data.costInfoList);
     },
     onSuccess: (_, variables) => {
       // 特定の matter だけを無効化
@@ -164,6 +178,9 @@ export const useCreateMatter = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
+    // addMatterInfo は matter INSERT 後にコスト・取引先を入れる非冪等処理。
+    // グローバル retry: 1 だと一時失敗で案件行が重複する
+    retry: 0,
     mutationFn: (data: {
       matterInfo: MatterType;
       businessInfoList: BusinessInCardType[];
@@ -172,7 +189,10 @@ export const useCreateMatter = () => {
       addMatterInfo(data.matterInfo, data.businessInfoList, data.costInfoList),
     onSuccess: (created, variables) => {
       if (!created) return;
-      queryClient.invalidateQueries({ queryKey: ["matters"] });
+      queryClient.invalidateQueries({
+        queryKey: ["matters"],
+        refetchType: "all",
+      });
       if (variables.matterInfo.is_fixed) {
         notifySuccess(
           `${variables.matterInfo.title}の経理申請を完了しました。`,

@@ -13,7 +13,12 @@ type Props = {
 };
 
 export function ReadonlyMatterDetail({ matterInfo, opened, setOpened }: Props) {
-  const { data, isLoading } = useMatterDetail(matterInfo.id, opened);
+  const { data, isLoading } = useMatterDetail(matterInfo.id, opened, {
+    staleTime: 0,
+    // QueryProvider が refetchOnMount: false のため、staleTime: 0 だけでは
+    // キャッシュがある再マウントで再取得されない。開くたびに最新を取る。
+    refetchOnMount: "always",
+  });
   const businessList = data?.businesses ?? [];
   const costList = data?.costs ?? [];
 

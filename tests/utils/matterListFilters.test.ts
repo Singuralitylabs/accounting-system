@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   compactMatterListFilters,
+  getActiveMatterFilterChips,
   hasMatterListFilters,
   isNumericMatterFilterKey,
+  partitionCheckedMatters,
 } from "@/app/utils/matterListFilters";
 
 describe("compactMatterListFilters", () => {
@@ -54,5 +56,48 @@ describe("isNumericMatterFilterKey", () => {
     expect(isNumericMatterFilterKey("team")).toBe(false);
     expect(isNumericMatterFilterKey("user_name")).toBe(false);
     expect(isNumericMatterFilterKey("title")).toBe(false);
+  });
+});
+
+describe("getActiveMatterFilterChips", () => {
+  it("空なら空配列", () => {
+    expect(getActiveMatterFilterChips({})).toEqual([]);
+    expect(getActiveMatterFilterChips({ team: new Set() })).toEqual([]);
+  });
+
+  it("値があるキーをラベル付きチップにする", () => {
+    expect(
+      getActiveMatterFilterChips({
+        team: new Set(["開発", "営業"]),
+        category: new Set(["講演"]),
+      }),
+    ).toEqual([
+      { key: "team", label: "チーム", values: ["営業", "開発"] },
+      { key: "category", label: "分類", values: ["講演"] },
+    ]);
+  });
+});
+
+describe("partitionCheckedMatters", () => {
+  it("表示中と非表示のチェックを分ける", () => {
+    expect(
+      partitionCheckedMatters(
+        [
+          { id: 1, title: "A" },
+          { id: 2, title: "B" },
+        ],
+        [1, 3],
+      ),
+    ).toEqual({
+      visibleChecked: [{ id: 1, title: "A" }],
+      hiddenCheckedIds: [3],
+    });
+  });
+
+  it("全部表示中なら hidden は空", () => {
+    expect(partitionCheckedMatters([{ id: 1 }], [1])).toEqual({
+      visibleChecked: [{ id: 1 }],
+      hiddenCheckedIds: [],
+    });
   });
 });

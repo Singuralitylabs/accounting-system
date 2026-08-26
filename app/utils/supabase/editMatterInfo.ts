@@ -4,18 +4,16 @@ import {
   MatterType,
 } from "../../types/types";
 import { calcMatterTotalsForEdit } from "../matterCalc";
-import {
-  getMatterValidationMessage,
-  validateMatterPayload,
-} from "../matterValidation";
 import { bulkUpsertBusinessInfo } from "./businesses";
 import { bulkUpsertCostInfo } from "./costs";
 import { updateMatterInfo } from "./matters";
 
+const UPDATE_FAILED_MESSAGE = "案件の更新に失敗しました。";
+
 export const updateMatter = async (
   matterInfo: MatterType,
   businessInfoList: BusinessInCardType[],
-  costInfoList: CostInCardType[]
+  costInfoList: CostInCardType[],
 ) => {
   const totals = calcMatterTotalsForEdit(businessInfoList, costInfoList);
   matterInfo.total_amount = totals.total_amount;
@@ -23,50 +21,27 @@ export const updateMatter = async (
   matterInfo.total_cost = totals.total_cost;
   matterInfo.cost_count = totals.cost_count;
   matterInfo.unchecked_cost_count = totals.unchecked_cost_count;
+  matterInfo.start_date = matterInfo.start_date || null;
 
-  // まず matter 情報を更新
-  await updateMatterInfo(matterInfo);
-
-  // コストとビジネス情報をバルク操作で並列実行
-  await Promise.all([
-    bulkUpsertCostInfo(costInfoList, matterInfo.id),
-    bulkUpsertBusinessInfo(businessInfoList, matterInfo.id)
-  ]);
-  return true;
-};
-
-// 現行の更新 UI は useMatterData → updateMatter を直接呼ぶため、この default
-// はどこからも import されない（バリデーションも実行されない）。配線は Phase 6 以降。
-const editMatterInfo = async (
-  matterInfo: MatterType,
-  businessInfoList: BusinessInCardType[],
-  costInfoList: CostInCardType[],
-  originalIsFixed?: boolean
-) => {
-  const isPostSubmissionUpdate = originalIsFixed && matterInfo.is_fixed;
-  if (isPostSubmissionUpdate) {
-    matterInfo.has_updates = true;
-  }
-
-  const validation = validateMatterPayload(
-    matterInfo,
-    businessInfoList,
-    costInfoList,
-    { skipRemoved: true }
-  );
-  if (!validation.ok) {
-    throw new Error(getMatterValidationMessage(validation.reason, "update"));
+  // updateMatterInfo は throw せず { status, error } を返す。error が無くても
+  // RLS / 削除済みでは status が [] になり、案件行は保存されていない。
+  const { status, error } = await updateMatterInfo(matterInfo);
+  const updatedCount = Array.isArray(status) ? status.length : 0;
+  if (error || updatedCount !== 1) {
+    console.error(UPDATE_FAILED_MESSAGE, error ?? status);
+    throw new Error(UPDATE_FAILED_MESSAGE);
   }
 
   try {
-    return await updateMatter(matterInfo, businessInfoList, costInfoList);
-  } catch (err) {
-    const message = matterInfo.is_fixed
-      ? `案件[${matterInfo.title}]の経理申請に失敗しました。`
-      : `案件[${matterInfo.title}]の更新に失敗しました。`;
-    console.error(message, err);
-    throw new Error(message);
+    await Promise.all([
+      bulkUpsertCostInfo(costInfoList, matterInfo.id),
+      bulkUpsertBusinessInfo(businessInfoList, matterInfo.id),
+    ]);
+    return true;
+  } catch (error) {
+    // costs.ts / businesses.ts は "use server" のため、本番ビルドでは
+    // throw した日本語がマスクされる。クライアント側で再ラップして表示を保証する。
+    console.error(UPDATE_FAILED_MESSAGE, error);
+    throw new Error(UPDATE_FAILED_MESSAGE);
   }
 };
-
-export default editMatterInfo;

@@ -4,6 +4,7 @@ import {
   hasCostRequiredFields,
   hasMatterRequiredFields,
   MATTER_VALIDATION_ALERTS,
+  normalizeMatterStartDate,
   validateBusinessEntry,
   validateMatterPayload,
   type MatterValidationReason,
@@ -46,6 +47,15 @@ describe("hasMatterRequiredFields", () => {
     expect(hasMatterRequiredFields({ ...validMatter, start_date: "" })).toBe(
       false,
     );
+  });
+
+  it("start_date が null でも requireStartDate: false なら true", () => {
+    expect(
+      hasMatterRequiredFields(
+        { ...validMatter, start_date: null },
+        { requireStartDate: false },
+      ),
+    ).toBe(true);
   });
 });
 
@@ -146,6 +156,35 @@ describe("validateMatterPayload", () => {
     ).toEqual({ ok: true });
   });
 
+  it("更新時は start_date が空でも他必須が揃っていれば通る", () => {
+    expect(
+      validateMatterPayload({ ...validMatter, start_date: "" }, [], [], {
+        skipRemoved: true,
+        requireStartDate: false,
+      }),
+    ).toEqual({ ok: true });
+  });
+
+  it("経理申請相当では空の start_date を拒否する", () => {
+    expect(
+      validateMatterPayload({ ...validMatter, start_date: "" }, [], [], {
+        skipRemoved: true,
+        requireStartDate: true,
+      }),
+    ).toEqual({ ok: false, reason: "matter_required" });
+  });
+
+  it("更新時でも案件名・分類・チームが空なら拒否する", () => {
+    expect(
+      validateMatterPayload(
+        { ...validMatter, title: "", start_date: "" },
+        [],
+        [],
+        { skipRemoved: true, requireStartDate: false },
+      ),
+    ).toEqual({ ok: false, reason: "matter_required" });
+  });
+
   it("skipRemoved なしでは削除行も検証する", () => {
     expect(
       validateMatterPayload(
@@ -207,5 +246,13 @@ describe("getMatterValidationMessage", () => {
     expect(getMatterValidationMessage("cost_required", "update")).toBe(
       "コスト情報に空欄があるため、案件の更新を中止しました。",
     );
+  });
+});
+
+describe("normalizeMatterStartDate", () => {
+  it("空文字と null は null にし、日付は残す", () => {
+    expect(normalizeMatterStartDate("")).toBeNull();
+    expect(normalizeMatterStartDate(null)).toBeNull();
+    expect(normalizeMatterStartDate("2026-04-01")).toBe("2026-04-01");
   });
 });

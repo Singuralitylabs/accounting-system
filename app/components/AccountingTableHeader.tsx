@@ -1,6 +1,7 @@
 import { Table } from "@mantine/core";
 import FilterableTableHeader from "./FilterableTableHeader";
 import { MatterInfoWithUserNameType } from "../types/types";
+import { MATTER_LIST_FILTER_COLUMNS } from "../utils/matterListFilters";
 
 type Props = {
   matterList: MatterInfoWithUserNameType[];
@@ -8,18 +9,7 @@ type Props = {
   setFilters: React.Dispatch<React.SetStateAction<Record<string, Set<string>>>>;
 };
 
-export const headerConfig = [
-  { label: "ID", key: "id" },
-  { label: "案件名", key: "title" },
-  { label: "担当者", key: "user_name" },
-  { label: "チーム", key: "team" },
-  { label: "分類", key: "category" },
-  { label: "合計請求額", key: "total_amount" },
-  { label: "取引先数", key: "business_count" },
-  { label: "合計コスト", key: "total_cost" },
-  { label: "コスト数", key: "cost_count" },
-  { label: "未払いコスト数", key: "unchecked_cost_count" },
-];
+export const headerConfig = MATTER_LIST_FILTER_COLUMNS;
 
 const AccountingTableHeader = ({ matterList, filters, setFilters }: Props) => {
   const getUniqueValues = (key: string) => {

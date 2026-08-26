@@ -9,6 +9,7 @@ type Props = {
   categoryList: string[];
   bgColor?: string;
   isFixedMode?: boolean;
+  requireStartDate?: boolean;
 };
 
 export const MatterInfoBlock = ({
@@ -17,6 +18,7 @@ export const MatterInfoBlock = ({
   categoryList,
   bgColor = "bg-white",
   isFixedMode = false,
+  requireStartDate = true,
 }: Props) => {
   if (!teamList.includes(form.getValues().team) && isFixedMode)
     teamList.push(form.getValues().team);
@@ -62,7 +64,7 @@ export const MatterInfoBlock = ({
         />
         <CustomDatePicker
           label="案件開始日"
-          required
+          required={requireStartDate}
           placeholder="案件開始日をご記入ください。"
           className="md:pt-0 pt-4 w-full"
           disabled={isFixedMode}
@@ -70,7 +72,7 @@ export const MatterInfoBlock = ({
           key={form.key("start_date")}
           {...form.getInputProps("start_date")}
           value={form.getValues().start_date}
-          onChange={(date) => form.setFieldValue("start_date", date || "")}
+          onChange={(date) => form.setFieldValue("start_date", date || null)}
         />
       </div>
 
