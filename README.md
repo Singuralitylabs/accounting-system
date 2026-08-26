@@ -8,7 +8,7 @@
 
 経理システム（未来技術推進協会のドメイン以外はログイン不可）
 
-https://accounting-system.vercel.app/
+https://matter-controller.vercel.app/
 
 ## 主な機能
 

@@ -32,7 +32,7 @@ Cloud Agent / 開発コンテナからは次ができない。担当者が Verce
 1. 新 Vercel（`https://accounting-system.vercel.app/`）の Environment Variables が、新 Supabase プロジェクトを指していることを確認する。
 2. Google Cloud Console の OAuth クライアントに、新ドメインのコールバック URL があることを確認する。
 3. 新 Supabase の Authentication → URL Configuration で Site URL と Redirect URLs が新ドメインになっていることを確認する。
-4. 新 URL で **テストアカウント** がログインできることを、本番データ移行の前に確認する（失敗すると全ユーザーが入れなくなる）。
+4. 新 URL で **テストアカウント** が、本アプリの「ログイン / Google認証」画面から協会ドメインで入れることを確認する。2026-08-26 時点では新 URL が英語の汎用 Sign in（Vercel 保護または別認証）になっており、旧 URL 側だけが本アプリのログイン画面である。この差が残ったまま利用者を誘導してはならない。
 
 ### 2. メンテナンスと最終差分移行
 
@@ -60,10 +60,15 @@ Cloud Agent / 開発コンテナからは次ができない。担当者が Verce
 1. 旧環境はすぐ廃止しない。障害時は DNS / 案内を旧 URL に戻し、必要なら新側で入った差分を旧へ戻せるようにする。
 2. 一定期間問題がなければ、旧 Vercel / 旧 Supabase のバックアップを取ってから廃止する。
 
+### 6. カットオーバー完了後のリポジトリ更新
+
+1. README の本番 URL を `https://accounting-system.vercel.app/` に書き換える（切替前は現行利用者が使う旧 URL のままにする）。
+2. `grep -rn matter-controller` でリポジトリに旧識別子が残っていないことを確認する。
+
 ## リポジトリ側で完了済みのこと
 
 - UI・ドキュメントのサービス名を「経理システム」に統一
 - ローカル `project_id` と Docker コンテナ名例を `accounting-system` に変更
-- README の公開 URL を `https://accounting-system.vercel.app/` に更新
+- カットオーバー手順の文書化（本ファイル）
 
 `project_id` 変更を pull した開発者は、ローカル Docker ボリューム名が変わるため `supabase db reset` が必要。本番データには影響しない。
