@@ -16,7 +16,7 @@ const Login = async () => {
 
   return (
     <AuthPageShell
-      title="案件管理アプリ"
+      title="経理システム"
       description={`@${ALLOWED_EMAIL_DOMAIN} の Google アカウントでログインしてください。`}
     >
       <SignIn />
