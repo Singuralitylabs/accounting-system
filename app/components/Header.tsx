@@ -98,7 +98,7 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
           href="/"
           className="shrink-0 text-lg font-semibold text-white hover:text-gray-300"
         >
-          案件管理アプリ
+          経理システム
         </Link>
         {!isHub && (
           <div className="hidden sm:flex flex-wrap gap-2">

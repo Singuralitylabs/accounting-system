@@ -1,6 +1,6 @@
 # 開発環境構築ガイド
 
-このドキュメントでは、案件管理アプリケーションの開発環境構築手順を詳しく説明します。
+このドキュメントでは、経理システムの開発環境構築手順を詳しく説明します。
 
 ## 📋 目次
 
@@ -43,7 +43,7 @@ psql --version    # 13.0 以上
 
 ```bash
 git clone [リポジトリURL]
-cd matter-controller
+cd accounting-system
 ```
 
 ### 2. 依存関係のインストール
@@ -161,7 +161,9 @@ NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
 NEXT_PUBLIC_SUPABASE_ANON_KEY=[supabase start実行後に表示されたanon key]
 SUPABASE_URL=http://127.0.0.1:54321
 SUPABASE_SERVICE_ROLE_KEY=[supabase start実行後に表示されたservice_role key]
-PROJECT_ID=matter-controller
+# 本番 Supabase の Reference ID（20文字の英小文字）。yarn db:types / MCP 用。
+# ローカル Docker の config.toml project_id（accounting-system）ではない。
+PROJECT_ID=[your-project-ref]
 LOCAL_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
 # Google認証設定（Google Cloud Consoleで取得した値に置き換え）
@@ -178,7 +180,7 @@ SLACK_WEBHOOK_URL=your-slack-webhook-url
 - `SUPABASE_SERVICE_ROLE_KEY`: **秘匿情報** - サーバー側でのみ使用し、決して公開しないでください
 - `GOOGLE_CLIENT_SECRET`: **秘匿情報** - 必ず秘匿してください
 - `SLACK_WEBHOOK_URL`: **秘匿情報** - Slack ワークスペースの機密情報です
-- `PROJECT_ID`: **公開可能** - プロジェクトの識別子であり、公開されても問題ありません
+- `PROJECT_ID`: **公開可能** - 本番（または型生成対象）Supabase の project ref。ローカル `config.toml` の `project_id` とは別物
 
 ### 5. データベーススキーマの作成
 
@@ -335,8 +337,8 @@ supa-db  # エイリアス設定後
 
 # ログ確認
 supabase logs
-docker logs supabase_db_matter-controller
-docker logs supabase_auth_matter-controller
+docker logs supabase_db_accounting-system
+docker logs supabase_auth_accounting-system
 ```
 
 ### アプリケーション
@@ -394,22 +396,41 @@ pg_dump postgresql://postgres:postgres@127.0.0.1:54322/postgres > backup.sql
 ### ファイル構成
 
 ```
-matter-controller/
+accounting-system/
 ├── .env.local                 # 環境変数（ローカル用。gitignore。手順 4 で新規作成）
 ├── supabase/
 │   ├── .gitignore            # Supabase用gitignore
 │   ├── config.toml           # Supabase設定
 │   └── migrations/           # データベーススキーマ（正。ファイル名順に適用）
 └── docs/
-    ├── setup.md           # 開発環境構築手順（本ファイル）
-    ├── specification.md   # 詳細設計書
-    ├── database.md        # データベース設計書
-    └── testing.md         # テスト設計書
+    ├── setup.md                 # 開発環境構築手順（本ファイル）
+    ├── specification.md         # 詳細設計書
+    ├── database.md              # データベース設計書
+    └── testing.md               # テスト設計書
 ```
 
 ---
 
 ## トラブルシューティング
+
+### project_id 変更後のローカル再起動
+
+`supabase/config.toml` の `project_id` が変わると、Docker のコンテナ／ボリューム名も変わる。旧 id のスタックがポート 54321〜54324 を掴んだままだと `supabase start` は `port is already allocated` で失敗する。`supabase db reset` は **いまの** `project_id` にしか効かない。
+
+```bash
+# pull 前なら
+supabase stop
+
+# すでに pull 済みで旧スタックが残っている場合
+supabase stop --project-id matter-controller
+supabase start
+```
+
+`supabase start` は新規ボリュームにマイグレーションを適用する。この切り替えだけでは `db reset` は不要。
+
+旧ボリューム（例: `supabase_db_matter-controller`）に入っていたローカル開発データは新しいスタックからは見えず、ディスク上には残る。本番データには影響しない。不要になったら `docker volume ls` で確認して削除する。
+
+Cloud Agent 向けの `.cursor/setup/supabase-up.sh` は、起動時に旧 `project_id` のスタックを `supabase stop --project-id` してから現在の id で `start` する。
 
 ### Docker 関連のエラー
 
@@ -425,7 +446,7 @@ docker ps
 supabase stop && supabase start
 
 # Dockerボリュームの確認
-docker volume ls --filter label=com.supabase.cli.project=matter-controller
+docker volume ls --filter label=com.supabase.cli.project=accounting-system
 ```
 
 ### データベース接続エラー
