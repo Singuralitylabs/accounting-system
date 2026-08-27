@@ -32,13 +32,14 @@ describe("CompactLoader", () => {
 });
 
 describe("ModalLoadingFallback", () => {
-  it("h-64 の枠を使わず画面中央に固定表示する", () => {
+  it("h-64 の枠を使わず、LoadingOverlay と同じ背景で画面中央に固定表示する", () => {
     const { container } = renderWithMantine(<ModalLoadingFallback />);
 
     const status = screen.getByRole("status", { name: "読み込み中" });
     expect(status).toBeInTheDocument();
-    expect(status).toHaveClass("fixed", "inset-0");
     expect(status).not.toHaveClass("h-64");
+    expect(status).toHaveAttribute("data-fixed");
+    expect(status).toHaveAttribute("data-center");
     expect(container.querySelector(".animate-spin")).toBeNull();
     expect(status.querySelector(".mantine-Loader-root")).not.toBeNull();
   });
