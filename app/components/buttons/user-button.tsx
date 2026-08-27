@@ -1,51 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import UserButtonMenu from "./user-buttonMenu";
 import { User } from "@supabase/supabase-js";
-import { useRouter } from "next/navigation";
 import { ALLOWED_EMAIL_DOMAIN } from "@/app/utils/constants";
 import { useSupabase } from "@/app/components/providers/SupabaseProvider";
-import { CompactLoader } from "@/app/components/LoadingSpinner";
 
-const UserButton = () => {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+type UserButtonProps = {
+  user: User | null;
+  onSignOut: () => Promise<void>;
+};
+
+const UserButton = ({ user, onSignOut }: UserButtonProps) => {
   const { supabase } = useSupabase();
-  const router = useRouter();
-
-  useEffect(() => {
-    const getUserData = async () => {
-      const {
-        data: { user: currentUser },
-      } = await supabase.auth.getUser();
-      setUser(currentUser ?? null);
-      setLoading(false);
-    };
-
-    getUserData();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        // セッションがある場合は、getUser()で再検証
-        const {
-          data: { user: validatedUser },
-        } = await supabase.auth.getUser();
-        setUser(validatedUser ?? null);
-      } else {
-        setUser(null);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, [supabase]);
-
-  if (loading) {
-    // ヘッダーは bg-gray-700 のため、theme 既定色ではなく白系で描画する
-    return <CompactLoader color="gray.0" />;
-  }
 
   const handleSignIn = async () => {
     const { error } = await supabase.auth.signInWithOAuth({
@@ -64,12 +30,6 @@ const UserButton = () => {
     }
   };
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-
-    router.push("/login");
-  };
-
   return (
     <div>
       {!user ? (
@@ -83,7 +43,7 @@ const UserButton = () => {
         <UserButtonMenu
           userName={user.user_metadata?.name || user.email}
           userImage={user.user_metadata?.avatar_url}
-          onSignOut={handleSignOut}
+          onSignOut={onSignOut}
         />
       )}
     </div>
