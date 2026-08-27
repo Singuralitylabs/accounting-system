@@ -2,7 +2,11 @@
 
 import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { CompactLoader, LoadingSpinner } from "@/app/components/LoadingSpinner";
+import {
+  CompactLoader,
+  LoadingSpinner,
+  ModalLoadingFallback,
+} from "@/app/components/LoadingSpinner";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
 
 describe("LoadingSpinner", () => {
@@ -24,5 +28,18 @@ describe("CompactLoader", () => {
     expect(
       screen.getByRole("status", { name: "読み込み中" }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("ModalLoadingFallback", () => {
+  it("h-64 の枠を使わず画面中央に固定表示する", () => {
+    const { container } = renderWithMantine(<ModalLoadingFallback />);
+
+    const status = screen.getByRole("status", { name: "読み込み中" });
+    expect(status).toBeInTheDocument();
+    expect(status).toHaveClass("fixed", "inset-0");
+    expect(status).not.toHaveClass("h-64");
+    expect(container.querySelector(".animate-spin")).toBeNull();
+    expect(status.querySelector(".mantine-Loader-root")).not.toBeNull();
   });
 });
