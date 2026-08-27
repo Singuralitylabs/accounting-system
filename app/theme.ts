@@ -14,7 +14,13 @@ export const theme = createTheme({
       defaultProps: {
         transitionProps: { duration: 0 },
         overlayProps: { backgroundOpacity: 0.55, blur: 2 },
-        loaderProps: { type: "oval", size: "lg", color: "blue" },
+        loaderProps: {
+          type: "oval",
+          size: "lg",
+          color: "blue",
+          role: "status",
+          "aria-label": "読み込み中",
+        },
         zIndex: 400,
       },
     },

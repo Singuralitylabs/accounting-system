@@ -76,5 +76,8 @@ describe("ReadonlyMatterDetail", () => {
       baseElement.querySelector(".mantine-LoadingOverlay-root"),
     ).not.toBeNull();
     expect(baseElement.querySelector(".mantine-Loader-root")).not.toBeNull();
+    expect(
+      baseElement.querySelector('[role="status"][aria-label="読み込み中"]'),
+    ).not.toBeNull();
   });
 });
