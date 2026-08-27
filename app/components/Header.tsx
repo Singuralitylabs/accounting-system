@@ -2,7 +2,7 @@
 
 import { User } from "@supabase/supabase-js";
 import Link from "next/link";
-import React, { FC, Suspense, useEffect, useState } from "react";
+import React, { FC, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ProfilesType } from "../types/types";
 import { visibleNavItems } from "../utils/permissions";
@@ -114,9 +114,7 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
           </div>
         )}
         <div className="hidden sm:flex ml-auto rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500">
-          <Suspense fallback={<div>Loading...</div>}>
-            <UserButton />
-          </Suspense>
+          <UserButton />
         </div>
         <div className="sm:hidden ml-auto">
           <MobileHeader

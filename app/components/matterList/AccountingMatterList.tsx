@@ -228,14 +228,14 @@ export const AccountingMatterList = ({
         <div className="flex justify-end gap-4 my-4 px-4">
           <Button
             color="green"
-            disabled={checkCompletedMutation.isPending}
+            loading={checkCompletedMutation.isPending}
             onClick={handleCheckCompleted}
           >
             確認完了
           </Button>
           <Button
             color="indigo"
-            disabled={slackNotificationMutation.isPending}
+            loading={slackNotificationMutation.isPending}
             onClick={() => setNotificationOpened(true)}
           >
             担当者に連絡

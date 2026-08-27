@@ -79,8 +79,12 @@ const ProfitLossView = ({ initialMonth, initialReport }: Props) => {
             <Alert color="red" title="損益レポートの取得に失敗しました">
               時間をおいてページを再読み込みしてください。
             </Alert>
-          ) : isReportLoading || !report ? (
+          ) : isReportLoading ? (
             <LoadingSpinner />
+          ) : !report ? (
+            <Alert color="gray" title="表示できるデータがありません">
+              対象月を変えるか、時間をおいて再読み込みしてください。
+            </Alert>
           ) : (
             <ProfitLossStatement report={report} />
           )}
@@ -104,8 +108,12 @@ const ProfitLossView = ({ initialMonth, initialReport }: Props) => {
             <Alert color="red" title="年間推移の取得に失敗しました">
               時間をおいてページを再読み込みしてください。
             </Alert>
-          ) : isTrendLoading || !trend ? (
+          ) : isTrendLoading ? (
             <LoadingSpinner />
+          ) : !trend ? (
+            <Alert color="gray" title="表示できるデータがありません">
+              年度を変えるか、時間をおいて再読み込みしてください。
+            </Alert>
           ) : (
             <AnnualTrendTable trend={trend} />
           )}

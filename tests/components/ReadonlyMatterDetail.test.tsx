@@ -57,4 +57,27 @@ describe("ReadonlyMatterDetail", () => {
       refetchOnMount: "always",
     });
   });
+
+  it("isLoading 中は LoadingOverlay を表示する", () => {
+    useMatterDetail.mockReturnValue({
+      data: { costs: [], businesses: [] },
+      isLoading: true,
+    });
+
+    const { baseElement } = renderWithMantine(
+      <ReadonlyMatterDetail
+        matterInfo={sampleMatter}
+        opened
+        setOpened={vi.fn()}
+      />,
+    );
+
+    expect(
+      baseElement.querySelector(".mantine-LoadingOverlay-root"),
+    ).not.toBeNull();
+    expect(baseElement.querySelector(".mantine-Loader-root")).not.toBeNull();
+    expect(
+      baseElement.querySelector('[role="status"][aria-label="読み込み中"]'),
+    ).not.toBeNull();
+  });
 });

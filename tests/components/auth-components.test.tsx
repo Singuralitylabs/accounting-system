@@ -66,6 +66,9 @@ describe("SignIn", () => {
       expect(screen.getByRole("button")).toBeDisabled();
       expect(screen.getByRole("button")).toHaveAttribute("aria-busy", "true");
     });
+    expect(
+      screen.getByRole("button").querySelector(".mantine-Loader-root"),
+    ).not.toBeNull();
 
     resolveOAuth?.({ error: null });
 
