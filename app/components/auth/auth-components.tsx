@@ -9,6 +9,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useSupabase } from "@/app/components/providers/SupabaseProvider";
 import { notifyError } from "@/app/utils/notify";
+import { Loader } from "@mantine/core";
 import { authPrimaryButtonClassName } from "./authButtonStyles";
 
 export const SignIn = () => {
@@ -91,10 +92,7 @@ export const SignIn = () => {
       className={authPrimaryButtonClassName}
     >
       {loading ? (
-        <span
-          className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"
-          aria-hidden
-        />
+        <Loader size="sm" color="white" aria-hidden />
       ) : (
         <FcGoogle className="h-6 w-6" aria-hidden />
       )}

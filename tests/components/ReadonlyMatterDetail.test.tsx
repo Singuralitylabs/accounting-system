@@ -60,11 +60,11 @@ describe("ReadonlyMatterDetail", () => {
 
   it("isLoading 中は LoadingOverlay を表示する", () => {
     useMatterDetail.mockReturnValue({
-      data: undefined,
+      data: { costs: [], businesses: [] },
       isLoading: true,
     });
 
-    const { container } = renderWithMantine(
+    const { baseElement } = renderWithMantine(
       <ReadonlyMatterDetail
         matterInfo={sampleMatter}
         opened
@@ -73,8 +73,8 @@ describe("ReadonlyMatterDetail", () => {
     );
 
     expect(
-      container.querySelector(".mantine-LoadingOverlay-root"),
+      baseElement.querySelector(".mantine-LoadingOverlay-root"),
     ).not.toBeNull();
-    expect(container.querySelector(".mantine-Loader-root")).not.toBeNull();
+    expect(baseElement.querySelector(".mantine-Loader-root")).not.toBeNull();
   });
 });

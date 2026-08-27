@@ -12,6 +12,7 @@ export const theme = createTheme({
     },
     LoadingOverlay: {
       defaultProps: {
+        transitionProps: { duration: 0 },
         overlayProps: { backgroundOpacity: 0.55, blur: 2 },
         loaderProps: { type: "oval", size: "lg", color: "blue" },
         zIndex: 400,

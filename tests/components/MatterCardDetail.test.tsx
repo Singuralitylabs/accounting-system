@@ -164,13 +164,13 @@ describe("MatterCardDetail", () => {
 
   it("isLoading 中は LoadingOverlay を表示する", () => {
     useMatterDetail.mockReturnValue({
-      data: undefined,
+      data: { costs: [], businesses: [] },
       isLoading: true,
       error: null,
       refetch: vi.fn(),
     });
 
-    const { container } = renderWithMantine(
+    const { baseElement } = renderWithMantine(
       <MatterCardDetail
         variant="readonly"
         matterInfo={sampleAccountingMatter}
@@ -180,7 +180,7 @@ describe("MatterCardDetail", () => {
     );
 
     expect(
-      container.querySelector(".mantine-LoadingOverlay-root"),
+      baseElement.querySelector(".mantine-LoadingOverlay-root"),
     ).not.toBeNull();
   });
 });
