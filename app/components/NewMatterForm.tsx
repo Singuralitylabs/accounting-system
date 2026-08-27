@@ -157,7 +157,7 @@ const NewMatterForm = () => {
 
   return (
     <form
-      className="p-4 w-auto"
+      className="relative p-4 w-auto"
       onSubmit={form.onSubmit(() => handleAddMatterInfo(true))}
     >
       <LoadingOverlay visible={createMatterMutation.isPending} />

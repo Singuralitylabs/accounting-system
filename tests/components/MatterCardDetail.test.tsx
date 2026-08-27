@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MatterCardDetail } from "@/app/components/modal/MatterCardDetail";
 import { MatterInfoWithUserNameType, MatterType } from "@/app/types/types";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
@@ -35,27 +35,39 @@ const sampleAccountingMatter: MatterInfoWithUserNameType = {
   slack_id: "U123",
 };
 
-vi.mock("@/app/hooks/useMatterData", () => {
-  const detailData = { costs: [], businesses: [] };
+const { useMatterDetail, idleMutation } = vi.hoisted(() => {
   const idleMutation = { mutateAsync: vi.fn(), isPending: false };
   return {
-    useMatterDetail: () => ({
-      data: detailData,
+    idleMutation,
+    useMatterDetail: vi.fn(() => ({
+      data: { costs: [], businesses: [] },
       isLoading: false,
       error: null,
       refetch: vi.fn(),
-    }),
-    useUpdateMatter: () => idleMutation,
-    useCreateMatter: () => idleMutation,
-    useDeleteMatter: () => idleMutation,
-    useRevertToFixed: () => idleMutation,
-    useRevertToDraft: () => idleMutation,
-    useCheckCompletedSingle: () => idleMutation,
-    useSaveAccountingMemo: () => idleMutation,
+    })),
   };
 });
 
+vi.mock("@/app/hooks/useMatterData", () => ({
+  useMatterDetail,
+  useUpdateMatter: () => idleMutation,
+  useCreateMatter: () => idleMutation,
+  useDeleteMatter: () => idleMutation,
+  useRevertToFixed: () => idleMutation,
+  useRevertToDraft: () => idleMutation,
+  useCheckCompletedSingle: () => idleMutation,
+  useSaveAccountingMemo: () => idleMutation,
+}));
+
 describe("MatterCardDetail", () => {
+  beforeEach(() => {
+    useMatterDetail.mockReturnValue({
+      data: { costs: [], businesses: [] },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+  });
   it("variant=user は更新・経理申請・追加ボタンを出し、経理メモは出さない", () => {
     renderWithMantine(
       <MatterCardDetail
@@ -148,5 +160,27 @@ describe("MatterCardDetail", () => {
       screen.queryByRole("button", { name: "取引先追加" }),
     ).not.toBeInTheDocument();
     expect(screen.queryByLabelText("経理メモ")).not.toBeInTheDocument();
+  });
+
+  it("isLoading 中は LoadingOverlay を表示する", () => {
+    useMatterDetail.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    const { container } = renderWithMantine(
+      <MatterCardDetail
+        variant="readonly"
+        matterInfo={sampleAccountingMatter}
+        opened
+        setOpened={vi.fn()}
+      />,
+    );
+
+    expect(
+      container.querySelector(".mantine-LoadingOverlay-root"),
+    ).not.toBeNull();
   });
 });

@@ -198,123 +198,125 @@ export function AccountingMatterDetail({
       title={matterInfo.title}
       size="100%"
     >
-      <LoadingOverlay visible={isBusy} />
-      <div className="flex justify-end">
-        {matterInfo.is_completed ? (
-          <Badge color="green">経理確認完了</Badge>
-        ) : matterInfo.is_fixed ? (
-          <Badge color="red">経理申請中</Badge>
-        ) : (
-          <Badge color="blue">下書き</Badge>
-        )}
-      </div>
-      <span className="text-red-700 text-sm">
-        ※記載の金額は、全て税抜となっております。
-      </span>
-      <h2 className="my-4">基本情報</h2>
-      <div className="sm:flex gap-4 w-full my-4">
-        <LabelText label="担当者名">{matterInfo.user_name}</LabelText>
-        <LabelText label="分類">{matterInfo.category}</LabelText>
-        <LabelText label="チーム">{matterInfo.team}</LabelText>
-        <LabelText label="案件開始日" isDate>
-          {matterInfo.start_date}
-        </LabelText>
-      </div>
-      <div className="w-full my-4">
-        <LabelText label="説明">{matterInfo.description}</LabelText>
-      </div>
+      <div className="relative">
+        <LoadingOverlay visible={isBusy} />
+        <div className="flex justify-end">
+          {matterInfo.is_completed ? (
+            <Badge color="green">経理確認完了</Badge>
+          ) : matterInfo.is_fixed ? (
+            <Badge color="red">経理申請中</Badge>
+          ) : (
+            <Badge color="blue">下書き</Badge>
+          )}
+        </div>
+        <span className="text-red-700 text-sm">
+          ※記載の金額は、全て税抜となっております。
+        </span>
+        <h2 className="my-4">基本情報</h2>
+        <div className="sm:flex gap-4 w-full my-4">
+          <LabelText label="担当者名">{matterInfo.user_name}</LabelText>
+          <LabelText label="分類">{matterInfo.category}</LabelText>
+          <LabelText label="チーム">{matterInfo.team}</LabelText>
+          <LabelText label="案件開始日" isDate>
+            {matterInfo.start_date}
+          </LabelText>
+        </div>
+        <div className="w-full my-4">
+          <LabelText label="説明">{matterInfo.description}</LabelText>
+        </div>
 
-      {businessList.length > 0 ? <h2 className="my-4">取引先情報</h2> : ""}
-      <Grid gutter="md">
-        {businessList?.map((business) => (
-          <Grid.Col key={business.id} span={{ base: 12, md: 6, lg: 4 }}>
-            <BusinessBlock
-              variant="accounting"
-              business={business}
-              businessList={businessList}
-              setBusinessList={setBusinessList}
-              isCompleted={matterInfo.is_completed!}
-            />
-          </Grid.Col>
-        ))}
-      </Grid>
-      {costList.length > 0 ? <h2 className="my-4">コスト情報</h2> : ""}
-      <Grid gutter="md">
-        {costList?.map((cost) => (
-          <Grid.Col key={cost.id} span={{ base: 12, md: 6, lg: 4 }}>
-            <CostBlock
-              variant="accounting"
-              cost={cost}
-              costList={costList}
-              setCostList={setCostList}
-              isCompleted={matterInfo.is_completed!}
-            />
-          </Grid.Col>
-        ))}
-      </Grid>
+        {businessList.length > 0 ? <h2 className="my-4">取引先情報</h2> : ""}
+        <Grid gutter="md">
+          {businessList?.map((business) => (
+            <Grid.Col key={business.id} span={{ base: 12, md: 6, lg: 4 }}>
+              <BusinessBlock
+                variant="accounting"
+                business={business}
+                businessList={businessList}
+                setBusinessList={setBusinessList}
+                isCompleted={matterInfo.is_completed!}
+              />
+            </Grid.Col>
+          ))}
+        </Grid>
+        {costList.length > 0 ? <h2 className="my-4">コスト情報</h2> : ""}
+        <Grid gutter="md">
+          {costList?.map((cost) => (
+            <Grid.Col key={cost.id} span={{ base: 12, md: 6, lg: 4 }}>
+              <CostBlock
+                variant="accounting"
+                cost={cost}
+                costList={costList}
+                setCostList={setCostList}
+                isCompleted={matterInfo.is_completed!}
+              />
+            </Grid.Col>
+          ))}
+        </Grid>
 
-      <Textarea
-        label="経理メモ"
-        className="pt-4 w-full"
-        value={accountingMemo || ""}
-        disabled={matterInfo.is_completed!}
-        onChange={(event) => setAccountingMemo(event.currentTarget.value)}
-      />
-      <div className="flex justify-end items-center gap-2">
-        {matterInfo.has_updates && (
-          <Checkbox
-            label="更新確認"
-            color="orange"
-            size="sm"
-            checked={checkhasUpdates}
-            onChange={(event) =>
-              setCheckhasUpdates(event.currentTarget.checked)
-            }
-          />
-        )}
-      </div>
-      <div className="my-4">
-        {!matterInfo.is_completed ? (
-          <div className="flex gap-2">
+        <Textarea
+          label="経理メモ"
+          className="pt-4 w-full"
+          value={accountingMemo || ""}
+          disabled={matterInfo.is_completed!}
+          onChange={(event) => setAccountingMemo(event.currentTarget.value)}
+        />
+        <div className="flex justify-end items-center gap-2">
+          {matterInfo.has_updates && (
+            <Checkbox
+              label="更新確認"
+              color="orange"
+              size="sm"
+              checked={checkhasUpdates}
+              onChange={(event) =>
+                setCheckhasUpdates(event.currentTarget.checked)
+              }
+            />
+          )}
+        </div>
+        <div className="my-4">
+          {!matterInfo.is_completed ? (
+            <div className="flex gap-2">
+              <Button
+                fullWidth
+                color="indigo"
+                disabled={isBusy}
+                onClick={handleSaveMatterInfo}
+              >
+                保存
+              </Button>
+              {matterInfo.is_fixed && (
+                <Button
+                  fullWidth
+                  color="blue"
+                  disabled={isBusy}
+                  onClick={handleBackToDraft}
+                >
+                  下書きに戻す
+                </Button>
+              )}
+              {matterInfo.is_fixed && (
+                <Button
+                  fullWidth
+                  color="green"
+                  disabled={isBusy}
+                  onClick={handleCheckCompleted}
+                >
+                  確認完了
+                </Button>
+              )}
+            </div>
+          ) : (
             <Button
               fullWidth
-              color="indigo"
+              color="red"
               disabled={isBusy}
-              onClick={handleSaveMatterInfo}
+              onClick={handleBackToFixedMatter}
             >
-              保存
+              経理申請中に戻す
             </Button>
-            {matterInfo.is_fixed && (
-              <Button
-                fullWidth
-                color="blue"
-                disabled={isBusy}
-                onClick={handleBackToDraft}
-              >
-                下書きに戻す
-              </Button>
-            )}
-            {matterInfo.is_fixed && (
-              <Button
-                fullWidth
-                color="green"
-                disabled={isBusy}
-                onClick={handleCheckCompleted}
-              >
-                確認完了
-              </Button>
-            )}
-          </div>
-        ) : (
-          <Button
-            fullWidth
-            color="red"
-            disabled={isBusy}
-            onClick={handleBackToFixedMatter}
-          >
-            経理申請中に戻す
-          </Button>
-        )}
+          )}
+        </div>
       </div>
     </Modal>
   );

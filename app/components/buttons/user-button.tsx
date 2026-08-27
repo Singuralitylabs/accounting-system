@@ -6,6 +6,7 @@ import { User } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
 import { ALLOWED_EMAIL_DOMAIN } from "@/app/utils/constants";
 import { useSupabase } from "@/app/components/providers/SupabaseProvider";
+import { CompactLoader } from "@/app/components/LoadingSpinner";
 
 const UserButton = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -42,7 +43,8 @@ const UserButton = () => {
   }, [supabase]);
 
   if (loading) {
-    return <div>Loading...</div>;
+    // ヘッダーは bg-gray-700 のため、theme 既定色ではなく白系で描画する
+    return <CompactLoader color="gray.0" />;
   }
 
   const handleSignIn = async () => {

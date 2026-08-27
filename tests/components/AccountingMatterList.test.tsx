@@ -7,7 +7,7 @@ import { renderWithMantine } from "../testUtils/renderWithMantine";
 
 const { listState, mutateAsync, slackMutateAsync, notifyError, confirmAction } =
   vi.hoisted(() => ({
-    listState: { is_fixed: true },
+    listState: { is_fixed: true, checkPending: false, slackPending: false },
     mutateAsync: vi.fn(),
     slackMutateAsync: vi.fn(),
     notifyError: vi.fn(),
@@ -59,10 +59,13 @@ vi.mock("@/app/hooks/useMatterData", () => {
         : all;
       return { data };
     },
-    useCheckCompleted: () => ({ mutateAsync, isPending: false }),
+    useCheckCompleted: () => ({
+      mutateAsync,
+      isPending: listState.checkPending,
+    }),
     useSlackNotification: () => ({
       mutateAsync: slackMutateAsync,
-      isPending: false,
+      isPending: listState.slackPending,
     }),
   };
 });
@@ -88,6 +91,8 @@ vi.mock("@mantine/hooks", async (importOriginal) => {
 describe("AccountingMatterList", () => {
   beforeEach(() => {
     listState.is_fixed = true;
+    listState.checkPending = false;
+    listState.slackPending = false;
     mutateAsync.mockReset();
     slackMutateAsync.mockReset();
     notifyError.mockReset();
@@ -180,5 +185,14 @@ describe("AccountingMatterList", () => {
     const remaining = screen.getAllByLabelText("案件チェック");
     expect(remaining[0]).not.toBeChecked();
     expect(remaining[1]).toBeChecked();
+  });
+
+  it("確認完了の処理中はボタンに loading を出す", () => {
+    listState.checkPending = true;
+    renderWithMantine(<AccountingMatterList />);
+
+    const button = screen.getByRole("button", { name: "確認完了" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("data-loading", "true");
   });
 });

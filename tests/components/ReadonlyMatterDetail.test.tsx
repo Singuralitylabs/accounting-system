@@ -57,4 +57,24 @@ describe("ReadonlyMatterDetail", () => {
       refetchOnMount: "always",
     });
   });
+
+  it("isLoading 中は LoadingOverlay を表示する", () => {
+    useMatterDetail.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+    });
+
+    const { container } = renderWithMantine(
+      <ReadonlyMatterDetail
+        matterInfo={sampleMatter}
+        opened
+        setOpened={vi.fn()}
+      />,
+    );
+
+    expect(
+      container.querySelector(".mantine-LoadingOverlay-root"),
+    ).not.toBeNull();
+    expect(container.querySelector(".mantine-Loader-root")).not.toBeNull();
+  });
 });

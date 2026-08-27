@@ -274,6 +274,7 @@ export function UserMatterDetail({
       size="100%"
     >
       <form
+        className="relative"
         onSubmit={form.onSubmit(() =>
           handleUpdateMatterInfo(matterInfo.is_fixed || false),
         )}

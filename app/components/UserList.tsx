@@ -39,18 +39,18 @@ const UserList = ({ userList }: { userList: ProfilesType[] }) => {
   };
 
   const handleSave = async (userId: number) => {
+    setIsLoading(true);
     try {
-      setIsLoading(true);
       const user = updatedUserList.find((user) => user.id === userId);
       if (!user) {
         return;
       }
       await updateProfile({ profile: user });
       notifySuccess("ユーザー情報を保存しました。");
-      setIsLoading(false);
     } catch (error) {
       console.error("ユーザー情報の保存に失敗しました:", error);
       notifyError(toErrorMessage(error, "ユーザー情報の保存に失敗しました。"));
+    } finally {
       setIsLoading(false);
     }
   };
@@ -66,7 +66,7 @@ const UserList = ({ userList }: { userList: ProfilesType[] }) => {
   );
 
   return (
-    <div className="p-4">
+    <div className="relative p-4">
       <Title order={2} className="pb-4">
         ユーザーリスト
       </Title>

@@ -132,7 +132,7 @@ const SelectOptionList = ({
   };
 
   return (
-    <div className="p-4 border-collapse border border-gray-500 bg-slate-50 rounded">
+    <div className="relative p-4 border-collapse border border-gray-500 bg-slate-50 rounded">
       <div className="flex justify-between items-center">
         <Title order={3} className="pb-4">
           {optionTitle}

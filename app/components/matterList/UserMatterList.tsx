@@ -4,6 +4,7 @@ import { SimpleGrid, Table } from "@mantine/core";
 import dynamic from "next/dynamic";
 import { useCallback, useMemo, useState } from "react";
 import { MatterType } from "../../types/types";
+import { LoadingSpinner } from "../LoadingSpinner";
 import { MatterCard } from "../MatterCard";
 import { useDeleteMatter, useUserMatterList } from "../../hooks/useMatterData";
 import {
@@ -24,7 +25,7 @@ const MatterCardDetail = dynamic(
     import("../modal/MatterCardDetail").then(
       (module) => module.MatterCardDetail,
     ),
-  { ssr: false },
+  { ssr: false, loading: () => <LoadingSpinner /> },
 );
 
 const itemListInUserMatter = [
