@@ -12,6 +12,7 @@ const UserButton = ({ user, onSignOut }: UserButtonProps) => {
   return (
     <UserButtonMenu
       userName={user.user_metadata?.name || user.email}
+      userEmail={user.email}
       userImage={user.user_metadata?.avatar_url}
       onSignOut={onSignOut}
     />
