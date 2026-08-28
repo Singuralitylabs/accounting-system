@@ -54,6 +54,28 @@ vi.mock("@/app/components/MobileHeader", () => ({
   default: () => <div data-testid="mobile-header" />,
 }));
 
+let capturedOnSignOut: (() => Promise<void>) | undefined;
+
+vi.mock("@/app/components/buttons/user-button", () => ({
+  default: ({
+    user,
+    onSignOut,
+  }: {
+    user: { user_metadata?: { name?: string }; email?: string } | null;
+    onSignOut: () => Promise<void>;
+  }) => {
+    capturedOnSignOut = onSignOut;
+    return (
+      <div>
+        <span>{user?.user_metadata?.name || user?.email}</span>
+        <button type="button" onClick={() => onSignOut()}>
+          logout-test
+        </button>
+      </div>
+    );
+  },
+}));
+
 const initialUser = {
   id: "user-1",
   email: "member@future-tech-association.org",
@@ -83,6 +105,7 @@ describe("Header", () => {
     mockSignOut.mockReset();
     mockGetProfileInfoById.mockReset();
     authStateCallback = undefined;
+    capturedOnSignOut = undefined;
     vi.useFakeTimers();
 
     mockGetProfileInfoById.mockResolvedValue({
@@ -161,5 +184,20 @@ describe("Header", () => {
 
     expect(mockOnAuthStateChange).toHaveBeenCalledTimes(1);
     expect(screen.getByText("ユーザー3")).toBeInTheDocument();
+  });
+
+  it("handleSignOut が signOut を呼び出して /login へ遷移する", async () => {
+    mockSignOut.mockResolvedValue({ error: null });
+
+    renderWithMantine(
+      <Header initialUser={initialUser} initialProfile={initialProfile} />,
+    );
+
+    await act(async () => {
+      await capturedOnSignOut?.();
+    });
+
+    expect(mockSignOut).toHaveBeenCalled();
+    expect(mockPush).toHaveBeenCalledWith("/login");
   });
 });
