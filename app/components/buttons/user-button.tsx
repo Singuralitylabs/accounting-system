@@ -1,6 +1,6 @@
 "use client";
 
-import UserButtonMenu from "./user-buttonMenu";
+import UserButtonMenu from "./user-button-menu";
 import { User } from "@supabase/supabase-js";
 
 type UserButtonProps = {
@@ -11,7 +11,8 @@ type UserButtonProps = {
 const UserButton = ({ user, onSignOut }: UserButtonProps) => {
   return (
     <UserButtonMenu
-      userName={user.user_metadata?.name || user.email}
+      userName={user.user_metadata?.name}
+      userEmail={user.email}
       userImage={user.user_metadata?.avatar_url}
       onSignOut={onSignOut}
     />

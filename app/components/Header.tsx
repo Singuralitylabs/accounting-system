@@ -152,7 +152,7 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
             ))}
           </div>
         )}
-        <div className="hidden sm:flex ml-auto rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500">
+        <div className="hidden sm:flex ml-auto items-center">
           <UserButton user={user} onSignOut={handleSignOut} />
         </div>
         <div className="sm:hidden ml-auto">
