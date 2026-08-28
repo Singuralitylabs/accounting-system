@@ -1,10 +1,9 @@
 import {
   Card,
   Checkbox,
-  Group,
   NumberInput,
   Select,
-  Stack,
+  SimpleGrid,
   TextInput,
 } from "@mantine/core";
 import { FaRegTrashAlt } from "react-icons/fa";
@@ -180,7 +179,8 @@ const AccountingCostBlock = ({
   return (
     <Card
       key={cost.id}
-      className="mb-4 relative"
+      className="relative"
+      h="100%"
       withBorder
       radius="sm"
       padding="sm"
@@ -208,41 +208,17 @@ const AccountingCostBlock = ({
         <span>支払い完了</span>
       </div>
 
-      <div className="flex-grow pt-8">
-        <div className="flex pb-2">
-          <Group gap="sm" className="flex-grow w-full">
-            <Stack gap="xs" className="flex-grow">
-              <LabelText label="コスト名">{cost.name}</LabelText>
-            </Stack>
-            <Stack gap="xs" className="flex-grow">
-              <LabelText label="品目">{cost.item}</LabelText>
-            </Stack>
-            <Stack gap="xs" className="flex-grow">
-              <LabelText label="価格">{formatCurrency(cost.price)}</LabelText>
-            </Stack>
-          </Group>
-        </div>
-        <div className="items-center pb-2">
-          <Group gap="sm" className="flex-grow">
-            <Stack gap="xs" className="flex-grow">
-              <LabelText label="支払い期限">
-                {formatDateToJp(cost.period)}
-              </LabelText>
-            </Stack>
-            <Stack gap="xs" className="flex-grow">
-              <LabelText label="支払い先">{cost.payment_target}</LabelText>
-            </Stack>
-            <Stack gap="xs" className="flex-grow">
-              <LabelText label="申請方法">{cost.certificate}</LabelText>
-            </Stack>
-            <Stack gap="xs" className="flex-grow">
-              <LabelText label="源泉徴収">
-                {cost.withholding ? "あり" : "なし"}
-              </LabelText>
-            </Stack>
-          </Group>
-        </div>
-      </div>
+      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm" className="pt-8">
+        <LabelText label="コスト名">{cost.name}</LabelText>
+        <LabelText label="品目">{cost.item}</LabelText>
+        <LabelText label="価格">{formatCurrency(cost.price)}</LabelText>
+        <LabelText label="支払い期限">{formatDateToJp(cost.period)}</LabelText>
+        <LabelText label="支払い先">{cost.payment_target}</LabelText>
+        <LabelText label="申請方法">{cost.certificate}</LabelText>
+        <LabelText label="源泉徴収">
+          {cost.withholding ? "あり" : "なし"}
+        </LabelText>
+      </SimpleGrid>
     </Card>
   );
 };

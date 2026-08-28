@@ -1,9 +1,8 @@
 import {
   Card,
   Checkbox,
-  Group,
   NumberInput,
-  Stack,
+  SimpleGrid,
   TextInput,
 } from "@mantine/core";
 import { FaRegTrashAlt } from "react-icons/fa";
@@ -137,7 +136,8 @@ const AccountingBusinessBlock = ({
   return (
     <Card
       key={business.id}
-      className="items-center mb-2 relative"
+      className="relative"
+      h="100%"
       withBorder
       radius="sm"
       padding="sm"
@@ -165,28 +165,16 @@ const AccountingBusinessBlock = ({
         <span>確認完了</span>
       </div>
 
-      <div className="flex-grow flex pb-2 pt-8">
-        <Group gap="sm" className="flex-grow w-full">
-          <Stack gap="xs" className="flex-grow">
-            <LabelText label="取引先名">{business.name}</LabelText>
-          </Stack>
-          <Stack gap="xs" className="flex-grow">
-            <LabelText label="請求額">
-              {formatCurrency(business.amount)}
-            </LabelText>
-          </Stack>
-          <Stack gap="xs" className="flex-grow">
-            <LabelText label="請求日">
-              {formatDateToJp(business.invoice_date)}
-            </LabelText>
-          </Stack>
-          <Stack gap="xs" className="flex-grow">
-            <LabelText label="振込期限">
-              {formatDateToJp(business.period_date)}
-            </LabelText>
-          </Stack>
-        </Group>
-      </div>
+      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm" className="pt-8">
+        <LabelText label="取引先名">{business.name}</LabelText>
+        <LabelText label="請求額">{formatCurrency(business.amount)}</LabelText>
+        <LabelText label="請求日">
+          {formatDateToJp(business.invoice_date)}
+        </LabelText>
+        <LabelText label="振込期限">
+          {formatDateToJp(business.period_date)}
+        </LabelText>
+      </SimpleGrid>
     </Card>
   );
 };
