@@ -71,7 +71,7 @@ export function ReadonlyMatterDetail({ matterInfo, opened, setOpened }: Props) {
             </Grid.Col>
             <Grid.Col span={6}>
               <LabelText label="案件開始日" isDate>
-                {matterInfo.start_date || "未設定"}
+                {matterInfo.start_date}
               </LabelText>
             </Grid.Col>
             <Grid.Col span={12}>

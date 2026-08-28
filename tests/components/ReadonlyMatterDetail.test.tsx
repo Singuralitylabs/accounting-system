@@ -58,6 +58,19 @@ describe("ReadonlyMatterDetail", () => {
     });
   });
 
+  it("案件開始日が未設定でも NaN/NaN/NaN にならず「未設定」と表示する", () => {
+    renderWithMantine(
+      <ReadonlyMatterDetail
+        matterInfo={sampleMatter}
+        opened
+        setOpened={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("未設定")).toBeInTheDocument();
+    expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
+  });
+
   it("isLoading 中は LoadingOverlay を表示する", () => {
     useMatterDetail.mockReturnValue({
       data: { costs: [], businesses: [] },
