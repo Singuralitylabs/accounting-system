@@ -2,7 +2,7 @@
 
 import { User } from "@supabase/supabase-js";
 import Link from "next/link";
-import React, { FC, useEffect, useState } from "react";
+import React, { FC, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ProfilesType } from "../types/types";
 import { visibleNavItems } from "../utils/permissions";
@@ -23,12 +23,32 @@ interface CacheEntry {
 
 const CACHE_DURATION = 1000 * 60 * 30;
 
+const buildInitialProfileCache = (
+  initialUser: User | null,
+  initialProfile: ProfilesType | null,
+): Record<string, CacheEntry> => {
+  if (!initialUser?.id || !initialProfile) {
+    return {};
+  }
+  return {
+    [initialUser.id]: {
+      data: initialProfile,
+      timestamp: Date.now(),
+    },
+  };
+};
+
 const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
   const [user, setUser] = useState<User | null>(initialUser);
   const [profile, setProfile] = useState<ProfilesType | null>(initialProfile);
-  const [profileCache, setProfileCache] = useState<Record<string, CacheEntry>>(
-    {},
-  );
+  const profileCacheRef = useRef<Record<string, CacheEntry>>();
+  if (profileCacheRef.current === undefined) {
+    profileCacheRef.current = buildInitialProfileCache(
+      initialUser,
+      initialProfile,
+    );
+  }
+  const latestUserIdRef = useRef<string | null>(initialUser?.id ?? null);
   const { supabase } = useSupabase();
   const router = useRouter();
   const pathname = usePathname();
@@ -39,46 +59,63 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
   };
 
   useEffect(() => {
+    const pendingTimerIds = new Set<ReturnType<typeof setTimeout>>();
+
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        // セッションがある場合は、getUser()で再検証
-        const {
-          data: { user: validatedUser },
-        } = await supabase.auth.getUser();
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      // auth-js のロック保持中に非同期処理を走らせない（公式推奨の回避策）。
+      // session.user は名前・アイコン・ナビ表示にのみ使う。認可は middleware / RLS が担う。
+      // Header は再マウントされないため、表示更新は本コールバックの session.user が担う。
+      const timerId = setTimeout(async () => {
+        try {
+          if (session?.user) {
+            const sessionUser = session.user;
+            latestUserIdRef.current = sessionUser.id;
+            setUser(sessionUser);
 
-        if (validatedUser) {
-          setUser(validatedUser);
-
-          const cacheEntry = profileCache[validatedUser.id];
-          if (!cacheEntry || !isValidCache(cacheEntry)) {
-            const { profileInfo } = await getProfileInfoById(validatedUser.id);
-            if (profileInfo) {
-              setProfile(profileInfo);
-              setProfileCache((prev) => ({
-                ...prev,
-                [validatedUser.id]: {
+            const cacheEntry = profileCacheRef.current![sessionUser.id];
+            if (!cacheEntry || !isValidCache(cacheEntry)) {
+              const { profileInfo } = await getProfileInfoById(sessionUser.id);
+              if (latestUserIdRef.current !== sessionUser.id) {
+                return;
+              }
+              if (profileInfo) {
+                setProfile(profileInfo);
+                profileCacheRef.current![sessionUser.id] = {
                   data: profileInfo,
                   timestamp: Date.now(),
-                },
-              }));
+                };
+              } else {
+                setProfile(null);
+              }
+            } else {
+              setProfile(cacheEntry.data);
             }
           } else {
-            setProfile(cacheEntry.data);
+            latestUserIdRef.current = null;
+            profileCacheRef.current = {};
+            setUser(null);
+            setProfile(null);
           }
-        } else {
-          setUser(null);
-          setProfile(null);
+        } catch (error) {
+          console.error(
+            "Unexpected error in Header auth state handler:",
+            error,
+          );
+        } finally {
+          pendingTimerIds.delete(timerId);
         }
-      } else {
-        setUser(null);
-        setProfile(null);
-      }
+      }, 0);
+      pendingTimerIds.add(timerId);
     });
 
-    return () => subscription.unsubscribe();
-  }, [supabase, profileCache]);
+    return () => {
+      subscription.unsubscribe();
+      pendingTimerIds.forEach(clearTimeout);
+      pendingTimerIds.clear();
+    };
+  }, [supabase]);
 
   if (!user) {
     return null;
@@ -86,6 +123,8 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
+    profileCacheRef.current = {};
+    latestUserIdRef.current = null;
     setUser(null);
     setProfile(null);
     router.push("/login");
@@ -114,7 +153,7 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
           </div>
         )}
         <div className="hidden sm:flex ml-auto rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500">
-          <UserButton />
+          <UserButton user={user} onSignOut={handleSignOut} />
         </div>
         <div className="sm:hidden ml-auto">
           <MobileHeader
