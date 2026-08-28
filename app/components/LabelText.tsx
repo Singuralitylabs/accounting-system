@@ -22,12 +22,14 @@ const LabelText = ({
         : isCurrency && isDate
           ? "-"
           : children;
+  const displayValue =
+    value === null || value === undefined || value === "" ? "未設定" : value;
   return (
     <Stack gap="xs" className="w-full md:pt-0 pt-4">
       <Text size="sm" fw={500} c="dimmed">
         {label}
       </Text>
-      <Text className="p-4 break-words">{value || "未設定"}</Text>
+      <Text className="p-4 break-words">{displayValue}</Text>
     </Stack>
   );
 };

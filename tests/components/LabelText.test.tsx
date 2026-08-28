@@ -34,4 +34,26 @@ describe("LabelText", () => {
 
     expect(screen.getByText(longValue)).toHaveClass("break-words");
   });
+
+  it("isCurrency で金額が 0 の場合は「未設定」ではなく￥0を表示する", () => {
+    renderWithMantine(
+      <LabelText label="請求額" isCurrency>
+        {0}
+      </LabelText>,
+    );
+
+    expect(screen.getByText("￥0")).toBeInTheDocument();
+    expect(screen.queryByText("未設定")).not.toBeInTheDocument();
+  });
+
+  it("isDate で値が null の場合は日付変換せず「未設定」を表示する", () => {
+    renderWithMantine(
+      <LabelText label="案件開始日" isDate>
+        {null}
+      </LabelText>,
+    );
+
+    expect(screen.getByText("未設定")).toBeInTheDocument();
+    expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
+  });
 });

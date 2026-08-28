@@ -7,7 +7,6 @@ import {
 } from "@mantine/core";
 import { FaRegTrashAlt } from "react-icons/fa";
 import { BusinessInCardType, BusinessType } from "../types/types";
-import { formatCurrency, formatDateToJp } from "../utils/formatter";
 import { CustomDatePicker } from "./CustomDatePicker";
 import LabelText from "./LabelText";
 
@@ -167,12 +166,14 @@ const AccountingBusinessBlock = ({
 
       <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm" className="pt-8">
         <LabelText label="取引先名">{business.name}</LabelText>
-        <LabelText label="請求額">{formatCurrency(business.amount)}</LabelText>
-        <LabelText label="請求日">
-          {formatDateToJp(business.invoice_date)}
+        <LabelText label="請求額" isCurrency>
+          {business.amount}
         </LabelText>
-        <LabelText label="振込期限">
-          {formatDateToJp(business.period_date)}
+        <LabelText label="請求日" isDate>
+          {business.invoice_date}
+        </LabelText>
+        <LabelText label="振込期限" isDate>
+          {business.period_date}
         </LabelText>
       </SimpleGrid>
     </Card>

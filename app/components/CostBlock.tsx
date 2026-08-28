@@ -8,7 +8,6 @@ import {
 } from "@mantine/core";
 import { FaRegTrashAlt } from "react-icons/fa";
 import { CostInCardType, CostType } from "../types/types";
-import { formatCurrency, formatDateToJp } from "../utils/formatter";
 import { CustomDatePicker } from "./CustomDatePicker";
 import LabelText from "./LabelText";
 
@@ -211,8 +210,12 @@ const AccountingCostBlock = ({
       <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm" className="pt-8">
         <LabelText label="コスト名">{cost.name}</LabelText>
         <LabelText label="品目">{cost.item}</LabelText>
-        <LabelText label="価格">{formatCurrency(cost.price)}</LabelText>
-        <LabelText label="支払い期限">{formatDateToJp(cost.period)}</LabelText>
+        <LabelText label="価格" isCurrency>
+          {cost.price}
+        </LabelText>
+        <LabelText label="支払い期限" isDate>
+          {cost.period}
+        </LabelText>
         <LabelText label="支払い先">{cost.payment_target}</LabelText>
         <LabelText label="申請方法">{cost.certificate}</LabelText>
         <LabelText label="源泉徴収">
