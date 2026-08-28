@@ -23,10 +23,28 @@ interface CacheEntry {
 
 const CACHE_DURATION = 1000 * 60 * 30;
 
+const buildInitialProfileCache = (
+  initialUser: User | null,
+  initialProfile: ProfilesType | null,
+): Record<string, CacheEntry> => {
+  if (!initialUser?.id || !initialProfile) {
+    return {};
+  }
+  return {
+    [initialUser.id]: {
+      data: initialProfile,
+      timestamp: Date.now(),
+    },
+  };
+};
+
 const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
   const [user, setUser] = useState<User | null>(initialUser);
   const [profile, setProfile] = useState<ProfilesType | null>(initialProfile);
-  const profileCacheRef = useRef<Record<string, CacheEntry>>({});
+  const profileCacheRef = useRef<Record<string, CacheEntry>>(
+    buildInitialProfileCache(initialUser, initialProfile),
+  );
+  const latestUserIdRef = useRef<string | null>(initialUser?.id ?? null);
   const { supabase } = useSupabase();
   const router = useRouter();
   const pathname = usePathname();
@@ -37,39 +55,61 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
   };
 
   useEffect(() => {
+    const pendingTimerIds: ReturnType<typeof setTimeout>[] = [];
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       // auth-js のロック保持中に非同期処理を走らせない（公式推奨の回避策）。
       // session.user は名前・アイコン・ナビ表示にのみ使う。認可は middleware / RLS が担う。
-      // サーバ検証済みの値は SupabaseProvider の router.refresh() 経由で
-      // AuthProvider が getCachedUser() を再実行し initialUser として降りてくる。
-      setTimeout(async () => {
-        if (session?.user) {
-          const sessionUser = session.user;
-          setUser(sessionUser);
+      // Header は再マウントされないため、表示更新は本コールバックの session.user が担う。
+      const timerId = setTimeout(async () => {
+        try {
+          if (session?.user) {
+            const sessionUser = session.user;
+            latestUserIdRef.current = sessionUser.id;
+            setUser(sessionUser);
 
-          const cacheEntry = profileCacheRef.current[sessionUser.id];
-          if (!cacheEntry || !isValidCache(cacheEntry)) {
-            const { profileInfo } = await getProfileInfoById(sessionUser.id);
-            if (profileInfo) {
-              setProfile(profileInfo);
-              profileCacheRef.current[sessionUser.id] = {
-                data: profileInfo,
-                timestamp: Date.now(),
-              };
+            const cacheEntry = profileCacheRef.current[sessionUser.id];
+            if (!cacheEntry || !isValidCache(cacheEntry)) {
+              const { profileInfo } = await getProfileInfoById(sessionUser.id);
+              if (latestUserIdRef.current !== sessionUser.id) {
+                return;
+              }
+              if (profileInfo) {
+                setProfile(profileInfo);
+                profileCacheRef.current[sessionUser.id] = {
+                  data: profileInfo,
+                  timestamp: Date.now(),
+                };
+              } else {
+                setProfile(null);
+              }
+            } else {
+              if (latestUserIdRef.current !== sessionUser.id) {
+                return;
+              }
+              setProfile(cacheEntry.data);
             }
           } else {
-            setProfile(cacheEntry.data);
+            latestUserIdRef.current = null;
+            setUser(null);
+            setProfile(null);
           }
-        } else {
-          setUser(null);
-          setProfile(null);
+        } catch (error) {
+          console.error(
+            "Unexpected error in Header auth state handler:",
+            error,
+          );
         }
       }, 0);
+      pendingTimerIds.push(timerId);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+      pendingTimerIds.forEach(clearTimeout);
+    };
   }, [supabase]);
 
   if (!user) {
@@ -78,6 +118,8 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
+    profileCacheRef.current = {};
+    latestUserIdRef.current = null;
     setUser(null);
     setProfile(null);
     router.push("/login");
