@@ -27,7 +27,7 @@ const LabelText = ({
       <Text size="sm" fw={500} c="dimmed">
         {label}
       </Text>
-      <Text className="p-4">{value || "未設定"}</Text>
+      <Text className="p-4 break-words">{value || "未設定"}</Text>
     </Stack>
   );
 };

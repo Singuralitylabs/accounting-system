@@ -26,4 +26,12 @@ describe("LabelText", () => {
     expect(screen.getByText("品目")).toBeInTheDocument();
     expect(screen.getByText("未設定")).toBeInTheDocument();
   });
+
+  it("長い値でも隣の項目に重ならないよう折り返しクラスを持つ", () => {
+    const longValue =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789supercalifragilisticexpialidocious";
+    renderWithMantine(<LabelText label="取引先名">{longValue}</LabelText>);
+
+    expect(screen.getByText(longValue)).toHaveClass("break-words");
+  });
 });
