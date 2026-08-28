@@ -91,3 +91,4 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 - `app/hooks/useMatterData.ts` — TanStack Query フック群
 - `app/actions/slack/` — Slack 通知 Server Action
 - `docs/setup.md` / `docs/specification.md` / `docs/database.md` / `docs/testing.md` — セットアップ・仕様・DB 設計・テスト設計（手動確認の手順は testing.md 3.7）
+- `docs/release.md` — リリース（main → release）と本番カットオーバー（#68）の手順書
