@@ -105,4 +105,20 @@ describe("UserButton", () => {
 
     expect(screen.getByText("ア")).toBeInTheDocument();
   });
+
+  it("avatar_url の画像読み込みに失敗した場合も名前のイニシャルにフォールバックする", () => {
+    renderWithMantine(
+      <UserButton
+        user={mockUser}
+        onSignOut={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    const img = screen
+      .getByRole("button", { name: "ユーザーメニュー" })
+      .querySelector("img")!;
+    fireEvent.error(img);
+
+    expect(screen.getByText("テ")).toBeInTheDocument();
+  });
 });
