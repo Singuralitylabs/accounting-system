@@ -5,7 +5,7 @@ import {
   screen,
   waitForElementToBeRemoved,
 } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { User } from "@supabase/supabase-js";
 import UserButton from "@/app/components/buttons/user-button";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
@@ -28,6 +28,10 @@ const mockUserWithoutAvatar = {
 } as unknown as User;
 
 describe("UserButton", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("ローディング表示を出さず、トリガーにユーザー名テキストを描画しない", () => {
     renderWithMantine(
       <UserButton
@@ -39,7 +43,7 @@ describe("UserButton", () => {
     expect(screen.queryByRole("progressbar")).toBeNull();
     expect(screen.queryByText("テストユーザー")).toBeNull();
     expect(
-      screen.getByRole("button", { name: "ユーザーメニュー" }),
+      screen.getByRole("button", { name: /ユーザーメニュー/ }),
     ).toBeInTheDocument();
   });
 
@@ -51,7 +55,7 @@ describe("UserButton", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "ユーザーメニュー" }));
+    fireEvent.click(screen.getByRole("button", { name: /ユーザーメニュー/ }));
 
     expect(
       await screen.findByRole("menuitem", { name: "ログアウト" }),
@@ -70,7 +74,7 @@ describe("UserButton", () => {
       />,
     );
 
-    const trigger = screen.getByRole("button", { name: "ユーザーメニュー" });
+    const trigger = screen.getByRole("button", { name: /ユーザーメニュー/ });
     fireEvent.click(trigger);
     expect(
       await screen.findByRole("menuitem", { name: "ログアウト" }),
@@ -87,12 +91,37 @@ describe("UserButton", () => {
     const onSignOut = vi.fn().mockResolvedValue(undefined);
     renderWithMantine(<UserButton user={mockUser} onSignOut={onSignOut} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "ユーザーメニュー" }));
+    fireEvent.click(screen.getByRole("button", { name: /ユーザーメニュー/ }));
     fireEvent.click(
       await screen.findByRole("menuitem", { name: "ログアウト" }),
     );
 
     expect(onSignOut).toHaveBeenCalledTimes(1);
+  });
+
+  it("名前が無くメールのみのユーザーでは、メニュー内の表示名がメールになりメール行は重複表示されない", async () => {
+    const mockUserEmailOnly = {
+      id: "user-3",
+      email: "emailonly@future-tech-association.org",
+      user_metadata: {},
+    } as unknown as User;
+
+    renderWithMantine(
+      <UserButton
+        user={mockUserEmailOnly}
+        onSignOut={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /ユーザーメニュー/ }));
+
+    expect(
+      await screen.findByRole("menuitem", { name: "ログアウト" }),
+    ).toBeInTheDocument();
+    const menu = screen.getByRole("menu");
+    expect(menu.textContent).toBe(
+      "emailonly@future-tech-association.orgログアウト",
+    );
   });
 
   it("avatar_url が無いユーザーでは名前のイニシャルがフォールバック表示される", () => {
@@ -106,7 +135,7 @@ describe("UserButton", () => {
     expect(screen.getByText("ア")).toBeInTheDocument();
   });
 
-  it("avatar_url の画像読み込みに失敗した場合も名前のイニシャルにフォールバックする", () => {
+  it("avatar_url の画像読み込みがハイドレート後に失敗した場合も名前のイニシャルにフォールバックする", () => {
     renderWithMantine(
       <UserButton
         user={mockUser}
@@ -114,10 +143,32 @@ describe("UserButton", () => {
       />,
     );
 
-    const img = screen
-      .getByRole("button", { name: "ユーザーメニュー" })
-      .querySelector("img")!;
-    fireEvent.error(img);
+    fireEvent.error(screen.getByAltText("テストユーザー"));
+
+    expect(screen.getByText("テ")).toBeInTheDocument();
+  });
+
+  it("SSR ハイドレート前に既に読み込み失敗していた画像もイニシャルにフォールバックする（ハイドレーション競合の回帰）", () => {
+    // jsdom は実際の画像読み込みを行わないため、ハイドレート時点で
+    // 既に読み込み失敗済みの img（complete: true / naturalWidth: 0）を
+    // HTMLImageElement.prototype 経由で再現する。
+    vi.spyOn(
+      window.HTMLImageElement.prototype,
+      "complete",
+      "get",
+    ).mockReturnValue(true);
+    vi.spyOn(
+      window.HTMLImageElement.prototype,
+      "naturalWidth",
+      "get",
+    ).mockReturnValue(0);
+
+    renderWithMantine(
+      <UserButton
+        user={mockUser}
+        onSignOut={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
 
     expect(screen.getByText("テ")).toBeInTheDocument();
   });
