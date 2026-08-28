@@ -56,4 +56,15 @@ describe("LabelText", () => {
     expect(screen.getByText("未設定")).toBeInTheDocument();
     expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
   });
+
+  it("isDate で値が空文字の場合も日付変換せず「未設定」を表示する", () => {
+    renderWithMantine(
+      <LabelText label="案件開始日" isDate>
+        {""}
+      </LabelText>,
+    );
+
+    expect(screen.getByText("未設定")).toBeInTheDocument();
+    expect(screen.queryByText("-")).not.toBeInTheDocument();
+  });
 });

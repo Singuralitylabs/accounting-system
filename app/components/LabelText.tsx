@@ -17,7 +17,7 @@ const LabelText = ({
   const value =
     typeof children === "number" && isCurrency
       ? formatCurrency(children)
-      : typeof children === "string" && isDate
+      : typeof children === "string" && isDate && children !== ""
         ? formatDateToJp(children)
         : isCurrency && isDate
           ? "-"
