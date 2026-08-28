@@ -41,9 +41,13 @@ const buildInitialProfileCache = (
 const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
   const [user, setUser] = useState<User | null>(initialUser);
   const [profile, setProfile] = useState<ProfilesType | null>(initialProfile);
-  const profileCacheRef = useRef<Record<string, CacheEntry>>(
-    buildInitialProfileCache(initialUser, initialProfile),
-  );
+  const profileCacheRef = useRef<Record<string, CacheEntry>>();
+  if (profileCacheRef.current === undefined) {
+    profileCacheRef.current = buildInitialProfileCache(
+      initialUser,
+      initialProfile,
+    );
+  }
   const latestUserIdRef = useRef<string | null>(initialUser?.id ?? null);
   const { supabase } = useSupabase();
   const router = useRouter();
@@ -55,7 +59,7 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
   };
 
   useEffect(() => {
-    const pendingTimerIds: ReturnType<typeof setTimeout>[] = [];
+    const pendingTimerIds = new Set<ReturnType<typeof setTimeout>>();
 
     const {
       data: { subscription },
@@ -70,7 +74,7 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
             latestUserIdRef.current = sessionUser.id;
             setUser(sessionUser);
 
-            const cacheEntry = profileCacheRef.current[sessionUser.id];
+            const cacheEntry = profileCacheRef.current![sessionUser.id];
             if (!cacheEntry || !isValidCache(cacheEntry)) {
               const { profileInfo } = await getProfileInfoById(sessionUser.id);
               if (latestUserIdRef.current !== sessionUser.id) {
@@ -78,7 +82,7 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
               }
               if (profileInfo) {
                 setProfile(profileInfo);
-                profileCacheRef.current[sessionUser.id] = {
+                profileCacheRef.current![sessionUser.id] = {
                   data: profileInfo,
                   timestamp: Date.now(),
                 };
@@ -86,13 +90,11 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
                 setProfile(null);
               }
             } else {
-              if (latestUserIdRef.current !== sessionUser.id) {
-                return;
-              }
               setProfile(cacheEntry.data);
             }
           } else {
             latestUserIdRef.current = null;
+            profileCacheRef.current = {};
             setUser(null);
             setProfile(null);
           }
@@ -101,14 +103,17 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
             "Unexpected error in Header auth state handler:",
             error,
           );
+        } finally {
+          pendingTimerIds.delete(timerId);
         }
       }, 0);
-      pendingTimerIds.push(timerId);
+      pendingTimerIds.add(timerId);
     });
 
     return () => {
       subscription.unsubscribe();
       pendingTimerIds.forEach(clearTimeout);
+      pendingTimerIds.clear();
     };
   }, [supabase]);
 

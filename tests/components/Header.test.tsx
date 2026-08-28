@@ -342,10 +342,10 @@ describe("Header", () => {
 
     unmount();
 
-    await expect(
-      act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
-      }),
-    ).resolves.not.toThrow();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(mockGetProfileInfoById).not.toHaveBeenCalled();
   });
 });
