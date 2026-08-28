@@ -124,6 +124,29 @@ describe("UserButton", () => {
     );
   });
 
+  it("名前がメールアドレスと同じ文字列のユーザーでは、メール行が重複表示されない", async () => {
+    const mockUserNameEqualsEmail = {
+      id: "user-4",
+      email: "same@future-tech-association.org",
+      user_metadata: { name: "same@future-tech-association.org" },
+    } as unknown as User;
+
+    renderWithMantine(
+      <UserButton
+        user={mockUserNameEqualsEmail}
+        onSignOut={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /ユーザーメニュー/ }));
+
+    expect(
+      await screen.findByRole("menuitem", { name: "ログアウト" }),
+    ).toBeInTheDocument();
+    const menu = screen.getByRole("menu");
+    expect(menu.textContent).toBe("same@future-tech-association.orgログアウト");
+  });
+
   it("avatar_url が無いユーザーでは名前のイニシャルがフォールバック表示される", () => {
     renderWithMantine(
       <UserButton

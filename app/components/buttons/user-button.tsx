@@ -1,6 +1,6 @@
 "use client";
 
-import UserButtonMenu from "./user-buttonMenu";
+import UserButtonMenu from "./user-button-menu";
 import { User } from "@supabase/supabase-js";
 
 type UserButtonProps = {

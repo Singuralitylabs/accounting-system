@@ -59,7 +59,9 @@ const UserButtonMenu = ({
       <Menu.Dropdown>
         <Menu.Label>
           <div>{displayName}</div>
-          {userName && userEmail && <div>{userEmail}</div>}
+          {userName && userEmail && userEmail !== userName && (
+            <div>{userEmail}</div>
+          )}
         </Menu.Label>
         <Menu.Divider />
         <Menu.Item onClick={onSignOut}>ログアウト</Menu.Item>
