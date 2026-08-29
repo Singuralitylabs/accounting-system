@@ -1,17 +1,18 @@
-import { Suspense } from "react";
 import PageTitle from "./components/PageTitle";
-import DynamicMatterList from "./components/dynamic/DynamicMatterList";
-import { LoadingSpinner } from "./components/LoadingSpinner";
+import NavigationHub from "./components/NavigationHub";
+import { visibleNavItems } from "./utils/permissions";
+import { getCachedProfileInfo } from "./utils/supabase/requestCache";
 
-const UserMatterPage = () => {
+const HomePage = async () => {
+  const { profileInfo, error } = await getCachedProfileInfo();
+  const items = visibleNavItems(error ? null : profileInfo?.class);
+
   return (
-    <main>
-      <PageTitle title="案件カード" />
-      <Suspense fallback={<LoadingSpinner />}>
-        <DynamicMatterList />
-      </Suspense>
+    <main className="bg-slate-50 min-h-[60vh] px-4 pb-12">
+      <PageTitle title="ページ一覧" />
+      <NavigationHub items={items} />
     </main>
   );
 };
 
-export default UserMatterPage;
+export default HomePage;

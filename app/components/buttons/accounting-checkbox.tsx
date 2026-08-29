@@ -26,7 +26,7 @@ const AccountingCheckbox = ({
             setMatterIdList(
               event.currentTarget.checked
                 ? [...matterIdList, id]
-                : matterIdList.filter((matterId) => matterId !== id)
+                : matterIdList.filter((matterId) => matterId !== id),
             )
           }
         />

@@ -1,0 +1,16 @@
+{
+  "name": "accounting-system",
+  "install": "bash .cursor/setup/install.sh",
+  "start": "bash .cursor/setup/start.sh",
+  "terminals": [
+    {
+      "name": "next-dev",
+      "command": "yarn dev"
+    }
+  ],
+  "ports": [
+    { "name": "next-dev", "port": 3000 },
+    { "name": "supabase-api", "port": 54321 },
+    { "name": "supabase-studio", "port": 54323 }
+  ]
+}

@@ -12,7 +12,7 @@ interface Props {
   >;
   onUpdate: (
     id: number,
-    updates: { value: string } | { is_active: boolean }
+    updates: { value: string } | { is_active: boolean },
   ) => void;
   onRemove: (id: number) => void;
 }

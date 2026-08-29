@@ -2,7 +2,7 @@ import { Table } from "@mantine/core";
 import { MatterInfoWithUserNameType } from "../types/types";
 import AccountingCheckbox from "./buttons/accounting-checkbox";
 import TableInfo from "./TableInfo";
-import { headerConfig } from "./AccoutingTableHeader";
+import { headerConfig } from "./AccountingTableHeader";
 
 type Props = {
   matter: MatterInfoWithUserNameType;
@@ -26,12 +26,12 @@ const AccountingTablebody = ({
         isChecked
           ? "var(--mantine-color-red-5)"
           : matter.is_completed
-          ? "var(--mantine-color-green-light)"
-          : matter.has_updates
-          ? "var(--mantine-color-orange-light)"
-          : matter.is_fixed
-          ? "var(--mantine-color-red-light)"
-          : "var(--mantine-color-blue-light)"
+            ? "var(--mantine-color-green-light)"
+            : matter.has_updates
+              ? "var(--mantine-color-orange-light)"
+              : matter.is_fixed
+                ? "var(--mantine-color-red-light)"
+                : "var(--mantine-color-blue-light)"
       }
     >
       <Table.Td>

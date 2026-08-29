@@ -3,7 +3,7 @@ import Image from "next/image";
 
 export const Footer: FC = () => {
   return (
-    <footer className="bg-gray-100 p-4 flex justify-center w-full bottom-0">
+    <footer className="w-full shrink-0 bg-gray-100 p-4 flex justify-center">
       <a
         href="https://future-tech-association.org/"
         target="_blank"

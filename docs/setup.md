@@ -1,6 +1,6 @@
 # 開発環境構築ガイド
 
-このドキュメントでは、案件管理アプリケーションの開発環境構築手順を詳しく説明します。
+このドキュメントでは、経理システムの開発環境構築手順を詳しく説明します。
 
 ## 📋 目次
 
@@ -43,7 +43,7 @@ psql --version    # 13.0 以上
 
 ```bash
 git clone [リポジトリURL]
-cd matter-controller
+cd accounting-system
 ```
 
 ### 2. 依存関係のインストール
@@ -152,13 +152,7 @@ service_role key: eyJhbGciOiJIUzI1NiIs... # これをSUPABASE_SERVICE_ROLE_KEY�
 
 ### 4. 環境変数の設定
 
-`.env.local`ファイルを作成・編集：
-
-```bash
-cp .env.local.development .env.local
-```
-
-`.env.local`の内容を以下のように更新：
+プロジェクトルートに `.env.local` を新規作成する（リポジトリにテンプレートファイルは同梱していない）：
 
 ```env
 # ローカル開発環境のSupabase設定
@@ -167,7 +161,9 @@ NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
 NEXT_PUBLIC_SUPABASE_ANON_KEY=[supabase start実行後に表示されたanon key]
 SUPABASE_URL=http://127.0.0.1:54321
 SUPABASE_SERVICE_ROLE_KEY=[supabase start実行後に表示されたservice_role key]
-PROJECT_ID=matter-controller
+# 本番 Supabase の Reference ID（20文字の英小文字）。yarn db:types / MCP 用。
+# ローカル Docker の config.toml project_id（accounting-system）ではない。
+PROJECT_ID=[your-project-ref]
 LOCAL_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
 # Google認証設定（Google Cloud Consoleで取得した値に置き換え）
@@ -184,19 +180,19 @@ SLACK_WEBHOOK_URL=your-slack-webhook-url
 - `SUPABASE_SERVICE_ROLE_KEY`: **秘匿情報** - サーバー側でのみ使用し、決して公開しないでください
 - `GOOGLE_CLIENT_SECRET`: **秘匿情報** - 必ず秘匿してください
 - `SLACK_WEBHOOK_URL`: **秘匿情報** - Slack ワークスペースの機密情報です
-- `PROJECT_ID`: **公開可能** - プロジェクトの識別子であり、公開されても問題ありません
+- `PROJECT_ID`: **公開可能** - 本番（または型生成対象）Supabase の project ref。ローカル `config.toml` の `project_id` とは別物
 
 ### 5. データベーススキーマの作成
 
+スキーマの正は `supabase/migrations/` 配下のマイグレーションです。適用されるのは **初回の `supabase start`（ボリューム新規作成時）** と **`supabase db reset`** です。既存の Docker ボリュームがある状態で `supabase start` しただけでは、追加分のマイグレーションは適用されません。
+
+既存のローカル DB をマイグレーションと一致させたい場合:
+
 ```bash
-# 順番に実行
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/00_config.sql
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/01_profiles.sql
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/02_matters.sql
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/03_costs.sql
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/04_business.sql
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/05_select_options.sql
+supabase db reset
 ```
+
+これにより `supabase/migrations/` の SQL がファイル名順に適用されます（enum / テーブル / インデックス / トリガー / RLS / 選択肢マスタの初期データ など）。スキーマ変更は必ずこのディレクトリに追加してください。
 
 ### 6. 開発サーバーの起動
 
@@ -212,13 +208,9 @@ npm run dev
 
 ## サンプルデータ投入
 
-### 1. サンプルデータの作成
+### 1. マイグレーションで投入される初期データ
 
-開発・テスト用のサンプルデータを投入します：
-
-```bash
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/06_sample_data.sql
-```
+初回の `supabase start` または `supabase db reset` で適用されるマイグレーションに、選択肢マスタ（チーム・分類・品目など）の初期データが含まれます。案件・取引先・コストのサンプル行はリポジトリに含めていないため、ログイン後に画面から作成してください。
 
 ### 2. データ確認
 
@@ -226,13 +218,11 @@ psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/06_sample
 # テーブル一覧確認
 psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -c "\dt"
 
-# レコード数確認
+# マイグレーションで投入される選択肢マスタの件数確認
 psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -c "
-SELECT 'matters' as table_name, COUNT(*) as record_count FROM matters
+SELECT 'select_option_types' as table_name, COUNT(*) as record_count FROM select_option_types
 UNION ALL
-SELECT 'business' as table_name, COUNT(*) as record_count FROM business
-UNION ALL
-SELECT 'costs' as table_name, COUNT(*) as record_count FROM costs;
+SELECT 'select_options' as table_name, COUNT(*) as record_count FROM select_options;
 "
 ```
 
@@ -347,8 +337,8 @@ supa-db  # エイリアス設定後
 
 # ログ確認
 supabase logs
-docker logs supabase_db_matter-controller
-docker logs supabase_auth_matter-controller
+docker logs supabase_db_accounting-system
+docker logs supabase_auth_accounting-system
 ```
 
 ### アプリケーション
@@ -360,7 +350,10 @@ yarn dev
 # ビルド
 yarn build
 
-# 型定義の更新（スキーマ変更時）
+# 型定義の更新（ローカルでスキーマ変更したとき）
+yarn db:types-local
+
+# 型定義の更新（本番 Supabase から生成するとき）
 yarn db:types
 
 # リント
@@ -403,30 +396,41 @@ pg_dump postgresql://postgres:postgres@127.0.0.1:54322/postgres > backup.sql
 ### ファイル構成
 
 ```
-matter-controller/
-├── .env.local                 # 環境変数（ローカル用）
-├── .env.local.development     # 環境変数テンプレート
+accounting-system/
+├── .env.local                 # 環境変数（ローカル用。gitignore。手順 4 で新規作成）
 ├── supabase/
 │   ├── .gitignore            # Supabase用gitignore
-│   └── config.toml           # Supabase設定
-├── app/
-│   └── db/                   # データベーススキーマ
-│       ├── 00_config.sql
-│       ├── 01_profiles.sql
-│       ├── 02_matters.sql
-│       ├── 03_costs.sql
-│       ├── 04_business.sql
-│       ├── 05_select_options.sql
-│       └── 06_sample_data.sql
+│   ├── config.toml           # Supabase設定
+│   └── migrations/           # データベーススキーマ（正。ファイル名順に適用）
 └── docs/
-    ├── setup.md           # 開発環境構築手順（本ファイル）
-    ├── specification.md   # 詳細設計書
-    └── database.md        # データベース設計書
+    ├── setup.md                 # 開発環境構築手順（本ファイル）
+    ├── specification.md         # 詳細設計書
+    ├── database.md              # データベース設計書
+    └── testing.md               # テスト設計書
 ```
 
 ---
 
 ## トラブルシューティング
+
+### project_id 変更後のローカル再起動
+
+`supabase/config.toml` の `project_id` が変わると、Docker のコンテナ／ボリューム名も変わる。旧 id のスタックがポート 54321〜54324 を掴んだままだと `supabase start` は `port is already allocated` で失敗する。`supabase db reset` は **いまの** `project_id` にしか効かない。
+
+```bash
+# pull 前なら
+supabase stop
+
+# すでに pull 済みで旧スタックが残っている場合
+supabase stop --project-id matter-controller
+supabase start
+```
+
+`supabase start` は新規ボリュームにマイグレーションを適用する。この切り替えだけでは `db reset` は不要。
+
+旧ボリューム（例: `supabase_db_matter-controller`）に入っていたローカル開発データは新しいスタックからは見えず、ディスク上には残る。本番データには影響しない。不要になったら `docker volume ls` で確認して削除する。
+
+Cloud Agent 向けの `.cursor/setup/supabase-up.sh` は、起動時に旧 `project_id` のスタックを `supabase stop --project-id` してから現在の id で `start` する。
 
 ### Docker 関連のエラー
 
@@ -442,7 +446,7 @@ docker ps
 supabase stop && supabase start
 
 # Dockerボリュームの確認
-docker volume ls --filter label=com.supabase.cli.project=matter-controller
+docker volume ls --filter label=com.supabase.cli.project=accounting-system
 ```
 
 ### データベース接続エラー
@@ -461,12 +465,10 @@ supabase status
 ### 認証エラー
 
 1. **Google Cloud Console の設定を再確認**
-
    - リダイレクト URI が正確に設定されているか
    - JavaScript 生成元が正しく設定されているか
 
 2. **環境変数の確認**
-
    - `.env.local`の`GOOGLE_CLIENT_ID`と`GOOGLE_CLIENT_SECRET`が正しいか
    - Supabase のキーが最新か
 
@@ -493,15 +495,11 @@ yarn dev --port 3001
 ### スキーマエラー
 
 ```bash
-# データベースリセット
+# データベースをリセットし、supabase/migrations/ を再適用
 supabase db reset
 
-# スキーマ再適用
-psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f app/db/00_config.sql
-# ... 他のSQLファイルも順番に実行
-
-# 型定義更新
-yarn db:types
+# 型定義更新（ローカル）
+yarn db:types-local
 ```
 
 ### パフォーマンス問題
@@ -525,7 +523,7 @@ supa-db -c "SELECT count(*) FROM pg_stat_activity;"
 
 - **ローカル環境のデータ**は`supabase stop`時に Docker ボリュームに保存されます
 - **重要なデータ変更前**は必ずバックアップを取ってください
-- **スキーマ変更後**は`yarn db:types`で型定義を更新してください
+- **スキーマ変更後**は`yarn db:types-local`で型定義を更新してください（本番から生成する場合のみ `yarn db:types`）
 
 ### セキュリティ
 

@@ -1,0 +1,42 @@
+name: Build Test
+
+# 本番相当のビルド成立性を検証（docs/testing.md 3.4）
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "middleware.ts"
+      - "next.config.js"
+      - "tsconfig.json"
+      - "package.json"
+      - "yarn.lock"
+  pull_request:
+    paths:
+      - "app/**"
+      - "middleware.ts"
+      - "next.config.js"
+      - "tsconfig.json"
+      - "package.json"
+      - "yarn.lock"
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: next build
+    runs-on: ubuntu-latest
+    env:
+      # ビルド成立性の検証のみが目的のためダミー値を渡す
+      # （全ページ force-dynamic のため、ビルド時に実際の接続は発生しない）
+      NEXT_PUBLIC_SUPABASE_URL: https://dummy.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-anon-key
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+      - name: Build
+        run: yarn build

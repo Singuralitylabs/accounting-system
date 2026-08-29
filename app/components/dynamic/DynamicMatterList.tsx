@@ -1,6 +1,6 @@
 import { MatterType } from "@/app/types/types";
-import { getUserMatterInfoList } from "@/app/utils/supabase/supabaseServer";
-import { MatterCardList } from "../MatterCardList";
+import { getUserMatterInfoList } from "@/app/utils/supabase/matters";
+import { MatterList } from "../MatterList";
 
 const DynamicMatterList = async () => {
   try {
@@ -23,7 +23,7 @@ const DynamicMatterList = async () => {
           </div>
         )}
         {matterList ? (
-          <MatterCardList initialData={matterList} />
+          <MatterList variant="user" initialData={matterList} />
         ) : (
           <div>案件の取得に失敗しました。</div>
         )}

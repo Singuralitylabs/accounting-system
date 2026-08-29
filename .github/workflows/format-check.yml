@@ -1,0 +1,23 @@
+name: Format Check
+
+# Prettier によるコード整形の統一性を担保（docs/testing.md 3.5）
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  format-check:
+    name: Prettier
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+      - name: Format check
+        run: yarn format:check

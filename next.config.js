@@ -27,4 +27,11 @@ const nextConfig = {
   },
 };
 
-module.exports = nextConfig;
+// @next/bundle-analyzer は devDependency のため、devDependencies を含めない
+// 本番インストールでも起動できるよう ANALYZE=true のときだけ require する
+module.exports =
+  process.env.ANALYZE === "true"
+    ? require("@next/bundle-analyzer")({ enabled: true, openAnalyzer: false })(
+        nextConfig,
+      )
+    : nextConfig;

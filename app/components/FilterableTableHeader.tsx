@@ -17,7 +17,7 @@ type Props = {
   activeFilters: Set<string>;
   onFilterChange: (
     key: keyof MatterInfoWithUserNameType,
-    values: Set<string>
+    values: Set<string>,
   ) => void;
 };
 
@@ -60,6 +60,7 @@ const FilterableTableHeader = ({
               variant="subtle"
               size="xs"
               p={0}
+              aria-label={`${label}の絞り込み`}
               onClick={() => setOpened(true)}
               className={activeFilters.size > 0 ? "text-blue-500" : ""}
             >

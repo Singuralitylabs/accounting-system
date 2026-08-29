@@ -2,7 +2,7 @@
 # https://supabase.com/docs/guides/local-development/cli/config
 # A string used to distinguish different Supabase projects on the same host. Defaults to the
 # working directory name when running `supabase init`.
-project_id = "matter-controller"
+project_id = "accounting-system"
 
 [api]
 enabled = true
@@ -205,9 +205,16 @@ max_frequency = "5s"
 # inactivity_timeout = "8h"
 
 # This hook runs before a token is issued and allows you to add additional claims based on the authentication method used.
-# [auth.hook.custom_access_token]
-# enabled = true
-# uri = "pg-functions://<database>/<schema>/<hook_name>"
+# ロール（profiles.class）を JWT の user_class クレームに載せ、middleware の DB クエリを排除する。
+#
+# 注意: このフックは custom_access_token_hook 関数（migration 15/16）の存在を前提とする。
+# 既存のローカル Supabase を `supabase stop && supabase start` で再起動しただけでは
+# 新しいマイグレーションは適用されない。関数が存在しない状態でこのフックが有効だと
+# トークン発行そのものが失敗し、全ユーザーがログインできなくなる。
+# このブランチを pull した後は必ず `supabase db reset` を実行すること。
+[auth.hook.custom_access_token]
+enabled = true
+uri = "pg-functions://postgres/public/custom_access_token_hook"
 
 # Configure one of the supported SMS providers: `twilio`, `twilio_verify`, `messagebird`, `textlocal`, `vonage`.
 [auth.sms.twilio]
