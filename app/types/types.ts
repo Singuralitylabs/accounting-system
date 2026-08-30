@@ -175,9 +175,15 @@ export type BudgetDeclarationDetailType = {
 // 権限不足（forbidden）は再試行しても回復しないため、一時的な取得失敗
 // （fetchFailed）と区別する。区別しないと react-query が無意味にリトライし、
 // 画面にも「時間をおいて再読み込み」という誤った案内が出る。
+// duplicate は (target_month, team) の一意制約違反（既に他の誰かが申告済み）、
+// validationFailed は保存前のクライアント側バリデーション不備を表す。
 // Server Action の戻り値に載せるため、Error インスタンスではなくプレーンな
 // オブジェクトにする（React Flight は Error をシリアライズしない）。
-export type AccessFailureKind = "forbidden" | "fetchFailed";
+export type AccessFailureKind =
+  | "forbidden"
+  | "fetchFailed"
+  | "duplicate"
+  | "validationFailed";
 
 export type AccessFailure = {
   kind: AccessFailureKind;
@@ -192,3 +198,26 @@ export type BudgetDeclarationDetailResult =
   // 未申告（該当行なし）は detail: null。取得失敗・権限不足と区別する
   | { detail: BudgetDeclarationDetailType | null; error?: undefined }
   | { detail?: undefined; error: AccessFailure };
+
+// 申告フォーム（作成・編集）の明細 1 行分の入力
+export type BudgetDeclarationItemInput = {
+  entry_type: string; // "income" | "expense"
+  category: string;
+  description: string;
+  amount: number;
+};
+
+// 申告の作成・編集で送信するペイロード。declarationId が null なら新規作成
+export type BudgetDeclarationSaveInput = {
+  declarationId: number | null;
+  targetMonth: string; // "YYYY-MM"
+  team: string;
+  comment: string | null;
+  items: BudgetDeclarationItemInput[];
+};
+
+export type BudgetDeclarationSaveResult =
+  | { id: number; error?: undefined }
+  | { id?: undefined; error: AccessFailure };
+
+export type BudgetDeclarationDeleteResult = { error?: AccessFailure };

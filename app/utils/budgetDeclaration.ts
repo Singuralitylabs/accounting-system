@@ -103,6 +103,18 @@ export const visibleBudgetTeams = (
     ? [...teamList]
     : ownBudgetTeams(profileClass, profileTeam);
 
+// 対象チームへの書き込み（作成・編集・削除）が許可されるか。
+// DB 側の判定 `public.can_access_team_budget`（migration 19）と同じ区分
+// （canViewAllBudgetTeams / ownBudgetTeams を参照。片方だけ変えるとアプリと
+// RLS がずれるため、変更時は両方を直す）。
+export const canWriteBudgetTeam = (
+  profileClass: string | null | undefined,
+  profileTeam: string | null | undefined,
+  targetTeam: string,
+): boolean =>
+  canViewAllBudgetTeams(profileClass) ||
+  ownBudgetTeams(profileClass, profileTeam).includes(targetTeam);
+
 // 集計前の申告（ヘッダ＋明細）。DB から取得した形に対応する
 export type BudgetDeclarationWithItems = {
   id: number;

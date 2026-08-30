@@ -11,22 +11,34 @@ import {
 import { formatCurrency, formatTimeToJp } from "@/app/utils/formatter";
 import { CustomMonthPicker } from "../CustomMonthPicker";
 import { LoadingSpinner } from "../LoadingSpinner";
+import BudgetDeclarationForm from "./BudgetDeclarationForm";
 import BudgetDeclarationItemTable from "./BudgetDeclarationItemTable";
 
 type Props = {
   initialMonth: string; // "YYYY-MM"（既定は翌月）
   initialData: BudgetDeclarationStatusType[] | null;
   initialDataUpdatedAt: number; // サーバで initialData を取得した時刻（epoch ms）
+  // 全チームの作成・編集ができるロールか（経理・管理者）。false ならチームリーダーの
+  // 自チームのみ（一覧に並ぶ行自体が自チームのみなので、この値は選択可否の表示にのみ使う）
+  canEditAllTeams: boolean;
+};
+
+type FormTarget = {
+  team: string;
+  declarationId: number | null;
 };
 
 const BudgetDeclarationList = ({
   initialMonth,
   initialData,
   initialDataUpdatedAt,
+  canEditAllTeams,
 }: Props) => {
   const [month, setMonth] = useState<string>(initialMonth);
   // 明細を開いているチーム（1 行ずつ開く）
   const [expandedTeam, setExpandedTeam] = useState<string | null>(null);
+  // 作成・編集フォームで開いている対象（null なら非表示）
+  const [formTarget, setFormTarget] = useState<FormTarget | null>(null);
 
   const { data, isLoading, isError, error } = useBudgetDeclarationList(
     month,
@@ -86,6 +98,7 @@ const BudgetDeclarationList = ({
                 <Table.Th>申告者</Table.Th>
                 <Table.Th>最終更新</Table.Th>
                 <Table.Th>明細</Table.Th>
+                <Table.Th>操作</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -137,10 +150,24 @@ const BudgetDeclarationList = ({
                         {expandedTeam === row.team ? "閉じる" : "明細を表示"}
                       </Button>
                     </Table.Td>
+                    <Table.Td>
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        onClick={() =>
+                          setFormTarget({
+                            team: row.team,
+                            declarationId: row.declarationId,
+                          })
+                        }
+                      >
+                        {row.isDeclared ? "編集する" : "申告する"}
+                      </Button>
+                    </Table.Td>
                   </Table.Tr>
                   {expandedTeam === row.team && row.declarationId !== null && (
                     <Table.Tr>
-                      <Table.Td colSpan={8}>
+                      <Table.Td colSpan={9}>
                         <BudgetDeclarationItemTable
                           declarationId={row.declarationId}
                         />
@@ -162,11 +189,22 @@ const BudgetDeclarationList = ({
                 <Table.Th className="text-right">
                   {formatCurrency(total.balance)}
                 </Table.Th>
-                <Table.Th colSpan={3} />
+                <Table.Th colSpan={4} />
               </Table.Tr>
             </Table.Tfoot>
           </Table>
         </div>
+      )}
+
+      {formTarget && (
+        <BudgetDeclarationForm
+          opened
+          onClose={() => setFormTarget(null)}
+          targetMonth={month}
+          team={formTarget.team}
+          declarationId={formTarget.declarationId}
+          teamLocked={!canEditAllTeams}
+        />
       )}
     </div>
   );

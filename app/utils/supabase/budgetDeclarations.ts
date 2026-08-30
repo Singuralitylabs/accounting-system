@@ -1,17 +1,25 @@
 "use server";
 
 import {
+  BudgetDeclarationDeleteResult,
   BudgetDeclarationDetailResult,
   BudgetDeclarationListResult,
+  BudgetDeclarationSaveInput,
+  BudgetDeclarationSaveResult,
 } from "../../types/types";
 import {
   BUDGET_DECLARATION_ALLOWED_CLASSES,
   BudgetDeclarationWithItems,
   buildBudgetDeclarationStatusList,
   canViewAllBudgetTeams,
+  canWriteBudgetTeam,
   ownBudgetTeams,
   visibleBudgetTeams,
 } from "../budgetDeclaration";
+import {
+  isDuplicateDeclarationError,
+  validateBudgetDeclarationPayload,
+} from "../budgetDeclarationValidation";
 import { toFirstOfMonth } from "../formatter";
 import { createServerSupabase } from "./clients";
 import { getSelectOptions } from "./selectOptions";
@@ -154,6 +162,195 @@ export const getBudgetDeclarationDetail = async (
       ),
     },
   };
+};
+
+// 申告の作成・編集（ヘッダ + 明細差し替え）。
+// declarationId が null なら新規作成、それ以外なら既存ヘッダの更新。
+// 明細は「差し替え」方式（既存を全削除→入力内容を全 INSERT）にしている。
+// costs.ts のような isNew/isRemoved diff にしないのは、申告の明細は保存のたびに
+// フォーム側の配列が最終形そのものであり、差分を追跡する状態を別途持つ必要が
+// ないため（複雑さに見合わない）。
+export const saveBudgetDeclaration = async (
+  input: BudgetDeclarationSaveInput,
+): Promise<BudgetDeclarationSaveResult> => {
+  const { profileInfo, error: accessError } = await getAuthorizedViewer(
+    BUDGET_DECLARATION_ALLOWED_CLASSES,
+    SUBJECT,
+  );
+  if (accessError) {
+    return { error: accessError };
+  }
+
+  // RLS が最終防御だが、事前にわかりやすいエラーメッセージを返す
+  if (!canWriteBudgetTeam(profileInfo.class, profileInfo.team, input.team)) {
+    return {
+      error: {
+        kind: "forbidden",
+        message: `${input.team}の${SUBJECT}を編集する権限がありません。`,
+      },
+    };
+  }
+
+  const validation = validateBudgetDeclarationPayload(
+    { targetMonth: input.targetMonth, team: input.team },
+    input.items,
+  );
+  if (!validation.ok) {
+    return {
+      error: { kind: "validationFailed", message: "入力内容を確認してください。" },
+    };
+  }
+
+  const supabase = createServerSupabase();
+  const targetMonth = toFirstOfMonth(input.targetMonth);
+
+  let declarationId = input.declarationId;
+
+  if (declarationId === null) {
+    const { data, error } = await supabase
+      .from("budget_declarations")
+      .insert({
+        target_month: targetMonth,
+        team: input.team,
+        declared_by: profileInfo.id,
+        comment: input.comment,
+      })
+      .select("id")
+      .single();
+
+    if (error) {
+      console.error(`${SUBJECT}の作成に失敗しました:`, error);
+      if (isDuplicateDeclarationError(error)) {
+        return {
+          error: {
+            kind: "duplicate",
+            message: `${input.team}の${input.targetMonth}分の${SUBJECT}は既に登録されています。一覧から編集してください。`,
+          },
+        };
+      }
+      return {
+        error: { kind: "fetchFailed", message: `${SUBJECT}の作成に失敗しました。` },
+      };
+    }
+
+    declarationId = data.id;
+  } else {
+    const { data, error } = await supabase
+      .from("budget_declarations")
+      .update({ declared_by: profileInfo.id, comment: input.comment })
+      .eq("id", declarationId)
+      .select("id");
+
+    if (error) {
+      console.error(`${SUBJECT}の更新に失敗しました:`, error);
+      return {
+        error: { kind: "fetchFailed", message: `${SUBJECT}の更新に失敗しました。` },
+      };
+    }
+    // RLS で 0 行 / 削除済みでも PostgREST は error なしで [] を返す
+    if (!data || data.length !== 1) {
+      return {
+        error: {
+          kind: "fetchFailed",
+          message: `${SUBJECT}の更新対象が見つかりませんでした。既に削除されているか、削除する権限がありません。`,
+        },
+      };
+    }
+  }
+
+  // 明細差し替え: 既存明細を全削除してから入力内容を挿入する
+  const { error: deleteError } = await supabase
+    .from("budget_declaration_items")
+    .delete()
+    .eq("declaration_id", declarationId);
+
+  if (deleteError) {
+    console.error(`${SUBJECT}の明細更新に失敗しました:`, deleteError);
+    return {
+      error: { kind: "fetchFailed", message: `${SUBJECT}の明細更新に失敗しました。` },
+    };
+  }
+
+  if (input.items.length > 0) {
+    const { error: insertError } = await supabase
+      .from("budget_declaration_items")
+      .insert(
+        input.items.map((item, index) => ({
+          declaration_id: declarationId,
+          entry_type: item.entry_type,
+          category: item.category,
+          description: item.description,
+          amount: item.amount,
+          display_order: index,
+        })),
+      );
+
+    if (insertError) {
+      console.error(`${SUBJECT}の明細登録に失敗しました:`, insertError);
+      return {
+        error: {
+          kind: "fetchFailed",
+          message: `${SUBJECT}の明細登録に失敗しました。`,
+        },
+      };
+    }
+  }
+
+  return { id: declarationId };
+};
+
+// 申告の削除（明細は ON DELETE CASCADE で同時に削除される）
+export const deleteBudgetDeclaration = async (
+  declarationId: number,
+  team: string,
+): Promise<BudgetDeclarationDeleteResult> => {
+  const { profileInfo, error: accessError } = await getAuthorizedViewer(
+    BUDGET_DECLARATION_ALLOWED_CLASSES,
+    SUBJECT,
+  );
+  if (accessError) {
+    return { error: accessError };
+  }
+
+  if (!canWriteBudgetTeam(profileInfo.class, profileInfo.team, team)) {
+    return {
+      error: {
+        kind: "forbidden",
+        message: `${team}の${SUBJECT}を削除する権限がありません。`,
+      },
+    };
+  }
+
+  const supabase = createServerSupabase();
+
+  // .select() を付けないと削除行が返らず、RLS で 0 行になっても error は null に
+  // なるため、削除できていないのに成功として扱われてしまう（matters.ts と同方針）
+  const { data, error } = await supabase
+    .from("budget_declarations")
+    .delete()
+    .eq("id", declarationId)
+    .select();
+
+  if (error) {
+    console.error(`${SUBJECT}の削除に失敗しました:`, error);
+    return {
+      error: { kind: "fetchFailed", message: `${SUBJECT}の削除に失敗しました。` },
+    };
+  }
+
+  if (!data || data.length !== 1) {
+    console.error(`${SUBJECT}の削除対象が見つかりませんでした。`, {
+      declarationId,
+    });
+    return {
+      error: {
+        kind: "fetchFailed",
+        message: `${SUBJECT}の削除対象が見つかりませんでした。既に削除されているか、削除する権限がありません。`,
+      },
+    };
+  }
+
+  return {};
 };
 
 // 一覧クエリの行を集計用の形に変換する

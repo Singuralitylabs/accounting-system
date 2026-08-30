@@ -6,6 +6,7 @@ import {
   BudgetDeclarationWithItems,
   addMonths,
   buildBudgetDeclarationStatusList,
+  canWriteBudgetTeam,
   defaultTargetMonth,
   isForbiddenError,
   summarizeBudgetItems,
@@ -141,6 +142,27 @@ describe("visibleBudgetTeams", () => {
     const result = visibleBudgetTeams("admin", null, teamList);
     result.push("Dチーム");
     expect(teamList).toEqual(["Aチーム", "Bチーム", "Cチーム"]);
+  });
+});
+
+describe("canWriteBudgetTeam", () => {
+  it("経理・管理者は全チームへ書き込める", () => {
+    expect(canWriteBudgetTeam("accounting", null, "Aチーム")).toBe(true);
+    expect(canWriteBudgetTeam("admin", "Bチーム", "Aチーム")).toBe(true);
+  });
+
+  it("チームリーダーは自チームのみ書き込める", () => {
+    expect(canWriteBudgetTeam("teamleader", "Aチーム", "Aチーム")).toBe(true);
+    expect(canWriteBudgetTeam("teamleader", "Aチーム", "Bチーム")).toBe(false);
+  });
+
+  it("チーム未設定のチームリーダーはどのチームにも書き込めない", () => {
+    expect(canWriteBudgetTeam("teamleader", null, "Aチーム")).toBe(false);
+  });
+
+  it("public・ロール未設定は書き込めない", () => {
+    expect(canWriteBudgetTeam("public", "Aチーム", "Aチーム")).toBe(false);
+    expect(canWriteBudgetTeam(null, "Aチーム", "Aチーム")).toBe(false);
   });
 });
 
