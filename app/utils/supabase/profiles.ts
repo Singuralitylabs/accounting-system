@@ -24,15 +24,21 @@ export const getProfileInfoById = async (userId: string) => {
   }
 };
 
+// 取得失敗（DB 障害・権限エラー）と「0 件」を呼び出し元が区別できるよう、
+// error を握りつぶさず結果に含めて返す。
 export const getAllUserInfo = async () => {
   const supabase = createServerSupabase();
 
-  const { data: userInfoList } = await supabase
+  const { data: userInfoList, error } = await supabase
     .from("profiles")
     .select("*")
     .order("id", { ascending: true });
 
-  return userInfoList ? userInfoList : [];
+  if (error) {
+    console.error("ユーザー情報の取得に失敗しました:", error);
+  }
+
+  return { userInfoList, error };
 };
 
 export const insertUserInfo = async ({

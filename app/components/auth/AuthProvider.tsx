@@ -20,15 +20,32 @@ export default async function AuthProvider({
     let initialOptions = null;
     if (user) {
       // プロフィールと選択肢マスタは互いに独立しているため並列で取得する
-      const [profileResult, { optionsByType }] = await Promise.all([
-        getCachedProfileInfo(),
-        getActiveSelectOptionsByType([
-          "team",
-          "category",
-          "item",
-          "certificate",
-        ]),
-      ]);
+      const [profileResult, { optionsByType, error: optionsError }] =
+        await Promise.all([
+          getCachedProfileInfo(),
+          getActiveSelectOptionsByType([
+            "team",
+            "category",
+            "item",
+            "certificate",
+          ]),
+        ]);
+
+      // 空のマスタを optionsAtom に投入すると全フォームのチーム・分類・品目が
+      // 選べなくなるうえ、利用者は取得失敗に気付けない。握りつぶさず throw して
+      // error boundary に処理させる。
+      if (optionsError) {
+        throw optionsError;
+      }
+
+      // プロフィール取得の失敗はヘッダー表示にしか影響しない（認可は middleware /
+      // RLS が担う）ため、ログを残したうえでプロフィールなしの描画を続ける。
+      if (profileResult.error) {
+        console.error(
+          "プロフィール情報の取得に失敗しました。",
+          profileResult.error,
+        );
+      }
 
       profile = profileResult.profileInfo ?? null;
 
@@ -60,8 +77,8 @@ export default async function AuthProvider({
       return <>{children}</>;
     }
 
-    // その他の予期せぬエラーの場合はコンソールに出力
+    // その他の予期せぬエラーは握りつぶさず、error boundary に処理させる
     console.error("Unexpected error in AuthProvider:", error);
-    return <>{children}</>;
+    throw error;
   }
 }

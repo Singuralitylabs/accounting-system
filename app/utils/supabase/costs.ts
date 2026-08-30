@@ -143,25 +143,6 @@ export const bulkInsertCostInfo = async (
   return { error: null };
 };
 
-export const deleteCostsByMatterId = async (matterId: number) => {
-  const supabase = createServerSupabase();
-
-  const { error } = await supabase
-    .from("costs")
-    .delete()
-    .eq("matter_id", matterId);
-
-  if (error) {
-    console.error(
-      `案件ID : ${matterId}のコスト情報の一括削除処理で失敗しました。`,
-      error
-    );
-    return { error };
-  }
-
-  return { error: null };
-};
-
 // バルク操作関数
 
 export const bulkUpsertCostInfo = async (

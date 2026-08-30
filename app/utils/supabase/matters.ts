@@ -276,15 +276,26 @@ export const bulkUnfixMatterInfo = async (matterIds: number[]) => {
 export const deleteMatterInfo = async (id: number) => {
   const supabase = createServerSupabase();
 
+  // .select() を付けないと削除行が返らず、RLS で 0 行になっても error は null に
+  // なるため、削除できていないのに成功として扱われてしまう。
   const { data: status, error } = await supabase
     .from("matters")
     .delete()
-    .eq("id", id);
+    .eq("id", id)
+    .select();
 
   if (error) {
     console.error(`案件ID : ${id}の案件情報の削除処理で失敗しました。`, error);
-    return { status, error };
+    return { status: null, error };
   }
 
-  return { status, error };
+  if (!status || status.length !== 1) {
+    const emptyDeleteError = {
+      message: `案件ID : ${id}の削除対象が見つかりませんでした。`,
+    };
+    console.error(emptyDeleteError.message, { status });
+    return { status: null, error: emptyDeleteError };
+  }
+
+  return { status, error: null };
 };
