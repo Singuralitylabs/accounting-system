@@ -266,15 +266,15 @@ CHECK (
 
 合計金額はヘッダに非正規化せず、`budget_declaration_items` から集計する（案件の `total_cost` と異なり明細数が小さいため）。
 
-| カラム名     | データ型                 | 制約                                                                      | 説明                                                                                                                                                                                                                                      |
-| ------------ | ------------------------ | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| id           | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                                 | 主キー                                                                                                                                                                                                                                    |
-| target_month | date                     | NOT NULL, CHECK (月初日であること)                                        | 対象月（月初日で格納: 例 2026-10-01。recurring_costs と同方式）                                                                                                                                                                           |
-| team         | text                     | NOT NULL                                                                  | 対象チーム（select_options の team と同じ値域）                                                                                                                                                                                           |
-| declared_by  | bigint                   | NOT NULL, FOREIGN KEY (profiles.id)（参照アクション指定なし = NO ACTION） | 申告者（最終更新したチームリーダー等）。extra_entries.manager_id と同じく監査目的の項目のため CASCADE にしない（リーダーの退会でチームの申告ごと消えるのを避ける）。申告のある profiles を削除する場合は先に declared_by を付け替えること |
-| comment      | text                     | NULL                                                                      | 補足コメント                                                                                                                                                                                                                              |
-| inserted_at  | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 作成日時                                                                                                                                                                                                                                  |
-| updated_at   | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 更新日時                                                                                                                                                                                                                                  |
+| カラム名     | データ型                 | 制約                                                                      | 説明                                                                                                                                                                                                                                                        |
+| ------------ | ------------------------ | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| id           | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                                 | 主キー                                                                                                                                                                                                                                                      |
+| target_month | date                     | NOT NULL, CHECK (月初日であること)                                        | 対象月（月初日で格納: 例 2026-10-01。recurring_costs と同方式）                                                                                                                                                                                             |
+| team         | text                     | NOT NULL                                                                  | 対象チーム（select_options の team と同じ値域）                                                                                                                                                                                                             |
+| declared_by  | bigint                   | NOT NULL, FOREIGN KEY (profiles.id)（参照アクション指定なし = NO ACTION） | 申告者（最終更新したチームリーダー等）。extra_entries.manager_id と同じく CASCADE にしない（リーダーの退会でチームの申告ごと消えるのを避ける）。申告のある profiles を削除するとこの FK でエラーになるため、先に declared_by を別のメンバーに付け替えること |
+| comment      | text                     | NULL                                                                      | 補足コメント                                                                                                                                                                                                                                                |
+| inserted_at  | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 作成日時                                                                                                                                                                                                                                                    |
+| updated_at   | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 更新日時                                                                                                                                                                                                                                                    |
 
 CHECK 制約（対象月の正規化）:
 
@@ -831,9 +831,9 @@ CREATE POLICY "extra_entries_delete_policy" ON extra_entries
 >
 > 判定には `EXISTS (SELECT ... FROM profiles ...)` ではなく `SECURITY DEFINER` ヘルパ関数 `auth_user_class()` / `auth_user_team()`（[5.1](#51-profiles-テーブル) 参照）を使う。profiles の SELECT ポリシー自体に依存しないため、閲覧できる profiles の行が絞られていても判定がぶれない。
 >
-> さらに INSERT / UPDATE の `WITH CHECK` では、チームリーダーに限り `declared_by` = 自分自身の profiles.id を強制する（申告者の詐称防止）。経理担当者・管理者は代理入力があるため制約しない。ここだけは profiles を直接参照するが、参照するのは自分自身の行のみで、profiles の SELECT ポリシーは自分の行を常に許可するため阻まれない。
+> さらに **INSERT の `WITH CHECK` に限り**、チームリーダーには `declared_by` = 自分自身の profiles.id を強制する（他人名義での新規申告の防止）。経理担当者・管理者は代理入力があるため制約しない。ここだけは profiles を直接参照するが、参照するのは自分自身の行のみで、profiles の SELECT ポリシーは自分の行を常に許可するため阻まれない。
 >
-> `declared_by` は「最終更新した申告者」を表すため UPDATE にも同じ制約を課す。同一チームに複数のチームリーダーがいる場合、他のリーダーや経理が作成した行を編集すると `declared_by` は更新者自身に付け替わる（意図した挙動）。**アプリ側は UPDATE 時に必ず `declared_by` へ更新者自身の profiles.id を送ること。** 送らずに部分更新すると、行は見えているのに 42501（RLS 違反）になり原因が分かりにくい。DELETE には `declared_by` の制約を課さない（自チームの行はリーダーなら誰でも削除できてよく、削除後に残す更新者の記録も無いため）。
+> UPDATE / DELETE には `declared_by` の制約を課さない。明細（budget_declaration_items）の書き込みは親ヘッダの team だけで判定するため、チームリーダーは `declared_by` に触れずに金額を全部書き換えられる。UPDATE だけを縛っても「`declared_by` = 実際に最後に手を入れた人」は DB では保証できない一方、既存行を読んでそのまま書き戻す一般的な更新パターン（元の `declared_by` を送る）が 42501 になり、同一チームの別リーダーや経理が作成した行を編集できなくなる。したがって `declared_by` は「アプリが最終更新者で更新する表示・監査補助用の項目」と位置づけ、DB では INSERT 時の詐称防止のみを担保する。
 
 ```sql
 -- 経理担当者/管理者は全行、チームリーダーは自チームの行のみ参照可能
@@ -852,7 +852,7 @@ CREATE POLICY "budget_declarations_delete_policy" ON budget_declarations
     FOR DELETE TO authenticated
     USING ( /* SELECT と同条件 */ );
 
--- 書き込み（INSERT / UPDATE の WITH CHECK）は、チームリーダーに declared_by = 自分自身も強制する
+-- INSERT の WITH CHECK のみ、チームリーダーに declared_by = 自分自身も強制する
 CREATE POLICY "budget_declarations_insert_policy" ON budget_declarations
     FOR INSERT TO authenticated
     WITH CHECK (
@@ -869,11 +869,11 @@ CREATE POLICY "budget_declarations_insert_policy" ON budget_declarations
         )
     );
 
--- UPDATE は USING と WITH CHECK の双方に条件を課し、他チームへの team 付け替えを防ぐ
+-- UPDATE は USING と WITH CHECK の双方に SELECT と同条件を課し、他チームへの team 付け替えを防ぐ
 CREATE POLICY "budget_declarations_update_policy" ON budget_declarations
     FOR UPDATE TO authenticated
     USING ( /* SELECT と同条件 */ )
-    WITH CHECK ( /* INSERT と同条件（declared_by の制約を含む） */ );
+    WITH CHECK ( /* SELECT と同条件。declared_by は制約しない */ );
 ```
 
 ### 5.9 budget_declaration_items テーブル

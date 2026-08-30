@@ -76,18 +76,21 @@ CREATE POLICY "budget_declarations_select_policy" ON budget_declarations
     )
   );
 
--- 書き込み時は自チームであることに加え、チームリーダーには declared_by = 自分自身を
--- 強制する（申告者の詐称防止）。経理・管理者は代理入力があるため制約しない。
+-- INSERT では自チームであることに加え、チームリーダーには declared_by = 自分自身を
+-- 強制する（他人名義での新規申告の防止）。経理・管理者は代理入力があるため制約しない。
 -- profiles の参照は自分自身の行のみで足りるため、profiles の SELECT ポリシー
 -- （自分の行は常に可）に阻まれない。
 --
--- declared_by は「最終更新した申告者」を表すため、UPDATE でもこの制約を課す。
--- 同じチームに複数のチームリーダーがいる場合、他のリーダーや経理が作成した行を
--- 編集するときも declared_by は更新者自身に付け替わる（これが意図した挙動）。
--- **アプリ側は UPDATE 時に必ず declared_by へ更新者自身の profiles.id を送ること。**
--- 送らずに部分更新すると、行は見えているのに 42501（RLS 違反）になり原因が分かりにくい。
--- なお DELETE には declared_by の制約を課さない（自チームの行はリーダーなら誰でも
--- 削除できてよく、削除後に残す更新者の記録も無いため）。
+-- UPDATE / DELETE には declared_by の制約を課さない。理由:
+--   - 明細（budget_declaration_items）の書き込みは親ヘッダの team だけで判定するため、
+--     チームリーダーは declared_by に触れずに金額を全部書き換えられる。UPDATE だけを
+--     縛っても「declared_by = 実際に最後に手を入れた人」は DB では保証できない。
+--   - 一方で縛ると、既存行を読んでそのまま書き戻す一般的な更新パターン
+--     （元の declared_by を送る）が 42501 になり、同一チームの別リーダーや経理が
+--     作成した行を編集できなくなる。profiles 削除前に declared_by を付け替える
+--     運用（3.9 参照）も塞がる。
+-- したがって declared_by は「アプリが最終更新者で更新する表示・監査補助用の項目」と
+-- 位置づけ、DB では INSERT 時の詐称防止（他人名義での新規申告）のみを担保する。
 CREATE POLICY "budget_declarations_insert_policy" ON budget_declarations
   FOR INSERT TO authenticated
   WITH CHECK (
@@ -121,11 +124,6 @@ CREATE POLICY "budget_declarations_update_policy" ON budget_declarations
       public.auth_user_class() = 'teamleader'
       AND public.auth_user_team() IS NOT NULL
       AND budget_declarations.team = public.auth_user_team()
-      AND EXISTS (
-        SELECT 1 FROM profiles p
-        WHERE p.id = budget_declarations.declared_by
-        AND p.user_id = (select auth.uid())
-      )
     )
   );
 
