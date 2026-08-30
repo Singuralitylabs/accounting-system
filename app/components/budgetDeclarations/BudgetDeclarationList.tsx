@@ -1,0 +1,161 @@
+"use client";
+
+import { Alert, Badge, Button, Table } from "@mantine/core";
+import { Fragment, useState } from "react";
+import { BudgetDeclarationListType } from "@/app/types/types";
+import { useBudgetDeclarationList } from "@/app/hooks/useBudgetDeclarationData";
+import { totalBudgetSummary } from "@/app/utils/budgetDeclaration";
+import { formatCurrency, formatTimeToJp } from "@/app/utils/formatter";
+import { CustomMonthPicker } from "../CustomMonthPicker";
+import { LoadingSpinner } from "../LoadingSpinner";
+import BudgetDeclarationItemTable from "./BudgetDeclarationItemTable";
+
+type Props = {
+  initialMonth: string; // "YYYY-MM"（既定は翌月）
+  initialData: BudgetDeclarationListType | null;
+};
+
+const BudgetDeclarationList = ({ initialMonth, initialData }: Props) => {
+  const [month, setMonth] = useState<string>(initialMonth);
+  // 明細を開いているチーム（1 行ずつ開く）
+  const [expandedTeam, setExpandedTeam] = useState<string | null>(null);
+
+  const {
+    data: list,
+    isLoading,
+    isError,
+  } = useBudgetDeclarationList(
+    month,
+    month === initialMonth ? initialData : undefined,
+  );
+
+  const rows = list?.rows ?? [];
+  const total = totalBudgetSummary(rows);
+
+  return (
+    <div className="mx-auto max-w-5xl px-4 pb-8">
+      <div className="mb-4 max-w-xs">
+        <CustomMonthPicker
+          label="対象月"
+          placeholder="対象月を選択"
+          value={month}
+          onChange={(selected) => {
+            if (selected) {
+              setMonth(selected);
+              setExpandedTeam(null);
+            }
+          }}
+        />
+      </div>
+
+      {isError ? (
+        <Alert color="red" title="事前収支申告の取得に失敗しました">
+          時間をおいてページを再読み込みしてください。
+        </Alert>
+      ) : isLoading ? (
+        <LoadingSpinner />
+      ) : rows.length === 0 ? (
+        <Alert color="gray" title="表示できるチームがありません">
+          チームマスタが未登録か、所属チームが設定されていない可能性があります。
+        </Alert>
+      ) : (
+        <div className="overflow-x-auto">
+          <Table withTableBorder withColumnBorders striped>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>チーム</Table.Th>
+                <Table.Th>申告状況</Table.Th>
+                <Table.Th className="text-right">収入合計</Table.Th>
+                <Table.Th className="text-right">支出合計</Table.Th>
+                <Table.Th className="text-right">差引</Table.Th>
+                <Table.Th>申告者</Table.Th>
+                <Table.Th>最終更新</Table.Th>
+                <Table.Th>明細</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {rows.map((row) => (
+                <Fragment key={row.team}>
+                  <Table.Tr>
+                    <Table.Td>{row.team}</Table.Td>
+                    <Table.Td>
+                      <Badge color={row.isDeclared ? "teal" : "gray"}>
+                        {row.isDeclared ? "申告済み" : "未申告"}
+                      </Badge>
+                    </Table.Td>
+                    <Table.Td className="text-right">
+                      {row.isDeclared
+                        ? formatCurrency(row.summary.incomeTotal)
+                        : "-"}
+                    </Table.Td>
+                    <Table.Td className="text-right">
+                      {row.isDeclared
+                        ? formatCurrency(row.summary.expenseTotal)
+                        : "-"}
+                    </Table.Td>
+                    <Table.Td
+                      className={`text-right ${
+                        row.isDeclared && row.summary.balance < 0
+                          ? "text-red-600"
+                          : ""
+                      }`}
+                    >
+                      {row.isDeclared
+                        ? formatCurrency(row.summary.balance)
+                        : "-"}
+                    </Table.Td>
+                    <Table.Td>{row.declaredByName ?? "-"}</Table.Td>
+                    <Table.Td>
+                      {row.updatedAt ? formatTimeToJp(row.updatedAt) : "-"}
+                    </Table.Td>
+                    <Table.Td>
+                      <Button
+                        size="xs"
+                        variant="subtle"
+                        disabled={!row.isDeclared}
+                        onClick={() =>
+                          setExpandedTeam((prev) =>
+                            prev === row.team ? null : row.team,
+                          )
+                        }
+                      >
+                        {expandedTeam === row.team ? "閉じる" : "明細を表示"}
+                      </Button>
+                    </Table.Td>
+                  </Table.Tr>
+                  {expandedTeam === row.team && (
+                    <Table.Tr>
+                      <Table.Td colSpan={8}>
+                        <BudgetDeclarationItemTable
+                          month={month}
+                          team={row.team}
+                        />
+                      </Table.Td>
+                    </Table.Tr>
+                  )}
+                </Fragment>
+              ))}
+            </Table.Tbody>
+            <Table.Tfoot>
+              <Table.Tr>
+                <Table.Th colSpan={2}>合計</Table.Th>
+                <Table.Th className="text-right">
+                  {formatCurrency(total.incomeTotal)}
+                </Table.Th>
+                <Table.Th className="text-right">
+                  {formatCurrency(total.expenseTotal)}
+                </Table.Th>
+                <Table.Th className="text-right">
+                  {formatCurrency(total.balance)}
+                </Table.Th>
+                <Table.Th colSpan={3} />
+              </Table.Tr>
+            </Table.Tfoot>
+          </Table>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default BudgetDeclarationList;

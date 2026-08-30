@@ -4,6 +4,7 @@ import {
   FaChartLine,
   FaClipboardList,
   FaCog,
+  FaFileInvoiceDollar,
   FaMoneyBillWave,
   FaPlus,
   FaRegIdCard,
@@ -20,6 +21,7 @@ const NAV_ICONS: Record<string, IconType> = {
   "/profit-loss": FaChartLine,
   "/recurring-costs": FaSyncAlt,
   "/extra-entries": FaMoneyBillWave,
+  "/budget-declarations": FaFileInvoiceDollar,
   "/dashboard": FaCog,
 };
 

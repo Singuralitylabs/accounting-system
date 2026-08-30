@@ -10,6 +10,7 @@ export const ROUTE_PERMISSIONS: Record<string, Role[]> = {
   "/profit-loss": ["teamleader", "accounting", "admin"],
   "/recurring-costs": ["accounting", "admin"],
   "/extra-entries": ["accounting", "admin"],
+  "/budget-declarations": ["teamleader", "accounting", "admin"],
   "/dashboard": ["admin"],
 };
 
@@ -80,6 +81,11 @@ const NAV_ITEMS: NavItem[] = [
     href: "/extra-entries",
     label: "経理追加収支",
     description: "案件に紐づかない収入・支出を登録します",
+  },
+  {
+    href: "/budget-declarations",
+    label: "事前収支申告",
+    description: "翌月のチーム収支の見込みを申告・確認します",
   },
   {
     href: "/dashboard",

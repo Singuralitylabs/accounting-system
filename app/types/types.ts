@@ -136,3 +136,45 @@ export type AnnualTrendType = {
   fiscalYear: number; // 年度（開始年。2026 = 2026/7〜2027/6）
   months: PLReportType[]; // 12ヶ月分（7月始まり）
 };
+
+// ===== 事前収支申告（budget_declarations）関連 =====
+
+type BudgetDeclarationsTable =
+  Database["public"]["Tables"]["budget_declarations"];
+export type BudgetDeclarationType = BudgetDeclarationsTable["Row"];
+
+type BudgetDeclarationItemsTable =
+  Database["public"]["Tables"]["budget_declaration_items"];
+export type BudgetDeclarationItemType = BudgetDeclarationItemsTable["Row"];
+
+// 明細から集計した金額（合計はヘッダに非正規化していない）
+export type BudgetSummaryType = {
+  incomeTotal: number; // 見込み収入合計
+  expenseTotal: number; // 見込み支出合計
+  balance: number; // 差引 = 収入合計 − 支出合計
+};
+
+// 一覧のチーム × 申告状況 1 行
+export type BudgetDeclarationStatusType = {
+  team: string;
+  declarationId: number | null; // 未申告なら null
+  isDeclared: boolean;
+  declaredByName: string | null; // 申告者名（profiles の RLS で読めない場合は null）
+  comment: string | null;
+  updatedAt: string | null;
+  summary: BudgetSummaryType;
+};
+
+// 一覧ビューが必要とするデータ一式
+export type BudgetDeclarationListType = {
+  targetMonth: string; // "YYYY-MM"
+  rows: BudgetDeclarationStatusType[];
+};
+
+// 申告の詳細（ヘッダ＋明細）
+export type BudgetDeclarationDetailType = {
+  declaration: BudgetDeclarationType;
+  declaredByName: string | null;
+  items: BudgetDeclarationItemType[];
+  summary: BudgetSummaryType;
+};

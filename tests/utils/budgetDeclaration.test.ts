@@ -1,0 +1,313 @@
+import { describe, expect, it } from "vitest";
+import {
+  BUDGET_DECLARATION_ALLOWED_CLASSES,
+  BudgetDeclarationWithItems,
+  addMonths,
+  buildBudgetDeclarationStatusList,
+  defaultTargetMonth,
+  summarizeBudgetItems,
+  toJstMonthKey,
+  toTargetMonthDate,
+  toTargetMonthKey,
+  totalBudgetSummary,
+  visibleBudgetTeams,
+} from "@/app/utils/budgetDeclaration";
+import { ROUTE_PERMISSIONS } from "@/app/utils/permissions";
+
+const declaration = (
+  overrides: Partial<BudgetDeclarationWithItems> & { team: string },
+): BudgetDeclarationWithItems => ({
+  id: 1,
+  comment: null,
+  updated_at: "2026-08-20T10:00:00+09:00",
+  declared_by_name: "山田",
+  items: [],
+  ...overrides,
+});
+
+describe("toTargetMonthDate / toTargetMonthKey", () => {
+  it("月キーを DB 格納用の月初日に正規化する", () => {
+    expect(toTargetMonthDate("2026-10")).toBe("2026-10-01");
+  });
+
+  it("月初日以外の日付を渡しても月初日に丸める", () => {
+    expect(toTargetMonthDate("2026-10-25")).toBe("2026-10-01");
+  });
+
+  it("DB の date 文字列から月キーを取り出す", () => {
+    expect(toTargetMonthKey("2026-10-01")).toBe("2026-10");
+  });
+});
+
+describe("addMonths", () => {
+  it("同一年内で加算する", () => {
+    expect(addMonths("2026-03", 2)).toBe("2026-05");
+  });
+
+  it("年をまたいで繰り上がる", () => {
+    expect(addMonths("2026-12", 1)).toBe("2027-01");
+  });
+
+  it("年をまたいで繰り下がる", () => {
+    expect(addMonths("2026-01", -1)).toBe("2025-12");
+  });
+
+  it("12ヶ月以上の加算・減算でも年が正しく動く", () => {
+    expect(addMonths("2026-06", 18)).toBe("2027-12");
+    expect(addMonths("2026-06", -18)).toBe("2024-12");
+  });
+
+  it("0 の加算は同じ月を返す", () => {
+    expect(addMonths("2026-06", 0)).toBe("2026-06");
+  });
+});
+
+describe("toJstMonthKey / defaultTargetMonth", () => {
+  it("UTC の月末深夜は JST では翌月になる", () => {
+    // 2026-09-30T15:00:00Z = 2026-10-01T00:00 JST
+    expect(toJstMonthKey(new Date("2026-09-30T15:00:00Z"))).toBe("2026-10");
+  });
+
+  it("UTC の月初は JST でも同じ月", () => {
+    expect(toJstMonthKey(new Date("2026-10-01T00:00:00Z"))).toBe("2026-10");
+  });
+
+  it("既定の対象月は JST 基準の翌月", () => {
+    expect(defaultTargetMonth(new Date("2026-08-30T00:00:00Z"))).toBe(
+      "2026-09",
+    );
+  });
+
+  it("年末は翌年1月が既定の対象月になる", () => {
+    expect(defaultTargetMonth(new Date("2026-12-15T00:00:00Z"))).toBe(
+      "2027-01",
+    );
+  });
+
+  it("JST で月が変わる境界でも翌月が繰り上がる", () => {
+    // 2026-12-31T15:00:00Z = 2027-01-01 JST → 翌月は 2027-02
+    expect(defaultTargetMonth(new Date("2026-12-31T15:00:00Z"))).toBe(
+      "2027-02",
+    );
+  });
+});
+
+describe("summarizeBudgetItems", () => {
+  it("種別ごとに合計し差引を求める", () => {
+    expect(
+      summarizeBudgetItems([
+        { entry_type: "income", amount: 300000 },
+        { entry_type: "income", amount: 200000 },
+        { entry_type: "expense", amount: 120000 },
+      ]),
+    ).toEqual({ incomeTotal: 500000, expenseTotal: 120000, balance: 380000 });
+  });
+
+  it("明細が空なら全て 0", () => {
+    expect(summarizeBudgetItems([])).toEqual({
+      incomeTotal: 0,
+      expenseTotal: 0,
+      balance: 0,
+    });
+  });
+
+  it("支出が収入を上回ると差引はマイナスになる", () => {
+    expect(
+      summarizeBudgetItems([
+        { entry_type: "income", amount: 10000 },
+        { entry_type: "expense", amount: 30000 },
+      ]).balance,
+    ).toBe(-20000);
+  });
+
+  it("想定外の種別は収入にも支出にも算入しない", () => {
+    expect(
+      summarizeBudgetItems([
+        { entry_type: "income", amount: 1000 },
+        { entry_type: "unknown", amount: 9999 },
+      ]),
+    ).toEqual({ incomeTotal: 1000, expenseTotal: 0, balance: 1000 });
+  });
+});
+
+describe("visibleBudgetTeams", () => {
+  const teamList = ["Aチーム", "Bチーム", "Cチーム"];
+
+  it("経理・管理者は全チームを表示する", () => {
+    expect(visibleBudgetTeams("accounting", null, teamList)).toEqual(teamList);
+    expect(visibleBudgetTeams("admin", "Aチーム", teamList)).toEqual(teamList);
+  });
+
+  it("チームリーダーは自チームのみ表示する", () => {
+    expect(visibleBudgetTeams("teamleader", "Bチーム", teamList)).toEqual([
+      "Bチーム",
+    ]);
+  });
+
+  it("チーム未設定のチームリーダーは表示対象なし", () => {
+    expect(visibleBudgetTeams("teamleader", null, teamList)).toEqual([]);
+    expect(visibleBudgetTeams("teamleader", "", teamList)).toEqual([]);
+  });
+
+  it("public・ロール未設定は表示対象なし", () => {
+    expect(visibleBudgetTeams("public", "Aチーム", teamList)).toEqual([]);
+    expect(visibleBudgetTeams(null, "Aチーム", teamList)).toEqual([]);
+  });
+
+  it("マスタに無いチームを持つチームリーダーでも自チームを表示する", () => {
+    // チームマスタから無効化された後も、自チームの申告状況は確認できる必要がある
+    expect(visibleBudgetTeams("teamleader", "旧チーム", teamList)).toEqual([
+      "旧チーム",
+    ]);
+  });
+
+  it("返り値は引数のチーム配列と独立している（呼び出し元の変更が波及しない）", () => {
+    const result = visibleBudgetTeams("admin", null, teamList);
+    result.push("Dチーム");
+    expect(teamList).toEqual(["Aチーム", "Bチーム", "Cチーム"]);
+  });
+});
+
+describe("buildBudgetDeclarationStatusList", () => {
+  it("申告があるチームは集計付きの申告済み行になる", () => {
+    const rows = buildBudgetDeclarationStatusList(
+      ["Aチーム"],
+      [
+        declaration({
+          id: 7,
+          team: "Aチーム",
+          comment: "受託案件の見込み",
+          items: [
+            { entry_type: "income", amount: 500000 },
+            { entry_type: "expense", amount: 200000 },
+          ],
+        }),
+      ],
+    );
+
+    expect(rows).toEqual([
+      {
+        team: "Aチーム",
+        declarationId: 7,
+        isDeclared: true,
+        declaredByName: "山田",
+        comment: "受託案件の見込み",
+        updatedAt: "2026-08-20T10:00:00+09:00",
+        summary: {
+          incomeTotal: 500000,
+          expenseTotal: 200000,
+          balance: 300000,
+        },
+      },
+    ]);
+  });
+
+  it("申告が無いチームは未申告行（集計 0）になる", () => {
+    const rows = buildBudgetDeclarationStatusList(
+      ["Aチーム", "Bチーム"],
+      [declaration({ team: "Aチーム" })],
+    );
+
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toMatchObject({
+      team: "Bチーム",
+      declarationId: null,
+      isDeclared: false,
+      declaredByName: null,
+      summary: { incomeTotal: 0, expenseTotal: 0, balance: 0 },
+    });
+  });
+
+  it("チーム一覧の並び順を保つ", () => {
+    const rows = buildBudgetDeclarationStatusList(
+      ["Cチーム", "Aチーム", "Bチーム"],
+      [declaration({ team: "Aチーム" })],
+    );
+
+    expect(rows.map((row) => row.team)).toEqual([
+      "Cチーム",
+      "Aチーム",
+      "Bチーム",
+    ]);
+  });
+
+  it("チームマスタに無いチームの申告も末尾に残す（取りこぼし防止）", () => {
+    const rows = buildBudgetDeclarationStatusList(
+      ["Aチーム"],
+      [
+        declaration({ team: "Aチーム" }),
+        declaration({
+          id: 2,
+          team: "旧チーム",
+          items: [{ entry_type: "income", amount: 1000 }],
+        }),
+      ],
+    );
+
+    expect(rows.map((row) => row.team)).toEqual(["Aチーム", "旧チーム"]);
+    expect(rows[1].isDeclared).toBe(true);
+    expect(rows[1].summary.incomeTotal).toBe(1000);
+  });
+
+  it("申告が 1 件も無くてもチーム分の未申告行を返す", () => {
+    const rows = buildBudgetDeclarationStatusList(["Aチーム", "Bチーム"], []);
+
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => !row.isDeclared)).toBe(true);
+  });
+
+  it("申告者名が読めない（profiles の RLS 対象外）場合は null になる", () => {
+    const rows = buildBudgetDeclarationStatusList(
+      ["Aチーム"],
+      [declaration({ team: "Aチーム", declared_by_name: null })],
+    );
+
+    expect(rows[0].declaredByName).toBeNull();
+    // 名前が読めなくても申告済みの判定・集計は行う
+    expect(rows[0].isDeclared).toBe(true);
+  });
+});
+
+describe("totalBudgetSummary", () => {
+  it("表示中の行の合計を求める", () => {
+    const rows = buildBudgetDeclarationStatusList(
+      ["Aチーム", "Bチーム", "Cチーム"],
+      [
+        declaration({
+          team: "Aチーム",
+          items: [
+            { entry_type: "income", amount: 500000 },
+            { entry_type: "expense", amount: 200000 },
+          ],
+        }),
+        declaration({
+          id: 2,
+          team: "Bチーム",
+          items: [{ entry_type: "expense", amount: 50000 }],
+        }),
+      ],
+    );
+
+    expect(totalBudgetSummary(rows)).toEqual({
+      incomeTotal: 500000,
+      expenseTotal: 250000,
+      balance: 250000,
+    });
+  });
+
+  it("行が無ければ 0", () => {
+    expect(totalBudgetSummary([])).toEqual({
+      incomeTotal: 0,
+      expenseTotal: 0,
+      balance: 0,
+    });
+  });
+});
+
+describe("BUDGET_DECLARATION_ALLOWED_CLASSES", () => {
+  it("/budget-declarations のルート保護と同じロール定義を参照する", () => {
+    expect(BUDGET_DECLARATION_ALLOWED_CLASSES).toBe(
+      ROUTE_PERMISSIONS["/budget-declarations"],
+    );
+  });
+});
