@@ -26,7 +26,10 @@ COMMENT ON TABLE budget_declarations IS '事前収支申告のヘッダ。1 チ�
 
 -- target_month 単独のインデックスは張らない。UNIQUE (target_month, team) の
 -- インデックスが target_month を先頭列に持つため、対象月での絞り込みはそちらが使える。
-CREATE INDEX IF NOT EXISTS idx_budget_declarations_team ON budget_declarations (team);
+CREATE INDEX IF NOT EXISTS idx_budget_declarations_team        ON budget_declarations (team);
+-- FK 側の索引（extra_entries.manager_id と同じ方針。無いと profiles 削除のたびに
+-- 全件走査になり、Supabase の unindexed_foreign_keys リンタにも検出される）
+CREATE INDEX IF NOT EXISTS idx_budget_declarations_declared_by ON budget_declarations (declared_by);
 
 CREATE TRIGGER update_budget_declarations_updated_at
     BEFORE UPDATE ON budget_declarations
@@ -77,6 +80,14 @@ CREATE POLICY "budget_declarations_select_policy" ON budget_declarations
 -- 強制する（申告者の詐称防止）。経理・管理者は代理入力があるため制約しない。
 -- profiles の参照は自分自身の行のみで足りるため、profiles の SELECT ポリシー
 -- （自分の行は常に可）に阻まれない。
+--
+-- declared_by は「最終更新した申告者」を表すため、UPDATE でもこの制約を課す。
+-- 同じチームに複数のチームリーダーがいる場合、他のリーダーや経理が作成した行を
+-- 編集するときも declared_by は更新者自身に付け替わる（これが意図した挙動）。
+-- **アプリ側は UPDATE 時に必ず declared_by へ更新者自身の profiles.id を送ること。**
+-- 送らずに部分更新すると、行は見えているのに 42501（RLS 違反）になり原因が分かりにくい。
+-- なお DELETE には declared_by の制約を課さない（自チームの行はリーダーなら誰でも
+-- 削除できてよく、削除後に残す更新者の記録も無いため）。
 CREATE POLICY "budget_declarations_insert_policy" ON budget_declarations
   FOR INSERT TO authenticated
   WITH CHECK (
