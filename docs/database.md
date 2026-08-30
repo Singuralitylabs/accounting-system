@@ -56,16 +56,18 @@
 
 ## 2. テーブル一覧
 
-| テーブル名          | 説明                                                         |
-| ------------------- | ------------------------------------------------------------ |
-| profiles            | ユーザー情報を管理するテーブル                               |
-| matters             | 案件情報を管理するテーブル                                   |
-| costs               | コスト情報を管理するテーブル                                 |
-| business            | 取引先情報を管理するテーブル                                 |
-| select_option_types | 選択肢の種類を管理するテーブル                               |
-| select_options      | 選択肢の値を管理するテーブル                                 |
-| recurring_costs     | 定期費用（管理費）を管理するテーブル                         |
-| extra_entries       | 経理追加収支（案件に紐づかない収入・支出）を管理するテーブル |
+| テーブル名               | 説明                                                                |
+| ------------------------ | ------------------------------------------------------------------- |
+| profiles                 | ユーザー情報を管理するテーブル                                      |
+| matters                  | 案件情報を管理するテーブル                                          |
+| costs                    | コスト情報を管理するテーブル                                        |
+| business                 | 取引先情報を管理するテーブル                                        |
+| select_option_types      | 選択肢の種類を管理するテーブル                                      |
+| select_options           | 選択肢の値を管理するテーブル                                        |
+| recurring_costs          | 定期費用（管理費）を管理するテーブル                                |
+| extra_entries            | 経理追加収支（案件に紐づかない収入・支出）を管理するテーブル        |
+| budget_declarations      | 事前収支申告（チーム×対象月の見込み収支）のヘッダを管理するテーブル |
+| budget_declaration_items | 事前収支申告の明細（見込み収入・支出の内訳）を管理するテーブル      |
 
 ## 3. テーブル詳細
 
@@ -258,6 +260,51 @@ CHECK (
 - entry_date
 - manager_id
 
+### 3.9 budget_declarations テーブル
+
+事前収支申告のヘッダ。各チームのチームリーダーが翌月のチーム収支（見込み収入・見込み支出）を申告するために使う。1 チーム × 1 対象月につき 1 行。
+
+合計金額はヘッダに非正規化せず、`budget_declaration_items` から集計する（案件の `total_cost` と異なり明細数が小さいため）。
+
+| カラム名     | データ型                 | 制約                                                                      | 説明                                                            |
+| ------------ | ------------------------ | ------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| id           | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                                 | 主キー                                                          |
+| target_month | date                     | NOT NULL                                                                  | 対象月（月初日で格納: 例 2026-10-01。recurring_costs と同方式） |
+| team         | text                     | NOT NULL                                                                  | 対象チーム（select_options の team と同じ値域）                 |
+| declared_by  | bigint                   | NOT NULL, FOREIGN KEY (profiles.id)（参照アクション指定なし = NO ACTION） | 申告者（最終更新したチームリーダー等）                          |
+| comment      | text                     | NULL                                                                      | 補足コメント                                                    |
+| inserted_at  | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 作成日時                                                        |
+| updated_at   | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 更新日時                                                        |
+
+UNIQUE 制約:
+
+- `(target_month, team)`（`budget_declarations_target_month_team_key`）
+
+インデックス:
+
+- target_month
+- team
+
+### 3.10 budget_declaration_items テーブル
+
+事前収支申告の明細。1 ヘッダに対して収入・支出の内訳を複数行持つ。
+
+| カラム名       | データ型                 | 制約                                                             | 説明                                                                    |
+| -------------- | ------------------------ | ---------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| id             | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                        | 主キー                                                                  |
+| declaration_id | bigint                   | NOT NULL, FOREIGN KEY (budget_declarations.id) ON DELETE CASCADE | 申告ヘッダ ID（ヘッダ削除時に明細も削除される）                         |
+| entry_type     | text                     | NOT NULL, CHECK (entry_type IN ('income', 'expense'))            | 種別（income = 収入 / expense = 支出。extra_entries と同じ値域）        |
+| category       | text                     | NOT NULL                                                         | 分類（収入時は案件分類 category、支出時は品目 item マスタの値域を想定） |
+| description    | text                     | NOT NULL                                                         | 内容（例: ○○受託案件、外注費）                                          |
+| amount         | numeric(15,2)            | NOT NULL, CHECK (amount > 0)                                     | 見込み金額（円・税別。正の値のみ）                                      |
+| display_order  | integer                  | NOT NULL, DEFAULT 0                                              | 表示順                                                                  |
+| inserted_at    | timestamp with time zone | NOT NULL, DEFAULT now()                                          | 作成日時                                                                |
+| updated_at     | timestamp with time zone | NOT NULL, DEFAULT now()                                          | 更新日時                                                                |
+
+インデックス:
+
+- declaration_id
+
 ## 4. 列挙型
 
 ### 4.1 information_category
@@ -279,6 +326,8 @@ RLS は行スコープのゲートであり、テーブルに対する `GRANT SE
 現行のローカル Supabase Postgres イメージは `public` スキーマの DEFAULT PRIVILEGES が厳格化されており、マイグレーションの `CREATE TABLE` だけでは `anon` / `authenticated` / `service_role` に CRUD が付かない（付くのは `TRUNCATE` / `REFERENCES` / `TRIGGER` / `MAINTAIN` のみ）。`supabase/migrations/20260826000000_17_grant_public_crud.sql` で標準的なテーブル / シーケンス GRANT と DEFAULT PRIVILEGES を明示する。関数の `EXECUTE` は付与しない（migration 15/16 の `custom_access_token_hook` 制限を維持する）。
 
 `supabase db reset` はこのマイグレーションを含めて再適用するため、リセット後も PostgREST が 403 に戻らない。
+
+migration 17 以降に追加するテーブルは、同マイグレーションの `ALTER DEFAULT PRIVILEGES` で自動的に同じ権限が付くが、DEFAULT PRIVILEGES の設定差で 403 に戻らないよう、新規テーブルのマイグレーション内でも `GRANT` を明示する（例: `20260830050000_19_budget_declarations.sql`）。
 
 ### 5.1 profiles テーブル
 
@@ -767,6 +816,68 @@ CREATE POLICY "extra_entries_delete_policy" ON extra_entries
     );
 ```
 
+### 5.8 budget_declarations テーブル
+
+> recurring_costs / extra_entries と異なり、**チームリーダーに自チーム分の書き込みを許可する**（事前収支申告はチームリーダー自身が入力するため）。経理担当者・管理者は全行、チームリーダーは自チームの行のみ SELECT / INSERT / UPDATE / DELETE でき、public ロールはアクセスできない。UPDATE は `WITH CHECK` でも team を制約し、他チームへの付け替えを防ぐ。
+>
+> 判定には `EXISTS (SELECT ... FROM profiles ...)` ではなく `SECURITY DEFINER` ヘルパ関数 `auth_user_class()` / `auth_user_team()`（[5.1](#51-profiles-テーブル) 参照）を使う。profiles の SELECT ポリシー自体に依存しないため、閲覧できる profiles の行が絞られていても判定がぶれない。
+
+```sql
+-- 経理担当者/管理者は全行、チームリーダーは自チームの行のみ参照可能
+CREATE POLICY "budget_declarations_select_policy" ON budget_declarations
+    FOR SELECT TO authenticated
+    USING (
+        public.auth_user_class() IN ('admin', 'accounting')
+        OR (
+            public.auth_user_class() = 'teamleader'
+            AND public.auth_user_team() IS NOT NULL
+            AND budget_declarations.team = public.auth_user_team()
+        )
+    );
+
+-- INSERT / DELETE も同条件（INSERT は WITH CHECK、DELETE は USING）
+CREATE POLICY "budget_declarations_insert_policy" ON budget_declarations
+    FOR INSERT TO authenticated
+    WITH CHECK ( /* SELECT と同条件 */ );
+
+CREATE POLICY "budget_declarations_delete_policy" ON budget_declarations
+    FOR DELETE TO authenticated
+    USING ( /* SELECT と同条件 */ );
+
+-- UPDATE は USING と WITH CHECK の双方に同条件を課し、他チームへの team 付け替えを防ぐ
+CREATE POLICY "budget_declarations_update_policy" ON budget_declarations
+    FOR UPDATE TO authenticated
+    USING ( /* SELECT と同条件 */ )
+    WITH CHECK ( /* SELECT と同条件 */ );
+```
+
+### 5.9 budget_declaration_items テーブル
+
+> 明細は親ヘッダ（budget_declarations）への `EXISTS` で 5.8 と同じ条件を適用する（costs → matters の JOIN パターンと同様）。UPDATE は `WITH CHECK` でも親ヘッダを制約し、他チームの申告への付け替えを防ぐ。
+
+```sql
+-- SELECT / INSERT / UPDATE / DELETE すべて、親ヘッダが 5.8 の条件を満たす行のみ
+CREATE POLICY "budget_declaration_items_select_policy" ON budget_declaration_items
+    FOR SELECT TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM budget_declarations d
+            WHERE d.id = budget_declaration_items.declaration_id
+            AND (
+                public.auth_user_class() IN ('admin', 'accounting')
+                OR (
+                    public.auth_user_class() = 'teamleader'
+                    AND public.auth_user_team() IS NOT NULL
+                    AND d.team = public.auth_user_team()
+                )
+            )
+        )
+    );
+
+-- insert / update / delete ポリシーも同じ EXISTS 条件
+-- （UPDATE は USING と WITH CHECK の双方に課す）
+```
+
 ## 6. トリガー
 
 ### 6.1 updated_at 更新トリガー
@@ -816,6 +927,16 @@ CREATE TRIGGER update_recurring_costs_updated_at
 
 CREATE TRIGGER update_extra_entries_updated_at
     BEFORE UPDATE ON extra_entries
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_updated_at_column();
+
+CREATE TRIGGER update_budget_declarations_updated_at
+    BEFORE UPDATE ON budget_declarations
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_updated_at_column();
+
+CREATE TRIGGER update_budget_declaration_items_updated_at
+    BEFORE UPDATE ON budget_declaration_items
     FOR EACH ROW
     EXECUTE PROCEDURE update_updated_at_column();
 ```
@@ -937,6 +1058,8 @@ GRANT SELECT (user_id, class) ON TABLE public.profiles TO supabase_auth_admin;
 erDiagram
     profiles ||--o{ matters : "creates"
     profiles ||--o{ extra_entries : "manages"
+    profiles ||--o{ budget_declarations : "declares"
+    budget_declarations ||--o{ budget_declaration_items : "contains"
     matters ||--o{ costs : "contains"
     matters ||--o{ business : "has"
     matters ||--o{ matters : "is parent of"
@@ -1052,6 +1175,28 @@ erDiagram
         numeric billing_amount
         numeric expense_amount
         text payment_method
+        timestamp inserted_at
+        timestamp updated_at
+    }
+
+    budget_declarations {
+        bigint id PK
+        date target_month
+        text team
+        bigint declared_by FK
+        text comment
+        timestamp inserted_at
+        timestamp updated_at
+    }
+
+    budget_declaration_items {
+        bigint id PK
+        bigint declaration_id FK
+        text entry_type
+        text category
+        text description
+        numeric amount
+        integer display_order
         timestamp inserted_at
         timestamp updated_at
     }
