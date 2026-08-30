@@ -899,7 +899,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 | ----------------------- | ------------------------------------ | ------------------------------------- | -------------------------- |
 | getProfileInfo          | ログインユーザーのプロフィール取得   | -                                     | {profileInfo, error}       |
 | getProfileInfoById      | 指定ユーザーのプロフィール取得       | userId: string                        | {profileInfo, error}       |
-| getAllUserInfo          | 全ユーザー情報の取得                 | -                                     | ProfilesType[]             |
+| getAllUserInfo          | 全ユーザー情報の取得                 | -                                     | {userInfoList, error}      |
 | insertUserInfo          | ユーザー情報の登録                   | {user, name, email}                   | {error}                    |
 | updateUserInfo          | ユーザー情報の更新                   | {profile}                             | {error}                    |
 | getAllMatterInfoList    | 全案件情報の取得                     | -                                     | MatterType[]               |

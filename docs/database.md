@@ -15,8 +15,42 @@
 ### 1.3 タイムゾーン方針
 
 - **セッションタイムゾーンは UTC**（PostgreSQL / Supabase の既定）。`supabase/migrations/` は `ALTER DATABASE ... SET timezone` を含まない。旧ローカル手適用 SQL にあった当該設定は、正であるマイグレーション経路では一度も適用されていなかった。hosted Supabase では `ALTER DATABASE` が失敗しうるため、Phase 0 でも追加しない。
-- **案件系の `inserted_at` / `updated_at` は `timezone('Asia/Tokyo'::text, now())`**（カラム DEFAULT と `update_updated_at_column` トリガー）。`timezone(zone, timestamptz)` の戻りは **TZ なし `timestamp`**（そのゾーンの壁時計）である。これを `timestamptz` 列へ入れると **セッション `TimeZone` のローカル時刻として解釈**される。セッションが UTC のとき、保存される絶対時刻は「今」から約 9 時間ずれる。セッションが `Asia/Tokyo` ならずれない。つまり現行 DEFAULT / トリガーの保存値はセッション TZ に依存する。
-- **絶対時刻をセッション非依存で残す**なら DEFAULT / トリガーは `now()`（`timestamptz`）である。実装変更は後続フェーズで検討する。
+- **`inserted_at` / `updated_at` のカラム DEFAULT と `update_updated_at_column` トリガーは `now()`**（`timestamptz`）である。セッション TZ に依存せず、常に正しい絶対時刻を保存する。`20260830040000_18_fix_timestamp_defaults_to_now.sql` で変更した。
+- **変更前は `timezone('Asia/Tokyo'::text, now())`（選択肢マスタは `timezone('utc'::text, now())`）だった。** `timezone(zone, timestamptz)` の戻りは **TZ なし `timestamp`**（そのゾーンの壁時計）であり、これを `timestamptz` 列へ入れると **セッション `TimeZone` のローカル時刻として解釈**される。セッション TZ が UTC のため、`Asia/Tokyo` 指定の列には実際より **約 9 時間後** の絶対時刻が保存されていた（`utc` 指定の列はセッションが UTC のため結果的に正しい値）。
+- **既存行のずれはマイグレーション 18 で補正した。** 調査の結果、[#80](https://github.com/Singuralitylabs/accounting-system/issues/80) のカットオーバーで旧 Supabase から移送された行も含め、DEFAULT / トリガー由来の値は一様に +9h ずれていた（旧 DB のセッション TZ も UTC だった）。
+
+  判定は `matters.inserted_at`（アプリが `new Date().toISOString()` で設定＝常に正しい）と `costs.inserted_at`（DEFAULT 由来）の差で行った。案件登録時に両者は同時に書かれるため、その差がずれの大きさになる。実データでは 20 案件中 19 案件が 9 時間差だった。
+
+  ```sql
+  WITH first_cost AS (
+    SELECT matter_id, min(inserted_at) AS first_inserted_at FROM costs GROUP BY matter_id
+  )
+  SELECT round(EXTRACT(EPOCH FROM (f.first_inserted_at - m.inserted_at)) / 3600) AS 差_時間,
+         count(*) AS 案件数
+    FROM first_cost f JOIN matters m ON m.id = f.matter_id
+   GROUP BY 1 ORDER BY 1;
+  ```
+
+  | 列                                                                                         | 対応                                                                                                                                                                                                                                                                |
+  | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `costs` / `business` / `recurring_costs` / `extra_entries` の `inserted_at` / `updated_at` | アプリ側に書き込み経路がなく全行が DEFAULT / トリガー由来のため、**全行を `- interval '9 hours'` で補正**                                                                                                                                                           |
+  | `matters.updated_at` / `profiles.updated_at`                                               | アプリは INSERT 時に `inserted_at` と `updated_at` を同じ値で設定するため、両者がほぼ一致する行は未更新（正しい値）。UPDATE を経た行はトリガー由来で `inserted_at` との差が必ず 9 時間以上になる。**`updated_at > inserted_at + interval '1 second'` の行のみ補正** |
+  | `matters.inserted_at` / `profiles.inserted_at`                                             | アプリが明示指定するためずれていない。**補正しない**                                                                                                                                                                                                                |
+  | `select_option_types` / `select_options` の `created_at` / `updated_at`                    | 旧 DEFAULT が `timezone('utc', ...)` でセッションが UTC のためずれていない。**補正しない**                                                                                                                                                                          |
+
+  補正の `UPDATE` は `BEFORE UPDATE` トリガーを一時的に無効化して実行している。`update_*_updated_at` は `NEW.updated_at` を `now()` で無条件に上書きするため補正値が現在時刻で潰れ、`matters` では `detect_matter_updates` が `has_updates` を立ててしまうためである。
+
+  **残課題**: 上記の判定で差が 0 時間だった 1 案件は、`matters.inserted_at` 自体が DEFAULT 由来（手動投入など）で +9h ずれている可能性がある。機械的に判別できないため補正対象から外している。次の SQL で洗い出して個別に判断すること。
+
+  ```sql
+  WITH first_cost AS (
+    SELECT matter_id, min(inserted_at) AS first_inserted_at FROM costs GROUP BY matter_id
+  )
+  SELECT m.id, m.title, m.inserted_at, m.updated_at, f.first_inserted_at
+    FROM first_cost f JOIN matters m ON m.id = f.matter_id
+   WHERE f.first_inserted_at < m.inserted_at + interval '1 hour';
+  ```
+
 - **アドホック SQL で日付境界を切る場合**はセッション TZ に頼らず、`timezone('Asia/Tokyo', ...)` または `AT TIME ZONE 'Asia/Tokyo'` を明示すること。`now()::date` や素の `date_trunc` は UTC 日付になり、JST 0:00〜9:00 で日付がずれる。
 - **Vitest** は `vitest.config.ts` で `TZ=Asia/Tokyo` を固定する。Next.js アプリのプロセス TZ は実行環境依存であり、日付表示は `app/utils/formatter.ts` などが `new Date()` のローカル TZ に従う。
 
@@ -39,17 +73,17 @@
 
 ユーザー情報を保持するテーブル
 
-| カラム名    | データ型                 | 制約                                                  | 説明                                              |
-| ----------- | ------------------------ | ----------------------------------------------------- | ------------------------------------------------- |
-| id          | bigint                   | PRIMARY KEY, GENERATED BY DEFAULT AS IDENTITY         | 主キー                                            |
-| user_id     | uuid                     | NOT NULL, UNIQUE, FOREIGN KEY (auth.users)            | Supabase Auth のユーザー ID                       |
-| email       | text                     | NOT NULL                                              | メールアドレス                                    |
-| name        | text                     | NOT NULL                                              | ユーザー名                                        |
-| slack_id    | text                     | NULL                                                  | Slack ID (通知用)                                 |
-| class       | text                     | DEFAULT 'public'                                      | ユーザー権限 (public/accounting/admin/teamleader) |
-| team        | text                     | NULL                                                  | 所属チーム（teamleader権限時に必要）              |
-| inserted_at | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 作成日時                                          |
-| updated_at  | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 更新日時                                          |
+| カラム名    | データ型                 | 制約                                                         | 説明                                              |
+| ----------- | ------------------------ | ------------------------------------------------------------ | ------------------------------------------------- |
+| id          | bigint                   | PRIMARY KEY, GENERATED BY DEFAULT AS IDENTITY                | 主キー                                            |
+| user_id     | uuid                     | NOT NULL, UNIQUE, FOREIGN KEY (auth.users) ON DELETE CASCADE | Supabase Auth のユーザー ID                       |
+| email       | text                     | NOT NULL                                                     | メールアドレス                                    |
+| name        | text                     | NOT NULL                                                     | ユーザー名                                        |
+| slack_id    | text                     | NULL                                                         | Slack ID (通知用)                                 |
+| class       | text                     | DEFAULT 'public'                                             | ユーザー権限 (public/accounting/admin/teamleader) |
+| team        | text                     | NULL                                                         | 所属チーム（teamleader権限時に必要）              |
+| inserted_at | timestamp with time zone | NOT NULL, DEFAULT now()                                      | 作成日時                                          |
+| updated_at  | timestamp with time zone | NOT NULL, DEFAULT now()                                      | 更新日時                                          |
 
 インデックス:
 
@@ -76,10 +110,10 @@
 | business_count       | integer                  | DEFAULT 0                                             | 取引先数           |
 | accounting_memo      | text                     | NULL                                                  | 経理メモ           |
 | unchecked_cost_count | integer                  | NOT NULL, DEFAULT 0                                   | 未払いコスト数     |
-| user_id              | bigint                   | NOT NULL, FOREIGN KEY (profiles.id)                   | ユーザー ID        |
-| parent_matter_id     | bigint                   | NULL, FOREIGN KEY (matters.id)                        | 親案件 ID          |
-| inserted_at          | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 作成日時           |
-| updated_at           | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 更新日時           |
+| user_id              | bigint                   | NOT NULL, FOREIGN KEY (profiles.id) ON DELETE CASCADE | ユーザー ID        |
+| parent_matter_id     | bigint                   | NULL, FOREIGN KEY (matters.id) ON DELETE SET NULL     | 親案件 ID          |
+| inserted_at          | timestamp with time zone | NOT NULL, DEFAULT now()                               | 作成日時           |
+| updated_at           | timestamp with time zone | NOT NULL, DEFAULT now()                               | 更新日時           |
 
 インデックス:
 
@@ -90,21 +124,21 @@
 
 コスト情報を保持するテーブル
 
-| カラム名       | データ型                 | 制約                                                  | 説明             |
-| -------------- | ------------------------ | ----------------------------------------------------- | ---------------- |
-| id             | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY             | 主キー           |
-| name           | text                     | NOT NULL                                              | コスト名         |
-| item           | text                     | NOT NULL                                              | 品目             |
-| payment_target | text                     | NOT NULL                                              | 支払い先         |
-| price          | numeric(15,2)            | NOT NULL                                              | 金額             |
-| period         | date                     | NULL                                                  | 支払い期限       |
-| certificate    | text                     | NOT NULL                                              | 通知方法         |
-| withholding    | boolean                  | NOT NULL, DEFAULT false                               | 源泉徴収フラグ   |
-| is_completed   | boolean                  | NOT NULL, DEFAULT false                               | 支払い完了フラグ |
-| comment        | text                     | NULL                                                  | コメント         |
-| matter_id      | bigint                   | NOT NULL, FOREIGN KEY (matters.id)                    | 案件 ID          |
-| inserted_at    | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 作成日時         |
-| updated_at     | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 更新日時         |
+| カラム名       | データ型                 | 制約                                                 | 説明             |
+| -------------- | ------------------------ | ---------------------------------------------------- | ---------------- |
+| id             | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY            | 主キー           |
+| name           | text                     | NOT NULL                                             | コスト名         |
+| item           | text                     | NOT NULL                                             | 品目             |
+| payment_target | text                     | NOT NULL                                             | 支払い先         |
+| price          | numeric(15,2)            | NOT NULL                                             | 金額             |
+| period         | date                     | NULL                                                 | 支払い期限       |
+| certificate    | text                     | NOT NULL                                             | 通知方法         |
+| withholding    | boolean                  | NOT NULL, DEFAULT false                              | 源泉徴収フラグ   |
+| is_completed   | boolean                  | NOT NULL, DEFAULT false                              | 支払い完了フラグ |
+| comment        | text                     | NULL                                                 | コメント         |
+| matter_id      | bigint                   | NOT NULL, FOREIGN KEY (matters.id) ON DELETE CASCADE | 案件 ID          |
+| inserted_at    | timestamp with time zone | NOT NULL, DEFAULT now()                              | 作成日時         |
+| updated_at     | timestamp with time zone | NOT NULL, DEFAULT now()                              | 更新日時         |
 
 インデックス:
 
@@ -114,17 +148,17 @@
 
 取引先情報を保持するテーブル
 
-| カラム名     | データ型                 | 制約                                                  | 説明           |
-| ------------ | ------------------------ | ----------------------------------------------------- | -------------- |
-| id           | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY             | 主キー         |
-| name         | text                     | NOT NULL                                              | 取引先名       |
-| invoice_date | date                     | NULL                                                  | 請求日         |
-| period_date  | date                     | NULL                                                  | 振込期限       |
-| amount       | numeric(15,2)            | NULL                                                  | 報酬額         |
-| is_completed | boolean                  | NOT NULL, DEFAULT false                               | 確認完了フラグ |
-| matter_id    | bigint                   | NOT NULL, FOREIGN KEY (matters.id)                    | 案件 ID        |
-| inserted_at  | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 作成日時       |
-| updated_at   | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 更新日時       |
+| カラム名     | データ型                 | 制約                                                 | 説明           |
+| ------------ | ------------------------ | ---------------------------------------------------- | -------------- |
+| id           | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY            | 主キー         |
+| name         | text                     | NOT NULL                                             | 取引先名       |
+| invoice_date | date                     | NULL                                                 | 請求日         |
+| period_date  | date                     | NULL                                                 | 振込期限       |
+| amount       | numeric(15,2)            | NULL                                                 | 報酬額         |
+| is_completed | boolean                  | NOT NULL, DEFAULT false                              | 確認完了フラグ |
+| matter_id    | bigint                   | NOT NULL, FOREIGN KEY (matters.id) ON DELETE CASCADE | 案件 ID        |
+| inserted_at  | timestamp with time zone | NOT NULL, DEFAULT now()                              | 作成日時       |
+| updated_at   | timestamp with time zone | NOT NULL, DEFAULT now()                              | 更新日時       |
 
 インデックス:
 
@@ -134,30 +168,30 @@
 
 選択肢の種類を管理するテーブル
 
-| カラム名      | データ型                 | 制約                                           | 説明                                    |
-| ------------- | ------------------------ | ---------------------------------------------- | --------------------------------------- |
-| id            | uuid                     | PRIMARY KEY, DEFAULT gen_random_uuid()         | 主キー                                  |
-| name          | varchar                  | NOT NULL, UNIQUE                               | 種類名 (team/category/item/certificate) |
-| display_name  | varchar                  | NOT NULL                                       | 表示名                                  |
-| category      | information_category     | NOT NULL                                       | カテゴリ (Enum 型)                      |
-| description   | text                     | NULL                                           | 説明                                    |
-| display_order | integer                  | DEFAULT 0                                      | 表示順                                  |
-| created_at    | timestamp with time zone | NOT NULL, DEFAULT timezone('utc'::text, now()) | 作成日時                                |
-| updated_at    | timestamp with time zone | NOT NULL, DEFAULT timezone('utc'::text, now()) | 更新日時                                |
+| カラム名      | データ型                 | 制約                                   | 説明                                    |
+| ------------- | ------------------------ | -------------------------------------- | --------------------------------------- |
+| id            | uuid                     | PRIMARY KEY, DEFAULT gen_random_uuid() | 主キー                                  |
+| name          | varchar                  | NOT NULL, UNIQUE                       | 種類名 (team/category/item/certificate) |
+| display_name  | varchar                  | NOT NULL                               | 表示名                                  |
+| category      | information_category     | NOT NULL                               | カテゴリ (Enum 型)                      |
+| description   | text                     | NULL                                   | 説明                                    |
+| display_order | integer                  | DEFAULT 0                              | 表示順                                  |
+| created_at    | timestamp with time zone | NOT NULL, DEFAULT now()                | 作成日時                                |
+| updated_at    | timestamp with time zone | NOT NULL, DEFAULT now()                | 更新日時                                |
 
 ### 3.6 select_options テーブル
 
 選択肢の値を管理するテーブル
 
-| カラム名      | データ型                 | 制約                                           | 説明          |
-| ------------- | ------------------------ | ---------------------------------------------- | ------------- |
-| id            | serial                   | PRIMARY KEY                                    | 主キー        |
-| type_id       | uuid                     | FOREIGN KEY (select_option_types.id)           | 選択肢種類 ID |
-| value         | varchar                  | NOT NULL                                       | 値            |
-| display_order | integer                  | DEFAULT 0                                      | 表示順        |
-| is_active     | boolean                  | DEFAULT true                                   | 有効フラグ    |
-| created_at    | timestamp with time zone | NOT NULL, DEFAULT timezone('utc'::text, now()) | 作成日時      |
-| updated_at    | timestamp with time zone | NOT NULL, DEFAULT timezone('utc'::text, now()) | 更新日時      |
+| カラム名      | データ型                 | 制約                                                   | 説明          |
+| ------------- | ------------------------ | ------------------------------------------------------ | ------------- |
+| id            | serial                   | PRIMARY KEY                                            | 主キー        |
+| type_id       | uuid                     | FOREIGN KEY (select_option_types.id) ON DELETE CASCADE | 選択肢種類 ID |
+| value         | varchar                  | NOT NULL                                               | 値            |
+| display_order | integer                  | DEFAULT 0                                              | 表示順        |
+| is_active     | boolean                  | DEFAULT true                                           | 有効フラグ    |
+| created_at    | timestamp with time zone | NOT NULL, DEFAULT now()                                | 作成日時      |
+| updated_at    | timestamp with time zone | NOT NULL, DEFAULT now()                                | 更新日時      |
 
 ユニーク制約:
 
@@ -178,8 +212,8 @@
 | start_month   | date                     | NOT NULL                                                      | 適用開始月 = 最初の支払月（月初日で格納: 例 2026-07-01） |
 | end_month     | date                     | NULL                                                          | 適用終了月（月初日で格納。NULL = 継続中。当月を含む）    |
 | comment       | text                     | NULL                                                          | コメント                                                 |
-| inserted_at   | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now())         | 作成日時                                                 |
-| updated_at    | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now())         | 更新日時                                                 |
+| inserted_at   | timestamp with time zone | NOT NULL, DEFAULT now()                                       | 作成日時                                                 |
+| updated_at    | timestamp with time zone | NOT NULL, DEFAULT now()                                       | 更新日時                                                 |
 
 インデックス:
 
@@ -190,22 +224,22 @@
 
 経理追加収支（案件に紐づかない収入・支出）を保持するテーブル。損益計算書の集計時に entry_date（日付）の属する月へ算入する（収入の請求額 → 売上合計、経費 → 案件費用合計。日付未入力は月未確定）。金額はマイナスを許容し、損益計算書上での減額調整に使う。
 
-| カラム名       | データ型                 | 制約                                                  | 説明                                                                                 |
-| -------------- | ------------------------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| id             | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY             | 主キー                                                                               |
-| entry_type     | text                     | NOT NULL, CHECK (entry_type IN ('income', 'expense')) | 種別（income = 収入 / expense = 支出）                                               |
-| category       | text                     | NOT NULL                                              | 分類（収入時は extra_income_category、支出時は extra_expense_category マスタの値域） |
-| entry_date     | date                     | NULL                                                  | 日付（損益計算書の計上月の判定に使用。NULL = 月未確定）                              |
-| invoice_number | text                     | NULL                                                  | 請求書番号（収入時のみ）                                                             |
-| description    | text                     | NOT NULL                                              | 内容                                                                                 |
-| billing_target | text                     | NULL                                                  | 請求先（収入時のみ）                                                                 |
-| manager_id     | bigint                   | NOT NULL, FOREIGN KEY (profiles.id)                   | 責任者（メンバー）                                                                   |
-| team           | text                     | NULL                                                  | 対象チーム（NULL = 全体共通）                                                        |
-| billing_amount | numeric(15,2)            | NULL, CHECK (billing_amount <> 0)                     | 請求額（円・税別。マイナス可・0 不可。収入時のみ）                                   |
-| expense_amount | numeric(15,2)            | NULL, CHECK (expense_amount <> 0)                     | 経費（円・税別。マイナス可・0 不可。収入時は任意、支出時は必須）                     |
-| payment_method | text                     | NULL                                                  | 決済方法（payment_method マスタの値域。支出時のみ）                                  |
-| inserted_at    | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 作成日時                                                                             |
-| updated_at     | timestamp with time zone | NOT NULL, DEFAULT timezone('Asia/Tokyo'::text, now()) | 更新日時                                                                             |
+| カラム名       | データ型                 | 制約                                                                      | 説明                                                                                 |
+| -------------- | ------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| id             | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                                 | 主キー                                                                               |
+| entry_type     | text                     | NOT NULL, CHECK (entry_type IN ('income', 'expense'))                     | 種別（income = 収入 / expense = 支出）                                               |
+| category       | text                     | NOT NULL                                                                  | 分類（収入時は extra_income_category、支出時は extra_expense_category マスタの値域） |
+| entry_date     | date                     | NULL                                                                      | 日付（損益計算書の計上月の判定に使用。NULL = 月未確定）                              |
+| invoice_number | text                     | NULL                                                                      | 請求書番号（収入時のみ）                                                             |
+| description    | text                     | NOT NULL                                                                  | 内容                                                                                 |
+| billing_target | text                     | NULL                                                                      | 請求先（収入時のみ）                                                                 |
+| manager_id     | bigint                   | NOT NULL, FOREIGN KEY (profiles.id)（参照アクション指定なし = NO ACTION） | 責任者（メンバー）                                                                   |
+| team           | text                     | NULL                                                                      | 対象チーム（NULL = 全体共通）                                                        |
+| billing_amount | numeric(15,2)            | NULL, CHECK (billing_amount <> 0)                                         | 請求額（円・税別。マイナス可・0 不可。収入時のみ）                                   |
+| expense_amount | numeric(15,2)            | NULL, CHECK (expense_amount <> 0)                                         | 経費（円・税別。マイナス可・0 不可。収入時は任意、支出時は必須）                     |
+| payment_method | text                     | NULL                                                                      | 決済方法（payment_method マスタの値域。支出時のみ）                                  |
+| inserted_at    | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 作成日時                                                                             |
+| updated_at     | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 更新日時                                                                             |
 
 CHECK 制約（種別ごとの項目の整合性）:
 
@@ -739,15 +773,20 @@ CREATE POLICY "extra_entries_delete_policy" ON extra_entries
 
 全テーブルに対して、更新時に updated_at カラムを現在時刻で更新するトリガーを設定。
 
+`now()` はセッション TZ に依存せず `timestamptz` をそのまま返す（[1.3](#13-タイムゾーン方針) 参照）。`search_path = ''` は `20260523053903_07_harden_function_search_path.sql` で設定したもので、`CREATE OR REPLACE FUNCTION` は SET 句を含む関数属性も置き換えるため定義側で明示する。
+
 ```sql
 -- 更新時のタイムスタンプ更新関数
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $
+CREATE OR REPLACE FUNCTION public.update_updated_at_column()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
 BEGIN
-    NEW.updated_at = timezone('Asia/Tokyo'::text, now());
+    NEW.updated_at = now();
     RETURN NEW;
 END;
-$ LANGUAGE plpgsql;
+$$;
 
 -- テーブルごとのトリガー設定
 CREATE TRIGGER update_profiles_updated_at
@@ -788,7 +827,7 @@ CREATE TRIGGER update_extra_entries_updated_at
 ```sql
 -- 案件更新検知関数
 CREATE OR REPLACE FUNCTION detect_matter_updates()
-RETURNS TRIGGER AS $
+RETURNS TRIGGER AS $$
 BEGIN
     -- 経理申請済みで、かつ経理確認未完了の案件が更新された場合
     IF OLD.is_fixed = TRUE AND NEW.is_fixed = TRUE AND NEW.is_completed = FALSE THEN
@@ -797,7 +836,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql;
 
 -- トリガー設定
 CREATE TRIGGER detect_matters_updates

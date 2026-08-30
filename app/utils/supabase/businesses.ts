@@ -123,25 +123,6 @@ export const bulkInsertBusinessInfo = async (
   return { error: null };
 };
 
-export const deleteBusinessesByMatterId = async (matterId: number) => {
-  const supabase = createServerSupabase();
-
-  const { error } = await supabase
-    .from("business")
-    .delete()
-    .eq("matter_id", matterId);
-
-  if (error) {
-    console.error(
-      `案件ID : ${matterId}の取引先情報の一括削除処理で失敗しました。`,
-      error
-    );
-    return { error };
-  }
-
-  return { error: null };
-};
-
 export const bulkUpsertBusinessInfo = async (
   businesses: Array<{
     id?: number;

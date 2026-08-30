@@ -8,7 +8,7 @@ const toFirstOfMonth = (dateStr: string | null): string | null =>
   dateStr ? `${dateStr.slice(0, 7)}-01` : null;
 
 // 一覧の行データを DB 書き込み用の形に変換する（INSERT / UPDATE 共通）
-// updated_at は DB トリガー（update_recurring_costs_updated_at）が JST で設定する
+// updated_at は DB トリガー（update_recurring_costs_updated_at）が now() で設定する
 const toDbRow = (rc: RecurringCostInListType) => ({
   name: rc.name,
   item: rc.item,

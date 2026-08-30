@@ -7,7 +7,7 @@ import { createServerSupabase } from "./clients";
 // 種別ごとの項目の整合性（収入=請求額あり・決済方法なし / 支出=経費・決済方法あり、
 // 収入専用項目なし）はここで揃え、DB の CHECK 制約
 // （extra_entries_type_fields_check）でも担保する。
-// updated_at は DB トリガー（update_extra_entries_updated_at）が JST で設定する
+// updated_at は DB トリガー（update_extra_entries_updated_at）が now() で設定する
 const toDbRow = (entry: ExtraEntryInListType) => {
   const isIncome = entry.entry_type === "income";
   return {
