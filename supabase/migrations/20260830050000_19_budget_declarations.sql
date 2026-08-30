@@ -14,13 +14,19 @@ CREATE TABLE budget_declarations (
   comment       text,
   inserted_at   timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now(),
+  -- 月初日で格納する。CHECK が無いと 2026-10-01 と 2026-10-05 が別行として
+  -- 登録でき、UNIQUE (target_month, team) が「1 チーム × 1 対象月」を担保できない
+  -- （recurring_costs.start_month はアプリ側の正規化のみに依存している）。
+  CONSTRAINT budget_declarations_target_month_check
+    CHECK (target_month = date_trunc('month', target_month)::date),
   CONSTRAINT budget_declarations_target_month_team_key UNIQUE (target_month, team)
 );
 
 COMMENT ON TABLE budget_declarations IS '事前収支申告のヘッダ。1 チーム × 1 対象月につき 1 行。target_month は月初日で格納（recurring_costs.start_month と同方式）。合計金額は budget_declaration_items から集計する';
 
-CREATE INDEX IF NOT EXISTS idx_budget_declarations_target_month ON budget_declarations (target_month);
-CREATE INDEX IF NOT EXISTS idx_budget_declarations_team         ON budget_declarations (team);
+-- target_month 単独のインデックスは張らない。UNIQUE (target_month, team) の
+-- インデックスが target_month を先頭列に持つため、対象月での絞り込みはそちらが使える。
+CREATE INDEX IF NOT EXISTS idx_budget_declarations_team ON budget_declarations (team);
 
 CREATE TRIGGER update_budget_declarations_updated_at
     BEFORE UPDATE ON budget_declarations
@@ -67,6 +73,10 @@ CREATE POLICY "budget_declarations_select_policy" ON budget_declarations
     )
   );
 
+-- 書き込み時は自チームであることに加え、チームリーダーには declared_by = 自分自身を
+-- 強制する（申告者の詐称防止）。経理・管理者は代理入力があるため制約しない。
+-- profiles の参照は自分自身の行のみで足りるため、profiles の SELECT ポリシー
+-- （自分の行は常に可）に阻まれない。
 CREATE POLICY "budget_declarations_insert_policy" ON budget_declarations
   FOR INSERT TO authenticated
   WITH CHECK (
@@ -75,6 +85,11 @@ CREATE POLICY "budget_declarations_insert_policy" ON budget_declarations
       public.auth_user_class() = 'teamleader'
       AND public.auth_user_team() IS NOT NULL
       AND budget_declarations.team = public.auth_user_team()
+      AND EXISTS (
+        SELECT 1 FROM profiles p
+        WHERE p.id = budget_declarations.declared_by
+        AND p.user_id = (select auth.uid())
+      )
     )
   );
 
@@ -95,6 +110,11 @@ CREATE POLICY "budget_declarations_update_policy" ON budget_declarations
       public.auth_user_class() = 'teamleader'
       AND public.auth_user_team() IS NOT NULL
       AND budget_declarations.team = public.auth_user_team()
+      AND EXISTS (
+        SELECT 1 FROM profiles p
+        WHERE p.id = budget_declarations.declared_by
+        AND p.user_id = (select auth.uid())
+      )
     )
   );
 
@@ -110,8 +130,8 @@ CREATE POLICY "budget_declarations_delete_policy" ON budget_declarations
   );
 
 -- 明細は親ヘッダへの EXISTS で同条件を適用する（costs → matters の JOIN パターンと同様）。
--- 親ヘッダ側の RLS はここでは効かない（EXISTS 内のサブクエリにも SELECT ポリシーが
--- 適用されるため二重に絞られるが、条件が同一なので結果は変わらない）。
+-- EXISTS 内のサブクエリには budget_declarations の SELECT ポリシーも重ねて適用されるが、
+-- 条件が同一なので結果は変わらない。
 CREATE POLICY "budget_declaration_items_select_policy" ON budget_declaration_items
   FOR SELECT TO authenticated
   USING (
