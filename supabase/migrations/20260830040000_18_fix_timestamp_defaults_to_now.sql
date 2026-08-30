@@ -15,26 +15,23 @@
 --   now()（timestamptz をそのまま返す）に変更する。
 --
 -- 既存行の扱い:
---   本マイグレーションでは補正しない（列ごとに状態が異なり、さらに issue #80 の
---   カットオーバーで旧 Supabase から移送された行と新環境で作成された行が
---   同居しているため。詳細と判定用 SQL は docs/database.md 1.3）。
+--   調査の結果、旧 Supabase のセッション TZ も UTC だったことが判明したため、
+--   DEFAULT / トリガー由来の値は移送分・新環境分を問わず一様に +9h ずれている。
+--   本マイグレーションで補正する（セクション 3）。
 --
+--   判定方法: matters.inserted_at はアプリが new Date().toISOString() で設定する
+--   正しい絶対時刻、costs.inserted_at は DEFAULT 由来。案件登録時に両者は同時に
+--   書かれるため、その差がずれの大きさになる。実データでは 20 案件中 19 案件が
+--   9 時間差だった（残り 1 件は下記「補正しない列」を参照）。
+--
+--   補正しない列:
 --   - matters.inserted_at / profiles.inserted_at
---       アプリが INSERT 時に new Date().toISOString() で明示指定するためずれなし。
---   - matters.updated_at / profiles.updated_at
---       INSERT のみの行はアプリ指定で正しく、UPDATE を経た行は BEFORE UPDATE
---       トリガー（アプリ指定値を上書きする）由来。混在しており事後に判別できない。
---   - costs / business の inserted_at・updated_at
---       全行が DEFAULT / トリガー由来。ただし新環境で作成された行は +9h 確定、
---       旧環境から移送された行は旧 DB のセッション TZ 次第（未確認）。
---   - recurring_costs / extra_entries の inserted_at・updated_at
---       旧環境に存在しないテーブルで全行が新環境産。一様に +9h。
+--       アプリが INSERT 時に明示指定するためずれていない。
+--       ただし上記調査で差が 0 時間だった 1 案件は、この列自体が DEFAULT 由来
+--       （手動投入など）で +9h ずれている可能性がある。件数が少なく機械的に
+--       判別できないため、docs/database.md 1.3 の SQL で洗い出して個別に判断する。
 --   - select_option_types / select_options の created_at・updated_at
---       旧 DEFAULT が timezone('utc', ...) でセッションが UTC のためずれなし。
---
---   補正するなら「テーブル内の行がすべて移行前」と言い切れる本マイグレーション内が
---   最も確実だが、移送分がずれているかの調査が未了のため実施しない。ずれていない行に
---   一律の -9h を当てるとかえって値を壊すため、要否は実データの確認後に別途判断する。
+--       旧 DEFAULT が timezone('utc', ...) でセッションが UTC のためずれていない。
 
 -- 1. updated_at 自動更新トリガー関数
 --    CREATE OR REPLACE は SET 句を含む関数属性も置き換えるため、
@@ -85,3 +82,66 @@ ALTER TABLE public.select_option_types
 ALTER TABLE public.select_options
   ALTER COLUMN created_at SET DEFAULT now(),
   ALTER COLUMN updated_at SET DEFAULT now();
+
+-- 3. 既存行のずれ（+9h）の補正
+--
+--    本マイグレーション時点でテーブルにある行はすべて変更前の DEFAULT / トリガーで
+--    書かれている。適用後は正しい値と混在して値だけでは判別できなくなるため、
+--    ここで補正する。
+--
+--    注意: BEFORE UPDATE トリガー（update_*_updated_at）は NEW.updated_at を
+--    now() で無条件に上書きするため、補正の UPDATE をそのまま流すと updated_at が
+--    現在時刻で潰れる。matters では detect_matter_updates が has_updates を
+--    立ててしまう。いずれも補正の間だけ無効化する。
+
+-- 3-1. アプリ側にタイムスタンプを書く経路がない 4 テーブル
+--      inserted_at は常に DEFAULT、updated_at は常にトリガー由来（アプリが
+--      UPDATE 時に渡す updated_at もトリガーが上書きする）なので全行が対象。
+ALTER TABLE public.costs           DISABLE TRIGGER update_costs_updated_at;
+ALTER TABLE public.business        DISABLE TRIGGER update_business_updated_at;
+ALTER TABLE public.recurring_costs DISABLE TRIGGER update_recurring_costs_updated_at;
+ALTER TABLE public.extra_entries   DISABLE TRIGGER update_extra_entries_updated_at;
+
+UPDATE public.costs
+   SET inserted_at = inserted_at - interval '9 hours',
+       updated_at  = updated_at  - interval '9 hours';
+
+UPDATE public.business
+   SET inserted_at = inserted_at - interval '9 hours',
+       updated_at  = updated_at  - interval '9 hours';
+
+UPDATE public.recurring_costs
+   SET inserted_at = inserted_at - interval '9 hours',
+       updated_at  = updated_at  - interval '9 hours';
+
+UPDATE public.extra_entries
+   SET inserted_at = inserted_at - interval '9 hours',
+       updated_at  = updated_at  - interval '9 hours';
+
+ALTER TABLE public.costs           ENABLE TRIGGER update_costs_updated_at;
+ALTER TABLE public.business        ENABLE TRIGGER update_business_updated_at;
+ALTER TABLE public.recurring_costs ENABLE TRIGGER update_recurring_costs_updated_at;
+ALTER TABLE public.extra_entries   ENABLE TRIGGER update_extra_entries_updated_at;
+
+-- 3-2. matters / profiles の updated_at
+--      アプリは INSERT 時に inserted_at と updated_at を同じ値で設定するため、
+--      両者がほぼ一致する行は「一度も UPDATE されていない = 正しい値」。
+--      UPDATE を経た行は updated_at がトリガー由来で +9h ずれており、
+--      inserted_at との差は必ず 9 時間以上になる。1 秒を閾値にすれば判別できる。
+--      閾値未満の行を対象外にしても、ずれた値を残すことはあっても
+--      正しい値を壊すことはない（安全側に倒している）。
+ALTER TABLE public.matters  DISABLE TRIGGER update_matters_updated_at;
+ALTER TABLE public.matters  DISABLE TRIGGER detect_matters_updates;
+ALTER TABLE public.profiles DISABLE TRIGGER update_profiles_updated_at;
+
+UPDATE public.matters
+   SET updated_at = updated_at - interval '9 hours'
+ WHERE updated_at > inserted_at + interval '1 second';
+
+UPDATE public.profiles
+   SET updated_at = updated_at - interval '9 hours'
+ WHERE updated_at > inserted_at + interval '1 second';
+
+ALTER TABLE public.matters  ENABLE TRIGGER update_matters_updated_at;
+ALTER TABLE public.matters  ENABLE TRIGGER detect_matters_updates;
+ALTER TABLE public.profiles ENABLE TRIGGER update_profiles_updated_at;
