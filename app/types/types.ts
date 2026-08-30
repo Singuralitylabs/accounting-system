@@ -136,3 +136,59 @@ export type AnnualTrendType = {
   fiscalYear: number; // 年度（開始年。2026 = 2026/7〜2027/6）
   months: PLReportType[]; // 12ヶ月分（7月始まり）
 };
+
+// ===== 事前収支申告（budget_declarations）関連 =====
+
+type BudgetDeclarationsTable =
+  Database["public"]["Tables"]["budget_declarations"];
+export type BudgetDeclarationType = BudgetDeclarationsTable["Row"];
+
+type BudgetDeclarationItemsTable =
+  Database["public"]["Tables"]["budget_declaration_items"];
+export type BudgetDeclarationItemType = BudgetDeclarationItemsTable["Row"];
+
+// 明細から集計した金額（合計はヘッダに非正規化していない）
+export type BudgetSummaryType = {
+  incomeTotal: number; // 見込み収入合計
+  expenseTotal: number; // 見込み支出合計
+  balance: number; // 差引 = 収入合計 − 支出合計
+};
+
+// 一覧のチーム × 申告状況 1 行
+export type BudgetDeclarationStatusType = {
+  team: string;
+  declarationId: number | null; // 未申告なら null。明細取得のキーにも使う
+  isDeclared: boolean;
+  declaredByName: string | null; // 申告者名（profiles の RLS で読めない場合は null）
+  updatedAt: string | null;
+  summary: BudgetSummaryType;
+};
+
+// 申告の詳細（行を開いたときに表示する明細とコメント）
+export type BudgetDeclarationDetailType = {
+  comment: string | null;
+  items: BudgetDeclarationItemType[];
+};
+
+// ===== Server Action の失敗種別 =====
+
+// 権限不足（forbidden）は再試行しても回復しないため、一時的な取得失敗
+// （fetchFailed）と区別する。区別しないと react-query が無意味にリトライし、
+// 画面にも「時間をおいて再読み込み」という誤った案内が出る。
+// Server Action の戻り値に載せるため、Error インスタンスではなくプレーンな
+// オブジェクトにする（React Flight は Error をシリアライズしない）。
+export type AccessFailureKind = "forbidden" | "fetchFailed";
+
+export type AccessFailure = {
+  kind: AccessFailureKind;
+  message: string;
+};
+
+export type BudgetDeclarationListResult =
+  | { rows: BudgetDeclarationStatusType[]; error?: undefined }
+  | { rows?: undefined; error: AccessFailure };
+
+export type BudgetDeclarationDetailResult =
+  // 未申告（該当行なし）は detail: null。取得失敗・権限不足と区別する
+  | { detail: BudgetDeclarationDetailType | null; error?: undefined }
+  | { detail?: undefined; error: AccessFailure };

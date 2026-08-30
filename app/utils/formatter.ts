@@ -7,9 +7,13 @@ export const formatCurrency = (amount: number | null) => {
   }).format(amount);
 };
 
+// timeZone を明示するのは、実行環境の TZ に依存させないため。
+// SSR（UTC のサーバ）とブラウザ（JST）で結果が 9 時間ズレると、
+// クライアントコンポーネントのハイドレーション不一致になる。
 export const formatTimeToJp = (date: string | null) => {
   if (date === null || date === undefined) return "-";
   return new Date(date).toLocaleDateString("ja-JP", {
+    timeZone: "Asia/Tokyo",
     year: "numeric",
     month: "numeric",
     day: "numeric",
@@ -36,6 +40,17 @@ export const toDateString = (date: Date | null): string | null => {
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 };
+
+// 月キー（YYYY-MM）または日付文字列（YYYY-MM-DD）→ 月初日（YYYY-MM-01）。
+// 月単位で保持するカラム（recurring_costs.start_month /
+// budget_declarations.target_month）への書き込み・絞り込みで使う。
+export const toFirstOfMonth = (value: string): string =>
+  `${value.slice(0, 7)}-01`;
+
+// JST 基準の当月キー（YYYY-MM）。サーバ（UTC）とブラウザ（JST）で結果を揃えるため、
+// ローカルタイムゾーンに依存せず UTC からの +9 時間で判定する。
+export const currentJstMonth = (now: Date = new Date()): string =>
+  new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 7);
 
 // 月キー（YYYY-MM）を「YYYY年M月」表記にする
 export const formatMonthLabel = (month: string) =>

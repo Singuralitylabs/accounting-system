@@ -839,6 +839,8 @@ CREATE POLICY "extra_entries_delete_policy" ON extra_entries
 >
 > この述語はヘッダ・明細あわせて 10 箇所で必要になるため、`public.can_access_team_budget(text)` に切り出している。逐語コピーだと将来ロール条件を変えたときに 1 箇所直し忘れ、特定の操作にだけ古いルールが残る（エラーにならない）RLS バグを踏みやすい。
 >
+> **アプリ側との対応**: 同じ区分をアプリでも持っている（`app/utils/budgetDeclaration.ts` の `BUDGET_ALL_TEAMS_CLASSES` / `BUDGET_OWN_TEAM_ONLY_CLASSES`）。一覧で「未申告」を表示するには、申告が 1 行も無いチームも並べる必要があり、RLS だけでは表示対象のチームを決められないため。DB とアプリの二重定義になるので、ロール条件を変えるときは**両方**を直す（アプリ側は `ROUTE_PERMISSIONS["/budget-declarations"]` から導出しているため、ルートの許可ロールを増やす分には自動で追随する）。
+>
 > **効率**: 判定は行の team に依存するため、[5.2](#52-matters-テーブル) 等の `(select auth.uid())` のように InitPlan 化（ステートメントあたり 1 回）はできず行ごとに評価される。1 行あたり profiles への索引参照が数回走るが、本テーブルの行数は「チーム数 × 対象月数」程度で小さいため許容している。`auth.uid()` 自体はヘルパ関数の内部で `(select auth.uid())` に包まれており、Supabase の `auth_rls_initplan` リンタの対象にはならない。
 
 ```sql

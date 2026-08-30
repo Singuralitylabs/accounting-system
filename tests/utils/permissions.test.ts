@@ -42,6 +42,9 @@ describe("ROUTE_PERMISSIONS による各保護ルートの認可", () => {
     ["/recurring-costs", "teamleader", false],
     ["/extra-entries", "accounting", true],
     ["/extra-entries", "teamleader", false],
+    ["/budget-declarations", "teamleader", true],
+    ["/budget-declarations", "accounting", true],
+    ["/budget-declarations", "public", false],
     ["/dashboard", "admin", true],
     ["/dashboard", "accounting", false],
   ])("%s へのアクセス: ロール %s → %s", (route, role, expected) => {
@@ -96,6 +99,7 @@ describe("visibleNavItems", () => {
       "/profit-loss",
       "/recurring-costs",
       "/extra-entries",
+      "/budget-declarations",
       "/dashboard",
     ]);
   });
@@ -104,16 +108,17 @@ describe("visibleNavItems", () => {
     expect(hrefsFor("public")).toEqual(["/matters", "/new"]);
   });
 
-  it("teamleader にはチーム案件と損益計算書を表示する", () => {
+  it("teamleader にはチーム案件・損益計算書・事前収支申告を表示する", () => {
     expect(hrefsFor("teamleader")).toEqual([
       "/matters",
       "/new",
       "/team",
       "/profit-loss",
+      "/budget-declarations",
     ]);
   });
 
-  it("accounting には経理用一覧・損益計算書・定期費用マスタ・経理追加収支を表示する", () => {
+  it("accounting には経理用一覧・損益計算書・定期費用マスタ・経理追加収支・事前収支申告を表示する", () => {
     expect(hrefsFor("accounting")).toEqual([
       "/matters",
       "/new",
@@ -121,6 +126,7 @@ describe("visibleNavItems", () => {
       "/profit-loss",
       "/recurring-costs",
       "/extra-entries",
+      "/budget-declarations",
     ]);
   });
 
@@ -130,7 +136,7 @@ describe("visibleNavItems", () => {
 
   it("すべてのナビ項目にハブ用の説明文がある", () => {
     const items = visibleNavItems("admin");
-    expect(items).toHaveLength(8);
+    expect(items).toHaveLength(9);
     for (const item of items) {
       expect(item.description.length).toBeGreaterThan(0);
     }
