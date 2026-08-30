@@ -59,29 +59,59 @@ CREATE TRIGGER update_budget_declaration_items_updated_at
 -- ===== 3. RLS =====
 -- 経理担当者 / 管理者は全行、チームリーダーは自チームの行のみ読み書き可能。
 -- public ロール（profiles.class = 'public'）はアクセス不可。
+--
+-- 判定述語はヘッダ・明細あわせて 10 箇所で使うため、ヘルパ関数に切り出す。
+-- 逐語コピーだと将来ロール条件を変えたときに 1 箇所直し忘れ、特定の操作にだけ
+-- 古いルールが残る（エラーにならない）RLS バグを踏みやすい。
+--
 -- 閲覧者自身の class / team は SECURITY DEFINER ヘルパ（migration 12）から取得する
 -- （profiles の SELECT ポリシーに依存しないため、チームリーダーが自チーム外の
 -- 申告者プロフィールを読めない場合でも判定がぶれない）。
+CREATE OR REPLACE FUNCTION public.can_access_team_budget(target_team text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path = ''
+AS $$
+  SELECT public.auth_user_class() IN ('admin', 'accounting')
+      OR (
+        public.auth_user_class() = 'teamleader'
+        AND public.auth_user_team() IS NOT NULL
+        AND target_team = public.auth_user_team()
+      )
+$$;
+
+COMMENT ON FUNCTION public.can_access_team_budget(text) IS
+  '事前収支申告（budget_declarations / budget_declaration_items）の RLS 判定。経理・管理者は全チーム、チームリーダーは自チームのみ true。詳細: docs/database.md 5.8';
+
+-- 不特定多数からの直接呼び出しを避け、認証済みロールのみに実行を許可する（migration 12 と同方針）
+REVOKE EXECUTE ON FUNCTION public.can_access_team_budget(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.can_access_team_budget(text) TO authenticated;
+
+-- 効率について: 判定は行の team に依存するため、migration 08 の (select auth.uid()) の
+-- ように InitPlan 化（ステートメントあたり 1 回）はできず、行ごとに評価される。
+-- 1 行あたり profiles への索引参照が数回走るが、本テーブルの行数は
+-- 「チーム数 × 対象月数」程度で小さいため許容する。
+-- （auth.uid() 自体は migration 12 のヘルパ内で (select auth.uid()) に包んであり、
+--   Supabase の auth_rls_initplan リンタの対象にはならない）
+
 ALTER TABLE budget_declarations      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE budget_declaration_items ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "budget_declarations_select_policy" ON budget_declarations
   FOR SELECT TO authenticated
-  USING (
-    public.auth_user_class() IN ('admin', 'accounting')
-    OR (
-      public.auth_user_class() = 'teamleader'
-      AND public.auth_user_team() IS NOT NULL
-      AND budget_declarations.team = public.auth_user_team()
-    )
-  );
+  USING (public.can_access_team_budget(budget_declarations.team));
 
 -- INSERT では自チームであることに加え、チームリーダーには declared_by = 自分自身を
--- 強制する（他人名義での新規申告の防止）。経理・管理者は代理入力があるため制約しない。
--- profiles の参照は自分自身の行のみで足りるため、profiles の SELECT ポリシー
--- （自分の行は常に可）に阻まれない。
+-- 強制する。profiles の参照は自分自身の行のみで足りるため、profiles の SELECT
+-- ポリシー（自分の行は常に可）に阻まれない。
 --
--- UPDATE / DELETE には declared_by の制約を課さない。理由:
+-- ただしこれは **INSERT 単体での詐称防止**にとどまる。UPDATE は team しか見ないため、
+-- 自分名義で INSERT → 直後に UPDATE で declared_by を他人に付け替える 2 手順で
+-- 迂回できる。RLS の WITH CHECK からは OLD 行を参照できず「declared_by は不変か
+-- 自分自身」を表現できないため、厳密に守るには BEFORE UPDATE トリガーが必要になる。
+--
+-- UPDATE / DELETE に declared_by の制約を課さない理由:
 --   - 明細（budget_declaration_items）の書き込みは親ヘッダの team だけで判定するため、
 --     チームリーダーは declared_by に触れずに金額を全部書き換えられる。UPDATE だけを
 --     縛っても「declared_by = 実際に最後に手を入れた人」は DB では保証できない。
@@ -90,16 +120,14 @@ CREATE POLICY "budget_declarations_select_policy" ON budget_declarations
 --     作成した行を編集できなくなる。profiles 削除前に declared_by を付け替える
 --     運用（3.9 参照）も塞がる。
 -- したがって declared_by は「アプリが最終更新者で更新する表示・監査補助用の項目」と
--- 位置づけ、DB では INSERT 時の詐称防止（他人名義での新規申告）のみを担保する。
+-- 位置づけ、DB は素朴な他人名義 INSERT を弾くところまでを担保する。
 CREATE POLICY "budget_declarations_insert_policy" ON budget_declarations
   FOR INSERT TO authenticated
   WITH CHECK (
-    public.auth_user_class() IN ('admin', 'accounting')
-    OR (
-      public.auth_user_class() = 'teamleader'
-      AND public.auth_user_team() IS NOT NULL
-      AND budget_declarations.team = public.auth_user_team()
-      AND EXISTS (
+    public.can_access_team_budget(budget_declarations.team)
+    AND (
+      public.auth_user_class() IN ('admin', 'accounting')
+      OR EXISTS (
         SELECT 1 FROM profiles p
         WHERE p.id = budget_declarations.declared_by
         AND p.user_id = (select auth.uid())
@@ -110,127 +138,53 @@ CREATE POLICY "budget_declarations_insert_policy" ON budget_declarations
 -- WITH CHECK でも team を制約し、チームリーダーによる他チームへの付け替えを防ぐ
 CREATE POLICY "budget_declarations_update_policy" ON budget_declarations
   FOR UPDATE TO authenticated
-  USING (
-    public.auth_user_class() IN ('admin', 'accounting')
-    OR (
-      public.auth_user_class() = 'teamleader'
-      AND public.auth_user_team() IS NOT NULL
-      AND budget_declarations.team = public.auth_user_team()
-    )
-  )
-  WITH CHECK (
-    public.auth_user_class() IN ('admin', 'accounting')
-    OR (
-      public.auth_user_class() = 'teamleader'
-      AND public.auth_user_team() IS NOT NULL
-      AND budget_declarations.team = public.auth_user_team()
-    )
-  );
+  USING (public.can_access_team_budget(budget_declarations.team))
+  WITH CHECK (public.can_access_team_budget(budget_declarations.team));
 
 CREATE POLICY "budget_declarations_delete_policy" ON budget_declarations
   FOR DELETE TO authenticated
-  USING (
-    public.auth_user_class() IN ('admin', 'accounting')
-    OR (
-      public.auth_user_class() = 'teamleader'
-      AND public.auth_user_team() IS NOT NULL
-      AND budget_declarations.team = public.auth_user_team()
-    )
-  );
+  USING (public.can_access_team_budget(budget_declarations.team));
 
 -- 明細は親ヘッダへの EXISTS で同条件を適用する（costs → matters の JOIN パターンと同様）。
 -- EXISTS 内のサブクエリには budget_declarations の SELECT ポリシーも重ねて適用されるが、
 -- 条件が同一なので結果は変わらない。
-CREATE POLICY "budget_declaration_items_select_policy" ON budget_declaration_items
-  FOR SELECT TO authenticated
+--
+-- 4 コマンドで条件が完全に同一なので FOR ALL 1 本にまとめる（USING が
+-- SELECT / UPDATE / DELETE に、WITH CHECK が INSERT / UPDATE に適用される）。
+-- recurring_costs / extra_entries がコマンド別に分けているのは SELECT と書き込みで
+-- 条件が異なるためで、ここには当てはまらない。WITH CHECK により、他チームの申告への
+-- 付け替え（declaration_id の書き換え）も防げる。
+CREATE POLICY "budget_declaration_items_all_policy" ON budget_declaration_items
+  FOR ALL TO authenticated
   USING (
     EXISTS (
       SELECT 1 FROM budget_declarations d
       WHERE d.id = budget_declaration_items.declaration_id
-      AND (
-        public.auth_user_class() IN ('admin', 'accounting')
-        OR (
-          public.auth_user_class() = 'teamleader'
-          AND public.auth_user_team() IS NOT NULL
-          AND d.team = public.auth_user_team()
-        )
-      )
-    )
-  );
-
-CREATE POLICY "budget_declaration_items_insert_policy" ON budget_declaration_items
-  FOR INSERT TO authenticated
-  WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM budget_declarations d
-      WHERE d.id = budget_declaration_items.declaration_id
-      AND (
-        public.auth_user_class() IN ('admin', 'accounting')
-        OR (
-          public.auth_user_class() = 'teamleader'
-          AND public.auth_user_team() IS NOT NULL
-          AND d.team = public.auth_user_team()
-        )
-      )
-    )
-  );
-
--- WITH CHECK でも親ヘッダを制約し、他チームの申告への付け替えを防ぐ
-CREATE POLICY "budget_declaration_items_update_policy" ON budget_declaration_items
-  FOR UPDATE TO authenticated
-  USING (
-    EXISTS (
-      SELECT 1 FROM budget_declarations d
-      WHERE d.id = budget_declaration_items.declaration_id
-      AND (
-        public.auth_user_class() IN ('admin', 'accounting')
-        OR (
-          public.auth_user_class() = 'teamleader'
-          AND public.auth_user_team() IS NOT NULL
-          AND d.team = public.auth_user_team()
-        )
-      )
+      AND public.can_access_team_budget(d.team)
     )
   )
   WITH CHECK (
     EXISTS (
       SELECT 1 FROM budget_declarations d
       WHERE d.id = budget_declaration_items.declaration_id
-      AND (
-        public.auth_user_class() IN ('admin', 'accounting')
-        OR (
-          public.auth_user_class() = 'teamleader'
-          AND public.auth_user_team() IS NOT NULL
-          AND d.team = public.auth_user_team()
-        )
-      )
-    )
-  );
-
-CREATE POLICY "budget_declaration_items_delete_policy" ON budget_declaration_items
-  FOR DELETE TO authenticated
-  USING (
-    EXISTS (
-      SELECT 1 FROM budget_declarations d
-      WHERE d.id = budget_declaration_items.declaration_id
-      AND (
-        public.auth_user_class() IN ('admin', 'accounting')
-        OR (
-          public.auth_user_class() = 'teamleader'
-          AND public.auth_user_team() IS NOT NULL
-          AND d.team = public.auth_user_team()
-        )
-      )
+      AND public.can_access_team_budget(d.team)
     )
   );
 
 -- ===== 4. GRANT =====
--- migration 17 の方針に従い、テーブル権限を明示的に付与する（新しい Supabase イメージの
--- 制限的な DEFAULT PRIVILEGES で PostgREST が 403 を返すのを防ぐ保険。migration 17 の
--- ALTER DEFAULT PRIVILEGES でも同じ権限は付くが、既存テーブルと同じ状態を明示する）。
--- 実効的なアクセス制御は上記 RLS が担う（anon 向けポリシーが無いため、GRANT があっても
--- 未ログインからは 0 行になる）。
+-- migration 17 の方針に従い、テーブル権限を明示的に付与する（制限的な DEFAULT
+-- PRIVILEGES を持つ環境で PostgREST が RLS を評価する前に 403 を返すのを防ぐ）。
+-- 実効的なアクセス制御は上記 RLS が担う。
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE budget_declarations
-  TO anon, authenticated, service_role;
+  TO authenticated, service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE budget_declaration_items
-  TO anon, authenticated, service_role;
+  TO authenticated, service_role;
+
+-- anon（未ログイン）は事前収支申告に一切アクセスしないため権限を剥奪する。
+-- migration 17 の ALTER DEFAULT PRIVILEGES により、新規テーブルには何もしなくても
+-- anon にフル CRUD が付いてしまう。現状は anon 向けポリシーが無いので SELECT は
+-- 0 行・書き込みは 42501 で拒否されるが、RLS が唯一のゲートである状態は残るため、
+-- 将来 TO anon のポリシーを足したり調査目的で RLS を外したりした瞬間に
+-- 未ログインからのフル CRUD が開く。権限側でも閉じておく。
+REVOKE ALL ON TABLE budget_declarations      FROM anon;
+REVOKE ALL ON TABLE budget_declaration_items FROM anon;
