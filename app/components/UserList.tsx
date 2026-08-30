@@ -4,11 +4,19 @@ import { Table, Title, LoadingOverlay } from "@mantine/core";
 import { ProfilesType } from "../types/types";
 import { useState } from "react";
 import updateProfile from "../utils/supabase/updateProfile";
+import { notifyError, notifySuccess, toErrorMessage } from "../utils/notify";
 import { useViewportSize } from "@mantine/hooks";
 import UserCard from "./UserCard";
 import UserTable from "./UserTable";
 
-const elementListOfUser = ["ID", "名前", "メールアドレス", "権限", "チーム", "slack ID"];
+const elementListOfUser = [
+  "ID",
+  "名前",
+  "メールアドレス",
+  "権限",
+  "チーム",
+  "slack ID",
+];
 export const classList = ["public", "teamleader", "accounting", "admin"];
 
 const UserList = ({ userList }: { userList: ProfilesType[] }) => {
@@ -21,26 +29,29 @@ const UserList = ({ userList }: { userList: ProfilesType[] }) => {
 
   const handleUpdateUserList = (
     userId: number,
-    updates: Partial<ProfilesType>
+    updates: Partial<ProfilesType>,
   ) => {
     setUpdatedUserList(
       updatedUserList.map((user) =>
-        user.id === userId ? { ...user, ...updates } : user
-      )
+        user.id === userId ? { ...user, ...updates } : user,
+      ),
     );
   };
 
   const handleSave = async (userId: number) => {
+    setIsLoading(true);
     try {
-      setIsLoading(true);
       const user = updatedUserList.find((user) => user.id === userId);
       if (!user) {
         return;
       }
       await updateProfile({ profile: user });
-      setIsLoading(false);
+      notifySuccess("ユーザー情報を保存しました。");
     } catch (error) {
       console.error("ユーザー情報の保存に失敗しました:", error);
+      notifyError(toErrorMessage(error, "ユーザー情報の保存に失敗しました。"));
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -55,7 +66,7 @@ const UserList = ({ userList }: { userList: ProfilesType[] }) => {
   );
 
   return (
-    <div className="p-4">
+    <div className="relative p-4">
       <Title order={2} className="pb-4">
         ユーザーリスト
       </Title>

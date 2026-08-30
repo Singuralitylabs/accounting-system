@@ -1,14 +1,11 @@
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { SignIn } from "../components/auth/auth-components";
-import PageTitle from "../components/PageTitle";
+import { AuthPageShell } from "../components/auth/AuthPageShell";
+import { ALLOWED_EMAIL_DOMAIN } from "../utils/constants";
+import { createServerSupabase } from "../utils/supabase/clients";
 
 const Login = async () => {
-  const cookieStore = cookies();
-  const supabase = createServerComponentClient({
-    cookies: () => cookieStore,
-  });
+  const supabase = createServerSupabase();
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -18,12 +15,12 @@ const Login = async () => {
   }
 
   return (
-    <main>
-      <PageTitle title="ログイン" />
-      <div className="flex justify-center items-center">
-        <SignIn />
-      </div>
-    </main>
+    <AuthPageShell
+      title="経理システム"
+      description={`@${ALLOWED_EMAIL_DOMAIN} の Google アカウントでログインしてください。`}
+    >
+      <SignIn />
+    </AuthPageShell>
   );
 };
 

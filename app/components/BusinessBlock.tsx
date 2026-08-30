@@ -1,30 +1,45 @@
-import { NumberInput, TextInput } from "@mantine/core";
+import {
+  Card,
+  Checkbox,
+  NumberInput,
+  SimpleGrid,
+  TextInput,
+} from "@mantine/core";
 import { FaRegTrashAlt } from "react-icons/fa";
-import { BusinessType } from "../types/types";
+import { BusinessInCardType, BusinessType } from "../types/types";
 import { CustomDatePicker } from "./CustomDatePicker";
+import LabelText from "./LabelText";
 
-type Props = {
-  businessInfo: BusinessType & {
-    isNew?: boolean;
-    isRemoved?: boolean;
-  };
+type UserBusinessBlockProps = {
+  variant: "user";
+  businessInfo: BusinessInCardType;
   formType: string;
   isFixed?: boolean;
   index: number;
   onRemoveBusiness: (id: number) => void;
-  onBusinessUpdate: (
-    updatedBusiness: BusinessType & { isNew?: boolean; isRemoved?: boolean }
-  ) => void;
+  onBusinessUpdate: (updatedBusiness: BusinessInCardType) => void;
 };
 
-const BusinessBlock = ({
+type AccountingBusinessBlockProps = {
+  variant: "accounting";
+  business: BusinessType;
+  businessList: BusinessType[];
+  setBusinessList: React.Dispatch<React.SetStateAction<BusinessType[]>>;
+  isCompleted: boolean;
+};
+
+export type BusinessBlockProps =
+  | UserBusinessBlockProps
+  | AccountingBusinessBlockProps;
+
+const UserBusinessBlock = ({
   businessInfo,
   formType,
   isFixed = false,
   index,
   onRemoveBusiness,
   onBusinessUpdate,
-}: Props) => {
+}: UserBusinessBlockProps) => {
   const handleUpdate = (updates: Partial<BusinessType>) => {
     onBusinessUpdate({ ...businessInfo, ...updates });
   };
@@ -42,6 +57,8 @@ const BusinessBlock = ({
         <div className="md:hidden flex justify-between w-full m-2">
           <div>取引先{index + 1}</div>
           <button
+            type="button"
+            aria-label="取引先を削除"
             className="h-full mx-4 text-lg hover:cursor-pointer w-4 ml-auto items-center justify-center hover:text-blue-500"
             onClick={() => onRemoveBusiness(businessInfo.id)}
           >
@@ -97,6 +114,8 @@ const BusinessBlock = ({
       </div>
       {!isItemDisabled && (
         <button
+          type="button"
+          aria-label="取引先を削除"
           className="hidden text-lg hover:cursor-pointer w-4 ml-2 md:flex items-center pb-3 md:self-end justify-center hover:text-blue-500"
           onClick={() => onRemoveBusiness(businessInfo.id)}
         >
@@ -105,6 +124,67 @@ const BusinessBlock = ({
       )}
     </div>
   );
+};
+
+const AccountingBusinessBlock = ({
+  business,
+  businessList,
+  setBusinessList,
+  isCompleted,
+}: AccountingBusinessBlockProps) => {
+  return (
+    <Card
+      key={business.id}
+      className="relative"
+      h="100%"
+      withBorder
+      radius="sm"
+      padding="sm"
+      aria-label="取引先"
+      bg="green.0"
+    >
+      <div className="flex gap-2 items-center absolute top-2 right-2">
+        <Checkbox
+          aria-label="受取済み"
+          checked={business.is_completed}
+          disabled={isCompleted!}
+          onChange={(event) =>
+            setBusinessList(
+              businessList.map((businessInfo) => {
+                return businessInfo.id === business.id
+                  ? {
+                      ...business,
+                      is_completed: event.currentTarget.checked,
+                    }
+                  : businessInfo;
+              }),
+            )
+          }
+        />
+        <span>確認完了</span>
+      </div>
+
+      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm" className="pt-8">
+        <LabelText label="取引先名">{business.name}</LabelText>
+        <LabelText label="請求額" isCurrency>
+          {business.amount}
+        </LabelText>
+        <LabelText label="請求日" isDate>
+          {business.invoice_date}
+        </LabelText>
+        <LabelText label="振込期限" isDate>
+          {business.period_date}
+        </LabelText>
+      </SimpleGrid>
+    </Card>
+  );
+};
+
+const BusinessBlock = (props: BusinessBlockProps) => {
+  if (props.variant === "accounting") {
+    return <AccountingBusinessBlock {...props} />;
+  }
+  return <UserBusinessBlock {...props} />;
 };
 
 export default BusinessBlock;

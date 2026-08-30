@@ -1,10 +1,9 @@
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
-import { cookies } from "next/headers";
 import Header from "../Header";
 import {
-  getProfileInfoById,
-  getSelectOptions,
-} from "@/app/utils/supabase/supabaseServer";
+  getCachedProfileInfo,
+  getCachedUser,
+} from "@/app/utils/supabase/requestCache";
+import { getActiveSelectOptionsByType } from "@/app/utils/supabase/selectOptionsCache";
 import { InitialOptionsLoader } from "../providers/InitialOptionalLoader";
 
 export default async function AuthProvider({
@@ -12,34 +11,33 @@ export default async function AuthProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = createServerComponentClient({ cookies });
-
   try {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    // getUser / プロフィール取得はリクエスト内キャッシュを共有しているため、
+    // ページ本体側のデータ取得（getProfileInfo 経由）と重複しても往復は 1 回で済む
+    const { user } = await getCachedUser();
 
     let profile = null;
     let initialOptions = null;
     if (user) {
-      const { profileInfo } = await getProfileInfoById(user.id);
-      if (profileInfo) {
-        profile = profileInfo;
-      }
+      // プロフィールと選択肢マスタは互いに独立しているため並列で取得する
+      const [profileResult, { optionsByType }] = await Promise.all([
+        getCachedProfileInfo(),
+        getActiveSelectOptionsByType([
+          "team",
+          "category",
+          "item",
+          "certificate",
+        ]),
+      ]);
 
-      const { options: teamList } = await getSelectOptions("team");
-      const { options: categoryList } = await getSelectOptions("category");
-      const { options: itemList } = await getSelectOptions("item");
-      const { options: certificateList } = await getSelectOptions(
-        "certificate"
-      );
+      profile = profileResult.profileInfo ?? null;
 
       initialOptions = {
-        teamList: teamList.map((team) => team.value),
-        categoryList: categoryList.map((category) => category.value),
-        itemList: itemList.map((item) => item.value),
-        certificateList: certificateList.map(
-          (certificate) => certificate.value
+        teamList: optionsByType.team.map((option) => option.value),
+        categoryList: optionsByType.category.map((option) => option.value),
+        itemList: optionsByType.item.map((option) => option.value),
+        certificateList: optionsByType.certificate.map(
+          (option) => option.value,
         ),
       };
     }

@@ -3,10 +3,9 @@
 import { Button, LoadingOverlay, Table, Title } from "@mantine/core";
 import { SelectOptionType } from "../types/types";
 import { useState } from "react";
-import {
-  insertSelectOption,
-  updateSelectOption,
-} from "../utils/supabase/supabaseServer";
+import { bulkUpsertSelectOptions } from "../utils/supabase/selectOptions";
+import { notifyError, notifySuccess } from "../utils/notify";
+import { confirmAction } from "../utils/confirmAction";
 import {
   DndContext,
   closestCenter,
@@ -42,28 +41,31 @@ const SelectOptionList = ({
   >(optionList.map((option) => ({ ...option, isNew: false })));
   const [isLoading, setIsLoading] = useState(false);
 
-  const optionTitle =
-    optionClass === "team"
-      ? "チーム"
-      : optionClass === "category"
-      ? "分類"
-      : "品目";
+  const OPTION_TITLES: Record<string, string> = {
+    team: "チーム",
+    category: "分類",
+    item: "品目",
+    extra_income_category: "収入分類",
+    extra_expense_category: "支出分類",
+    payment_method: "決済方法",
+  };
+  const optionTitle = OPTION_TITLES[optionClass] ?? optionClass;
 
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
-    })
+    }),
   );
 
   const handleUpdateTeamList = (
     id: number,
-    updates: { value: string } | { is_active: boolean }
+    updates: { value: string } | { is_active: boolean },
   ) => {
     setUpdatedOptionList(
       updatedOptionList.map((option) =>
-        option.id === id ? { ...option, ...updates } : option
-      )
+        option.id === id ? { ...option, ...updates } : option,
+      ),
     );
   };
 
@@ -99,8 +101,8 @@ const SelectOptionList = ({
   const handleRemoveOption = async (id: number) => {
     setUpdatedOptionList(
       updatedOptionList.map((option) =>
-        option.id === id ? { ...option, is_active: false } : option
-      )
+        option.id === id ? { ...option, is_active: false } : option,
+      ),
     );
   };
 
@@ -109,45 +111,33 @@ const SelectOptionList = ({
       setIsLoading(true);
       for (const option of updatedOptionList) {
         if (!option.value && option.is_active) {
-          alert("未入力の欄があります。");
+          notifyError("未入力の欄があります。");
           return;
         }
       }
 
-      const confirm = window.confirm(`${optionTitle}の項目を更新しますか？`);
-      if (!confirm) return;
+      const confirmed = await confirmAction(
+        `${optionTitle}の項目を更新しますか？`,
+      );
+      if (!confirmed) return;
 
-      for (const option of updatedOptionList) {
-        if (option.isNew && !option.is_active) continue;
-        if (option.isNew) {
-          await insertSelectOption(
-            optionClass,
-            option.value,
-            option.display_order || updatedOptionList.length
-          );
-        } else {
-          await updateSelectOption(
-            option.id,
-            option.value,
-            option.display_order || updatedOptionList.length,
-            option.is_active!
-          );
-        }
-      }
-      alert(`${optionTitle}情報を更新しました。`);
-      setIsLoading(false);
+      await bulkUpsertSelectOptions(optionClass, updatedOptionList);
+      notifySuccess(`${optionTitle}情報を更新しました。`);
     } catch (error) {
       console.error(`${optionTitle}情報の保存に失敗しました。`, error);
+      notifyError(`${optionTitle}情報の保存に失敗しました。`);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
-    <div className="p-4 border-collapse border border-gray-500 bg-slate-50 rounded">
+    <div className="relative p-4 border-collapse border border-gray-500 bg-slate-50 rounded">
       <div className="flex justify-between items-center">
         <Title order={3} className="pb-4">
           {optionTitle}
         </Title>
-        <Button type="button" onClick={handleSaveOption}>
+        <Button type="button" disabled={isLoading} onClick={handleSaveOption}>
           更新
         </Button>
       </div>

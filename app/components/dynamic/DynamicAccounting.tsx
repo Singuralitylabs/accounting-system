@@ -1,32 +1,20 @@
-import { MatterInfoWithUserNameType, MatterType } from "@/app/types/types";
-import { getAllMatterInfoList } from "@/app/utils/supabase/supabaseServer";
-import { AccountingMatterList } from "../AccountingMatterList";
+import { getAllMatterInfoList } from "@/app/utils/supabase/matters";
+import type { MatterWithProfileType } from "@/app/hooks/useMatterData";
+import { MatterList } from "../MatterList";
 
-type MatterTypeAndProfileType = MatterType & {
-  profiles: {
-    name: string;
-    slack_id: string | null;
-  } | null;
-};
 const DynamicAccouting = async () => {
-  const matterListWithProfile: MatterTypeAndProfileType[] | null =
-    await getAllMatterInfoList();
+  const matterListWithProfile = await getAllMatterInfoList();
 
-  const matterList: MatterInfoWithUserNameType[] =
-    matterListWithProfile?.map(
-      (matterWithProfile: MatterTypeAndProfileType) => {
-        const { profiles, ...matterInfo } = matterWithProfile;
-        return {
-          ...matterInfo,
-          user_name: profiles!.name,
-          slack_id: profiles!.slack_id,
-        };
-      }
-    ) ?? [];
-
+  // TanStack Query のキャッシュをシードするため、profiles を含む生の形のまま渡す
+  // （MatterInfoWithUserNameType への変換はクライアント側の useMemo で行う）
   return (
     <main>
-      <AccountingMatterList initialData={matterList} />
+      <MatterList
+        variant="accounting"
+        initialData={
+          (matterListWithProfile as MatterWithProfileType[] | null) ?? undefined
+        }
+      />
     </main>
   );
 };

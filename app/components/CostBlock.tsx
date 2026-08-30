@@ -1,25 +1,39 @@
-import { Checkbox, NumberInput, Select, TextInput } from "@mantine/core";
+import {
+  Card,
+  Checkbox,
+  NumberInput,
+  Select,
+  SimpleGrid,
+  TextInput,
+} from "@mantine/core";
 import { FaRegTrashAlt } from "react-icons/fa";
-import { CostType } from "../types/types";
+import { CostInCardType, CostType } from "../types/types";
 import { CustomDatePicker } from "./CustomDatePicker";
+import LabelText from "./LabelText";
 
-type Props = {
-  costInfo: CostType & {
-    isNew?: boolean;
-    isRemoved?: boolean;
-  };
+type UserCostBlockProps = {
+  variant: "user";
+  costInfo: CostInCardType;
   itemList: string[];
   certificateList: string[];
   formType: string;
   isFixed?: boolean;
   index: number;
   onRemoveCost: (id: number) => void;
-  onCostUpdate: (
-    updatedCost: CostType & { isNew?: boolean; isRemoved?: boolean }
-  ) => void;
+  onCostUpdate: (updatedCost: CostInCardType) => void;
 };
 
-const CostBlock = ({
+type AccountingCostBlockProps = {
+  variant: "accounting";
+  cost: CostType;
+  costList: CostType[];
+  setCostList: React.Dispatch<React.SetStateAction<CostType[]>>;
+  isCompleted: boolean;
+};
+
+export type CostBlockProps = UserCostBlockProps | AccountingCostBlockProps;
+
+const UserCostBlock = ({
   costInfo,
   itemList,
   certificateList,
@@ -28,7 +42,7 @@ const CostBlock = ({
   index,
   onRemoveCost,
   onCostUpdate,
-}: Props) => {
+}: UserCostBlockProps) => {
   const handleUpdate = (updates: Partial<CostType>) => {
     onCostUpdate({ ...costInfo, ...updates });
   };
@@ -52,6 +66,8 @@ const CostBlock = ({
           <div>コスト{index + 1}</div>
           <div className="flex gap-2">
             <button
+              type="button"
+              aria-label="コストを削除"
               className="h-full mx-4 text-lg hover:cursor-pointer w-4 ml-auto items-center justify-center hover:text-blue-500"
               onClick={() => onRemoveCost(costInfo.id)}
             >
@@ -140,6 +156,8 @@ const CostBlock = ({
       <div className="hidden lg:flex lg:self-end pb-2">
         {!isItemDisabled && (
           <button
+            type="button"
+            aria-label="コストを削除"
             className="text-lg hover:cursor-pointer w-4 ml-2 flex items-end justify-center hover:text-blue-500 h-[38px]"
             onClick={() => onRemoveCost(costInfo.id)}
           >
@@ -149,6 +167,70 @@ const CostBlock = ({
       </div>
     </div>
   );
+};
+
+const AccountingCostBlock = ({
+  cost,
+  costList,
+  setCostList,
+  isCompleted,
+}: AccountingCostBlockProps) => {
+  return (
+    <Card
+      key={cost.id}
+      className="relative"
+      h="100%"
+      withBorder
+      radius="sm"
+      padding="sm"
+      aria-label="コスト"
+      bg="gray.0"
+    >
+      <div className="flex gap-2 items-center absolute top-2 right-2">
+        <Checkbox
+          aria-label="支払い済み"
+          checked={cost.is_completed}
+          disabled={isCompleted!}
+          onChange={(event) =>
+            setCostList(
+              costList.map((costInfo) => {
+                return costInfo.id === cost.id
+                  ? {
+                      ...cost,
+                      is_completed: event.currentTarget.checked,
+                    }
+                  : costInfo;
+              }),
+            )
+          }
+        />
+        <span>支払い完了</span>
+      </div>
+
+      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm" className="pt-8">
+        <LabelText label="コスト名">{cost.name}</LabelText>
+        <LabelText label="品目">{cost.item}</LabelText>
+        <LabelText label="価格" isCurrency>
+          {cost.price}
+        </LabelText>
+        <LabelText label="支払い期限" isDate>
+          {cost.period}
+        </LabelText>
+        <LabelText label="支払い先">{cost.payment_target}</LabelText>
+        <LabelText label="申請方法">{cost.certificate}</LabelText>
+        <LabelText label="源泉徴収">
+          {cost.withholding ? "あり" : "なし"}
+        </LabelText>
+      </SimpleGrid>
+    </Card>
+  );
+};
+
+const CostBlock = (props: CostBlockProps) => {
+  if (props.variant === "accounting") {
+    return <AccountingCostBlock {...props} />;
+  }
+  return <UserCostBlock {...props} />;
 };
 
 export default CostBlock;

@@ -1,30 +1,55 @@
 "use client";
 
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+import { useEffect, useState } from "react";
+import { FcGoogle } from "react-icons/fc";
+import {
+  ALLOWED_EMAIL_DOMAIN,
+  isAllowedEmailDomain,
+} from "@/app/utils/constants";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
-
-const ALLOWED_DOMAIN = "future-tech-association.org";
-
-const isAllowedDomain = (email: string): boolean => {
-  return email.endsWith(`@${ALLOWED_DOMAIN}`);
-};
+import { useSupabase } from "@/app/components/providers/SupabaseProvider";
+import { notifyError } from "@/app/utils/notify";
+import { Loader } from "@mantine/core";
+import { authPrimaryButtonClassName } from "./authButtonStyles";
 
 export const SignIn = () => {
-  const supabase = createClientComponentClient();
+  const { supabase } = useSupabase();
   const router = useRouter();
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      // クロスオリジンの OAuth 画面から「戻る」と bfcache で state が残るため、
+      // スピナー付き disabled のまま固まらないよう loading を解除する。
+      if (event.persisted) {
+        setLoading(false);
+      }
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
 
   const handleSignIn = async () => {
+    if (loading) {
+      return;
+    }
+
+    setLoading(true);
+
     try {
       const {
         data: { user },
       } = await supabase.auth.getUser();
 
       if (user) {
-        // 既存ユーザーがいる場合のドメインチェック
-        if (user.email && !isAllowedDomain(user.email)) {
+        // 既存ユーザーがいる場合のドメインチェック（UX 用の早期判定。
+        // 実際の強制はサーバの /auth/callback で行う）
+        if (!isAllowedEmailDomain(user.email)) {
           await supabase.auth.signOut();
-          alert(`${ALLOWED_DOMAIN}のメールアドレスのみログイン可能です。`);
+          notifyError(
+            `${ALLOWED_EMAIL_DOMAIN}のメールアドレスのみログイン可能です。`,
+          );
+          setLoading(false);
           return;
         }
         router.push("/");
@@ -35,6 +60,11 @@ export const SignIn = () => {
         provider: "google",
         options: {
           redirectTo: `${window.location.origin}/auth/callback`,
+          // Google 側でも組織ドメインのアカウント選択に絞る（UX 改善）。
+          // セキュリティ上の強制はサーバ側コールバックが担う。
+          queryParams: {
+            hd: ALLOWED_EMAIL_DOMAIN,
+          },
         },
       });
 
@@ -44,38 +74,29 @@ export const SignIn = () => {
       }
     } catch (error) {
       console.error("ログイン処理でエラーが発生しました:", error);
-      alert("ログイン処理でエラーが発生しました。");
+      notifyError("ログイン処理でエラーが発生しました。");
+      setLoading(false);
     }
   };
-
-  const checkDomainAfterRedirect = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (user?.email && !isAllowedDomain(user.email)) {
-      await supabase.auth.signOut();
-      alert(`${ALLOWED_DOMAIN}のメールアドレスのみログイン可能です。`);
-      router.push("/");
-    }
-  };
-
-  useEffect(() => {
-    if (window.location.pathname === "/auth/callback") {
-      checkDomainAfterRedirect();
-    }
-  }, []);
 
   return (
-    <button 
+    <button
+      type="button"
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        handleSignIn();
+        void handleSignIn();
       }}
-      className="flex justify-center h-12 items-center bg-blue-600 text-lg rounded text-white w-32 text-center my-4 hover:cursor-pointer hover:bg-blue-300"
+      disabled={loading}
+      aria-busy={loading}
+      className={authPrimaryButtonClassName}
     >
-      Google認証
+      {loading ? (
+        <Loader size="sm" color="white" aria-hidden />
+      ) : (
+        <FcGoogle className="h-6 w-6" aria-hidden />
+      )}
+      Google でログイン
     </button>
   );
 };

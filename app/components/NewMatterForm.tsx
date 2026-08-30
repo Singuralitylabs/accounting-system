@@ -3,15 +3,15 @@
 import { BusinessType, CostType, MatterType } from "@/app/types/types";
 import { Button, Group, LoadingOverlay, Tooltip } from "@mantine/core";
 import { useForm } from "@mantine/form";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { CiSquarePlus } from "react-icons/ci";
 import BusinessBlock from "./BusinessBlock";
 import CostBlock from "./CostBlock";
 import { MatterInfoBlock } from "./MatterInfoBlock";
-import addMatterInfo from "../utils/supabase/addMatterInfo";
-import { useRouter } from "next/navigation";
+import { confirmCreateMatter } from "../utils/confirmAction";
 import { useAtomValue } from "jotai";
 import { optionsAtom } from "../atoms/optionsAtom";
+import { useCreateMatter } from "../hooks/useMatterData";
 
 const NewMatterForm = () => {
   const initialFormValues: MatterType = {
@@ -19,7 +19,7 @@ const NewMatterForm = () => {
     title: "",
     category: "",
     team: "",
-    start_date: "",
+    start_date: null,
     description: "",
     is_fixed: false,
     has_updates: false,
@@ -33,6 +33,7 @@ const NewMatterForm = () => {
     is_completed: false,
     accounting_memo: null,
     unchecked_cost_count: 0,
+    parent_matter_id: null,
   };
 
   const { teamList, categoryList, itemList, certificateList } =
@@ -45,15 +46,7 @@ const NewMatterForm = () => {
 
   const [costList, setCostList] = useState<CostType[]>([]);
   const [businessList, setBusinessList] = useState<BusinessType[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const router = useRouter();
-  const [_, startTransition] = useTransition();
-
-  const refreshData = () => {
-    startTransition(() => {
-      router.refresh();
-    });
-  };
+  const createMatterMutation = useCreateMatter();
 
   const handleAddCost = () => {
     const newId =
@@ -111,7 +104,13 @@ const NewMatterForm = () => {
   };
 
   const handleAddMatterInfo = async (is_fixed: boolean) => {
-    setIsLoading(true);
+    const confirmed = await confirmCreateMatter(
+      form.getValues().title,
+      is_fixed,
+      businessList.map((business) => business.amount),
+    );
+    if (!confirmed) return;
+
     const matterInfo: MatterType = {
       id: 0,
       title: form.getValues().title,
@@ -129,26 +128,39 @@ const NewMatterForm = () => {
       cost_count: costList.length,
       business_count: businessList.length,
       unchecked_cost_count: costList.length,
+      parent_matter_id: null,
       inserted_at: "",
       updated_at: "",
     };
-    const ret = await addMatterInfo(matterInfo, businessList, costList);
-    if (ret) {
+    try {
+      await createMatterMutation.mutateAsync({
+        matterInfo,
+        businessInfoList: businessList.map((business) => ({
+          ...business,
+          isNew: true,
+          isRemoved: false,
+        })),
+        costInfoList: costList.map((cost) => ({
+          ...cost,
+          isNew: true,
+          isRemoved: false,
+        })),
+      });
       form.reset();
       form.setValues(initialFormValues);
       setCostList([]);
       setBusinessList([]);
-      refreshData();
+    } catch {
+      // 通知は useCreateMatter.onError
     }
-    setIsLoading(false);
   };
 
   return (
     <form
-      className="p-4 w-auto"
+      className="relative p-4 w-auto"
       onSubmit={form.onSubmit(() => handleAddMatterInfo(true))}
     >
-      <LoadingOverlay visible={isLoading} />
+      <LoadingOverlay visible={createMatterMutation.isPending} />
       <span className="text-red-700 text-sm">
         ※全て税抜金額をご記入ください。
       </span>
@@ -167,6 +179,7 @@ const NewMatterForm = () => {
       {businessList.map((businessInfo, index) => (
         <BusinessBlock
           key={businessInfo.id}
+          variant="user"
           businessInfo={businessInfo}
           formType="new"
           index={index}
@@ -176,8 +189,8 @@ const NewMatterForm = () => {
               businessList.map((businessVal) =>
                 businessVal.id === updatedBusiness.id
                   ? updatedBusiness
-                  : businessVal
-              )
+                  : businessVal,
+              ),
             );
           }}
         />
@@ -201,6 +214,7 @@ const NewMatterForm = () => {
       {costList.map((costInfo, index) => (
         <CostBlock
           key={costInfo.id}
+          variant="user"
           costInfo={costInfo}
           itemList={itemList}
           certificateList={certificateList}
@@ -210,8 +224,8 @@ const NewMatterForm = () => {
           onCostUpdate={(updatedCost) => {
             setCostList(
               costList.map((costVal) =>
-                costVal.id === updatedCost.id ? updatedCost : costVal
-              )
+                costVal.id === updatedCost.id ? updatedCost : costVal,
+              ),
             );
           }}
         />
@@ -232,7 +246,7 @@ const NewMatterForm = () => {
         <Tooltip label="経理に共有されますが、チェック対象外のため、案件内容を変更できます。後日、経理申請を行う必要があります。">
           <Button
             type="button"
-            disabled={isLoading}
+            disabled={createMatterMutation.isPending}
             onClick={() => {
               const validation = form.validate();
               if (validation.hasErrors) {
@@ -245,7 +259,11 @@ const NewMatterForm = () => {
           </Button>
         </Tooltip>
         <Tooltip label="経理のチェック対象となります。申請後は取引先情報・コスト情報の新規追加のみ可能です。それ以外の変更が必要な場合には、経理に連絡する必要があります。">
-          <Button color="red" disabled={isLoading} type="submit">
+          <Button
+            color="red"
+            disabled={createMatterMutation.isPending}
+            type="submit"
+          >
             経理申請
           </Button>
         </Tooltip>

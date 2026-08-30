@@ -2,89 +2,92 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Commands
+## コマンド
 
-### Development
 ```bash
-yarn dev              # Start development server (Next.js)
-yarn build            # Production build 
-yarn start            # Production server
-yarn lint             # ESLint checking
+yarn dev              # 開発サーバ起動
+yarn build            # 本番ビルド
+yarn lint             # ESLint（no-console / no-debugger 検知を含む）
+yarn typecheck        # tsc --noEmit
+yarn test             # Vitest（ユニットテスト）
+yarn test:watch       # Vitest watch モード
+yarn format           # Prettier 適用
+yarn format:check     # Prettier チェック
+
+yarn db:types         # 本番 Supabase からの型生成（.env.local の PROJECT_ID を参照）
+yarn db:types-local   # ローカル Supabase からの型生成
+
+supabase start | stop | reset   # ローカル Supabase の起動・停止・リセット（reset で supabase/migrations/ を再適用）
 ```
 
-### Database
-```bash
-yarn db:types         # Generate TypeScript types from Supabase production schema
-yarn db:types-local   # Generate TypeScript types from local Supabase
-yarn db:seed          # Seed local development database
-```
+- スキーマ変更後は `yarn db:types-local` を必ず実行し `app/lib/database.types.ts` を更新する。
+- スキーマ変更（テーブル / RLS / トリガー / enum / 初期データなど）は **必ず `supabase/migrations/` に SQL ファイルとして追加する**。命名は `YYYYMMDDHHMMSS_<snake_case_name>.sql`。リモートに直接当てた変更も後追いで同形式のファイルを追加し、ローカルから `supabase db reset` で同じ状態を再現できる状態を維持する。
+- マイグレーションを足したら同じ PR で `docs/database.md` も更新する（テーブル定義 / RLS / トリガーの記載と実物を一致させる）。
+- テストは Vitest（`tests/` 配下。純粋関数は `*.test.ts`、コンポーネントは `*.test.tsx` + jsdom。TZ=Asia/Tokyo 固定）。方針・対象・規約は `docs/testing.md` を参照。テスト済みコードを修正したら対応するテストも更新する。
+- CI は GitHub Actions（`.github/workflows/`: typecheck+lint / test / build / format-check）。
 
-### Local Supabase (when running locally)
-```bash
-supabase start        # Start local Supabase services
-supabase stop         # Stop local Supabase services
-supabase reset        # Reset local database
-```
+## 作業ルール
 
-## Architecture Overview
+- 作業ブランチへの commit / push は確認不要。ただし **push 前に `yarn typecheck && yarn lint && yarn test && yarn build && yarn format:check` をローカルで通すこと**。
+- `main` へ直接 push しない。変更は作業ブランチ＋PR を経由する。
+- **PR のマージは禁止。** `gh pr merge`、GitHub MCP の merge、`main` への merge / push をエージェントが実行してはならない。マージはユーザーだけが行う。担当範囲は CI green ＋レビュー完了まで。
 
-### Technology Stack
-- **Framework**: Next.js 14 with App Router and TypeScript
-- **Database**: PostgreSQL via Supabase with Row Level Security
-- **UI**: Tailwind CSS + Mantine components
-- **State**: Jotai atoms for global state, React hooks for local state
-- **Auth**: Supabase Auth with Google OAuth (restricted to future-tech-association.org domain)
+## アーキテクチャ
 
-### Key Directories
-- `app/components/` - Reusable React components organized by feature
-- `app/actions/` - Next.js Server Actions for database operations
-- `app/atoms/` - Jotai state atoms for global state management
-- `app/utils/supabase/` - Database client utilities and helper functions
-- `app/lib/database.types.ts` - Auto-generated TypeScript types from Supabase schema
-- `supabase/` - Database migrations and local development configuration
-- `docs/` - Comprehensive documentation (setup, specification, database design)
+- Next.js 14 (App Router) / TypeScript / Mantine + Tailwind
+- 認証は Supabase Auth + Google OAuth。`@future-tech-association.org` ドメイン限定。
+- 認証・DB アクセスは `@supabase/ssr`（`createServerClient` / `createBrowserClient`）を使う。生成は `app/utils/supabase/clients.ts` の `createServerSupabase()` と `SupabaseProvider` の `createBrowserClient` に集約する。middleware は同じ `@supabase/ssr` の `createServerClient` と request cookies。**`@supabase/auth-helpers-nextjs` は使用禁止**（ESLint `no-restricted-imports`）。Cookie 形式が異なるため、旧 auth-helpers クライアントを混在させるとセッションを読めず、RLS で全クエリが 0 行になる（エラーは出ない）。
+- **`onAuthStateChange` のコールバック内で `supabase.auth.*`（`getUser()` / `getSession()` 等）を await してはならない**。auth-js の `initializePromise` と循環待ちになり、Web Lock が解放されず認証が永久に停止する。コールバック内の非同期処理は `setTimeout(..., 0)` で 1 tick 遅延させ、表示用には `session.user` を直接使う（認可は middleware / RLS が担う）。
+- `app/layout.tsx` で `export const dynamic = "force-dynamic"` を指定しており、ページは静的キャッシュされない。
 
-### Authentication & Authorization
-- Three permission levels: `public` (regular users), `accounting` (finance team), `admin` (full access)
-- Route protection via `middleware.ts` based on user roles
-- Domain restriction: Only `@future-tech-association.org` accounts can log in
-- User roles stored in `profiles.permission` column
+### Provider スタック（`app/layout.tsx`）
 
-### Database Architecture
-- **Core entities**: `matters` (projects), `business` (revenue), `costs` (expenses), `profiles` (users)
-- **Master data**: `select_options` table with hierarchical dropdown options
-- **RLS policies**: Strict data access control based on user permissions and matter ownership
-- **Automated features**: Timestamp triggers, change detection after submissions
-- **Real-time**: Supabase subscriptions available for live updates
+`SupabaseProvider` → `QueryProvider` → `MantineProvider` → `DatesLocaleProvider` → `AuthProvider`
 
-### State Management Patterns
-- **Global master data**: `optionsAtom` (Jotai) for dropdown options loaded once
-- **Authentication state**: `AuthProvider` context wrapping the app
-- **Database client**: `SupabaseProvider` for server/client Supabase instances
-- **Form state**: Mantine forms with local React state
+（日付 UI は `@mantine/dates`。ロケールは `DatesLocaleProvider`、入力は `CustomDatePicker` / `CustomMonthPicker` 経由。layout に日付ピッカー本体を置かない）
 
-### Server vs Client Components
-- Database operations use Server Actions (`app/actions/`)
-- Interactive UI components are Client Components (`'use client'`)
-- Data fetching typically happens in Server Components
-- Client components handle user interactions and real-time updates
+### 状態管理
 
-### Business Logic
-This is a Japanese case management system for Future Tech Promotion Association with:
-- **Matter lifecycle**: Draft → Submitted to Accounting → Accounting Approved → Complete
-- **Financial tracking**: Revenue (`business` table) and expenses (`costs` table) per matter
-- **Team collaboration**: Team leaders can view all team matters
-- **Change tracking**: Updates after submission are flagged for accounting review
-- **Slack integration**: Notifications to matter owners
+- **マスタデータ**: `app/atoms/optionsAtom.ts`（Jotai）。`InitialOptionalLoader` が初回にハイドレート。
+- **サーバ状態**: `app/hooks/useMatterData.ts` の TanStack Query フック（`useUserMatterList` / `useAllMatterList` / `useMatterDetail` ＋ ミューテーション）。Server Component から `initialData` でキャッシュを温める。
+- **フォーム**: `@mantine/form`。
 
-### Development Notes
-- Run `yarn db:types-local` after schema changes to update TypeScript types
-- All database operations should use RLS-aware patterns
-- Japanese locale considerations (JST timezone, currency formatting)
-- No formal testing framework - relies on TypeScript + ESLint + manual testing
+### データアクセス
 
-### Important Files
-- `middleware.ts` - Route protection and user role checking
-- `app/components/providers/` - Context providers for auth, database, and UI
-- `app/utils/supabase/editMatterInfo.tsx` - Core matter CRUD operations
-- `docs/` directory contains comprehensive setup and specification documentation
+- DB ヘルパは `app/utils/supabase/*`（`addMatterInfo` / `editMatterInfo` / `deleteMatter` / `checkMatterInfoList` / `updateProfile` / `profiles` / `matters` / `costs` / `businesses` / `selectOptions` など）。Server Component から直接呼ぶか、TanStack Query フック経由で呼ぶ。
+- `app/actions/` は現状 Slack 通知アクションを再エクスポートしているだけ。新規 Server Action を足すならここ。
+- RLS が有効なので、すべての DB 操作は RLS を前提に書く。
+
+### 認可（`middleware.ts`）
+
+ロールは `profiles.class` カラムに格納：`public` / `teamleader` / `accounting` / `admin`。
+
+ルートごとの閲覧許可ロールは `app/utils/permissions.ts` の `ROUTE_PERMISSIONS` が単一の定義（`/team` / `/accounting` / `/profit-loss` / `/recurring-costs` / `/extra-entries` / `/dashboard`）。`/`, `/new`, `/matters` はロール制限なし（ログイン必須）。権限クラス×ページの手動確認表は `docs/testing.md` の「3.7 手動確認（RLS・権限クラス別）」を参照。
+
+- middleware は `getUser()`（Supabase Auth サーバでアクセストークンの署名・有効性を検証する）で認証を確認する。`getSession()` はローカル Cookie の値をそのまま返すだけで署名検証を行わないため、認証の可否判定には使わない（偽造 Cookie による認証バイパスを防ぐ）。
+- 制限ルートのロールは、`getUser()` で検証済みの同一アクセストークンから読む JWT の `user_class` クレームを使う（`profiles` への DB クエリを排除）。`user_class` は Custom Access Token Hook（`public.custom_access_token_hook`、`docs/database.md` 参照）が付与する。クレームは同じ検証済みトークンの一部であるため、改ざんされていればトークンの署名検証自体が失敗し `getUser()` がエラーになる。
+- `user_class` クレームが有効な文字列でない場合（クレームキー自体が無い / 値が明示的に `null` / 空文字 / 文字列以外）は `profiles` への DB クエリにフォールバックするため、フック未有効化でも動作する（フェイルセーフ）。**本番では Supabase ダッシュボードでフックを有効化する必要がある**（マイグレーション適用後に有効化すること。適用前に有効化すると全ユーザーがログインできなくなる）。新規ユーザーはトークン発行後にプロフィールが作成されるため初回トークンは必ず `user_class: null` になるが、この場合もフォールバックするため直後のロール付与は即座に反映される。
+- ロール変更は対象ユーザーのトークンリフレッシュ（既定で最大約1時間）または再ログインまで JWT に反映されない（JWT にロールが既に載っている場合のみ）。即時反映が必要な用途では middleware だけに依存しないこと。
+- `getUser()` が Supabase Auth 側の一時的障害（fetch 自体の失敗、またはステータス 5xx）を返した場合、middleware はログイン中ユーザーを一律 `/login` に飛ばさず 503 を返す（一時的障害と偽造トークンを区別する）。auth-js の `isAuthRetryableFetchError` は 502/503/504 しか拾わず 500 は `AuthApiError` になるため、判定には 5xx の `AuthApiError` も含める必要がある（`app/utils/routeGuard.ts` の `isTransientAuthError`）。
+
+## 業務ロジック
+
+未来技術推進協会の経理システム（日本語 UI、JST、円表記）。
+
+- **案件ライフサイクル**: 下書き → 経理申請中 → 経理確認完了 → 完了
+- **金額**: `business`（売上）と `costs`（費用）を案件ごとに紐付け
+- **チーム**: チームリーダーは自チームの全案件を閲覧可
+- **差し戻し検知**: 経理申請後に編集されると経理側でハイライト表示
+- **通知**: 案件担当者に Slack で通知
+
+## 主要ファイル
+
+- `middleware.ts` — ルート保護 & ロール判定（判定ロジックは `app/utils/routeGuard.ts`。`matchesRoute` は `permissions.ts`）
+- `app/layout.tsx` — Provider スタック / `force-dynamic`
+- `app/components/providers/` — `SupabaseProvider`, `QueryProvider`, `DatesLocaleProvider`, `InitialOptionalLoader`
+- `app/utils/matterCalc.ts` / `app/utils/matterValidation.ts` — 案件の金額集計と必須・日付バリデーション
+- `app/utils/supabase/editMatterInfo.ts` — 案件 CRUD のコア
+- `app/utils/supabase/profiles.ts` / `matters.ts` / `costs.ts` / `businesses.ts` / `selectOptions.ts` — ドメイン別 DB ヘルパ
+- `app/hooks/useMatterData.ts` — TanStack Query フック群
+- `app/actions/slack/` — Slack 通知 Server Action
+- `docs/setup.md` / `docs/specification.md` / `docs/database.md` / `docs/testing.md` — セットアップ・仕様・DB 設計・テスト設計（手動確認の手順は testing.md 3.7）
