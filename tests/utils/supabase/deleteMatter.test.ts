@@ -22,6 +22,7 @@ vi.mock("@/app/utils/supabase/businesses", () => ({
 }));
 
 import deleteMatter from "@/app/utils/supabase/deleteMatter";
+import { NO_ROWS_DELETED } from "@/app/utils/supabase/errorCodes";
 import type { MatterType } from "@/app/types/types";
 
 const matter: MatterType = {
@@ -66,11 +67,25 @@ describe("deleteMatter", () => {
   it("案件本体の削除が失敗したら throw する", async () => {
     deleteMatterInfo.mockResolvedValue({
       status: null,
-      error: { message: "案件ID : 1の削除対象が見つかりませんでした。" },
+      error: { code: "42501", message: "permission denied for table matters" },
     });
 
     await expect(deleteMatter(matter)).rejects.toThrow(
       "案件情報の削除に失敗しました。",
+    );
+  });
+
+  it("削除 0 行は DB 障害と区別できるメッセージで throw する", async () => {
+    deleteMatterInfo.mockResolvedValue({
+      status: null,
+      error: {
+        code: NO_ROWS_DELETED,
+        message: "案件ID : 1の削除対象が見つかりませんでした。",
+      },
+    });
+
+    await expect(deleteMatter(matter)).rejects.toThrow(
+      "案件が見つかりませんでした。既に削除されているか、削除する権限がありません。",
     );
   });
 });

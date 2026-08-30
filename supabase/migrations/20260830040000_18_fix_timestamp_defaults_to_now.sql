@@ -15,13 +15,29 @@
 --   now()（timestamptz をそのまま返す）に変更する。
 --
 -- 既存行の扱い:
---   過去行は補正しない。matters / profiles の inserted_at・updated_at は
---   アプリ側が new Date().toISOString() で明示指定している経路があり
---   （app/utils/supabase/matters.ts / profiles.ts）、DEFAULT・トリガー由来の
---   ずれた値と正しい値が同一列に混在している。両者を事後に判別する手段がなく、
---   一律の補正はむしろ正しい値を壊すため行わない。
---   画面に表示しているのは matters.inserted_at のみで、これはアプリ側が設定する
---   正しい絶対時刻である。混在の事実は docs/database.md 1.3 に記載する。
+--   本マイグレーションでは補正しない（列ごとに状態が異なるため。詳細は
+--   docs/database.md 1.3）。
+--
+--   - matters.inserted_at / profiles.inserted_at
+--       アプリ側が INSERT 時に new Date().toISOString() で明示指定するため
+--       （app/utils/supabase/matters.ts / profiles.ts）ずれていない。補正不要。
+--   - matters.updated_at / profiles.updated_at
+--       INSERT のみの行はアプリ指定で正しく、UPDATE を経た行は BEFORE UPDATE
+--       トリガー（アプリ指定値を上書きする）由来で +9h。両者が同一列に混在し、
+--       事後に判別できないため補正不能。
+--   - costs / business / recurring_costs / extra_entries の
+--     inserted_at・updated_at
+--       アプリ側にタイムスタンプを書く経路がなく（UPDATE 時にアプリが渡す
+--       updated_at もトリガーが上書きする）、全行が DEFAULT / トリガー由来で
+--       一様に +9h。理屈上は `- interval '9 hours'` で補正できる。
+--   - select_option_types / select_options の created_at・updated_at
+--       旧 DEFAULT が timezone('utc', ...) でセッションが UTC のためずれていない。
+--
+--   一様ずれの 4 テーブルを補正するなら「テーブル内の全行が移行前」と言い切れる
+--   本マイグレーション内が唯一の確実な機会だが、ここでは実施しない。旧環境から
+--   移送されたデータがセッション TZ = Asia/Tokyo の DB で書かれていた場合は
+--   ずれておらず、一律の -9h がかえって値を壊すため（docs/database.md 1.3 の
+--   「旧ローカル手適用 SQL」参照）。補正するかどうかは実データの確認後に別途判断する。
 
 -- 1. updated_at 自動更新トリガー関数
 --    CREATE OR REPLACE は SET 句を含む関数属性も置き換えるため、

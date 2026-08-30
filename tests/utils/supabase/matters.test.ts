@@ -14,6 +14,7 @@ vi.mock("@/app/utils/supabase/profiles", () => ({
 }));
 
 import { deleteMatterInfo } from "@/app/utils/supabase/matters";
+import { NO_ROWS_DELETED } from "@/app/utils/supabase/errorCodes";
 
 const select = vi.fn();
 const eq = vi.fn(() => ({ select }));
@@ -46,7 +47,9 @@ describe("deleteMatterInfo", () => {
     const { status, error } = await deleteMatterInfo(1);
 
     expect(status).toBeNull();
-    expect(error).toEqual({
+    // DB 障害と区別できるよう code を持たせる
+    expect(error).toMatchObject({
+      code: NO_ROWS_DELETED,
       message: "案件ID : 1の削除対象が見つかりませんでした。",
     });
   });

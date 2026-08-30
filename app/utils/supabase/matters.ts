@@ -7,6 +7,7 @@ import {
   isNumericMatterFilterKey,
 } from "../matterListFilters";
 import { createServerSupabase } from "./clients";
+import { NO_ROWS_DELETED } from "./errorCodes";
 import { getProfileInfo } from "./profiles";
 
 export const getAllMatterInfoList = async (
@@ -290,8 +291,12 @@ export const deleteMatterInfo = async (id: number) => {
   }
 
   if (!status || status.length !== 1) {
+    // DB 障害と区別できるよう code を持たせる（呼び出し元がメッセージを出し分ける）
     const emptyDeleteError = {
+      code: NO_ROWS_DELETED,
       message: `案件ID : ${id}の削除対象が見つかりませんでした。`,
+      details: "",
+      hint: "",
     };
     console.error(emptyDeleteError.message, { status });
     return { status: null, error: emptyDeleteError };

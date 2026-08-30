@@ -32,8 +32,12 @@ export default async function AuthProvider({
         ]);
 
       // 空のマスタを optionsAtom に投入すると全フォームのチーム・分類・品目が
-      // 選べなくなるうえ、利用者は取得失敗に気付けない。握りつぶさず throw して
-      // error boundary に処理させる。
+      // 選べなくなるうえ、利用者は取得失敗に気付けない。握りつぶさず throw する。
+      // NOTE: AuthProvider はルートレイアウトから描画されるため、ここで投げた
+      // 例外は各セグメントの error.tsx では捕捉されず app/global-error.tsx に
+      // 到達する（全ルートが再試行ボタン付きのエラー画面に置き換わる）。
+      // マスタが引けない状態は全画面の入力が成立しないため、ページ単位で
+      // 部分的に壊れたまま描画を続けるより望ましいと判断している。
       if (optionsError) {
         throw optionsError;
       }
@@ -77,7 +81,8 @@ export default async function AuthProvider({
       return <>{children}</>;
     }
 
-    // その他の予期せぬエラーは握りつぶさず、error boundary に処理させる
+    // その他の予期せぬエラーは握りつぶさず再 throw する
+    // （上と同じくルートレイアウト経由のため app/global-error.tsx に到達する）
     console.error("Unexpected error in AuthProvider:", error);
     throw error;
   }
