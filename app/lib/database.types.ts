@@ -34,6 +34,88 @@ export type Database = {
   }
   public: {
     Tables: {
+      budget_declaration_items: {
+        Row: {
+          amount: number
+          category: string
+          declaration_id: number
+          description: string
+          display_order: number
+          entry_type: string
+          id: number
+          inserted_at: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          category: string
+          declaration_id: number
+          description: string
+          display_order?: number
+          entry_type: string
+          id?: never
+          inserted_at?: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          category?: string
+          declaration_id?: number
+          description?: string
+          display_order?: number
+          entry_type?: string
+          id?: never
+          inserted_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "budget_declaration_items_declaration_id_fkey"
+            columns: ["declaration_id"]
+            isOneToOne: false
+            referencedRelation: "budget_declarations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      budget_declarations: {
+        Row: {
+          comment: string | null
+          declared_by: number
+          id: number
+          inserted_at: string
+          target_month: string
+          team: string
+          updated_at: string
+        }
+        Insert: {
+          comment?: string | null
+          declared_by: number
+          id?: never
+          inserted_at?: string
+          target_month: string
+          team: string
+          updated_at?: string
+        }
+        Update: {
+          comment?: string | null
+          declared_by?: number
+          id?: never
+          inserted_at?: string
+          target_month?: string
+          team?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "budget_declarations_declared_by_fkey"
+            columns: ["declared_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       business: {
         Row: {
           amount: number | null
@@ -435,6 +517,10 @@ export type Database = {
       auth_user_team: {
         Args: Record<PropertyKey, never>
         Returns: string
+      }
+      can_access_team_budget: {
+        Args: { target_team: string }
+        Returns: boolean
       }
       custom_access_token_hook: {
         Args: { event: Json }

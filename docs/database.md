@@ -56,16 +56,18 @@
 
 ## 2. テーブル一覧
 
-| テーブル名          | 説明                                                         |
-| ------------------- | ------------------------------------------------------------ |
-| profiles            | ユーザー情報を管理するテーブル                               |
-| matters             | 案件情報を管理するテーブル                                   |
-| costs               | コスト情報を管理するテーブル                                 |
-| business            | 取引先情報を管理するテーブル                                 |
-| select_option_types | 選択肢の種類を管理するテーブル                               |
-| select_options      | 選択肢の値を管理するテーブル                                 |
-| recurring_costs     | 定期費用（管理費）を管理するテーブル                         |
-| extra_entries       | 経理追加収支（案件に紐づかない収入・支出）を管理するテーブル |
+| テーブル名               | 説明                                                                |
+| ------------------------ | ------------------------------------------------------------------- |
+| profiles                 | ユーザー情報を管理するテーブル                                      |
+| matters                  | 案件情報を管理するテーブル                                          |
+| costs                    | コスト情報を管理するテーブル                                        |
+| business                 | 取引先情報を管理するテーブル                                        |
+| select_option_types      | 選択肢の種類を管理するテーブル                                      |
+| select_options           | 選択肢の値を管理するテーブル                                        |
+| recurring_costs          | 定期費用（管理費）を管理するテーブル                                |
+| extra_entries            | 経理追加収支（案件に紐づかない収入・支出）を管理するテーブル        |
+| budget_declarations      | 事前収支申告（チーム×対象月の見込み収支）のヘッダを管理するテーブル |
+| budget_declaration_items | 事前収支申告の明細（見込み収入・支出の内訳）を管理するテーブル      |
 
 ## 3. テーブル詳細
 
@@ -258,6 +260,64 @@ CHECK (
 - entry_date
 - manager_id
 
+### 3.9 budget_declarations テーブル
+
+事前収支申告のヘッダ。各チームのチームリーダーが翌月のチーム収支（見込み収入・見込み支出）を申告するために使う。1 チーム × 1 対象月につき 1 行。
+
+合計金額はヘッダに非正規化せず、`budget_declaration_items` から集計する（案件の `total_cost` と異なり明細数が小さいため）。
+
+| カラム名     | データ型                 | 制約                                                                      | 説明                                                                                                                                                                                                                                                        |
+| ------------ | ------------------------ | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| id           | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                                 | 主キー                                                                                                                                                                                                                                                      |
+| target_month | date                     | NOT NULL, CHECK (月初日であること)                                        | 対象月（月初日で格納: 例 2026-10-01。recurring_costs と同方式）                                                                                                                                                                                             |
+| team         | text                     | NOT NULL                                                                  | 対象チーム（select_options の team と同じ値域）                                                                                                                                                                                                             |
+| declared_by  | bigint                   | NOT NULL, FOREIGN KEY (profiles.id)（参照アクション指定なし = NO ACTION） | 申告者（最終更新したチームリーダー等）。extra_entries.manager_id と同じく CASCADE にしない（リーダーの退会でチームの申告ごと消えるのを避ける）。申告のある profiles を削除するとこの FK でエラーになるため、先に declared_by を別のメンバーに付け替えること |
+| comment      | text                     | NULL                                                                      | 補足コメント                                                                                                                                                                                                                                                |
+| inserted_at  | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 作成日時                                                                                                                                                                                                                                                    |
+| updated_at   | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 更新日時                                                                                                                                                                                                                                                    |
+
+CHECK 制約（対象月の正規化）:
+
+```sql
+-- 月初日以外を弾く。これが無いと 2026-10-01 と 2026-10-05 が別行として登録でき、
+-- 下の UNIQUE (target_month, team) が「1 チーム × 1 対象月」を担保できない
+CHECK (target_month = date_trunc('month', target_month)::date)
+```
+
+UNIQUE 制約:
+
+- `(target_month, team)`（`budget_declarations_target_month_team_key`）
+
+インデックス:
+
+- team
+- declared_by（FK 側の索引。extra_entries.manager_id と同じ方針）
+- （target_month 単独のインデックスは張らない。UNIQUE 制約のインデックスが `(target_month, team)` で target_month を先頭列に持つため、対象月での絞り込みはそちらが使える）
+
+`team` の運用上の注意:
+
+`team` は既存テーブルと同じく自由テキストで、DB 側の値域制約は無い。ただしこのテーブルでは `team` が UNIQUE 制約の一部であり、かつ RLS の判定キーでもあるため、表記ゆれやチーム名の変更が「同一対象月に実質重複したヘッダができる」「過去の申告がそのチームのリーダーから見えなくなる」に直結する。`target_month` は CHECK で正規化を強制しているが `team` は非対称に無防備なので、**チーム名を変更する際は select_options だけでなく本テーブル（と profiles.team）の既存行もあわせて更新すること。**
+
+### 3.10 budget_declaration_items テーブル
+
+事前収支申告の明細。1 ヘッダに対して収入・支出の内訳を複数行持つ。
+
+| カラム名       | データ型                 | 制約                                                             | 説明                                                                    |
+| -------------- | ------------------------ | ---------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| id             | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                        | 主キー                                                                  |
+| declaration_id | bigint                   | NOT NULL, FOREIGN KEY (budget_declarations.id) ON DELETE CASCADE | 申告ヘッダ ID（ヘッダ削除時に明細も削除される）                         |
+| entry_type     | text                     | NOT NULL, CHECK (entry_type IN ('income', 'expense'))            | 種別（income = 収入 / expense = 支出。extra_entries と同じ値域）        |
+| category       | text                     | NOT NULL                                                         | 分類（収入時は案件分類 category、支出時は品目 item マスタの値域を想定） |
+| description    | text                     | NOT NULL                                                         | 内容（例: ○○受託案件、外注費）                                          |
+| amount         | numeric(15,2)            | NOT NULL, CHECK (amount > 0)                                     | 見込み金額（円・税別。正の値のみ）                                      |
+| display_order  | integer                  | NOT NULL, DEFAULT 0                                              | 表示順                                                                  |
+| inserted_at    | timestamp with time zone | NOT NULL, DEFAULT now()                                          | 作成日時                                                                |
+| updated_at     | timestamp with time zone | NOT NULL, DEFAULT now()                                          | 更新日時                                                                |
+
+インデックス:
+
+- declaration_id
+
 ## 4. 列挙型
 
 ### 4.1 information_category
@@ -279,6 +339,10 @@ RLS は行スコープのゲートであり、テーブルに対する `GRANT SE
 現行のローカル Supabase Postgres イメージは `public` スキーマの DEFAULT PRIVILEGES が厳格化されており、マイグレーションの `CREATE TABLE` だけでは `anon` / `authenticated` / `service_role` に CRUD が付かない（付くのは `TRUNCATE` / `REFERENCES` / `TRIGGER` / `MAINTAIN` のみ）。`supabase/migrations/20260826000000_17_grant_public_crud.sql` で標準的なテーブル / シーケンス GRANT と DEFAULT PRIVILEGES を明示する。関数の `EXECUTE` は付与しない（migration 15/16 の `custom_access_token_hook` 制限を維持する）。
 
 `supabase db reset` はこのマイグレーションを含めて再適用するため、リセット後も PostgREST が 403 に戻らない。
+
+migration 17 以降に追加するテーブルは、同マイグレーションの `ALTER DEFAULT PRIVILEGES` で自動的に同じ権限が付くが、DEFAULT PRIVILEGES の設定差で 403 に戻らないよう、新規テーブルのマイグレーション内でも `GRANT` を明示する（例: `20260830050000_19_budget_declarations.sql`）。
+
+あわせて、`anon`（未ログイン）が触る必要のないテーブルでは自動付与された権限を `REVOKE ALL ... FROM anon` で剥奪する。migration 17 は既存テーブルの 403 障害に対する一括付与であり、新規テーブルで未ログインに CRUD を残す必然性は無い。RLS だけをゲートにしておくと、将来 `TO anon` のポリシーを足したり調査目的で RLS を外したりした瞬間にフル CRUD が開いてしまう。
 
 ### 5.1 profiles テーブル
 
@@ -767,6 +831,109 @@ CREATE POLICY "extra_entries_delete_policy" ON extra_entries
     );
 ```
 
+### 5.8 budget_declarations テーブル
+
+> recurring_costs / extra_entries と異なり、**チームリーダーに自チーム分の書き込みを許可する**（事前収支申告はチームリーダー自身が入力するため）。経理担当者・管理者は全行、チームリーダーは自チームの行のみ SELECT / INSERT / UPDATE / DELETE でき、public ロールはアクセスできない。UPDATE は `WITH CHECK` でも team を制約し、他チームへの付け替えを防ぐ。
+>
+> 判定には `EXISTS (SELECT ... FROM profiles ...)` ではなく `SECURITY DEFINER` ヘルパ関数 `auth_user_class()` / `auth_user_team()`（[5.1](#51-profiles-テーブル) 参照）を使う。profiles の SELECT ポリシー自体に依存しないため、閲覧できる profiles の行が絞られていても判定がぶれない。
+>
+> この述語はヘッダ・明細あわせて 10 箇所で必要になるため、`public.can_access_team_budget(text)` に切り出している。逐語コピーだと将来ロール条件を変えたときに 1 箇所直し忘れ、特定の操作にだけ古いルールが残る（エラーにならない）RLS バグを踏みやすい。
+>
+> **効率**: 判定は行の team に依存するため、[5.2](#52-matters-テーブル) 等の `(select auth.uid())` のように InitPlan 化（ステートメントあたり 1 回）はできず行ごとに評価される。1 行あたり profiles への索引参照が数回走るが、本テーブルの行数は「チーム数 × 対象月数」程度で小さいため許容している。`auth.uid()` 自体はヘルパ関数の内部で `(select auth.uid())` に包まれており、Supabase の `auth_rls_initplan` リンタの対象にはならない。
+
+```sql
+-- ロール判定ヘルパ（SECURITY DEFINER ではない。内部で migration 12 のヘルパを呼ぶ）
+CREATE OR REPLACE FUNCTION public.can_access_team_budget(target_team text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path = ''
+AS $$
+  SELECT public.auth_user_class() IN ('admin', 'accounting')
+      OR (
+        public.auth_user_class() = 'teamleader'
+        AND public.auth_user_team() IS NOT NULL
+        AND target_team = public.auth_user_team()
+      )
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.can_access_team_budget(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.can_access_team_budget(text) TO authenticated;
+
+-- 経理担当者/管理者は全行、チームリーダーは自チームの行のみ参照可能
+CREATE POLICY "budget_declarations_select_policy" ON budget_declarations
+    FOR SELECT TO authenticated
+    USING (public.can_access_team_budget(budget_declarations.team));
+
+CREATE POLICY "budget_declarations_delete_policy" ON budget_declarations
+    FOR DELETE TO authenticated
+    USING (public.can_access_team_budget(budget_declarations.team));
+
+-- UPDATE は USING と WITH CHECK の双方に同条件を課し、他チームへの team 付け替えを防ぐ
+CREATE POLICY "budget_declarations_update_policy" ON budget_declarations
+    FOR UPDATE TO authenticated
+    USING (public.can_access_team_budget(budget_declarations.team))
+    WITH CHECK (public.can_access_team_budget(budget_declarations.team));
+
+-- INSERT の WITH CHECK のみ、チームリーダーに declared_by = 自分自身も強制する
+CREATE POLICY "budget_declarations_insert_policy" ON budget_declarations
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        public.can_access_team_budget(budget_declarations.team)
+        AND (
+            public.auth_user_class() IN ('admin', 'accounting')
+            OR EXISTS (
+                SELECT 1 FROM profiles p
+                WHERE p.id = budget_declarations.declared_by
+                AND p.user_id = (select auth.uid())
+            )
+        )
+    );
+```
+
+#### declared_by の扱い（DB が保証する範囲）
+
+INSERT の `WITH CHECK` に限り、チームリーダーには `declared_by` = 自分自身の profiles.id を強制する。経理担当者・管理者は代理入力があるため制約しない。ここだけは profiles を直接参照するが、参照するのは自分自身の行のみで、profiles の SELECT ポリシーは自分の行を常に許可するため阻まれない。
+
+**ただしこれは INSERT 単体での詐称防止にとどまり、UPDATE 経由では迂回できる。** UPDATE ポリシーは team しか見ないため、自分名義で INSERT → 直後に UPDATE で `declared_by` を他人に付け替える 2 手順が通る。RLS の `WITH CHECK` からは OLD 行を参照できず「`declared_by` は不変か自分自身」を表現できないため、厳密に守るには `BEFORE UPDATE` トリガーが必要になる。
+
+UPDATE / DELETE に `declared_by` の制約を課さないのは次の理由による。
+
+- 明細（budget_declaration_items）の書き込みは親ヘッダの team だけで判定するため、チームリーダーは `declared_by` に触れずに金額を全部書き換えられる。UPDATE だけを縛っても「`declared_by` = 実際に最後に手を入れた人」は DB では保証できない。
+- 一方で縛ると、既存行を読んでそのまま書き戻す一般的な更新パターン（元の `declared_by` を送る）が 42501 になり、同一チームの別リーダーや経理が作成した行を編集できなくなる。profiles 削除前に `declared_by` を付け替える運用（[3.9](#39-budget_declarations-テーブル)）も塞がる。
+
+したがって `declared_by` は**アプリが最終更新者で更新する表示・監査補助用の項目**と位置づけ、DB は素朴な他人名義 INSERT を弾くところまでを担保する。改ざん耐性のある監査証跡が必要になった時点で、トリガーによる強制を検討する。
+
+#### anon の権限
+
+`anon`（未ログイン）はこの 2 テーブルに一切アクセスしないため、[5.0](#50-テーブル--シーケンス権限postgrest-の前提) の `ALTER DEFAULT PRIVILEGES` で自動的に付く CRUD をマイグレーション内で `REVOKE ALL` している。現状は `TO anon` のポリシーが無いので SELECT は 0 行・書き込みは 42501 で拒否されるが、それは RLS だけがゲートになっている状態であり、将来 `TO anon` のポリシーを足したり調査目的で RLS を外したりした瞬間に未ログインからのフル CRUD が開く。権限側でも閉じておく。
+
+### 5.9 budget_declaration_items テーブル
+
+> 明細は親ヘッダ（budget_declarations）への `EXISTS` で 5.8 と同じ条件を適用する（costs → matters の JOIN パターンと同様）。`WITH CHECK` にも同条件を課すことで、他チームの申告への付け替え（`declaration_id` の書き換え）を防ぐ。
+>
+> 4 コマンドで条件が完全に同一のため `FOR ALL` 1 本にまとめている（`USING` が SELECT / UPDATE / DELETE に、`WITH CHECK` が INSERT / UPDATE に適用される）。recurring_costs / extra_entries がコマンド別に分けているのは SELECT と書き込みで条件が異なるためで、ここには当てはまらない。
+
+```sql
+-- SELECT / INSERT / UPDATE / DELETE すべて、親ヘッダが 5.8 の条件を満たす行のみ
+CREATE POLICY "budget_declaration_items_all_policy" ON budget_declaration_items
+    FOR ALL TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM budget_declarations d
+            WHERE d.id = budget_declaration_items.declaration_id
+            AND public.can_access_team_budget(d.team)
+        )
+    )
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM budget_declarations d
+            WHERE d.id = budget_declaration_items.declaration_id
+            AND public.can_access_team_budget(d.team)
+        )
+    );
+```
+
 ## 6. トリガー
 
 ### 6.1 updated_at 更新トリガー
@@ -816,6 +983,16 @@ CREATE TRIGGER update_recurring_costs_updated_at
 
 CREATE TRIGGER update_extra_entries_updated_at
     BEFORE UPDATE ON extra_entries
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_updated_at_column();
+
+CREATE TRIGGER update_budget_declarations_updated_at
+    BEFORE UPDATE ON budget_declarations
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_updated_at_column();
+
+CREATE TRIGGER update_budget_declaration_items_updated_at
+    BEFORE UPDATE ON budget_declaration_items
     FOR EACH ROW
     EXECUTE PROCEDURE update_updated_at_column();
 ```
@@ -937,6 +1114,8 @@ GRANT SELECT (user_id, class) ON TABLE public.profiles TO supabase_auth_admin;
 erDiagram
     profiles ||--o{ matters : "creates"
     profiles ||--o{ extra_entries : "manages"
+    profiles ||--o{ budget_declarations : "declares"
+    budget_declarations ||--o{ budget_declaration_items : "contains"
     matters ||--o{ costs : "contains"
     matters ||--o{ business : "has"
     matters ||--o{ matters : "is parent of"
@@ -1052,6 +1231,28 @@ erDiagram
         numeric billing_amount
         numeric expense_amount
         text payment_method
+        timestamp inserted_at
+        timestamp updated_at
+    }
+
+    budget_declarations {
+        bigint id PK
+        date target_month
+        text team
+        bigint declared_by FK
+        text comment
+        timestamp inserted_at
+        timestamp updated_at
+    }
+
+    budget_declaration_items {
+        bigint id PK
+        bigint declaration_id FK
+        text entry_type
+        text category
+        text description
+        numeric amount
+        integer display_order
         timestamp inserted_at
         timestamp updated_at
     }
