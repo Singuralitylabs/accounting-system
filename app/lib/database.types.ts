@@ -518,6 +518,10 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: string
       }
+      can_access_team_budget: {
+        Args: { target_team: string }
+        Returns: boolean
+      }
       custom_access_token_hook: {
         Args: { event: Json }
         Returns: Json
