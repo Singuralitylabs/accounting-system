@@ -5,7 +5,7 @@ import {
   MatterInfoWithUserNameType,
   PLReportType,
 } from "../../types/types";
-import { PL_ALLOWED_CLASSES, hasClassAccess } from "../permissions";
+import { PL_ALLOWED_CLASSES } from "../permissions";
 import { createServerSupabase } from "./clients";
 import {
   BusinessRow,
@@ -14,7 +14,7 @@ import {
   fiscalYearMonths,
   reportFlags,
 } from "../profitLossLogic";
-import { getProfileInfo } from "./profiles";
+import { getAuthorizedViewer } from "./viewerAccess";
 
 // 集計に必要な行をまとめて取得する（RLS により権限に応じた行のみ返る）
 // セッション Cookie は @supabase/ssr 形式。createServerSupabase() 以外のクライアントを混ぜない
@@ -69,15 +69,12 @@ const fetchReportSourceRows = async () => {
 export const getProfitLossReport = async (
   month: string,
 ): Promise<PLReportType | null> => {
-  const { profileInfo, error } = await getProfileInfo();
-  if (error || !profileInfo) {
-    console.error("profiles情報の取得処理で失敗しました。", error);
-    return null;
-  }
-
-  // middleware はページ遷移しか守らないため、Server Action 側でも権限を確認する（多層防御）
-  if (!hasClassAccess(PL_ALLOWED_CLASSES, profileInfo.class)) {
-    console.error("損益レポートの閲覧権限がありません。");
+  // 取得失敗・権限不足はどちらも null（呼び出し元が再取得を促す）
+  const { profileInfo } = await getAuthorizedViewer(
+    PL_ALLOWED_CLASSES,
+    "損益レポート",
+  );
+  if (!profileInfo) {
     return null;
   }
 
@@ -100,14 +97,11 @@ export const getProfitLossReport = async (
 export const getAnnualTrend = async (
   fiscalYear: number,
 ): Promise<AnnualTrendType | null> => {
-  const { profileInfo, error } = await getProfileInfo();
-  if (error || !profileInfo) {
-    console.error("profiles情報の取得処理で失敗しました。", error);
-    return null;
-  }
-
-  if (!hasClassAccess(PL_ALLOWED_CLASSES, profileInfo.class)) {
-    console.error("損益レポートの閲覧権限がありません。");
+  const { profileInfo } = await getAuthorizedViewer(
+    PL_ALLOWED_CLASSES,
+    "損益レポート",
+  );
+  if (!profileInfo) {
     return null;
   }
 

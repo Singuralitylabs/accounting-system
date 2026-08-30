@@ -2,31 +2,36 @@
 
 import { Alert, Table } from "@mantine/core";
 import { useBudgetDeclarationDetail } from "@/app/hooks/useBudgetDeclarationData";
-import {
-  BUDGET_ENTRY_TYPE_LABELS,
-  BudgetEntryType,
-} from "@/app/utils/budgetDeclaration";
+import { formatEntryType } from "@/app/utils/extraEntry";
 import { formatCurrency } from "@/app/utils/formatter";
 import { LoadingSpinner } from "../LoadingSpinner";
 
 type Props = {
-  month: string; // "YYYY-MM"
-  team: string;
+  declarationId: number;
 };
+
+// コメントは明細の有無に関わらず表示する（明細 0 件の申告でも DB 上は成立する）
+const Comment = ({ comment }: { comment: string | null }) =>
+  comment ? (
+    <p className="mt-2 whitespace-pre-wrap text-sm text-gray-600">
+      コメント: {comment}
+    </p>
+  ) : null;
 
 // 一覧の行を開いたときに表示する明細（参照のみ）。
 // 申告の作成・編集フォームは別 Issue（#87）で追加する。
-const BudgetDeclarationItemTable = ({ month, team }: Props) => {
+const BudgetDeclarationItemTable = ({ declarationId }: Props) => {
   const {
     data: detail,
     isLoading,
     isError,
-  } = useBudgetDeclarationDetail(month, team);
+    error,
+  } = useBudgetDeclarationDetail(declarationId);
 
   if (isError) {
     return (
       <Alert color="red" title="申告明細の取得に失敗しました">
-        時間をおいてページを再読み込みしてください。
+        {error.message}
       </Alert>
     );
   }
@@ -35,11 +40,24 @@ const BudgetDeclarationItemTable = ({ month, team }: Props) => {
     return <LoadingSpinner />;
   }
 
-  if (!detail || detail.items.length === 0) {
+  // 申告そのものが見つからない（削除された / RLS で見えない）
+  if (!detail) {
     return (
-      <Alert color="gray" title="明細がありません">
-        このチーム・対象月には明細が登録されていません。
+      <Alert color="gray" title="申告が見つかりません">
+        別のユーザーが削除した可能性があります。ページを再読み込みしてください。
       </Alert>
+    );
+  }
+
+  // ヘッダはあるが明細が 0 件。コメントだけが登録されている場合があるため表示する
+  if (detail.items.length === 0) {
+    return (
+      <>
+        <Alert color="gray" title="明細がありません">
+          この申告には明細が登録されていません。
+        </Alert>
+        <Comment comment={detail.comment} />
+      </>
     );
   }
 
@@ -57,10 +75,7 @@ const BudgetDeclarationItemTable = ({ month, team }: Props) => {
         <Table.Tbody>
           {detail.items.map((item) => (
             <Table.Tr key={item.id}>
-              <Table.Td>
-                {BUDGET_ENTRY_TYPE_LABELS[item.entry_type as BudgetEntryType] ??
-                  item.entry_type}
-              </Table.Td>
+              <Table.Td>{formatEntryType(item.entry_type)}</Table.Td>
               <Table.Td>{item.category}</Table.Td>
               <Table.Td>{item.description}</Table.Td>
               <Table.Td className="text-right">
@@ -70,11 +85,7 @@ const BudgetDeclarationItemTable = ({ month, team }: Props) => {
           ))}
         </Table.Tbody>
       </Table>
-      {detail.declaration.comment && (
-        <p className="mt-2 whitespace-pre-wrap text-sm text-gray-600">
-          コメント: {detail.declaration.comment}
-        </p>
-      )}
+      <Comment comment={detail.comment} />
     </div>
   );
 };

@@ -925,6 +925,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
     - 合計行に表示中のチームの収入合計・支出合計・差引を表示する
   - 明細パネル（行を開いたときのみ取得・表示）
     - 種別 / 分類 / 内容 / 金額、コメント（参照のみ）
+    - 明細が 0 件の申告でもコメントは表示する（DB は明細 0 件のヘッダを許容する）
 
 ## 6. 状態管理
 
@@ -950,40 +951,40 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 ### 7.1 Server Actions
 
-| 関数名                     | 説明                                 | パラメータ                            | レスポンス                        |
-| -------------------------- | ------------------------------------ | ------------------------------------- | --------------------------------- |
-| getProfileInfo             | ログインユーザーのプロフィール取得   | -                                     | {profileInfo, error}              |
-| getProfileInfoById         | 指定ユーザーのプロフィール取得       | userId: string                        | {profileInfo, error}              |
-| getAllUserInfo             | 全ユーザー情報の取得                 | -                                     | {userInfoList, error}             |
-| insertUserInfo             | ユーザー情報の登録                   | {user, name, email}                   | {error}                           |
-| updateUserInfo             | ユーザー情報の更新                   | {profile}                             | {error}                           |
-| getAllMatterInfoList       | 全案件情報の取得                     | -                                     | MatterType[]                      |
-| getUserMatterInfoList      | ユーザーの案件情報の取得             | -                                     | MatterType[]                      |
-| getTeamMatterInfoList      | チームの案件情報の取得               | -                                     | MatterType[]                      |
-| insertMatterInfo           | 案件情報の登録                       | (title, category, team, ...)          | {newId, error}                    |
-| updateMatterInfo           | 案件情報の更新                       | matterInfo: MatterType                | {status, error}                   |
-| deleteMatterInfo           | 案件情報の削除                       | id: number                            | {status, error}                   |
-| getUserCostInfoList        | コスト情報の取得                     | matter_id: number                     | {costInfoList, error}             |
-| updateCostInfo             | コスト情報の更新                     | (id, name, item, ...)                 | -                                 |
-| insertCostInfo             | コスト情報の登録                     | (name, item, ...)                     | {error}                           |
-| deleteCostInfo             | コスト情報の削除                     | id: number                            | -                                 |
-| getUserBusinessInfoList    | 取引先情報の取得                     | matter_id: number                     | {businessInfoList, error}         |
-| insertBusinessInfo         | 取引先情報の登録                     | (name, amount, ...)                   | {error}                           |
-| updateBusinessInfo         | 取引先情報の更新                     | (id, name, amount, ...)               | -                                 |
-| deleteBusinessInfo         | 取引先情報の削除                     | id: number                            | -                                 |
-| getSelectOptions           | 選択肢情報の取得                     | typeName: string                      | {options, error}                  |
-| insertSelectOption         | 選択肢情報の登録                     | (typeName, value, display_order)      | boolean                           |
-| updateSelectOption         | 選択肢情報の更新                     | (id, value, display_order, is_active) | boolean                           |
-| sendSlackNotification      | Slack 通知の送信                     | (message, metadata)                   | {success, error}                  |
-| getProfitLossReport        | 月次損益レポートの取得               | month: string ("YYYY-MM")             | PLReportType \| null              |
-| getAnnualTrend             | 年間推移の取得                       | fiscalYear: number                    | AnnualTrendType \| null           |
-| getMatterInfoById          | 案件情報の単体取得（詳細モーダル用） | matterId: number                      | {matterInfo, error}               |
-| getRecurringCostList       | 定期費用一覧の取得                   | -                                     | {recurringCostList, error}        |
-| bulkUpsertRecurringCost    | 定期費用の一括登録・更新・削除       | rows: RecurringCostInListType[]       | boolean                           |
-| getExtraEntryList          | 経理追加収支一覧の取得               | -                                     | {extraEntryList, error}           |
-| bulkUpsertExtraEntry       | 経理追加収支の一括登録・更新・削除   | rows: ExtraEntryInListType[]          | boolean                           |
-| getBudgetDeclarationList   | 事前収支申告のチーム別状況一覧の取得 | month: string ("YYYY-MM")             | BudgetDeclarationListType \| null |
-| getBudgetDeclarationDetail | 事前収支申告の詳細（明細）の取得     | (month: string, team: string)         | {detail} \| {error}               |
+| 関数名                     | 説明                                 | パラメータ                            | レスポンス                 |
+| -------------------------- | ------------------------------------ | ------------------------------------- | -------------------------- |
+| getProfileInfo             | ログインユーザーのプロフィール取得   | -                                     | {profileInfo, error}       |
+| getProfileInfoById         | 指定ユーザーのプロフィール取得       | userId: string                        | {profileInfo, error}       |
+| getAllUserInfo             | 全ユーザー情報の取得                 | -                                     | {userInfoList, error}      |
+| insertUserInfo             | ユーザー情報の登録                   | {user, name, email}                   | {error}                    |
+| updateUserInfo             | ユーザー情報の更新                   | {profile}                             | {error}                    |
+| getAllMatterInfoList       | 全案件情報の取得                     | -                                     | MatterType[]               |
+| getUserMatterInfoList      | ユーザーの案件情報の取得             | -                                     | MatterType[]               |
+| getTeamMatterInfoList      | チームの案件情報の取得               | -                                     | MatterType[]               |
+| insertMatterInfo           | 案件情報の登録                       | (title, category, team, ...)          | {newId, error}             |
+| updateMatterInfo           | 案件情報の更新                       | matterInfo: MatterType                | {status, error}            |
+| deleteMatterInfo           | 案件情報の削除                       | id: number                            | {status, error}            |
+| getUserCostInfoList        | コスト情報の取得                     | matter_id: number                     | {costInfoList, error}      |
+| updateCostInfo             | コスト情報の更新                     | (id, name, item, ...)                 | -                          |
+| insertCostInfo             | コスト情報の登録                     | (name, item, ...)                     | {error}                    |
+| deleteCostInfo             | コスト情報の削除                     | id: number                            | -                          |
+| getUserBusinessInfoList    | 取引先情報の取得                     | matter_id: number                     | {businessInfoList, error}  |
+| insertBusinessInfo         | 取引先情報の登録                     | (name, amount, ...)                   | {error}                    |
+| updateBusinessInfo         | 取引先情報の更新                     | (id, name, amount, ...)               | -                          |
+| deleteBusinessInfo         | 取引先情報の削除                     | id: number                            | -                          |
+| getSelectOptions           | 選択肢情報の取得                     | typeName: string                      | {options, error}           |
+| insertSelectOption         | 選択肢情報の登録                     | (typeName, value, display_order)      | boolean                    |
+| updateSelectOption         | 選択肢情報の更新                     | (id, value, display_order, is_active) | boolean                    |
+| sendSlackNotification      | Slack 通知の送信                     | (message, metadata)                   | {success, error}           |
+| getProfitLossReport        | 月次損益レポートの取得               | month: string ("YYYY-MM")             | PLReportType \| null       |
+| getAnnualTrend             | 年間推移の取得                       | fiscalYear: number                    | AnnualTrendType \| null    |
+| getMatterInfoById          | 案件情報の単体取得（詳細モーダル用） | matterId: number                      | {matterInfo, error}        |
+| getRecurringCostList       | 定期費用一覧の取得                   | -                                     | {recurringCostList, error} |
+| bulkUpsertRecurringCost    | 定期費用の一括登録・更新・削除       | rows: RecurringCostInListType[]       | boolean                    |
+| getExtraEntryList          | 経理追加収支一覧の取得               | -                                     | {extraEntryList, error}    |
+| bulkUpsertExtraEntry       | 経理追加収支の一括登録・更新・削除   | rows: ExtraEntryInListType[]          | boolean                    |
+| getBudgetDeclarationList   | 事前収支申告のチーム別状況一覧の取得 | month: string ("YYYY-MM")             | {rows} \| {error}          |
+| getBudgetDeclarationDetail | 事前収支申告の明細・コメントの取得   | declarationId: number                 | {detail} \| {error}        |
 
 ### 7.2 ユーティリティ関数
 
@@ -1001,6 +1002,10 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 | summarizeBudgetItems             | 事前収支申告の明細集計（収入・支出・差引） | utils/budgetDeclaration.ts            |
 | buildBudgetDeclarationStatusList | チーム × 申告状況の行組み立て              | utils/budgetDeclaration.ts            |
 | defaultTargetMonth               | 事前収支申告の既定対象月（JST 翌月）       | utils/budgetDeclaration.ts            |
+| visibleBudgetTeams               | 事前収支申告の一覧に並べるチームの決定     | utils/budgetDeclaration.ts            |
+| toFirstOfMonth                   | 月初日（YYYY-MM-01）への正規化             | utils/formatter.ts                    |
+| currentJstMonth                  | JST 基準の当月キー（YYYY-MM）              | utils/formatter.ts                    |
+| getAuthorizedViewer              | 閲覧者のプロフィール取得＋ロール確認       | utils/supabase/viewerAccess.ts        |
 
 ## 8. セキュリティ設計
 

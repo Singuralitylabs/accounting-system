@@ -3,37 +3,36 @@
 // 切り離しているのは、副作用なしでユニットテストできるようにするため
 // （docs/testing.md「2.6 テスト容易化リファクタリング方針」）。
 
-import { BudgetDeclarationStatusType, BudgetSummaryType } from "../types/types";
-import { ROUTE_PERMISSIONS, hasClassAccess } from "./permissions";
+import {
+  AccessFailure,
+  AccessFailureKind,
+  BudgetDeclarationStatusType,
+  BudgetSummaryType,
+} from "../types/types";
+import { currentJstMonth } from "./formatter";
+import { ROUTE_PERMISSIONS, Role, hasClassAccess } from "./permissions";
 
 // 事前収支申告を閲覧できるロール（/budget-declarations のルート保護と常に一致する）
 export const BUDGET_DECLARATION_ALLOWED_CLASSES =
   ROUTE_PERMISSIONS["/budget-declarations"];
 
-// 明細の種別（budget_declaration_items.entry_type の CHECK 制約と同じ値域）
-export type BudgetEntryType = "income" | "expense";
+// 自チームの申告だけを閲覧できるロール。閲覧可ロールのうちこれ以外は全チームを見られる
+// （DB 側の判定 `public.can_access_team_budget`（migration 19 / docs/database.md 5.8）と
+// 同じ区分。片方だけ変えるとアプリと RLS がずれるため、変更時は両方を直す）。
+export const BUDGET_OWN_TEAM_ONLY_CLASSES: Role[] = ["teamleader"];
 
-export const BUDGET_ENTRY_TYPE_LABELS: Record<BudgetEntryType, string> = {
-  income: "収入",
-  expense: "支出",
-};
+// 全チームの申告を閲覧できるロール。ルートの許可ロールから導出しているため、
+// ROUTE_PERMISSIONS にロールを足せば一覧の表示範囲も自動で追随する。
+export const BUDGET_ALL_TEAMS_CLASSES =
+  BUDGET_DECLARATION_ALLOWED_CLASSES.filter(
+    (role) => !BUDGET_OWN_TEAM_ONLY_CLASSES.includes(role),
+  );
 
 // 集計に必要な明細の最小形（DB 行・フォームの入力行のどちらからでも渡せる）
 export type BudgetItemAmount = {
   entry_type: string;
   amount: number;
 };
-
-// 月キー（YYYY-MM）→ DB 格納用の月初日（YYYY-MM-01）。
-// budget_declarations.target_month は月初日で格納する CHECK 制約付きのため、
-// 書き込み・絞り込みの双方でこの形に正規化する。
-export const toTargetMonthDate = (month: string): string =>
-  `${month.slice(0, 7)}-01`;
-
-// DB の date 文字列（YYYY-MM-DD）→ 月キー（YYYY-MM）。
-// タイムゾーン変換による月ズレを避けるため Date オブジェクトは使わない。
-export const toTargetMonthKey = (targetMonth: string): string =>
-  targetMonth.slice(0, 7);
 
 // 月キー（YYYY-MM）に月数を加算する。Date を経由しないため DST・UTC ズレの影響を受けない。
 export const addMonths = (month: string, count: number): string => {
@@ -46,15 +45,10 @@ export const addMonths = (month: string, count: number): string => {
   return `${String(nextYear).padStart(4, "0")}-${String(nextMonthNumber).padStart(2, "0")}`;
 };
 
-// JST 基準の当月キー（YYYY-MM）。サーバ（UTC）とブラウザ（JST）で結果を揃えるため、
-// ローカルタイムゾーンに依存せず UTC からの +9 時間で判定する。
-export const toJstMonthKey = (now: Date = new Date()): string =>
-  new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 7);
-
 // 一覧の初期表示に使う対象月 = JST の翌月。
 // 「毎月20日までに翌月分を申告する」運用に合わせる（docs/specification.md 4.20）。
 export const defaultTargetMonth = (now: Date = new Date()): string =>
-  addMonths(toJstMonthKey(now), 1);
+  addMonths(currentJstMonth(now), 1);
 
 // 明細から収入合計・支出合計・差引を求める。
 // 合計はヘッダに非正規化していないため、表示のたびにここで集計する
@@ -81,6 +75,22 @@ export const summarizeBudgetItems = (
   };
 };
 
+// 全チームの申告を閲覧できるロールか。取得側はこれを見て、チームマスタの
+// 取得と全チーム分の RLS 評価が必要かを判断する。
+export const canViewAllBudgetTeams = (
+  profileClass: string | null | undefined,
+): boolean => hasClassAccess(BUDGET_ALL_TEAMS_CLASSES, profileClass);
+
+// 自チームのみ閲覧できるロールが見られるチーム。
+// 閲覧権限がない場合とチーム未設定の場合は空配列（表示対象なし）。
+export const ownBudgetTeams = (
+  profileClass: string | null | undefined,
+  profileTeam: string | null | undefined,
+): string[] =>
+  hasClassAccess(BUDGET_OWN_TEAM_ONLY_CLASSES, profileClass) && profileTeam
+    ? [profileTeam]
+    : [];
+
 // 一覧に表示するチームを決める。
 // 行そのものの可視範囲は RLS が担保するが、「未申告」を表示するには
 // 申告が無いチームも並べる必要があるため、チームマスタ側もロールで絞る。
@@ -88,22 +98,15 @@ export const visibleBudgetTeams = (
   profileClass: string | null | undefined,
   profileTeam: string | null | undefined,
   teamList: readonly string[],
-): string[] => {
-  if (hasClassAccess(["accounting", "admin"], profileClass)) {
-    return [...teamList];
-  }
-  if (profileClass === "teamleader" && profileTeam) {
-    return [profileTeam];
-  }
-  // それ以外（public / チーム未設定のチームリーダー）は表示対象なし
-  return [];
-};
+): string[] =>
+  canViewAllBudgetTeams(profileClass)
+    ? [...teamList]
+    : ownBudgetTeams(profileClass, profileTeam);
 
 // 集計前の申告（ヘッダ＋明細）。DB から取得した形に対応する
 export type BudgetDeclarationWithItems = {
   id: number;
   team: string;
-  comment: string | null;
   updated_at: string | null;
   declared_by_name: string | null;
   items: BudgetItemAmount[];
@@ -128,7 +131,6 @@ export const buildBudgetDeclarationStatusList = (
     declarationId: declaration?.id ?? null,
     isDeclared: !!declaration,
     declaredByName: declaration?.declared_by_name ?? null,
-    comment: declaration?.comment ?? null,
     updatedAt: declaration?.updated_at ?? null,
     summary: summarizeBudgetItems(declaration?.items ?? []),
   });
@@ -155,3 +157,24 @@ export const totalBudgetSummary = (
     }),
     { incomeTotal: 0, expenseTotal: 0, balance: 0 },
   );
+
+// Server Action が返した失敗（プレーンオブジェクト）を、react-query の
+// queryFn から throw できる Error に変換する。kind を保持することで、
+// 権限不足のときだけリトライを止め、専用のメッセージを出せる。
+export class BudgetDeclarationError extends Error {
+  readonly kind: AccessFailureKind;
+
+  constructor(failure: AccessFailure) {
+    super(failure.message);
+    this.name = "BudgetDeclarationError";
+    this.kind = failure.kind;
+  }
+}
+
+// 権限不足は再試行しても回復しないため、リトライ対象から外す。
+// `instanceof BudgetDeclarationError` で判定しないのは、ES5 へダウンレベルする
+// ツールチェーンでは組み込み Error のサブクラス判定が常に false になり、
+// 権限エラーが黙って「一時的な失敗」として再試行されてしまうため。
+export const isForbiddenError = (error: unknown): boolean =>
+  error instanceof Error &&
+  (error as Partial<BudgetDeclarationError>).kind === "forbidden";

@@ -7,12 +7,15 @@ const DynamicBudgetDeclarations = async () => {
   const initialMonth = defaultTargetMonth();
   // 取得失敗時は null のまま渡し、クライアント側で再取得させる
   // （空配列を initialData にすると「0 件」と区別できず成功としてキャッシュされる）
-  const initialData = await getBudgetDeclarationList(initialMonth);
+  const { rows } = await getBudgetDeclarationList(initialMonth);
 
   return (
     <BudgetDeclarationList
       initialMonth={initialMonth}
-      initialData={initialData}
+      initialData={rows ?? null}
+      // シード時刻を渡さないと、TanStack Query が「今取得した」と扱い、
+      // GC 後に古い initialData を再取得なしで表示してしまう
+      initialDataUpdatedAt={Date.now()}
     />
   );
 };

@@ -2,9 +2,12 @@
 
 import { Alert, Badge, Button, Table } from "@mantine/core";
 import { Fragment, useState } from "react";
-import { BudgetDeclarationListType } from "@/app/types/types";
+import { BudgetDeclarationStatusType } from "@/app/types/types";
 import { useBudgetDeclarationList } from "@/app/hooks/useBudgetDeclarationData";
-import { totalBudgetSummary } from "@/app/utils/budgetDeclaration";
+import {
+  isForbiddenError,
+  totalBudgetSummary,
+} from "@/app/utils/budgetDeclaration";
 import { formatCurrency, formatTimeToJp } from "@/app/utils/formatter";
 import { CustomMonthPicker } from "../CustomMonthPicker";
 import { LoadingSpinner } from "../LoadingSpinner";
@@ -12,24 +15,26 @@ import BudgetDeclarationItemTable from "./BudgetDeclarationItemTable";
 
 type Props = {
   initialMonth: string; // "YYYY-MM"（既定は翌月）
-  initialData: BudgetDeclarationListType | null;
+  initialData: BudgetDeclarationStatusType[] | null;
+  initialDataUpdatedAt: number; // サーバで initialData を取得した時刻（epoch ms）
 };
 
-const BudgetDeclarationList = ({ initialMonth, initialData }: Props) => {
+const BudgetDeclarationList = ({
+  initialMonth,
+  initialData,
+  initialDataUpdatedAt,
+}: Props) => {
   const [month, setMonth] = useState<string>(initialMonth);
   // 明細を開いているチーム（1 行ずつ開く）
   const [expandedTeam, setExpandedTeam] = useState<string | null>(null);
 
-  const {
-    data: list,
-    isLoading,
-    isError,
-  } = useBudgetDeclarationList(
+  const { data, isLoading, isError, error } = useBudgetDeclarationList(
     month,
-    month === initialMonth ? initialData : undefined,
+    month === initialMonth ? (initialData ?? undefined) : undefined,
+    initialDataUpdatedAt,
   );
 
-  const rows = list?.rows ?? [];
+  const rows = data ?? [];
   const total = totalBudgetSummary(rows);
 
   return (
@@ -49,8 +54,18 @@ const BudgetDeclarationList = ({ initialMonth, initialData }: Props) => {
       </div>
 
       {isError ? (
-        <Alert color="red" title="事前収支申告の取得に失敗しました">
-          時間をおいてページを再読み込みしてください。
+        // 権限不足は再読み込みしても解消しないため、案内を分ける
+        <Alert
+          color="red"
+          title={
+            isForbiddenError(error)
+              ? "事前収支申告の閲覧権限がありません"
+              : "事前収支申告の取得に失敗しました"
+          }
+        >
+          {isForbiddenError(error)
+            ? "権限が変更された可能性があります。管理者にお問い合わせください。"
+            : "時間をおいてページを再読み込みしてください。"}
         </Alert>
       ) : isLoading ? (
         <LoadingSpinner />
@@ -123,12 +138,11 @@ const BudgetDeclarationList = ({ initialMonth, initialData }: Props) => {
                       </Button>
                     </Table.Td>
                   </Table.Tr>
-                  {expandedTeam === row.team && (
+                  {expandedTeam === row.team && row.declarationId !== null && (
                     <Table.Tr>
                       <Table.Td colSpan={8}>
                         <BudgetDeclarationItemTable
-                          month={month}
-                          team={row.team}
+                          declarationId={row.declarationId}
                         />
                       </Table.Td>
                     </Table.Tr>

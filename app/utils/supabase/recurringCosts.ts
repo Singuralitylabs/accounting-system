@@ -1,11 +1,12 @@
 "use server";
 
 import { RecurringCostInListType } from "../../types/types";
+import { toFirstOfMonth } from "../formatter";
 import { createServerSupabase } from "./clients";
 
-// 月初日（YYYY-MM-01）の date 文字列に正規化する
-const toFirstOfMonth = (dateStr: string | null): string | null =>
-  dateStr ? `${dateStr.slice(0, 7)}-01` : null;
+// 月初日（YYYY-MM-01）の date 文字列に正規化する（null はそのまま）
+const toFirstOfMonthOrNull = (dateStr: string | null): string | null =>
+  dateStr ? toFirstOfMonth(dateStr) : null;
 
 // 一覧の行データを DB 書き込み用の形に変換する（INSERT / UPDATE 共通）
 // updated_at は DB トリガー（update_recurring_costs_updated_at）が now() で設定する
@@ -15,8 +16,8 @@ const toDbRow = (rc: RecurringCostInListType) => ({
   price: rc.price,
   team: rc.team,
   payment_cycle: rc.payment_cycle,
-  start_month: toFirstOfMonth(rc.start_month)!,
-  end_month: toFirstOfMonth(rc.end_month),
+  start_month: toFirstOfMonthOrNull(rc.start_month)!,
+  end_month: toFirstOfMonthOrNull(rc.end_month),
   comment: rc.comment ?? "",
 });
 

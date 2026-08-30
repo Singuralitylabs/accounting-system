@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  BUDGET_ALL_TEAMS_CLASSES,
   BUDGET_DECLARATION_ALLOWED_CLASSES,
+  BudgetDeclarationError,
   BudgetDeclarationWithItems,
   addMonths,
   buildBudgetDeclarationStatusList,
   defaultTargetMonth,
+  isForbiddenError,
   summarizeBudgetItems,
-  toJstMonthKey,
-  toTargetMonthDate,
-  toTargetMonthKey,
   totalBudgetSummary,
   visibleBudgetTeams,
 } from "@/app/utils/budgetDeclaration";
@@ -18,25 +18,10 @@ const declaration = (
   overrides: Partial<BudgetDeclarationWithItems> & { team: string },
 ): BudgetDeclarationWithItems => ({
   id: 1,
-  comment: null,
   updated_at: "2026-08-20T10:00:00+09:00",
   declared_by_name: "山田",
   items: [],
   ...overrides,
-});
-
-describe("toTargetMonthDate / toTargetMonthKey", () => {
-  it("月キーを DB 格納用の月初日に正規化する", () => {
-    expect(toTargetMonthDate("2026-10")).toBe("2026-10-01");
-  });
-
-  it("月初日以外の日付を渡しても月初日に丸める", () => {
-    expect(toTargetMonthDate("2026-10-25")).toBe("2026-10-01");
-  });
-
-  it("DB の date 文字列から月キーを取り出す", () => {
-    expect(toTargetMonthKey("2026-10-01")).toBe("2026-10");
-  });
 });
 
 describe("addMonths", () => {
@@ -62,29 +47,20 @@ describe("addMonths", () => {
   });
 });
 
-describe("toJstMonthKey / defaultTargetMonth", () => {
-  it("UTC の月末深夜は JST では翌月になる", () => {
-    // 2026-09-30T15:00:00Z = 2026-10-01T00:00 JST
-    expect(toJstMonthKey(new Date("2026-09-30T15:00:00Z"))).toBe("2026-10");
-  });
-
-  it("UTC の月初は JST でも同じ月", () => {
-    expect(toJstMonthKey(new Date("2026-10-01T00:00:00Z"))).toBe("2026-10");
-  });
-
-  it("既定の対象月は JST 基準の翌月", () => {
+describe("defaultTargetMonth", () => {
+  it("JST 基準の翌月を返す", () => {
     expect(defaultTargetMonth(new Date("2026-08-30T00:00:00Z"))).toBe(
       "2026-09",
     );
   });
 
-  it("年末は翌年1月が既定の対象月になる", () => {
+  it("年末は翌年1月になる", () => {
     expect(defaultTargetMonth(new Date("2026-12-15T00:00:00Z"))).toBe(
       "2027-01",
     );
   });
 
-  it("JST で月が変わる境界でも翌月が繰り上がる", () => {
+  it("UTC では前年でも JST で年が変わっていれば翌月が繰り上がる", () => {
     // 2026-12-31T15:00:00Z = 2027-01-01 JST → 翌月は 2027-02
     expect(defaultTargetMonth(new Date("2026-12-31T15:00:00Z"))).toBe(
       "2027-02",
@@ -176,7 +152,6 @@ describe("buildBudgetDeclarationStatusList", () => {
         declaration({
           id: 7,
           team: "Aチーム",
-          comment: "受託案件の見込み",
           items: [
             { entry_type: "income", amount: 500000 },
             { entry_type: "expense", amount: 200000 },
@@ -191,7 +166,6 @@ describe("buildBudgetDeclarationStatusList", () => {
         declarationId: 7,
         isDeclared: true,
         declaredByName: "山田",
-        comment: "受託案件の見込み",
         updatedAt: "2026-08-20T10:00:00+09:00",
         summary: {
           incomeTotal: 500000,
@@ -304,10 +278,50 @@ describe("totalBudgetSummary", () => {
   });
 });
 
-describe("BUDGET_DECLARATION_ALLOWED_CLASSES", () => {
+describe("閲覧ロールの定義", () => {
   it("/budget-declarations のルート保護と同じロール定義を参照する", () => {
     expect(BUDGET_DECLARATION_ALLOWED_CLASSES).toBe(
       ROUTE_PERMISSIONS["/budget-declarations"],
     );
+  });
+
+  it("全チーム閲覧ロールは、閲覧可ロールから自チーム限定ロールを除いたもの", () => {
+    // ROUTE_PERMISSIONS にロールを足したときに一覧の表示範囲が追随することの回帰
+    expect(BUDGET_ALL_TEAMS_CLASSES).toEqual(
+      BUDGET_DECLARATION_ALLOWED_CLASSES.filter(
+        (role) => role !== "teamleader",
+      ),
+    );
+    expect(BUDGET_ALL_TEAMS_CLASSES).toEqual(["accounting", "admin"]);
+  });
+});
+
+describe("BudgetDeclarationError / isForbiddenError", () => {
+  it("権限不足はリトライ対象外として判定できる", () => {
+    const error = new BudgetDeclarationError({
+      kind: "forbidden",
+      message: "事前収支申告の閲覧権限がありません。",
+    });
+
+    expect(isForbiddenError(error)).toBe(true);
+    expect(error.message).toBe("事前収支申告の閲覧権限がありません。");
+  });
+
+  it("一時的な取得失敗はリトライ対象になる", () => {
+    expect(
+      isForbiddenError(
+        new BudgetDeclarationError({
+          kind: "fetchFailed",
+          message: "事前収支申告の取得に失敗しました。",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("無関係なエラーは権限不足と判定しない", () => {
+    expect(isForbiddenError(new Error("network"))).toBe(false);
+    expect(isForbiddenError(null)).toBe(false);
+    // Error でないただのオブジェクトも対象外
+    expect(isForbiddenError({ kind: "forbidden" })).toBe(false);
   });
 });

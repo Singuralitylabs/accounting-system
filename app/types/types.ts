@@ -157,24 +157,38 @@ export type BudgetSummaryType = {
 // 一覧のチーム × 申告状況 1 行
 export type BudgetDeclarationStatusType = {
   team: string;
-  declarationId: number | null; // 未申告なら null
+  declarationId: number | null; // 未申告なら null。明細取得のキーにも使う
   isDeclared: boolean;
   declaredByName: string | null; // 申告者名（profiles の RLS で読めない場合は null）
-  comment: string | null;
   updatedAt: string | null;
   summary: BudgetSummaryType;
 };
 
-// 一覧ビューが必要とするデータ一式
-export type BudgetDeclarationListType = {
-  targetMonth: string; // "YYYY-MM"
-  rows: BudgetDeclarationStatusType[];
+// 申告の詳細（行を開いたときに表示する明細とコメント）
+export type BudgetDeclarationDetailType = {
+  comment: string | null;
+  items: BudgetDeclarationItemType[];
 };
 
-// 申告の詳細（ヘッダ＋明細）
-export type BudgetDeclarationDetailType = {
-  declaration: BudgetDeclarationType;
-  declaredByName: string | null;
-  items: BudgetDeclarationItemType[];
-  summary: BudgetSummaryType;
+// ===== Server Action の失敗種別 =====
+
+// 権限不足（forbidden）は再試行しても回復しないため、一時的な取得失敗
+// （fetchFailed）と区別する。区別しないと react-query が無意味にリトライし、
+// 画面にも「時間をおいて再読み込み」という誤った案内が出る。
+// Server Action の戻り値に載せるため、Error インスタンスではなくプレーンな
+// オブジェクトにする（React Flight は Error をシリアライズしない）。
+export type AccessFailureKind = "forbidden" | "fetchFailed";
+
+export type AccessFailure = {
+  kind: AccessFailureKind;
+  message: string;
 };
+
+export type BudgetDeclarationListResult =
+  | { rows: BudgetDeclarationStatusType[]; error?: undefined }
+  | { rows?: undefined; error: AccessFailure };
+
+export type BudgetDeclarationDetailResult =
+  // 未申告（該当行なし）は detail: null。取得失敗・権限不足と区別する
+  | { detail: BudgetDeclarationDetailType | null; error?: undefined }
+  | { detail?: undefined; error: AccessFailure };
