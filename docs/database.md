@@ -17,18 +17,33 @@
 - **セッションタイムゾーンは UTC**（PostgreSQL / Supabase の既定）。`supabase/migrations/` は `ALTER DATABASE ... SET timezone` を含まない。旧ローカル手適用 SQL にあった当該設定は、正であるマイグレーション経路では一度も適用されていなかった。hosted Supabase では `ALTER DATABASE` が失敗しうるため、Phase 0 でも追加しない。
 - **`inserted_at` / `updated_at` のカラム DEFAULT と `update_updated_at_column` トリガーは `now()`**（`timestamptz`）である。セッション TZ に依存せず、常に正しい絶対時刻を保存する。`20260830040000_18_fix_timestamp_defaults_to_now.sql` で変更した。
 - **変更前は `timezone('Asia/Tokyo'::text, now())`（選択肢マスタは `timezone('utc'::text, now())`）だった。** `timezone(zone, timestamptz)` の戻りは **TZ なし `timestamp`**（そのゾーンの壁時計）であり、これを `timestamptz` 列へ入れると **セッション `TimeZone` のローカル時刻として解釈**される。セッション TZ が UTC のため、`Asia/Tokyo` 指定の列には実際より **約 9 時間後** の絶対時刻が保存されていた（`utc` 指定の列はセッションが UTC のため結果的に正しい値）。
-- **既存行はマイグレーション 18 では補正していない。** ずれの状態は列によって異なる。
+- **既存行はマイグレーション 18 では補正していない。** ずれの状態は列によって異なり、さらに **[#80](https://github.com/Singuralitylabs/accounting-system/issues/80) のカットオーバーで旧 Supabase から移送された行と、新環境で作成された行が同居している**ため、テーブル単位では一様でない。
 
-  | 列                                                                                         | マイグレーション 18 より前の行の状態                                                   | 補正                                     |
-  | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- | ---------------------------------------- |
-  | `matters.inserted_at` / `profiles.inserted_at`                                             | アプリが INSERT 時に `new Date().toISOString()` で明示指定するためずれていない         | 不要                                     |
-  | `matters.updated_at` / `profiles.updated_at`                                               | INSERT のみの行はアプリ指定で正しく、UPDATE を経た行はトリガー由来で +9h。同一列に混在 | **不能**（事後に判別できない）           |
-  | `costs` / `business` / `recurring_costs` / `extra_entries` の `inserted_at` / `updated_at` | アプリ側に書き込み経路がなく全行が DEFAULT / トリガー由来。一様に +9h                  | 可能（`- interval '9 hours'`）だが見送り |
-  | `select_option_types` / `select_options` の `created_at` / `updated_at`                    | 旧 DEFAULT が `timezone('utc', ...)` でセッションが UTC のためずれていない             | 不要                                     |
+  移送されたのは `profiles` / `matters` / `costs` / `business` の 4 テーブル（`pg_dump --data-only` の COPY 形式）で、`timestamptz` は絶対時刻を保ったまま投入されている。旧 DB のカラム DEFAULT は新環境と同一だった（#80 Step 1 の列構成比較で差分は `matters.parent_matter_id` の 1 件のみ）が、**旧 DB のセッション `TimeZone` が UTC だったか `Asia/Tokyo` だったかは未確認**である。`Asia/Tokyo` ならこれらの行はずれていない。
+
+  | 列                                                                      | 状態                                                                                                                                                    | 補正                                     |
+  | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+  | `matters.inserted_at` / `profiles.inserted_at`                          | アプリが INSERT 時に `new Date().toISOString()` で明示指定するためずれていない（旧環境も同じコード）                                                    | 不要                                     |
+  | `matters.updated_at` / `profiles.updated_at`                            | INSERT のみの行はアプリ指定で正しく、UPDATE を経た行はトリガー由来。同一列に混在                                                                        | **不能**（事後に判別できない）           |
+  | `costs` / `business` の `inserted_at` / `updated_at`                    | 全行が DEFAULT / トリガー由来。**新環境で作成された行（移行時の `max(id)` 超）は +9h 確定。移送された行（`max(id)` 以下）は旧 DB のセッション TZ 次第** | 要調査（下記）                           |
+  | `recurring_costs` / `extra_entries` の `inserted_at` / `updated_at`     | 旧環境に存在しないテーブルで全行が新環境産。一様に +9h                                                                                                  | 可能（`- interval '9 hours'`）だが見送り |
+  | `select_option_types` / `select_options` の `created_at` / `updated_at` | 旧 DEFAULT が `timezone('utc', ...)` でセッションが UTC のためずれていない                                                                              | 不要                                     |
 
   `updated_at` は UPDATE のたびに BEFORE UPDATE トリガーがアプリ指定値を上書きするため、アプリが `updated_at` を渡している経路（`costs.ts` / `businesses.ts` の UPDATE など）があっても保存値はトリガー由来になる。
 
-  一様ずれの 4 テーブルを補正するなら「テーブル内の全行が移行前」と言い切れるマイグレーション 18 の中が唯一の確実な機会だが、実施していない。旧環境から移送されたデータがセッション TZ = `Asia/Tokyo` の DB で書かれていた場合はずれておらず、一律の -9h がかえって値を壊すためである（上記「旧ローカル手適用 SQL」）。**補正するかどうかは実データを確認したうえで別途判断する。** それまでは、`costs.inserted_at` などで期間集計・エクスポートを行う際にマイグレーション 18 以前の行が最大 9 時間先にずれている可能性を考慮すること。
+  移送分がずれているかは、**同じ案件登録操作で作られる `matters.inserted_at`（アプリ設定＝常に正しい）と `costs.inserted_at`（DEFAULT 由来）の差**で判定できる。0 時間付近に固まれば旧 DB は `Asia/Tokyo` セッションでずれなし、9 時間付近なら UTC セッションでずれあり。
+
+  ```sql
+  WITH first_cost AS (
+    SELECT matter_id, min(inserted_at) AS first_inserted_at FROM costs GROUP BY matter_id
+  )
+  SELECT round(EXTRACT(EPOCH FROM (f.first_inserted_at - m.inserted_at)) / 3600) AS 差_時間,
+         count(*) AS 案件数
+    FROM first_cost f JOIN matters m ON m.id = f.matter_id
+   GROUP BY 1 ORDER BY 1;
+  ```
+
+  補正するなら「テーブル内の行がすべて移行前」と言い切れるマイグレーション 18 の中が最も確実で、移送分と新環境分の境界は移行時に `setval` を実行しているため `id` で切れる（#80 Step 4-4）。ただし上記の調査が済んでいないため本 PR では実施しない。**補正の要否は実データを確認したうえで別途判断する。** それまでは、`costs.inserted_at` などで期間集計・エクスポートを行う際にマイグレーション 18 以前の行が最大 9 時間先にずれている可能性を考慮すること。
 
 - **アドホック SQL で日付境界を切る場合**はセッション TZ に頼らず、`timezone('Asia/Tokyo', ...)` または `AT TIME ZONE 'Asia/Tokyo'` を明示すること。`now()::date` や素の `date_trunc` は UTC 日付になり、JST 0:00〜9:00 で日付がずれる。
 - **Vitest** は `vitest.config.ts` で `TZ=Asia/Tokyo` を固定する。Next.js アプリのプロセス TZ は実行環境依存であり、日付表示は `app/utils/formatter.ts` などが `new Date()` のローカル TZ に従う。

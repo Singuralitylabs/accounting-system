@@ -15,29 +15,26 @@
 --   now()（timestamptz をそのまま返す）に変更する。
 --
 -- 既存行の扱い:
---   本マイグレーションでは補正しない（列ごとに状態が異なるため。詳細は
---   docs/database.md 1.3）。
+--   本マイグレーションでは補正しない（列ごとに状態が異なり、さらに issue #80 の
+--   カットオーバーで旧 Supabase から移送された行と新環境で作成された行が
+--   同居しているため。詳細と判定用 SQL は docs/database.md 1.3）。
 --
 --   - matters.inserted_at / profiles.inserted_at
---       アプリ側が INSERT 時に new Date().toISOString() で明示指定するため
---       （app/utils/supabase/matters.ts / profiles.ts）ずれていない。補正不要。
+--       アプリが INSERT 時に new Date().toISOString() で明示指定するためずれなし。
 --   - matters.updated_at / profiles.updated_at
 --       INSERT のみの行はアプリ指定で正しく、UPDATE を経た行は BEFORE UPDATE
---       トリガー（アプリ指定値を上書きする）由来で +9h。両者が同一列に混在し、
---       事後に判別できないため補正不能。
---   - costs / business / recurring_costs / extra_entries の
---     inserted_at・updated_at
---       アプリ側にタイムスタンプを書く経路がなく（UPDATE 時にアプリが渡す
---       updated_at もトリガーが上書きする）、全行が DEFAULT / トリガー由来で
---       一様に +9h。理屈上は `- interval '9 hours'` で補正できる。
+--       トリガー（アプリ指定値を上書きする）由来。混在しており事後に判別できない。
+--   - costs / business の inserted_at・updated_at
+--       全行が DEFAULT / トリガー由来。ただし新環境で作成された行は +9h 確定、
+--       旧環境から移送された行は旧 DB のセッション TZ 次第（未確認）。
+--   - recurring_costs / extra_entries の inserted_at・updated_at
+--       旧環境に存在しないテーブルで全行が新環境産。一様に +9h。
 --   - select_option_types / select_options の created_at・updated_at
---       旧 DEFAULT が timezone('utc', ...) でセッションが UTC のためずれていない。
+--       旧 DEFAULT が timezone('utc', ...) でセッションが UTC のためずれなし。
 --
---   一様ずれの 4 テーブルを補正するなら「テーブル内の全行が移行前」と言い切れる
---   本マイグレーション内が唯一の確実な機会だが、ここでは実施しない。旧環境から
---   移送されたデータがセッション TZ = Asia/Tokyo の DB で書かれていた場合は
---   ずれておらず、一律の -9h がかえって値を壊すため（docs/database.md 1.3 の
---   「旧ローカル手適用 SQL」参照）。補正するかどうかは実データの確認後に別途判断する。
+--   補正するなら「テーブル内の行がすべて移行前」と言い切れる本マイグレーション内が
+--   最も確実だが、移送分がずれているかの調査が未了のため実施しない。ずれていない行に
+--   一律の -9h を当てるとかえって値を壊すため、要否は実データの確認後に別途判断する。
 
 -- 1. updated_at 自動更新トリガー関数
 --    CREATE OR REPLACE は SET 句を含む関数属性も置き換えるため、
