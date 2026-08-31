@@ -9,7 +9,7 @@ const UserMatterPage = () => {
   return (
     <main>
       <PageTitle title="案件カード" />
-      <Group justify="flex-end" className="mx-auto max-w-5xl px-4 pb-4">
+      <Group justify="flex-end" className="px-8 pb-4">
         <Button component={Link} href="/new">
           + 新規作成
         </Button>
