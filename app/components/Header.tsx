@@ -140,7 +140,7 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
           経理システム
         </Link>
         {!isHub && (
-          <div className="hidden sm:flex flex-wrap gap-2">
+          <div className="ml-auto hidden sm:flex flex-wrap gap-2">
             {visibleNavItems(profile?.class).map((item) => (
               <Link
                 key={item.href}
