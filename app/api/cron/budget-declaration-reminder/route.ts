@@ -29,7 +29,10 @@ const resolveBudgetDeclarationUrl = (): string => {
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  const cronSecret = process.env.CRON_SECRET;
+  // CRON_SECRET が未設定だと `Bearer undefined` という推測可能な文字列との比較になり、
+  // 環境変数の設定漏れ時にも認証が通ってしまう。未設定は明示的に弾く。
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
