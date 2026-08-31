@@ -29,25 +29,26 @@ VALUES (1, '{15,18,20}')
 ON CONFLICT (id) DO NOTHING;
 
 -- ===== RLS =====
--- 運用上の設定値であり、通常業務には関与しないため admin のみ参照・編集可能とする
--- （select_options の管理系ポリシーと同方針）。cron ルートは service role クライアント
--- （app/utils/supabase/clients.ts の createServiceRoleSupabase）で読むため RLS の対象外。
+-- 運用上の設定値であり一般ユーザーは関与しないため、admin / accounting のみ参照・
+-- 編集可能とする（budget_declarations の can_access_team_budget と同じロール区分）。
+-- cron ルートは service role クライアント（app/utils/supabase/clients.ts の
+-- createServiceRoleSupabase）で読むため RLS の対象外。
 --
 -- 行は migration で作成した 1 行のみを更新し続ける運用のため、INSERT / DELETE の
 -- ポリシーは設けない（authenticated ロールからの行追加・削除は一律不可。
--- id への CHECK 制約もあり、admin であっても新規行の追加はできない）。
+-- id への CHECK 制約もあり、admin / accounting であっても新規行の追加はできない）。
 ALTER TABLE budget_declaration_reminder_settings ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "budget_declaration_reminder_settings_select_policy"
   ON budget_declaration_reminder_settings
   FOR SELECT TO authenticated
-  USING (public.auth_user_class() = 'admin');
+  USING (public.auth_user_class() IN ('admin', 'accounting'));
 
 CREATE POLICY "budget_declaration_reminder_settings_update_policy"
   ON budget_declaration_reminder_settings
   FOR UPDATE TO authenticated
-  USING (public.auth_user_class() = 'admin')
-  WITH CHECK (public.auth_user_class() = 'admin');
+  USING (public.auth_user_class() IN ('admin', 'accounting'))
+  WITH CHECK (public.auth_user_class() IN ('admin', 'accounting'));
 
 -- ===== GRANT =====
 -- migration 17 の方針に従い、テーブル権限を明示的に付与する（制限的な DEFAULT

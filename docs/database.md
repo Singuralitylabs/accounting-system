@@ -331,7 +331,7 @@ UNIQUE 制約:
 
 読み取り: cron ルートは `app/utils/supabase/budgetDeclarationReminderData.ts` の `getBudgetDeclarationReminderTargetDays()` で取得する。**取得失敗（DB エラー・行が存在しない）の場合は `app/utils/budgetDeclarationReminder.ts` の `DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS`（`[15, 18, 20]`）にフォールバックし、リマインドが無応答で止まらないようにする。**
 
-編集: 管理者向け編集 UI は用意しておらず、Supabase ダッシュボード（Table editor は RLS をバイパスする）から `target_days` を直接編集する運用とする。UI が必要になった場合は改めて追加する。
+編集: admin / accounting 向け編集 UI は用意しておらず、Supabase ダッシュボード（Table editor は RLS をバイパスする）から `target_days` を直接編集する運用とする。UI は別 Issue で追加予定。
 
 ## 4. 列挙型
 
@@ -953,21 +953,21 @@ CREATE POLICY "budget_declaration_items_all_policy" ON budget_declaration_items
 
 ### 5.10 budget_declaration_reminder_settings テーブル
 
-> 運用上の設定値であり通常業務には関与しないため、`admin` のみ SELECT / UPDATE できる（[5.5](#55-select_option_types-テーブルselect_options-テーブル) の管理系ポリシーと同方針）。cron ルートは `SUPABASE_SERVICE_ROLE_KEY` を用いた service role クライアント（`createServiceRoleSupabase`）で読むため RLS の対象外。
+> 運用上の設定値であり一般ユーザーは関与しないため、`admin` / `accounting` のみ SELECT / UPDATE できる（budget_declarations の `can_access_team_budget` と同じロール区分。[5.8](#58-budget_declarations-テーブル) 参照）。cron ルートは `SUPABASE_SERVICE_ROLE_KEY` を用いた service role クライアント（`createServiceRoleSupabase`）で読むため RLS の対象外。
 >
-> 行は migration で作成した 1 行のみを更新し続ける運用のため、INSERT / DELETE のポリシーは設けていない。`authenticated` ロールへは SELECT / UPDATE の権限のみ GRANT し、INSERT / DELETE は権限自体を与えない（`id = 1` の CHECK 制約もあるため、admin であっても新規行は追加できない）。
+> 行は migration で作成した 1 行のみを更新し続ける運用のため、INSERT / DELETE のポリシーは設けていない。`authenticated` ロールへは SELECT / UPDATE の権限のみ GRANT し、INSERT / DELETE は権限自体を与えない（`id = 1` の CHECK 制約もあるため、admin / accounting であっても新規行は追加できない）。
 
 ```sql
 CREATE POLICY "budget_declaration_reminder_settings_select_policy"
     ON budget_declaration_reminder_settings
     FOR SELECT TO authenticated
-    USING (public.auth_user_class() = 'admin');
+    USING (public.auth_user_class() IN ('admin', 'accounting'));
 
 CREATE POLICY "budget_declaration_reminder_settings_update_policy"
     ON budget_declaration_reminder_settings
     FOR UPDATE TO authenticated
-    USING (public.auth_user_class() = 'admin')
-    WITH CHECK (public.auth_user_class() = 'admin');
+    USING (public.auth_user_class() IN ('admin', 'accounting'))
+    WITH CHECK (public.auth_user_class() IN ('admin', 'accounting'));
 
 GRANT SELECT, UPDATE ON TABLE budget_declaration_reminder_settings TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE budget_declaration_reminder_settings TO service_role;
