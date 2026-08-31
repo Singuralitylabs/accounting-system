@@ -109,6 +109,30 @@ describe("BudgetDeclarationForm", () => {
     expect(screen.getByRole("button", { name: "削除" })).toBeInTheDocument();
   });
 
+  it("編集時に既存明細の取得が失敗している間は保存できない（明細消失防止）", () => {
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+    });
+
+    renderWithMantine(
+      <BudgetDeclarationForm
+        opened
+        onClose={vi.fn()}
+        targetMonth="2026-10"
+        team="開発チーム"
+        declarationId={7}
+        teamLocked={false}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    expect(saveMutation.mutateAsync).not.toHaveBeenCalled();
+  });
+
   it("明細を追加・削除できる", () => {
     renderWithMantine(
       <BudgetDeclarationForm

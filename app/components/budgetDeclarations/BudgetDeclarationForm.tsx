@@ -86,6 +86,10 @@ const BudgetDeclarationForm = ({
   const saveMutation = useSaveBudgetDeclaration();
   const deleteMutation = useDeleteBudgetDeclaration();
   const isSaving = saveMutation.isPending || deleteMutation.isPending;
+  // 編集時は既存明細の取得が完了する（detail を受け取る）まで保存を止める。
+  // 取得失敗・未完了のまま保存すると、ローカルの items（空のまま）で
+  // 明細差し替えが走り、既存明細を消してしまう
+  const saveDisabled = isSaving || (isEditMode && !detail);
 
   const form = useForm<HeaderFormValues>({
     initialValues: { team, comment: "" },
@@ -211,6 +215,12 @@ const BudgetDeclarationForm = ({
         {isEditMode && isDetailError && (
           <Alert color="red" title="申告の取得に失敗しました" className="mb-4">
             時間をおいてもう一度お試しください。
+          </Alert>
+        )}
+
+        {isEditMode && !isDetailLoading && !isDetailError && !detail && (
+          <Alert color="gray" title="申告が見つかりません" className="mb-4">
+            既に削除されている可能性があります。一覧を閉じて再読み込みしてください。
           </Alert>
         )}
 
@@ -356,7 +366,9 @@ const BudgetDeclarationForm = ({
             <Button variant="default" onClick={closeModal}>
               キャンセル
             </Button>
-            <Button onClick={handleSave}>保存</Button>
+            <Button onClick={handleSave} disabled={saveDisabled}>
+              保存
+            </Button>
           </Group>
         </Group>
       </div>

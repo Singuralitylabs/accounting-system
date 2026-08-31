@@ -17,6 +17,7 @@ import {
   visibleBudgetTeams,
 } from "../budgetDeclaration";
 import {
+  DUPLICATE_DECLARATION_MESSAGE,
   isDuplicateDeclarationError,
   validateBudgetDeclarationPayload,
 } from "../budgetDeclarationValidation";
@@ -204,6 +205,7 @@ export const saveBudgetDeclaration = async (
   const supabase = createServerSupabase();
   const targetMonth = toFirstOfMonth(input.targetMonth);
 
+  const isCreate = input.declarationId === null;
   let declarationId = input.declarationId;
 
   if (declarationId === null) {
@@ -222,10 +224,7 @@ export const saveBudgetDeclaration = async (
       console.error(`${SUBJECT}の作成に失敗しました:`, error);
       if (isDuplicateDeclarationError(error)) {
         return {
-          error: {
-            kind: "duplicate",
-            message: `${input.team}の${input.targetMonth}分の${SUBJECT}は既に登録されています。一覧から編集してください。`,
-          },
+          error: { kind: "duplicate", message: DUPLICATE_DECLARATION_MESSAGE },
         };
       }
       return {
@@ -252,23 +251,31 @@ export const saveBudgetDeclaration = async (
       return {
         error: {
           kind: "fetchFailed",
-          message: `${SUBJECT}の更新対象が見つかりませんでした。既に削除されているか、削除する権限がありません。`,
+          message: `${SUBJECT}の更新対象が見つかりませんでした。既に削除されているか、編集する権限がありません。`,
         },
       };
     }
   }
 
-  // 明細差し替え: 既存明細を全削除してから入力内容を挿入する
-  const { error: deleteError } = await supabase
-    .from("budget_declaration_items")
-    .delete()
-    .eq("declaration_id", declarationId);
+  // 明細差し替え: 既存明細を全削除してから入力内容を挿入する。
+  // 新規作成では既存明細が存在しないため削除は不要（無駄な DB 往復を避ける）
+  if (!isCreate) {
+    const { error: deleteError } = await supabase
+      .from("budget_declaration_items")
+      .delete()
+      .eq("declaration_id", declarationId);
 
-  if (deleteError) {
-    console.error(`${SUBJECT}の明細更新に失敗しました:`, deleteError);
-    return {
-      error: { kind: "fetchFailed", message: `${SUBJECT}の明細更新に失敗しました。` },
-    };
+    if (deleteError) {
+      console.error(`${SUBJECT}の明細更新に失敗しました:`, deleteError);
+      // ヘッダ（declared_by・コメント）は直前の UPDATE で既に保存済みのため、
+      // 呼び出し側に再読み込みを促すため partialWriteFailed にする
+      return {
+        error: {
+          kind: "partialWriteFailed",
+          message: `${SUBJECT}の明細更新に失敗しました。`,
+        },
+      };
+    }
   }
 
   if (input.items.length > 0) {
@@ -278,8 +285,10 @@ export const saveBudgetDeclaration = async (
         input.items.map((item, index) => ({
           declaration_id: declarationId,
           entry_type: item.entry_type,
-          category: item.category,
-          description: item.description,
+          // validateBudgetDeclarationItem は trim() 後の空白のみを弾くが、
+          // 前後の空白そのものは除去しないため、保存時に正規化する
+          category: item.category.trim(),
+          description: item.description.trim(),
           amount: item.amount,
           display_order: index,
         })),
@@ -287,9 +296,11 @@ export const saveBudgetDeclaration = async (
 
     if (insertError) {
       console.error(`${SUBJECT}の明細登録に失敗しました:`, insertError);
+      // ヘッダは既に保存済み（新規作成なら本行、編集なら直前の UPDATE）で、
+      // 明細だけが未反映のまま残る。呼び出し側に再読み込みを促すため区別する
       return {
         error: {
-          kind: "fetchFailed",
+          kind: "partialWriteFailed",
           message: `${SUBJECT}の明細登録に失敗しました。`,
         },
       };

@@ -60,6 +60,15 @@ describe("validateBudgetDeclarationItem", () => {
     );
   });
 
+  it("空白のみの入力も未入力として required 扱いにする", () => {
+    expect(
+      validateBudgetDeclarationItem(validItem({ description: "  " })),
+    ).toBe("required");
+    expect(validateBudgetDeclarationItem(validItem({ category: "　" }))).toBe(
+      "required",
+    );
+  });
+
   it("金額が0以下なら amount", () => {
     expect(validateBudgetDeclarationItem(validItem({ amount: 0 }))).toBe(
       "amount",

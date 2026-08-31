@@ -18,6 +18,7 @@ import {
 import {
   BudgetDeclarationError,
   isForbiddenError,
+  isPartialWriteFailureError,
 } from "../utils/budgetDeclaration";
 import { notifyError, notifySuccess, toErrorMessage } from "../utils/notify";
 
@@ -100,7 +101,18 @@ export const useSaveBudgetDeclaration = () => {
     },
     onError: (error) => {
       console.error("事前収支申告の保存エラー:", error);
-      notifyError(toErrorMessage(error, "事前収支申告の保存に失敗しました。"));
+      const message = toErrorMessage(
+        error,
+        "事前収支申告の保存に失敗しました。",
+      );
+      // ヘッダ保存 → 明細差し替え（全削除→全登録）は複数ステップの非トランザクション
+      // 処理のため、DB 障害（fetchFailed）はどのステップまで反映済みか呼び出し側から
+      // 判別できない（RecurringCostList の一括保存と同方針で案内する）
+      notifyError(
+        isPartialWriteFailureError(error)
+          ? `${message}\n一部のみ反映されている可能性があるため、画面を再読み込みして内容を確認してください。`
+          : message,
+      );
     },
   });
 };

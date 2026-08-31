@@ -36,7 +36,12 @@ export const hasBudgetDeclarationRequiredHeader = (
 export const validateBudgetDeclarationItem = (
   item: BudgetDeclarationItemInput,
 ): "ok" | "required" | "amount" => {
-  if (!item.entry_type || !item.category || !item.description) {
+  // trim() で空白のみの入力（例: 内容に半角スペースのみ）も未入力扱いにする
+  if (
+    !item.entry_type.trim() ||
+    !item.category.trim() ||
+    !item.description.trim()
+  ) {
     return "required";
   }
   // DB の CHECK (amount > 0) と同じ基準。NaN も弾く
