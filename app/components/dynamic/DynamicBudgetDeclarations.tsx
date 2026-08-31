@@ -1,9 +1,11 @@
 import { getBudgetDeclarationList } from "@/app/utils/supabase/budgetDeclarations";
+import { getBudgetDeclarationReminderSettings } from "@/app/utils/supabase/budgetDeclarationReminderSettings";
 import { getProfileInfo } from "@/app/utils/supabase/profiles";
 import {
   canViewAllBudgetTeams,
   defaultTargetMonth,
 } from "@/app/utils/budgetDeclaration";
+import { canManageBudgetDeclarationReminderSettings } from "@/app/utils/budgetDeclarationReminder";
 import BudgetDeclarationList from "../budgetDeclarations/BudgetDeclarationList";
 
 const DynamicBudgetDeclarations = async () => {
@@ -25,6 +27,24 @@ const DynamicBudgetDeclarations = async () => {
     );
   }
 
+  const canManageReminderSettings = canManageBudgetDeclarationReminderSettings(
+    profileInfo?.class,
+  );
+
+  // リマインド設定セクションは admin / accounting にのみ描画するため、
+  // 対象外のロールでは Server Action 自体を呼ばない
+  // （teamleader / public に権限不足のログを残さない）
+  const reminderSettings = canManageReminderSettings
+    ? await getBudgetDeclarationReminderSettings()
+    : null;
+
+  if (reminderSettings?.error) {
+    console.error(
+      "事前収支申告リマインド設定の取得に失敗しました:",
+      reminderSettings.error,
+    );
+  }
+
   return (
     <BudgetDeclarationList
       initialMonth={initialMonth}
@@ -33,6 +53,8 @@ const DynamicBudgetDeclarations = async () => {
       // GC 後に古い initialData を再取得なしで表示してしまう
       initialDataUpdatedAt={Date.now()}
       canEditAllTeams={canViewAllBudgetTeams(profileInfo?.class)}
+      canManageReminderSettings={canManageReminderSettings}
+      initialReminderTargetDays={reminderSettings?.targetDays ?? null}
     />
   );
 };

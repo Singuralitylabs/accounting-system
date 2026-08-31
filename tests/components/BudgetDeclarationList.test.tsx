@@ -30,6 +30,14 @@ vi.mock("@/app/hooks/useBudgetDeclarationData", () => ({
   useDeleteBudgetDeclaration: () => deleteMutation,
 }));
 
+// BudgetDeclarationReminderSettings が直接 import する Server Action。
+// "use server" 経由で profiles.ts の requestCache（React cache()）まで
+// 芋づる式に読み込まれ、テスト環境では初期化に失敗するためモックする
+// （このテストでは canManageReminderSettings を渡さないため呼ばれない）
+vi.mock("@/app/utils/supabase/budgetDeclarationReminderSettings", () => ({
+  updateBudgetDeclarationReminderTargetDays: vi.fn(),
+}));
+
 // 一覧の月ピッカーは Mantine のカレンダー UI で操作が煩雑なため、テストでは
 // 「クリックすると月が変わる」だけの単純なスタブに差し替える
 vi.mock("@/app/components/CustomMonthPicker", () => ({
@@ -132,5 +140,50 @@ describe("BudgetDeclarationList", () => {
 
     expect(screen.getByDisplayValue("2026年10月")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("2026年11月")).not.toBeInTheDocument();
+  });
+
+  it("canManageReminderSettings が false のときはリマインド設定セクションを表示しない", () => {
+    useBudgetDeclarationList.mockReturnValue({
+      data: [row()],
+      isLoading: false,
+      isError: false,
+      error: null,
+      isPlaceholderData: false,
+    });
+
+    renderWithMantine(
+      <BudgetDeclarationList
+        initialMonth="2026-10"
+        initialData={null}
+        initialDataUpdatedAt={Date.now()}
+        canEditAllTeams
+      />,
+    );
+
+    expect(screen.queryByText("リマインド設定")).not.toBeInTheDocument();
+  });
+
+  it("canManageReminderSettings が true のときはリマインド設定セクションを表示する", () => {
+    useBudgetDeclarationList.mockReturnValue({
+      data: [row()],
+      isLoading: false,
+      isError: false,
+      error: null,
+      isPlaceholderData: false,
+    });
+
+    renderWithMantine(
+      <BudgetDeclarationList
+        initialMonth="2026-10"
+        initialData={null}
+        initialDataUpdatedAt={Date.now()}
+        canEditAllTeams
+        canManageReminderSettings
+        initialReminderTargetDays={[15, 18, 20]}
+      />,
+    );
+
+    expect(screen.getByText("リマインド設定")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "15" })).toBeChecked();
   });
 });

@@ -339,7 +339,7 @@ CHECK (1 <= ALL(target_days) AND 31 >= ALL(target_days))
 
 読み取り: cron ルートは `app/utils/supabase/budgetDeclarationReminderData.ts` の `getBudgetDeclarationReminderTargetDays()` で取得する。**取得失敗（DB エラー・行が存在しない・`createServiceRoleSupabase()` が投げる例外を含む）の場合は `app/utils/budgetDeclarationReminder.ts` の `DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS`（`[15, 18, 20]`）にフォールバックし、リマインドが無応答で止まらないようにする。** このフォールバックは「対象日を空にして意図的に停止した」状態でも取得が一時的に失敗すればデフォルト値に戻ってしまう trade-off を内包するが、cron を無応答で止めないことを優先している（fail-open）。
 
-編集: admin / accounting 向け編集 UI は用意しておらず、Supabase ダッシュボード（Table editor は RLS をバイパスする）から `target_days` を直接編集する運用とする。UI は別 Issue で追加予定。
+編集: `/budget-declarations`（事前収支申告画面）の「リマインド設定」セクションから admin / accounting が編集できる（Issue #97）。`app/utils/supabase/budgetDeclarationReminderSettings.ts` の `getBudgetDeclarationReminderSettings()` / `updateBudgetDeclarationReminderTargetDays()`（いずれも Server Action）を使い、`createServerSupabase()`（anon キー + RLS）経由で `getAuthorizedViewer(["admin", "accounting"], ...)` による多層防御を行う（service role クライアントは使わない）。保存対象は `id = 1` の既存行への UPDATE のみ（RLS 上 INSERT / DELETE は不可）。保存前に `app/utils/budgetDeclarationReminder.ts` の `normalizeBudgetDeclarationReminderTargetDays`（範囲チェック / 重複排除 / 昇順ソート）で正規化する。teamleader / public にはセクション自体を描画せず、Server Action 側でも `getAuthorizedViewer` により拒否する。
 
 ## 4. 列挙型
 

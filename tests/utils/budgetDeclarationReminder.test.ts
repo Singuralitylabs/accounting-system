@@ -3,8 +3,11 @@ import {
   BUDGET_DECLARATION_DEADLINE_DAY,
   DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS,
   buildBudgetDeclarationReminderMessage,
+  canManageBudgetDeclarationReminderSettings,
   groupSlackIdsByTeam,
   isBudgetDeclarationReminderTargetDay,
+  isValidBudgetDeclarationReminderTargetDay,
+  normalizeBudgetDeclarationReminderTargetDays,
   undeclaredBudgetTeams,
 } from "@/app/utils/budgetDeclarationReminder";
 
@@ -142,4 +145,52 @@ describe("buildBudgetDeclarationReminderMessage", () => {
     expect(message).toContain("- 広報チーム");
     expect(message).not.toContain("<@");
   });
+});
+
+describe("isValidBudgetDeclarationReminderTargetDay", () => {
+  it.each([1, 15, 31])("%d は有効な対象日である", (day) => {
+    expect(isValidBudgetDeclarationReminderTargetDay(day)).toBe(true);
+  });
+
+  it.each([0, 32, -1, 1.5, NaN])("%d は無効な対象日である", (day) => {
+    expect(isValidBudgetDeclarationReminderTargetDay(day)).toBe(false);
+  });
+});
+
+describe("normalizeBudgetDeclarationReminderTargetDays", () => {
+  it("範囲外の値を除外し、重複を排除して昇順ソートする", () => {
+    expect(
+      normalizeBudgetDeclarationReminderTargetDays([20, 0, 15, 20, 32, 5]),
+    ).toEqual([5, 15, 20]);
+  });
+
+  it("空配列はそのまま空配列を返す（リマインド停止）", () => {
+    expect(normalizeBudgetDeclarationReminderTargetDays([])).toEqual([]);
+  });
+
+  it("全て無効な値なら空配列を返す", () => {
+    expect(normalizeBudgetDeclarationReminderTargetDays([0, 32, -5])).toEqual(
+      [],
+    );
+  });
+});
+
+describe("canManageBudgetDeclarationReminderSettings", () => {
+  it.each(["admin", "accounting"])(
+    "%s はリマインド設定を編集できる",
+    (profileClass) => {
+      expect(canManageBudgetDeclarationReminderSettings(profileClass)).toBe(
+        true,
+      );
+    },
+  );
+
+  it.each(["teamleader", "public", null, undefined])(
+    "%s はリマインド設定を編集できない",
+    (profileClass) => {
+      expect(canManageBudgetDeclarationReminderSettings(profileClass)).toBe(
+        false,
+      );
+    },
+  );
 });

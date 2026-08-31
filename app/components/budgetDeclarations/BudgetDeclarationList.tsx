@@ -13,6 +13,7 @@ import { CustomMonthPicker } from "../CustomMonthPicker";
 import { LoadingSpinner } from "../LoadingSpinner";
 import BudgetDeclarationForm from "./BudgetDeclarationForm";
 import BudgetDeclarationItemTable from "./BudgetDeclarationItemTable";
+import BudgetDeclarationReminderSettings from "./BudgetDeclarationReminderSettings";
 
 type Props = {
   initialMonth: string; // "YYYY-MM"（既定は翌月）
@@ -21,6 +22,11 @@ type Props = {
   // 全チームの作成・編集ができるロールか（経理・管理者）。false ならチームリーダーの
   // 自チームのみ（一覧に並ぶ行自体が自チームのみなので、この値は選択可否の表示にのみ使う）
   canEditAllTeams: boolean;
+  // リマインド設定セクションを表示できるロールか（admin / accounting）。
+  // 省略時は false（未対応の呼び出し元で誤って表示されないようにする）
+  canManageReminderSettings?: boolean;
+  // 取得済みの現在の対象日。canManageReminderSettings が true でも取得失敗時は null
+  initialReminderTargetDays?: number[] | null;
 };
 
 type FormTarget = {
@@ -37,6 +43,8 @@ const BudgetDeclarationList = ({
   initialData,
   initialDataUpdatedAt,
   canEditAllTeams,
+  canManageReminderSettings = false,
+  initialReminderTargetDays = null,
 }: Props) => {
   const [month, setMonth] = useState<string>(initialMonth);
   // 明細を開いているチーム（1 行ずつ開く）
@@ -60,6 +68,11 @@ const BudgetDeclarationList = ({
 
   return (
     <div className="mx-auto max-w-5xl px-4 pb-8">
+      {canManageReminderSettings && (
+        <BudgetDeclarationReminderSettings
+          initialTargetDays={initialReminderTargetDays}
+        />
+      )}
       <div className="mb-4 max-w-xs">
         <CustomMonthPicker
           label="対象月"

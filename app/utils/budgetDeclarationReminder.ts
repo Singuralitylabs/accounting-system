@@ -4,6 +4,7 @@
 // ユニットテストできるようにするため（docs/testing.md「2.6 テスト容易化リファクタリング方針」）。
 
 import { currentJstDate, formatMonthLabel } from "./formatter";
+import { Role, hasClassAccess } from "./permissions";
 
 // リマインド対象日（JST の日）のフォールバックデフォルト値。期限（毎月20日）の
 // 数日前から通知する運用のため、20日を含め複数日を対象にしている。
@@ -86,3 +87,32 @@ export const buildBudgetDeclarationReminderMessage = (
     declarationUrl,
   ].join("\n");
 };
+
+// 対象日設定 UI（Issue #97）の編集・保存に使う純粋関数。
+
+// リマインド対象日として保存できる値か（1〜31 の整数）。
+export const isValidBudgetDeclarationReminderTargetDay = (
+  day: number,
+): boolean => Number.isInteger(day) && day >= 1 && day <= 31;
+
+// 対象日の入力値を保存用に正規化する: 範囲外を除外し、重複を排除して昇順ソートする。
+export const normalizeBudgetDeclarationReminderTargetDays = (
+  days: readonly number[],
+): number[] =>
+  Array.from(
+    new Set(days.filter(isValidBudgetDeclarationReminderTargetDay)),
+  ).sort((a, b) => a - b);
+
+// リマインド設定（対象日）の閲覧・編集ができるロール。DB 側の RLS
+// （budget_declaration_reminder_settings の select/update policy、migration 20）と
+// 同じ区分。片方だけ変えるとアプリと RLS がずれるため、変更時は両方を直す
+export const BUDGET_DECLARATION_REMINDER_SETTINGS_ALLOWED_CLASSES: readonly Role[] =
+  ["admin", "accounting"];
+
+export const canManageBudgetDeclarationReminderSettings = (
+  profileClass: string | null | undefined,
+): boolean =>
+  hasClassAccess(
+    BUDGET_DECLARATION_REMINDER_SETTINGS_ALLOWED_CLASSES,
+    profileClass,
+  );
