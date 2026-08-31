@@ -1,17 +1,27 @@
 "use server";
 
 import {
+  BudgetDeclarationDeleteResult,
   BudgetDeclarationDetailResult,
   BudgetDeclarationListResult,
+  BudgetDeclarationSaveInput,
+  BudgetDeclarationSaveResult,
 } from "../../types/types";
 import {
   BUDGET_DECLARATION_ALLOWED_CLASSES,
   BudgetDeclarationWithItems,
   buildBudgetDeclarationStatusList,
   canViewAllBudgetTeams,
+  canWriteBudgetTeam,
   ownBudgetTeams,
   visibleBudgetTeams,
 } from "../budgetDeclaration";
+import {
+  DUPLICATE_DECLARATION_MESSAGE,
+  getBudgetDeclarationValidationMessage,
+  isDuplicateDeclarationError,
+  validateBudgetDeclarationPayload,
+} from "../budgetDeclarationValidation";
 import { toFirstOfMonth } from "../formatter";
 import { createServerSupabase } from "./clients";
 import { getSelectOptions } from "./selectOptions";
@@ -154,6 +164,219 @@ export const getBudgetDeclarationDetail = async (
       ),
     },
   };
+};
+
+// 申告の作成・編集（ヘッダ + 明細差し替え）。
+// declarationId が null なら新規作成、それ以外なら既存ヘッダの更新。
+// 明細は「差し替え」方式（既存を全削除→入力内容を全 INSERT）にしている。
+// costs.ts のような isNew/isRemoved diff にしないのは、申告の明細は保存のたびに
+// フォーム側の配列が最終形そのものであり、差分を追跡する状態を別途持つ必要が
+// ないため（複雑さに見合わない）。
+export const saveBudgetDeclaration = async (
+  input: BudgetDeclarationSaveInput,
+): Promise<BudgetDeclarationSaveResult> => {
+  const { profileInfo, error: accessError } = await getAuthorizedViewer(
+    BUDGET_DECLARATION_ALLOWED_CLASSES,
+    SUBJECT,
+  );
+  if (accessError) {
+    return { error: accessError };
+  }
+
+  // RLS が最終防御だが、事前にわかりやすいエラーメッセージを返す
+  if (!canWriteBudgetTeam(profileInfo.class, profileInfo.team, input.team)) {
+    return {
+      error: {
+        kind: "forbidden",
+        message: `${input.team}の${SUBJECT}を編集する権限がありません。`,
+      },
+    };
+  }
+
+  const validation = validateBudgetDeclarationPayload(
+    { targetMonth: input.targetMonth, team: input.team },
+    input.items,
+  );
+  if (!validation.ok) {
+    return {
+      error: {
+        kind: "validationFailed",
+        message: getBudgetDeclarationValidationMessage(validation.reason),
+      },
+    };
+  }
+
+  const supabase = createServerSupabase();
+  const targetMonth = toFirstOfMonth(input.targetMonth);
+
+  const isCreate = input.declarationId === null;
+  let declarationId = input.declarationId;
+
+  if (declarationId === null) {
+    const { data, error } = await supabase
+      .from("budget_declarations")
+      .insert({
+        target_month: targetMonth,
+        team: input.team,
+        declared_by: profileInfo.id,
+        comment: input.comment,
+      })
+      .select("id")
+      .single();
+
+    if (error) {
+      console.error(`${SUBJECT}の作成に失敗しました:`, error);
+      if (isDuplicateDeclarationError(error)) {
+        return {
+          error: { kind: "duplicate", message: DUPLICATE_DECLARATION_MESSAGE },
+        };
+      }
+      return {
+        error: { kind: "fetchFailed", message: `${SUBJECT}の作成に失敗しました。` },
+      };
+    }
+
+    declarationId = data.id;
+  } else {
+    // team・target_month でも絞る。フォームでは両方とも編集不可（対象月は表示専用、
+    // チームは編集時に常に固定）だが、渡された id が別の申告を指していた場合に
+    // 誤って別チーム・別月の申告を書き換えないための整合性チェック
+    // （RLS がチーム単位のアクセス制御自体は担保する）
+    const { data, error } = await supabase
+      .from("budget_declarations")
+      .update({ declared_by: profileInfo.id, comment: input.comment })
+      .eq("id", declarationId)
+      .eq("team", input.team)
+      .eq("target_month", targetMonth)
+      .select("id");
+
+    if (error) {
+      console.error(`${SUBJECT}の更新に失敗しました:`, error);
+      return {
+        error: { kind: "fetchFailed", message: `${SUBJECT}の更新に失敗しました。` },
+      };
+    }
+    // RLS で 0 行 / 削除済みでも PostgREST は error なしで [] を返す
+    if (!data || data.length !== 1) {
+      return {
+        error: {
+          kind: "fetchFailed",
+          message: `${SUBJECT}の更新対象が見つかりませんでした。既に削除されているか、編集する権限がありません。`,
+        },
+      };
+    }
+  }
+
+  // 明細差し替え: 既存明細を全削除してから入力内容を挿入する。
+  // 新規作成では既存明細が存在しないため削除は不要（無駄な DB 往復を避ける）
+  if (!isCreate) {
+    const { error: deleteError } = await supabase
+      .from("budget_declaration_items")
+      .delete()
+      .eq("declaration_id", declarationId);
+
+    if (deleteError) {
+      console.error(`${SUBJECT}の明細更新に失敗しました:`, deleteError);
+      // ヘッダ（declared_by・コメント）は直前の UPDATE で既に保存済みのため、
+      // 呼び出し側に再読み込みを促すため partialWriteFailed にする
+      return {
+        error: {
+          kind: "partialWriteFailed",
+          message: `${SUBJECT}の明細更新に失敗しました。`,
+        },
+      };
+    }
+  }
+
+  if (input.items.length > 0) {
+    const { error: insertError } = await supabase
+      .from("budget_declaration_items")
+      .insert(
+        input.items.map((item, index) => ({
+          declaration_id: declarationId,
+          // validateBudgetDeclarationItem は trim() 後の空白のみを弾くが、
+          // 前後の空白そのものは除去しないため、保存時に正規化する。
+          // entry_type は DB の CHECK（income/expense）対象のため特に重要
+          // （前後空白付きの値のまま INSERT すると CHECK 違反で失敗する）
+          entry_type: item.entry_type.trim(),
+          category: item.category.trim(),
+          description: item.description.trim(),
+          amount: item.amount,
+          display_order: index,
+        })),
+      );
+
+    if (insertError) {
+      console.error(`${SUBJECT}の明細登録に失敗しました:`, insertError);
+      // ヘッダは既に保存済み（新規作成なら本行、編集なら直前の UPDATE）で、
+      // 明細だけが未反映のまま残る。呼び出し側に再読み込みを促すため区別する
+      return {
+        error: {
+          kind: "partialWriteFailed",
+          message: `${SUBJECT}の明細登録に失敗しました。`,
+        },
+      };
+    }
+  }
+
+  return { id: declarationId };
+};
+
+// 申告の削除（明細は ON DELETE CASCADE で同時に削除される）
+export const deleteBudgetDeclaration = async (
+  declarationId: number,
+  team: string,
+): Promise<BudgetDeclarationDeleteResult> => {
+  const { profileInfo, error: accessError } = await getAuthorizedViewer(
+    BUDGET_DECLARATION_ALLOWED_CLASSES,
+    SUBJECT,
+  );
+  if (accessError) {
+    return { error: accessError };
+  }
+
+  if (!canWriteBudgetTeam(profileInfo.class, profileInfo.team, team)) {
+    return {
+      error: {
+        kind: "forbidden",
+        message: `${team}の${SUBJECT}を削除する権限がありません。`,
+      },
+    };
+  }
+
+  const supabase = createServerSupabase();
+
+  // .select() を付けないと削除行が返らず、RLS で 0 行になっても error は null に
+  // なるため、削除できていないのに成功として扱われてしまう（matters.ts と同方針）。
+  // team でも絞るのは update 同様の整合性チェック（渡された id が別チームの
+  // 申告を指していた場合に誤って削除しないため）
+  const { data, error } = await supabase
+    .from("budget_declarations")
+    .delete()
+    .eq("id", declarationId)
+    .eq("team", team)
+    .select();
+
+  if (error) {
+    console.error(`${SUBJECT}の削除に失敗しました:`, error);
+    return {
+      error: { kind: "fetchFailed", message: `${SUBJECT}の削除に失敗しました。` },
+    };
+  }
+
+  if (!data || data.length !== 1) {
+    console.error(`${SUBJECT}の削除対象が見つかりませんでした。`, {
+      declarationId,
+    });
+    return {
+      error: {
+        kind: "fetchFailed",
+        message: `${SUBJECT}の削除対象が見つかりませんでした。既に削除されているか、削除する権限がありません。`,
+      },
+    };
+  }
+
+  return {};
 };
 
 // 一覧クエリの行を集計用の形に変換する

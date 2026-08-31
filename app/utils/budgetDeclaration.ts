@@ -103,6 +103,18 @@ export const visibleBudgetTeams = (
     ? [...teamList]
     : ownBudgetTeams(profileClass, profileTeam);
 
+// 対象チームへの書き込み（作成・編集・削除）が許可されるか。
+// DB 側の判定 `public.can_access_team_budget`（migration 19）と同じ区分
+// （canViewAllBudgetTeams / ownBudgetTeams を参照。片方だけ変えるとアプリと
+// RLS がずれるため、変更時は両方を直す）。
+export const canWriteBudgetTeam = (
+  profileClass: string | null | undefined,
+  profileTeam: string | null | undefined,
+  targetTeam: string,
+): boolean =>
+  canViewAllBudgetTeams(profileClass) ||
+  ownBudgetTeams(profileClass, profileTeam).includes(targetTeam);
+
 // 集計前の申告（ヘッダ＋明細）。DB から取得した形に対応する
 export type BudgetDeclarationWithItems = {
   id: number;
@@ -171,10 +183,24 @@ export class BudgetDeclarationError extends Error {
   }
 }
 
-// 権限不足は再試行しても回復しないため、リトライ対象から外す。
+// error が BudgetDeclarationError なら kind を返す（それ以外は undefined）。
 // `instanceof BudgetDeclarationError` で判定しないのは、ES5 へダウンレベルする
 // ツールチェーンでは組み込み Error のサブクラス判定が常に false になり、
-// 権限エラーが黙って「一時的な失敗」として再試行されてしまうため。
+// kind を使った出し分け（リトライ抑止・案内メッセージの切り替え）が
+// 黙って効かなくなるため。`instanceof Error` と `.kind` の有無で代用する。
+const getBudgetDeclarationErrorKind = (
+  error: unknown,
+): AccessFailureKind | undefined =>
+  error instanceof Error
+    ? (error as Partial<BudgetDeclarationError>).kind
+    : undefined;
+
+// 権限不足は再試行しても回復しないため、リトライ対象から外す。
 export const isForbiddenError = (error: unknown): boolean =>
-  error instanceof Error &&
-  (error as Partial<BudgetDeclarationError>).kind === "forbidden";
+  getBudgetDeclarationErrorKind(error) === "forbidden";
+
+// ヘッダ保存→明細差し替えの途中で失敗し、一部のみ反映された可能性があるケースかどうか。
+// ヘッダ保存自体の失敗・対象行なし・バリデーション不備・権限不足・重複エラーは
+// 何も書き込まれていないため対象外（fetchFailed 全般ではなく partialWriteFailed のみを見る）
+export const isPartialWriteFailureError = (error: unknown): boolean =>
+  getBudgetDeclarationErrorKind(error) === "partialWriteFailed";

@@ -1,13 +1,29 @@
 import { getBudgetDeclarationList } from "@/app/utils/supabase/budgetDeclarations";
-import { defaultTargetMonth } from "@/app/utils/budgetDeclaration";
+import { getProfileInfo } from "@/app/utils/supabase/profiles";
+import {
+  canViewAllBudgetTeams,
+  defaultTargetMonth,
+} from "@/app/utils/budgetDeclaration";
 import BudgetDeclarationList from "../budgetDeclarations/BudgetDeclarationList";
 
 const DynamicBudgetDeclarations = async () => {
   // 初期表示は翌月（毎月20日までに翌月分を申告する運用に合わせる）
   const initialMonth = defaultTargetMonth();
-  // 取得失敗時は null のまま渡し、クライアント側で再取得させる
-  // （空配列を initialData にすると「0 件」と区別できず成功としてキャッシュされる）
-  const { rows } = await getBudgetDeclarationList(initialMonth);
+  // getProfileInfo は React cache() 経由で dedupe されるため、
+  // getBudgetDeclarationList 内で既に呼ばれていても DB 往復は増えない
+  const [{ rows }, { profileInfo, error: profileError }] = await Promise.all([
+    getBudgetDeclarationList(initialMonth),
+    getProfileInfo(),
+  ]);
+
+  // 取得失敗時は canEditAllTeams が false（チーム固定）側にフォールバックする。
+  // 経理・管理者が対象でも、失敗の原因を追えるようログだけは残す
+  if (profileError) {
+    console.error(
+      "事前収支申告フォームの権限判定用プロフィール取得に失敗しました:",
+      profileError,
+    );
+  }
 
   return (
     <BudgetDeclarationList
@@ -16,6 +32,7 @@ const DynamicBudgetDeclarations = async () => {
       // シード時刻を渡さないと、TanStack Query が「今取得した」と扱い、
       // GC 後に古い initialData を再取得なしで表示してしまう
       initialDataUpdatedAt={Date.now()}
+      canEditAllTeams={canViewAllBudgetTeams(profileInfo?.class)}
     />
   );
 };

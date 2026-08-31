@@ -6,8 +6,10 @@ import {
   BudgetDeclarationWithItems,
   addMonths,
   buildBudgetDeclarationStatusList,
+  canWriteBudgetTeam,
   defaultTargetMonth,
   isForbiddenError,
+  isPartialWriteFailureError,
   summarizeBudgetItems,
   totalBudgetSummary,
   visibleBudgetTeams,
@@ -141,6 +143,27 @@ describe("visibleBudgetTeams", () => {
     const result = visibleBudgetTeams("admin", null, teamList);
     result.push("Dチーム");
     expect(teamList).toEqual(["Aチーム", "Bチーム", "Cチーム"]);
+  });
+});
+
+describe("canWriteBudgetTeam", () => {
+  it("経理・管理者は全チームへ書き込める", () => {
+    expect(canWriteBudgetTeam("accounting", null, "Aチーム")).toBe(true);
+    expect(canWriteBudgetTeam("admin", "Bチーム", "Aチーム")).toBe(true);
+  });
+
+  it("チームリーダーは自チームのみ書き込める", () => {
+    expect(canWriteBudgetTeam("teamleader", "Aチーム", "Aチーム")).toBe(true);
+    expect(canWriteBudgetTeam("teamleader", "Aチーム", "Bチーム")).toBe(false);
+  });
+
+  it("チーム未設定のチームリーダーはどのチームにも書き込めない", () => {
+    expect(canWriteBudgetTeam("teamleader", null, "Aチーム")).toBe(false);
+  });
+
+  it("public・ロール未設定は書き込めない", () => {
+    expect(canWriteBudgetTeam("public", "Aチーム", "Aチーム")).toBe(false);
+    expect(canWriteBudgetTeam(null, "Aチーム", "Aチーム")).toBe(false);
   });
 });
 
@@ -323,5 +346,48 @@ describe("BudgetDeclarationError / isForbiddenError", () => {
     expect(isForbiddenError(null)).toBe(false);
     // Error でないただのオブジェクトも対象外
     expect(isForbiddenError({ kind: "forbidden" })).toBe(false);
+  });
+});
+
+describe("isPartialWriteFailureError", () => {
+  it("明細差し替えの途中で失敗した場合（partialWriteFailed）は一部反映の可能性があると判定する", () => {
+    expect(
+      isPartialWriteFailureError(
+        new BudgetDeclarationError({
+          kind: "partialWriteFailed",
+          message: "事前収支申告の明細登録に失敗しました。",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("何も書き込まれていない失敗（fetchFailed・forbidden・validationFailed・duplicate）は対象外", () => {
+    // fetchFailed はヘッダ保存自体の失敗・対象行なしにも使われ、
+    // その場合は何も書き込まれていないため対象外にする
+    expect(
+      isPartialWriteFailureError(
+        new BudgetDeclarationError({ kind: "fetchFailed", message: "" }),
+      ),
+    ).toBe(false);
+    expect(
+      isPartialWriteFailureError(
+        new BudgetDeclarationError({ kind: "forbidden", message: "" }),
+      ),
+    ).toBe(false);
+    expect(
+      isPartialWriteFailureError(
+        new BudgetDeclarationError({ kind: "validationFailed", message: "" }),
+      ),
+    ).toBe(false);
+    expect(
+      isPartialWriteFailureError(
+        new BudgetDeclarationError({ kind: "duplicate", message: "" }),
+      ),
+    ).toBe(false);
+  });
+
+  it("無関係なエラーは対象外", () => {
+    expect(isPartialWriteFailureError(new Error("network"))).toBe(false);
+    expect(isPartialWriteFailureError(null)).toBe(false);
   });
 });
