@@ -646,6 +646,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 - Vercel Cron が毎日 09:00 JST（`0 0 * * *` UTC）に `app/api/cron/budget-declaration-reminder/route.ts`（Route Handler）を実行する（`vercel.json`）
 - `Authorization: Bearer ${CRON_SECRET}` を検証し、一致しない場合は 401 を返す
 - リマインド対象日は `budget_declaration_reminder_settings` テーブル（1 行のみ。[database.md 3.11](database.md#311-budget_declaration_reminder_settings-テーブル)）の `target_days` で管理し、デプロイなしで編集できる。DB 取得に失敗した場合は `DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS`（`[15, 18, 20]`）にフォールバックする（`getBudgetDeclarationReminderTargetDays`）
+- 対象日の編集 UI は `/budget-declarations` の「リマインド設定」セクション（admin / accounting のみ表示。[5.3.14](#5314-事前収支申告画面-s014)）から行う。対象日（1〜31）を複数選択して保存すると `updateBudgetDeclarationReminderTargetDays` が `id = 1` の既存行を UPDATE する（INSERT / DELETE は不可）。対象日を空にして保存するとリマインドが停止し（cron は動作するが送信されない）、UI 上に警告を表示する
 - JST の「今日」が対象日リストに含まれていなければ何もしない（対象日以外は 200 でスキップを返す）。**対象日リストを空にするとリマインド自体が停止する**（cron は動作するが常にスキップ）
 - 対象日であれば、対象月（JST の翌月。一覧の初期表示と同じ `defaultTargetMonth`）について以下を行う
   1. 有効な team 選択肢（チームマスタ）から全チームを取得する
@@ -959,6 +960,11 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 - URL: /budget-declarations
 - 構成要素
   - ページタイトル「事前収支申告」
+  - リマインド設定セクション（admin / accounting のみ表示。teamleader / public には描画しない）
+    - 対象日（1〜31）を選択する Chip 群（複数選択）と保存ボタン
+    - 対象日が 0 件のときは「現在リマインドは無効です」の警告を表示する
+    - 29〜31日は月によって存在しない旨の注記を表示する
+    - 保存は確認ダイアログを経てから実行する（対象日を空にする場合はリマインド停止になる旨を案内する）
   - 対象月ピッカー（初期値は翌月）
   - チーム別申告状況テーブル
     - チーム / 申告状況（申告済み・未申告バッジ） / 収入合計 / 支出合計 / 差引 / 申告者 / 最終更新 / 明細表示ボタン / 操作ボタン
@@ -1005,72 +1011,76 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 ### 7.1 Server Actions
 
-| 関数名                     | 説明                                                     | パラメータ                            | レスポンス                 |
-| -------------------------- | -------------------------------------------------------- | ------------------------------------- | -------------------------- |
-| getProfileInfo             | ログインユーザーのプロフィール取得                       | -                                     | {profileInfo, error}       |
-| getProfileInfoById         | 指定ユーザーのプロフィール取得                           | userId: string                        | {profileInfo, error}       |
-| getAllUserInfo             | 全ユーザー情報の取得                                     | -                                     | {userInfoList, error}      |
-| insertUserInfo             | ユーザー情報の登録                                       | {user, name, email}                   | {error}                    |
-| updateUserInfo             | ユーザー情報の更新                                       | {profile}                             | {error}                    |
-| getAllMatterInfoList       | 全案件情報の取得                                         | -                                     | MatterType[]               |
-| getUserMatterInfoList      | ユーザーの案件情報の取得                                 | -                                     | MatterType[]               |
-| getTeamMatterInfoList      | チームの案件情報の取得                                   | -                                     | MatterType[]               |
-| insertMatterInfo           | 案件情報の登録                                           | (title, category, team, ...)          | {newId, error}             |
-| updateMatterInfo           | 案件情報の更新                                           | matterInfo: MatterType                | {status, error}            |
-| deleteMatterInfo           | 案件情報の削除                                           | id: number                            | {status, error}            |
-| getUserCostInfoList        | コスト情報の取得                                         | matter_id: number                     | {costInfoList, error}      |
-| updateCostInfo             | コスト情報の更新                                         | (id, name, item, ...)                 | -                          |
-| insertCostInfo             | コスト情報の登録                                         | (name, item, ...)                     | {error}                    |
-| deleteCostInfo             | コスト情報の削除                                         | id: number                            | -                          |
-| getUserBusinessInfoList    | 取引先情報の取得                                         | matter_id: number                     | {businessInfoList, error}  |
-| insertBusinessInfo         | 取引先情報の登録                                         | (name, amount, ...)                   | {error}                    |
-| updateBusinessInfo         | 取引先情報の更新                                         | (id, name, amount, ...)               | -                          |
-| deleteBusinessInfo         | 取引先情報の削除                                         | id: number                            | -                          |
-| getSelectOptions           | 選択肢情報の取得                                         | typeName: string                      | {options, error}           |
-| insertSelectOption         | 選択肢情報の登録                                         | (typeName, value, display_order)      | boolean                    |
-| updateSelectOption         | 選択肢情報の更新                                         | (id, value, display_order, is_active) | boolean                    |
-| sendSlackNotification      | Slack 通知の送信                                         | (message, metadata)                   | {success, error}           |
-| getProfitLossReport        | 月次損益レポートの取得                                   | month: string ("YYYY-MM")             | PLReportType \| null       |
-| getAnnualTrend             | 年間推移の取得                                           | fiscalYear: number                    | AnnualTrendType \| null    |
-| getMatterInfoById          | 案件情報の単体取得（詳細モーダル用）                     | matterId: number                      | {matterInfo, error}        |
-| getRecurringCostList       | 定期費用一覧の取得                                       | -                                     | {recurringCostList, error} |
-| bulkUpsertRecurringCost    | 定期費用の一括登録・更新・削除                           | rows: RecurringCostInListType[]       | boolean                    |
-| getExtraEntryList          | 経理追加収支一覧の取得                                   | -                                     | {extraEntryList, error}    |
-| bulkUpsertExtraEntry       | 経理追加収支の一括登録・更新・削除                       | rows: ExtraEntryInListType[]          | boolean                    |
-| getBudgetDeclarationList   | 事前収支申告のチーム別状況一覧の取得                     | month: string ("YYYY-MM")             | {rows} \| {error}          |
-| getBudgetDeclarationDetail | 事前収支申告の明細・コメントの取得                       | declarationId: number                 | {detail} \| {error}        |
-| saveBudgetDeclaration      | 事前収支申告の作成・編集（ヘッダ upsert + 明細差し替え） | input: BudgetDeclarationSaveInput     | {id} \| {error}            |
-| deleteBudgetDeclaration    | 事前収支申告の削除（明細は CASCADE）                     | declarationId: number, team: string   | {error?}                   |
+| 関数名                                    | 説明                                                              | パラメータ                            | レスポンス                 |
+| ----------------------------------------- | ----------------------------------------------------------------- | ------------------------------------- | -------------------------- |
+| getProfileInfo                            | ログインユーザーのプロフィール取得                                | -                                     | {profileInfo, error}       |
+| getProfileInfoById                        | 指定ユーザーのプロフィール取得                                    | userId: string                        | {profileInfo, error}       |
+| getAllUserInfo                            | 全ユーザー情報の取得                                              | -                                     | {userInfoList, error}      |
+| insertUserInfo                            | ユーザー情報の登録                                                | {user, name, email}                   | {error}                    |
+| updateUserInfo                            | ユーザー情報の更新                                                | {profile}                             | {error}                    |
+| getAllMatterInfoList                      | 全案件情報の取得                                                  | -                                     | MatterType[]               |
+| getUserMatterInfoList                     | ユーザーの案件情報の取得                                          | -                                     | MatterType[]               |
+| getTeamMatterInfoList                     | チームの案件情報の取得                                            | -                                     | MatterType[]               |
+| insertMatterInfo                          | 案件情報の登録                                                    | (title, category, team, ...)          | {newId, error}             |
+| updateMatterInfo                          | 案件情報の更新                                                    | matterInfo: MatterType                | {status, error}            |
+| deleteMatterInfo                          | 案件情報の削除                                                    | id: number                            | {status, error}            |
+| getUserCostInfoList                       | コスト情報の取得                                                  | matter_id: number                     | {costInfoList, error}      |
+| updateCostInfo                            | コスト情報の更新                                                  | (id, name, item, ...)                 | -                          |
+| insertCostInfo                            | コスト情報の登録                                                  | (name, item, ...)                     | {error}                    |
+| deleteCostInfo                            | コスト情報の削除                                                  | id: number                            | -                          |
+| getUserBusinessInfoList                   | 取引先情報の取得                                                  | matter_id: number                     | {businessInfoList, error}  |
+| insertBusinessInfo                        | 取引先情報の登録                                                  | (name, amount, ...)                   | {error}                    |
+| updateBusinessInfo                        | 取引先情報の更新                                                  | (id, name, amount, ...)               | -                          |
+| deleteBusinessInfo                        | 取引先情報の削除                                                  | id: number                            | -                          |
+| getSelectOptions                          | 選択肢情報の取得                                                  | typeName: string                      | {options, error}           |
+| insertSelectOption                        | 選択肢情報の登録                                                  | (typeName, value, display_order)      | boolean                    |
+| updateSelectOption                        | 選択肢情報の更新                                                  | (id, value, display_order, is_active) | boolean                    |
+| sendSlackNotification                     | Slack 通知の送信                                                  | (message, metadata)                   | {success, error}           |
+| getProfitLossReport                       | 月次損益レポートの取得                                            | month: string ("YYYY-MM")             | PLReportType \| null       |
+| getAnnualTrend                            | 年間推移の取得                                                    | fiscalYear: number                    | AnnualTrendType \| null    |
+| getMatterInfoById                         | 案件情報の単体取得（詳細モーダル用）                              | matterId: number                      | {matterInfo, error}        |
+| getRecurringCostList                      | 定期費用一覧の取得                                                | -                                     | {recurringCostList, error} |
+| bulkUpsertRecurringCost                   | 定期費用の一括登録・更新・削除                                    | rows: RecurringCostInListType[]       | boolean                    |
+| getExtraEntryList                         | 経理追加収支一覧の取得                                            | -                                     | {extraEntryList, error}    |
+| bulkUpsertExtraEntry                      | 経理追加収支の一括登録・更新・削除                                | rows: ExtraEntryInListType[]          | boolean                    |
+| getBudgetDeclarationList                  | 事前収支申告のチーム別状況一覧の取得                              | month: string ("YYYY-MM")             | {rows} \| {error}          |
+| getBudgetDeclarationDetail                | 事前収支申告の明細・コメントの取得                                | declarationId: number                 | {detail} \| {error}        |
+| saveBudgetDeclaration                     | 事前収支申告の作成・編集（ヘッダ upsert + 明細差し替え）          | input: BudgetDeclarationSaveInput     | {id} \| {error}            |
+| deleteBudgetDeclaration                   | 事前収支申告の削除（明細は CASCADE）                              | declarationId: number, team: string   | {error?}                   |
+| getBudgetDeclarationReminderSettings      | 事前収支申告リマインドの対象日設定取得（admin / accounting のみ） | -                                     | {targetDays} \| {error}    |
+| updateBudgetDeclarationReminderTargetDays | 事前収支申告リマインドの対象日設定更新（`id = 1` の UPDATE のみ） | targetDays: readonly number[]         | {error?}                   |
 
 ### 7.2 ユーティリティ関数
 
-| 関数名                                 | 説明                                                                                 | ファイル                                        |
-| -------------------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------- |
-| addMatterInfo                          | 案件情報の登録処理                                                                   | utils/supabase/addMatterInfo.ts                 |
-| editMatterInfo                         | 案件情報の更新処理                                                                   | utils/supabase/editMatterInfo.ts                |
-| deleteMatter                           | 案件の削除処理                                                                       | utils/supabase/deleteMatter.ts                  |
-| checkMatterInfoList                    | 案件の完了処理                                                                       | utils/supabase/checkMatterInfoList.ts           |
-| updateProfile                          | ユーザープロフィールの更新処理                                                       | utils/supabase/updateProfile.ts                 |
-| sendMessageToSlack                     | Slack 通知の送信処理                                                                 | utils/slack/sendMessageToSlack.ts               |
-| formatCurrency                         | 金額のフォーマット                                                                   | utils/formatter.ts                              |
-| formatTimeToJp                         | 日時のフォーマット                                                                   | utils/formatter.ts                              |
-| formatDateToJp                         | 日付のフォーマット                                                                   | utils/formatter.ts                              |
-| summarizeBudgetItems                   | 事前収支申告の明細集計（収入・支出・差引）                                           | utils/budgetDeclaration.ts                      |
-| buildBudgetDeclarationStatusList       | チーム × 申告状況の行組み立て                                                        | utils/budgetDeclaration.ts                      |
-| defaultTargetMonth                     | 事前収支申告の既定対象月（JST 翌月）                                                 | utils/budgetDeclaration.ts                      |
-| visibleBudgetTeams                     | 事前収支申告の一覧に並べるチームの決定                                               | utils/budgetDeclaration.ts                      |
-| canWriteBudgetTeam                     | 事前収支申告の対象チームへの書き込み可否判定                                         | utils/budgetDeclaration.ts                      |
-| validateBudgetDeclarationPayload       | 事前収支申告フォームのバリデーション（必須項目・金額）                               | utils/budgetDeclarationValidation.ts            |
-| isDuplicateDeclarationError            | (target_month, team) の一意制約違反判定                                              | utils/budgetDeclarationValidation.ts            |
-| toFirstOfMonth                         | 月初日（YYYY-MM-01）への正規化                                                       | utils/formatter.ts                              |
-| currentJstMonth                        | JST 基準の当月キー（YYYY-MM）                                                        | utils/formatter.ts                              |
-| currentJstDate                         | JST 基準の当日（1-31）                                                               | utils/formatter.ts                              |
-| isBudgetDeclarationReminderTargetDay   | 未申告リマインドの対象日判定（対象日リストを引数で受け取る。空リストなら常に false） | utils/budgetDeclarationReminder.ts              |
-| undeclaredBudgetTeams                  | 未申告チームの抽出                                                                   | utils/budgetDeclarationReminder.ts              |
-| groupSlackIdsByTeam                    | チームごとのチームリーダー slack_id の集約                                           | utils/budgetDeclarationReminder.ts              |
-| buildBudgetDeclarationReminderMessage  | 未申告リマインドの Slack メッセージ生成                                              | utils/budgetDeclarationReminder.ts              |
-| getBudgetDeclarationReminderTargetDays | リマインド対象日を DB から取得（失敗時はデフォルト値にフォールバック）               | utils/supabase/budgetDeclarationReminderData.ts |
-| getAuthorizedViewer                    | 閲覧者のプロフィール取得＋ロール確認                                                 | utils/supabase/viewerAccess.ts                  |
+| 関数名                                       | 説明                                                                                 | ファイル                                        |
+| -------------------------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------- |
+| addMatterInfo                                | 案件情報の登録処理                                                                   | utils/supabase/addMatterInfo.ts                 |
+| editMatterInfo                               | 案件情報の更新処理                                                                   | utils/supabase/editMatterInfo.ts                |
+| deleteMatter                                 | 案件の削除処理                                                                       | utils/supabase/deleteMatter.ts                  |
+| checkMatterInfoList                          | 案件の完了処理                                                                       | utils/supabase/checkMatterInfoList.ts           |
+| updateProfile                                | ユーザープロフィールの更新処理                                                       | utils/supabase/updateProfile.ts                 |
+| sendMessageToSlack                           | Slack 通知の送信処理                                                                 | utils/slack/sendMessageToSlack.ts               |
+| formatCurrency                               | 金額のフォーマット                                                                   | utils/formatter.ts                              |
+| formatTimeToJp                               | 日時のフォーマット                                                                   | utils/formatter.ts                              |
+| formatDateToJp                               | 日付のフォーマット                                                                   | utils/formatter.ts                              |
+| summarizeBudgetItems                         | 事前収支申告の明細集計（収入・支出・差引）                                           | utils/budgetDeclaration.ts                      |
+| buildBudgetDeclarationStatusList             | チーム × 申告状況の行組み立て                                                        | utils/budgetDeclaration.ts                      |
+| defaultTargetMonth                           | 事前収支申告の既定対象月（JST 翌月）                                                 | utils/budgetDeclaration.ts                      |
+| visibleBudgetTeams                           | 事前収支申告の一覧に並べるチームの決定                                               | utils/budgetDeclaration.ts                      |
+| canWriteBudgetTeam                           | 事前収支申告の対象チームへの書き込み可否判定                                         | utils/budgetDeclaration.ts                      |
+| validateBudgetDeclarationPayload             | 事前収支申告フォームのバリデーション（必須項目・金額）                               | utils/budgetDeclarationValidation.ts            |
+| isDuplicateDeclarationError                  | (target_month, team) の一意制約違反判定                                              | utils/budgetDeclarationValidation.ts            |
+| toFirstOfMonth                               | 月初日（YYYY-MM-01）への正規化                                                       | utils/formatter.ts                              |
+| currentJstMonth                              | JST 基準の当月キー（YYYY-MM）                                                        | utils/formatter.ts                              |
+| currentJstDate                               | JST 基準の当日（1-31）                                                               | utils/formatter.ts                              |
+| isBudgetDeclarationReminderTargetDay         | 未申告リマインドの対象日判定（対象日リストを引数で受け取る。空リストなら常に false） | utils/budgetDeclarationReminder.ts              |
+| undeclaredBudgetTeams                        | 未申告チームの抽出                                                                   | utils/budgetDeclarationReminder.ts              |
+| groupSlackIdsByTeam                          | チームごとのチームリーダー slack_id の集約                                           | utils/budgetDeclarationReminder.ts              |
+| buildBudgetDeclarationReminderMessage        | 未申告リマインドの Slack メッセージ生成                                              | utils/budgetDeclarationReminder.ts              |
+| getBudgetDeclarationReminderTargetDays       | リマインド対象日を DB から取得（失敗時はデフォルト値にフォールバック）               | utils/supabase/budgetDeclarationReminderData.ts |
+| normalizeBudgetDeclarationReminderTargetDays | リマインド対象日の正規化（範囲チェック・重複排除・昇順ソート）                       | utils/budgetDeclarationReminder.ts              |
+| canManageBudgetDeclarationReminderSettings   | リマインド設定の編集可否判定（admin / accounting のみ）                              | utils/budgetDeclarationReminder.ts              |
+| getAuthorizedViewer                          | 閲覧者のプロフィール取得＋ロール確認                                                 | utils/supabase/viewerAccess.ts                  |
 
 ## 8. セキュリティ設計
 

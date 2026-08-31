@@ -225,3 +225,12 @@ export type BudgetDeclarationSaveResult =
   | { id?: undefined; error: AccessFailure };
 
 export type BudgetDeclarationDeleteResult = { error?: AccessFailure };
+
+// リマインド設定（対象日）の取得・保存結果
+export type BudgetDeclarationReminderSettingsResult =
+  | { targetDays: number[]; error?: undefined }
+  | { targetDays?: undefined; error: AccessFailure };
+
+export type BudgetDeclarationReminderSettingsSaveResult = {
+  error?: AccessFailure;
+};
