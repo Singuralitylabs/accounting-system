@@ -379,7 +379,12 @@ const BudgetDeclarationForm = ({
 
         <Group justify="space-between" className="mt-6">
           {isEditMode ? (
-            <Button color="red" variant="outline" onClick={handleDelete}>
+            <Button
+              color="red"
+              variant="outline"
+              disabled={isSaving}
+              onClick={handleDelete}
+            >
               削除
             </Button>
           ) : (

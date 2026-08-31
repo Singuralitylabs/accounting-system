@@ -294,9 +294,11 @@ export const saveBudgetDeclaration = async (
       .insert(
         input.items.map((item, index) => ({
           declaration_id: declarationId,
-          entry_type: item.entry_type,
           // validateBudgetDeclarationItem は trim() 後の空白のみを弾くが、
-          // 前後の空白そのものは除去しないため、保存時に正規化する
+          // 前後の空白そのものは除去しないため、保存時に正規化する。
+          // entry_type は DB の CHECK（income/expense）対象のため特に重要
+          // （前後空白付きの値のまま INSERT すると CHECK 違反で失敗する）
+          entry_type: item.entry_type.trim(),
           category: item.category.trim(),
           description: item.description.trim(),
           amount: item.amount,

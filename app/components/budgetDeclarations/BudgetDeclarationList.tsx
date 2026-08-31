@@ -26,6 +26,10 @@ type Props = {
 type FormTarget = {
   team: string;
   declarationId: number | null;
+  // 行をクリックした時点の対象月。month（一覧側の選択状態）をそのまま参照すると、
+  // モーダル表示中に月picker を操作して month が変わった場合に対象月がズレるため、
+  // クリック時点の値をここに固定する
+  targetMonth: string;
 };
 
 const BudgetDeclarationList = ({
@@ -164,6 +168,7 @@ const BudgetDeclarationList = ({
                           setFormTarget({
                             team: row.team,
                             declarationId: row.declarationId,
+                            targetMonth: month,
                           })
                         }
                       >
@@ -206,7 +211,7 @@ const BudgetDeclarationList = ({
         <BudgetDeclarationForm
           opened
           onClose={() => setFormTarget(null)}
-          targetMonth={month}
+          targetMonth={formTarget.targetMonth}
           team={formTarget.team}
           declarationId={formTarget.declarationId}
           teamLocked={!canEditAllTeams}

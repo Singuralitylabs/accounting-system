@@ -21,6 +21,12 @@ export type BudgetDeclarationValidationResult =
   | { ok: true }
   | { ok: false; reason: BudgetDeclarationValidationReason };
 
+// budget_declaration_items.entry_type の CHECK 制約（income/expense）と同じ値域。
+// フォームの Select は必ずこの 2 値しか出さないが、明細差し替えは非トランザクション
+// のため、万一これ以外の値が渡ると既存明細の削除後に INSERT が失敗し
+// partialWriteFailed（一部反映）になる。保存前にここで弾く
+const VALID_ENTRY_TYPES = new Set(["income", "expense"]);
+
 // budget_declaration_items.amount は numeric(15,2)（13 桁 + 小数点以下 2 桁）。
 // これを超える金額は DB の INSERT が 22003（numeric field overflow）で失敗する。
 // 明細差し替えは非トランザクションのため、保存前にここで弾かないと、
@@ -47,11 +53,12 @@ export const validateBudgetDeclarationItem = (
   item: BudgetDeclarationItemInput,
 ): "ok" | "required" | "amount" | "overflow" => {
   // trim() で空白のみの入力（例: 内容に半角スペースのみ）も未入力扱いにする
-  if (
-    !item.entry_type.trim() ||
-    !item.category.trim() ||
-    !item.description.trim()
-  ) {
+  const entryType = item.entry_type.trim();
+  if (!entryType || !item.category.trim() || !item.description.trim()) {
+    return "required";
+  }
+  // income/expense 以外（想定外の値）も未入力と同じ扱いにする
+  if (!VALID_ENTRY_TYPES.has(entryType)) {
     return "required";
   }
   // DB の CHECK (amount > 0) と同じ基準。NaN も弾く

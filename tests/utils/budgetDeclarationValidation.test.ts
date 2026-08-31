@@ -87,6 +87,19 @@ describe("validateBudgetDeclarationItem", () => {
       validateBudgetDeclarationItem(validItem({ amount: MAX_ITEM_AMOUNT + 1 })),
     ).toBe("overflow");
   });
+
+  it("income/expense 以外の種別は required 扱いにする", () => {
+    expect(
+      validateBudgetDeclarationItem(validItem({ entry_type: "invalid" })),
+    ).toBe("required");
+    // 前後の空白を trim した上で値そのものが不正なケース
+    expect(
+      validateBudgetDeclarationItem(validItem({ entry_type: " income " })),
+    ).toBe("ok");
+    expect(
+      validateBudgetDeclarationItem(validItem({ entry_type: "expense" })),
+    ).toBe("ok");
+  });
 });
 
 describe("validateBudgetDeclarationPayload", () => {

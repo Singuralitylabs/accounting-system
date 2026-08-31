@@ -49,6 +49,8 @@ describe("BudgetDeclarationForm", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useBudgetDeclarationDetail.mockReturnValue(emptyDetail());
+    saveMutation.isPending = false;
+    deleteMutation.isPending = false;
   });
 
   it("新規作成（チームリーダー）はチーム選択を固定表示する", () => {
@@ -387,6 +389,28 @@ describe("BudgetDeclarationForm", () => {
       }),
     );
     await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it("削除処理の実行中は削除ボタンを無効化する（二重送信防止）", () => {
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: { comment: "", items: [] },
+      isLoading: false,
+      isError: false,
+    });
+    deleteMutation.isPending = true;
+
+    renderWithMantine(
+      <BudgetDeclarationForm
+        opened
+        onClose={vi.fn()}
+        targetMonth="2026-10"
+        team="開発チーム"
+        declarationId={7}
+        teamLocked={false}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "削除" })).toBeDisabled();
   });
 
   it("削除確認をキャンセルすると削除処理を呼ばない", async () => {
