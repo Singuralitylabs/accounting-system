@@ -27,6 +27,13 @@ const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
   const [selectedDays, setSelectedDays] = useState<string[]>(
     (initialTargetDays ?? []).map(String),
   );
+  // 保存成功時のみ更新する「現在保存されている対象日」。selectedDays（未保存の
+  // ドラフト）と分けているのは、保存前にチップを外しただけで「現在リマインドは
+  // 無効です」と表示されてしまう（キャンセル・保存失敗時も実際は無効化されて
+  // いない）事故を防ぐため。「現在」の判定は必ずこちらを見る
+  const [savedTargetDays, setSavedTargetDays] = useState<number[]>(
+    initialTargetDays ?? [],
+  );
   const [isLoading, setIsLoading] = useState(false);
 
   if (initialTargetDays === null) {
@@ -58,6 +65,7 @@ const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
         return;
       }
       setSelectedDays(normalized.map(String));
+      setSavedTargetDays(normalized);
       notifySuccess("リマインド設定を更新しました。");
     } catch (error) {
       console.error("リマインド設定の保存に失敗しました。", error);
@@ -80,10 +88,21 @@ const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
         未申告チームへの Slack
         リマインド対象日（JST）を選択してください。29〜31日は存在しない月があり、その月はスキップされます。
       </Text>
-      {selectedDays.length === 0 && (
+      {savedTargetDays.length === 0 ? (
         <Alert color="yellow" title="現在リマインドは無効です" mb="sm">
           対象日が選択されていないため、Slack リマインドは送信されません。
         </Alert>
+      ) : (
+        selectedDays.length === 0 && (
+          <Alert
+            color="yellow"
+            title="保存するとリマインドが無効になります"
+            mb="sm"
+          >
+            対象日の選択がすべて解除されています。このまま保存すると Slack
+            リマインドが停止します。
+          </Alert>
+        )
       )}
       <Chip.Group multiple value={selectedDays} onChange={setSelectedDays}>
         <Group gap="xs">

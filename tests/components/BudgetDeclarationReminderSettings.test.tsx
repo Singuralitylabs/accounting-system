@@ -67,6 +67,40 @@ describe("BudgetDeclarationReminderSettings", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("保存前に全チップを外しても『現在』の無効警告は出さず、保存時の警告のみ出す", () => {
+    renderWithMantine(
+      <BudgetDeclarationReminderSettings initialTargetDays={[15]} />,
+    );
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "15" }));
+
+    expect(
+      screen.queryByText("現在リマインドは無効です"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText("保存するとリマインドが無効になります"),
+    ).toBeInTheDocument();
+  });
+
+  it("保存に失敗した場合は『現在』の状態を更新しない（無効警告を出さない）", async () => {
+    confirmAction.mockResolvedValue(true);
+    updateBudgetDeclarationReminderTargetDays.mockResolvedValue({
+      error: { kind: "fetchFailed", message: "更新に失敗しました。" },
+    });
+
+    renderWithMantine(
+      <BudgetDeclarationReminderSettings initialTargetDays={[15]} />,
+    );
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "15" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(notifyError).toHaveBeenCalled());
+    expect(
+      screen.queryByText("現在リマインドは無効です"),
+    ).not.toBeInTheDocument();
+  });
+
   it("保存確認をキャンセルすると更新しない", async () => {
     confirmAction.mockResolvedValue(false);
 
@@ -100,6 +134,8 @@ describe("BudgetDeclarationReminderSettings", () => {
       expect.stringContaining("リマインドが停止します"),
     );
     expect(notifySuccess).toHaveBeenCalled();
+    // 保存成功後は「現在」の状態が更新され、無効警告に切り替わる
+    expect(screen.getByText("現在リマインドは無効です")).toBeInTheDocument();
   });
 
   it("保存に成功したら成功通知を表示する", async () => {
