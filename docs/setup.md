@@ -172,13 +172,18 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
 
 # Slack設定（必要に応じて）
 SLACK_WEBHOOK_URL=your-slack-webhook-url
+
+# 事前収支申告の未申告リマインド（Vercel Cron）用
+# Vercel Cron が付与する Authorization: Bearer ヘッダとの照合に使う。ローカルでは任意の値でよい。
+CRON_SECRET=your-cron-secret
 ```
 
 📋 **環境変数のセキュリティについて**:
 
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: **秘匿情報** - 公開リポジトリや共有ドキュメントに記載しないでください
-- `SUPABASE_SERVICE_ROLE_KEY`: **秘匿情報** - サーバー側でのみ使用し、決して公開しないでください
+- `SUPABASE_SERVICE_ROLE_KEY`: **秘匿情報** - RLS を完全にバイパスできる強力な権限を持つキーのため、サーバー側でのみ使用し、決して公開しないでください。本アプリでは `app/api/cron/budget-declaration-reminder/route.ts`（cron ルート限定）が読み取り専用の参照にのみ使用しているが、キー自体の権限がそれに限定されるわけではない
 - `GOOGLE_CLIENT_SECRET`: **秘匿情報** - 必ず秘匿してください
+- `CRON_SECRET`: **秘匿情報** - Vercel Cron からのリクエストを認証するための値。第三者に知られると誰でも cron エンドポイントを叩けてしまう
 - `SLACK_WEBHOOK_URL`: **秘匿情報** - Slack ワークスペースの機密情報です
 - `PROJECT_ID`: **公開可能** - 本番（または型生成対象）Supabase の project ref。ローカル `config.toml` の `project_id` とは別物
 
