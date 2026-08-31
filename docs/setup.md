@@ -54,19 +54,15 @@ yarn install
 npm install
 ```
 
-### 3. Supabase CLI のインストール
+### 3. Supabase CLI のバージョンについて
+
+Supabase CLI は `package.json` の devDependencies にバージョン固定している。グローバルインストールは不要で、手順 2 の `yarn install` を実行すれば同じバージョンが入る。CLI を直接叩く場合は `yarn supabase <サブコマンド>` を使うこと（以降のコマンド例の `supabase ...` も同様に読み替える）。
 
 ```bash
-# Homebrewを使用（macOS）
-brew install supabase/tap/supabase
-
-# その他のインストール方法
-# Windows: https://supabase.com/docs/guides/cli/getting-started#windows
-# Linux: https://supabase.com/docs/guides/cli/getting-started#linux
-
-# インストール確認
-supabase --version
+yarn supabase --version
 ```
+
+Cloud Agent 向けの `.cursor/setup/supabase-up.sh`（`SUPABASE_CLI_VERSION`）とはバージョン番号を一致させること。
 
 ---
 
