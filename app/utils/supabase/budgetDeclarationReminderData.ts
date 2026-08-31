@@ -1,5 +1,34 @@
-import type { TeamLeaderSlackRow } from "../budgetDeclarationReminder";
+import {
+  DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS,
+  type TeamLeaderSlackRow,
+} from "../budgetDeclarationReminder";
 import { createServiceRoleSupabase } from "./clients";
+
+// リマインド対象日を budget_declaration_reminder_settings（id=1 固定の1行のみ）から
+// 取得する。行が無い・取得エラーの場合は DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS
+// にフォールバックし、cron が対象日判定できずに機能停止することを防ぐ
+// （Issue #94 完了条件: DB 取得失敗時も従来どおり動作する）。
+export const getBudgetDeclarationReminderTargetDays = async (): Promise<
+  readonly number[]
+> => {
+  const supabase = createServiceRoleSupabase();
+
+  const { data, error } = await supabase
+    .from("budget_declaration_reminder_settings")
+    .select("target_days")
+    .eq("id", 1)
+    .maybeSingle();
+
+  if (error || !data) {
+    console.error(
+      "事前収支申告リマインドの対象日設定取得に失敗しました。デフォルト値にフォールバックします:",
+      error,
+    );
+    return DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS;
+  }
+
+  return data.target_days;
+};
 
 // 有効な team 選択肢を全件取得する（select_options + select_option_types の構成は
 // selectOptionsCache.ts と同じ。type 名で絞らず全種類取得してから team だけ抜き出す

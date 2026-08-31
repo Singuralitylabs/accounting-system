@@ -10,6 +10,7 @@ import { toFirstOfMonth } from "@/app/utils/formatter";
 import { sendBudgetDeclarationReminderToSlack } from "@/app/utils/slack/sendBudgetDeclarationReminder";
 import {
   getActiveBudgetTeams,
+  getBudgetDeclarationReminderTargetDays,
   getDeclaredBudgetTeams,
   getTeamLeaderSlackContacts,
 } from "@/app/utils/supabase/budgetDeclarationReminderData";
@@ -37,7 +38,8 @@ export async function GET(request: NextRequest) {
   }
 
   const now = new Date();
-  if (!isBudgetDeclarationReminderTargetDay(now)) {
+  const targetDays = await getBudgetDeclarationReminderTargetDays();
+  if (!isBudgetDeclarationReminderTargetDay(now, targetDays)) {
     return NextResponse.json({ skipped: true, reason: "not-target-day" });
   }
 

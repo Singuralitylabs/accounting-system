@@ -78,6 +78,24 @@ export type Database = {
           },
         ]
       }
+      budget_declaration_reminder_settings: {
+        Row: {
+          id: number
+          target_days: number[]
+          updated_at: string
+        }
+        Insert: {
+          id?: number
+          target_days?: number[]
+          updated_at?: string
+        }
+        Update: {
+          id?: number
+          target_days?: number[]
+          updated_at?: string
+        }
+        Relationships: []
+      }
       budget_declarations: {
         Row: {
           comment: string | null

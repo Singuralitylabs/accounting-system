@@ -56,18 +56,19 @@
 
 ## 2. テーブル一覧
 
-| テーブル名               | 説明                                                                |
-| ------------------------ | ------------------------------------------------------------------- |
-| profiles                 | ユーザー情報を管理するテーブル                                      |
-| matters                  | 案件情報を管理するテーブル                                          |
-| costs                    | コスト情報を管理するテーブル                                        |
-| business                 | 取引先情報を管理するテーブル                                        |
-| select_option_types      | 選択肢の種類を管理するテーブル                                      |
-| select_options           | 選択肢の値を管理するテーブル                                        |
-| recurring_costs          | 定期費用（管理費）を管理するテーブル                                |
-| extra_entries            | 経理追加収支（案件に紐づかない収入・支出）を管理するテーブル        |
-| budget_declarations      | 事前収支申告（チーム×対象月の見込み収支）のヘッダを管理するテーブル |
-| budget_declaration_items | 事前収支申告の明細（見込み収入・支出の内訳）を管理するテーブル      |
+| テーブル名                           | 説明                                                                          |
+| ------------------------------------ | ----------------------------------------------------------------------------- |
+| profiles                             | ユーザー情報を管理するテーブル                                                |
+| matters                              | 案件情報を管理するテーブル                                                    |
+| costs                                | コスト情報を管理するテーブル                                                  |
+| business                             | 取引先情報を管理するテーブル                                                  |
+| select_option_types                  | 選択肢の種類を管理するテーブル                                                |
+| select_options                       | 選択肢の値を管理するテーブル                                                  |
+| recurring_costs                      | 定期費用（管理費）を管理するテーブル                                          |
+| extra_entries                        | 経理追加収支（案件に紐づかない収入・支出）を管理するテーブル                  |
+| budget_declarations                  | 事前収支申告（チーム×対象月の見込み収支）のヘッダを管理するテーブル           |
+| budget_declaration_items             | 事前収支申告の明細（見込み収入・支出の内訳）を管理するテーブル                |
+| budget_declaration_reminder_settings | 事前収支申告の未申告 Slack リマインド対象日を管理する設定テーブル（1 行のみ） |
 
 ## 3. テーブル詳細
 
@@ -317,6 +318,20 @@ UNIQUE 制約:
 インデックス:
 
 - declaration_id
+
+### 3.11 budget_declaration_reminder_settings テーブル
+
+事前収支申告の未申告 Slack リマインド（`app/api/cron/budget-declaration-reminder/route.ts`）の対象日を保持する設定テーブル。1 行のみを持つシングルトンで、`id` は `1` に固定する（CHECK 制約）。対象日リストをデプロイなしで編集できるようにする（Issue #94）。
+
+| カラム名    | データ型                 | 制約                                   | 説明                                                                                                                                                                                    |
+| ----------- | ------------------------ | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| id          | smallint                 | PRIMARY KEY, DEFAULT 1, CHECK (id = 1) | シングルトン強制用の固定 ID                                                                                                                                                             |
+| target_days | smallint[]               | NOT NULL, DEFAULT '{15,18,20}'         | リマインド対象日（JST の日）。**空配列にするとリマインド停止**（`isBudgetDeclarationReminderTargetDay` が常に false を返す）。移行時点の初期値は従来のハードコード値と同じ `{15,18,20}` |
+| updated_at  | timestamp with time zone | NOT NULL, DEFAULT now()                | 更新日時                                                                                                                                                                                |
+
+読み取り: cron ルートは `app/utils/supabase/budgetDeclarationReminderData.ts` の `getBudgetDeclarationReminderTargetDays()` で取得する。**取得失敗（DB エラー・行が存在しない）の場合は `app/utils/budgetDeclarationReminder.ts` の `DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS`（`[15, 18, 20]`）にフォールバックし、リマインドが無応答で止まらないようにする。**
+
+編集: 管理者向け編集 UI は用意しておらず、Supabase ダッシュボード（Table editor は RLS をバイパスする）から `target_days` を直接編集する運用とする。UI が必要になった場合は改めて追加する。
 
 ## 4. 列挙型
 
@@ -936,6 +951,29 @@ CREATE POLICY "budget_declaration_items_all_policy" ON budget_declaration_items
     );
 ```
 
+### 5.10 budget_declaration_reminder_settings テーブル
+
+> 運用上の設定値であり通常業務には関与しないため、`admin` のみ SELECT / UPDATE できる（[5.5](#55-select_option_types-テーブルselect_options-テーブル) の管理系ポリシーと同方針）。cron ルートは `SUPABASE_SERVICE_ROLE_KEY` を用いた service role クライアント（`createServiceRoleSupabase`）で読むため RLS の対象外。
+>
+> 行は migration で作成した 1 行のみを更新し続ける運用のため、INSERT / DELETE のポリシーは設けていない。`authenticated` ロールへは SELECT / UPDATE の権限のみ GRANT し、INSERT / DELETE は権限自体を与えない（`id = 1` の CHECK 制約もあるため、admin であっても新規行は追加できない）。
+
+```sql
+CREATE POLICY "budget_declaration_reminder_settings_select_policy"
+    ON budget_declaration_reminder_settings
+    FOR SELECT TO authenticated
+    USING (public.auth_user_class() = 'admin');
+
+CREATE POLICY "budget_declaration_reminder_settings_update_policy"
+    ON budget_declaration_reminder_settings
+    FOR UPDATE TO authenticated
+    USING (public.auth_user_class() = 'admin')
+    WITH CHECK (public.auth_user_class() = 'admin');
+
+GRANT SELECT, UPDATE ON TABLE budget_declaration_reminder_settings TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE budget_declaration_reminder_settings TO service_role;
+REVOKE ALL ON TABLE budget_declaration_reminder_settings FROM anon;
+```
+
 ## 6. トリガー
 
 ### 6.1 updated_at 更新トリガー
@@ -995,6 +1033,11 @@ CREATE TRIGGER update_budget_declarations_updated_at
 
 CREATE TRIGGER update_budget_declaration_items_updated_at
     BEFORE UPDATE ON budget_declaration_items
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_updated_at_column();
+
+CREATE TRIGGER update_budget_declaration_reminder_settings_updated_at
+    BEFORE UPDATE ON budget_declaration_reminder_settings
     FOR EACH ROW
     EXECUTE PROCEDURE update_updated_at_column();
 ```
