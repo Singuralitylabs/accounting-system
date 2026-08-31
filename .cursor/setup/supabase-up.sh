@@ -8,6 +8,10 @@ cd "$REPO_ROOT"
 
 # Pin the CLI version validated with this environment (do not follow
 # releases/latest — that would pull different embedded service images).
+# Keep in sync with the "supabase" devDependency version in package.json:
+# a mismatch means `yarn db:types-local` (pinned CLI) and this script's
+# `supabase migration up` (deb-installed CLI) can disagree on schema/template
+# handling.
 SUPABASE_CLI_VERSION="2.115.0"
 SUPABASE_CLI_DEB_SHA256="7f69e3d1ee45efd3ea0524c1628768217667b498162d647713a10fd5ecbd0275"
 

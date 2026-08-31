@@ -54,19 +54,22 @@ yarn install
 npm install
 ```
 
-### 3. Supabase CLI のインストール
+### 3. Supabase CLI のバージョンについて
+
+Supabase CLI は `package.json` の devDependencies にバージョン固定して追加している。**グローバルインストールは不要**で、手順 2 の `yarn install` を実行するだけで、誰の環境でも同じバージョンの CLI が `node_modules/.bin/supabase` に入る。
+
+`yarn db:types` / `yarn db:types-local` などの yarn script は、この固定バージョンを自動的に使う（yarn が `node_modules/.bin` を PATH の先頭に追加するため、グローバルの `supabase` コマンドは無視される）。CLI を直接叩きたい場合は `yarn supabase <サブコマンド>`（または `yarn run supabase <サブコマンド>`）を使うこと。
 
 ```bash
-# Homebrewを使用（macOS）
-brew install supabase/tap/supabase
-
-# その他のインストール方法
-# Windows: https://supabase.com/docs/guides/cli/getting-started#windows
-# Linux: https://supabase.com/docs/guides/cli/getting-started#linux
-
-# インストール確認
-supabase --version
+# インストール確認（package.json 記載のバージョンと一致するはず）
+yarn supabase --version
 ```
+
+⚠️ **このドキュメント内の `supabase ...` コマンド例について**: 以降に出てくる `supabase init` / `supabase start` / `supabase db reset` などのコマンド例は、実行時にすべて `yarn supabase ...`（例: `yarn supabase start`）に読み替えること。グローバルに `supabase` をインストールしていない環境では、素の `supabase` コマンドは見つからない。
+
+**CLI バージョンを上げる場合の注意**: `supabase gen types` の出力テンプレート（`Args` の表現、ヘルパ型の構造など）は CLI のバージョンによって変わる。バージョンを上げたら `supabase/config.toml` を反映した状態で `supabase db reset` → `yarn db:types-local` を実行し、テンプレート由来の差分だけを同じ PR に取り込むこと（スキーマ由来の差分と混ざらないよう分けてコミットするのが望ましい）。`supabase start` / `db reset` / `db push` の挙動変更（`config.toml` のキー変更や deprecation 警告）も合わせて確認する。
+
+Cloud Agent 向けの `.cursor/setup/supabase-up.sh` は、deb パッケージから別途 CLI をインストールしており（`SUPABASE_CLI_VERSION`）、この `package.json` の devDependencies とはインストール経路が別。**両方のバージョン番号は必ず一致させること**（ズレると `yarn db:types-local` の出力テンプレートが環境によって変わってしまい、このバージョン固定の意味が無くなる）。
 
 ---
 
