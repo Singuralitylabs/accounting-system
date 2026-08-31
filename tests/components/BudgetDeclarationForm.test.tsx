@@ -133,6 +133,69 @@ describe("BudgetDeclarationForm", () => {
     expect(saveMutation.mutateAsync).not.toHaveBeenCalled();
   });
 
+  it("キャッシュ済みの古い detail が裏で再取得中（isFetching）の間は、古い内容を反映せず保存も無効化する", () => {
+    const staleDetail = {
+      comment: "古いコメント",
+      items: [
+        {
+          id: 1,
+          declaration_id: 7,
+          entry_type: "income",
+          category: "セミナー",
+          description: "古い内容",
+          amount: 100000,
+          display_order: 0,
+          inserted_at: "",
+          updated_at: "",
+        },
+      ],
+    };
+    // useQuery は staleTime 内のキャッシュを即座に返しつつ、
+    // refetchOnMount: "always" によりバックグラウンドで再取得中の状態を模す
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: staleDetail,
+      isLoading: false,
+      isError: false,
+      isFetching: true,
+    });
+
+    const { rerender } = renderWithMantine(
+      <BudgetDeclarationForm
+        opened
+        onClose={vi.fn()}
+        targetMonth="2026-10"
+        team="開発チーム"
+        declarationId={7}
+        teamLocked={false}
+      />,
+    );
+
+    // 取得中は古いキャッシュの内容を反映しない（明細 0 件のまま）
+    expect(screen.getByText("明細が登録されていません。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+
+    // 再取得が完了し、最新データが届く
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: staleDetail,
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+    });
+    rerender(
+      <BudgetDeclarationForm
+        opened
+        onClose={vi.fn()}
+        targetMonth="2026-10"
+        team="開発チーム"
+        declarationId={7}
+        teamLocked={false}
+      />,
+    );
+
+    expect(screen.getByDisplayValue("古い内容")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存" })).not.toBeDisabled();
+  });
+
   it("明細を追加・削除できる", () => {
     renderWithMantine(
       <BudgetDeclarationForm

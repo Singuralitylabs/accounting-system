@@ -109,7 +109,7 @@ export const useSaveBudgetDeclaration = () => {
           : `${variables.team}の事前収支申告を更新しました。`,
       );
     },
-    onError: (error) => {
+    onError: (error, variables) => {
       console.error("事前収支申告の保存エラー:", error);
       // ヘッダ保存 → 明細差し替え（全削除→全登録）は複数ステップの非トランザクション
       // 処理のため、失敗時点までの変更（ヘッダの新規作成・更新、明細の削除等）が
@@ -120,6 +120,14 @@ export const useSaveBudgetDeclaration = () => {
       queryClient.invalidateQueries({
         queryKey: ["budgetDeclarations", "list"],
       });
+      // 編集時（declarationId が既知）は対象の明細キャッシュも無効化する。
+      // 特に明細差し替えの途中で失敗した場合、既存明細が削除済みで
+      // ヘッダだけ残っていることがあるため、再度開いたときに実状態を反映させる
+      if (variables.declarationId !== null) {
+        queryClient.invalidateQueries({
+          queryKey: ["budgetDeclarations", "detail", variables.declarationId],
+        });
+      }
       const message = toErrorMessage(
         error,
         "事前収支申告の保存に失敗しました。",

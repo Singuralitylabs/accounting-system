@@ -81,6 +81,7 @@ const BudgetDeclarationForm = ({
     data: detail,
     isLoading: isDetailLoading,
     isError: isDetailError,
+    isFetching: isDetailFetching,
   } = useBudgetDeclarationDetail(opened ? declarationId : null);
 
   const saveMutation = useSaveBudgetDeclaration();
@@ -88,8 +89,13 @@ const BudgetDeclarationForm = ({
   const isSaving = saveMutation.isPending || deleteMutation.isPending;
   // 編集時は既存明細の取得が完了する（detail を受け取る）まで保存を止める。
   // 取得失敗・未完了のまま保存すると、ローカルの items（空のまま）で
-  // 明細差し替えが走り、既存明細を消してしまう
-  const saveDisabled = isSaving || (isEditMode && !detail);
+  // 明細差し替えが走り、既存明細を消してしまう。
+  // isDetailFetching も見るのは、他画面で既にキャッシュされた古い detail が
+  // 即座に返りつつ裏で最新化中（refetchOnMount: "always"）の間に、古い内容の
+  // まま保存できてしまうと他編集者の変更を消しかねないため
+  // （populate effect も同じ理由で isDetailFetching の完了を待つ）
+  const saveDisabled =
+    isSaving || (isEditMode && (!detail || isDetailFetching));
 
   const form = useForm<HeaderFormValues>({
     initialValues: { team, comment: "" },
@@ -115,6 +121,12 @@ const BudgetDeclarationForm = ({
 
   useEffect(() => {
     if (!opened || !isEditMode || !detail) return;
+    // refetchOnMount: "always" により、他画面で先に取得済みの古いキャッシュが
+    // 即座に返りつつ裏で再取得中のことがある。取得中のうちに古い内容で
+    // populatedForIdRef をセットしてしまうと、直後に届く最新データが
+    // 「反映済み」判定でガードされ、古い内容のまま保存できてしまう
+    // （lost update）。取得が完全に終わるまで populate 自体を待つ
+    if (isDetailFetching) return;
     if (populatedForIdRef.current === declarationId) return;
     populatedForIdRef.current = declarationId;
     form.setValues({ team, comment: detail.comment ?? "" });
@@ -128,7 +140,7 @@ const BudgetDeclarationForm = ({
       })),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opened, isEditMode, detail, declarationId]);
+  }, [opened, isEditMode, detail, declarationId, isDetailFetching]);
 
   const teamOptions = teamList.includes(team) ? teamList : [team, ...teamList];
   const categoryOptionsFor = (entryType: string) =>
@@ -217,7 +229,11 @@ const BudgetDeclarationForm = ({
       size="xl"
     >
       <div className="relative">
-        <LoadingOverlay visible={isSaving || (isEditMode && isDetailLoading)} />
+        <LoadingOverlay
+          visible={
+            isSaving || (isEditMode && (isDetailLoading || isDetailFetching))
+          }
+        />
 
         {isEditMode && isDetailError && (
           <Alert color="red" title="申告の取得に失敗しました" className="mb-4">
