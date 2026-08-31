@@ -139,6 +139,15 @@ https://matter-controller.vercel.app/
 
 **🚀 開発環境構築の詳細手順については、[docs/setup.md](./docs/setup.md) をご確認ください。**
 
+### 環境変数
+
+Supabase・Google 認証・Slack 通知に加え、事前収支申告の未申告リマインド（Vercel Cron）用に以下が必要です。
+
+- `CRON_SECRET`: Vercel Cron からのリクエストを認証するシークレット
+- `SUPABASE_SERVICE_ROLE_KEY`: cron ルート限定で RLS をバイパスする読み取り専用参照に使用
+
+一覧・設定手順は [docs/setup.md](./docs/setup.md) を参照してください。
+
 ## お問い合わせ
 
 本アプリケーションに関するお問い合わせは、下記までお願いいたします。
