@@ -186,7 +186,7 @@ const ReadonlyMatterList: FC<ReadonlyMatterListProps> = ({ matterList }) => {
 
   if (!matterList || matterList.length === 0) {
     return (
-      <div className="text-center py-8">
+      <div className="px-8 py-8 text-center">
         <p className="text-gray-500">表示できるチーム案件がありません。</p>
         <p className="text-xs text-gray-400 mt-2">
           チームリーダー権限が設定されているか、チームが正しく設定されているかご確認ください。
@@ -196,7 +196,7 @@ const ReadonlyMatterList: FC<ReadonlyMatterListProps> = ({ matterList }) => {
   }
 
   return (
-    <div>
+    <div className="px-8 py-4">
       {/* 表示切替ボタン */}
       <div className="mb-4 flex justify-between items-center">
         <div className="text-sm text-gray-500">

@@ -73,14 +73,9 @@ export const isRecurringCostChargedInMonth = (
 };
 
 // ロール（profiles.class）からレポートの挙動フラグを導出する。
-// includeTeamBreakdown と canEditExtraEntries は現状どちらも accounting / admin だが、
-// 「チーム別内訳の表示」と「経理追加収支の管理可否」は別概念のため、
-// 片方だけ変更できるように独立して定義する。
-// （経理追加収支の実際の書き込み権限は RLS が担保し、これは UI 表示の制御のみ）
 export const reportFlags = (profileClass: string | null | undefined) => ({
   isTeamLeader: profileClass === "teamleader",
   includeTeamBreakdown: hasClassAccess(["accounting", "admin"], profileClass),
-  canEditExtraEntries: hasClassAccess(["accounting", "admin"], profileClass),
 });
 
 // buildMonthlyReport の入力。
@@ -94,7 +89,6 @@ export type MonthlyReportInput = {
   extraEntries: ExtraEntryType[];
   isTeamLeader: boolean;
   includeTeamBreakdown: boolean; // チーム別内訳を含めるか（accounting / admin）
-  canEditExtraEntries: boolean; // 経理追加収支の管理UIを表示するか（accounting / admin）
 };
 
 // 取得済みの行から指定月の損益レポートを組み立てる
@@ -106,7 +100,6 @@ export const buildMonthlyReport = ({
   extraEntries,
   isTeamLeader,
   includeTeamBreakdown,
-  canEditExtraEntries,
 }: MonthlyReportInput): PLReportType => {
   // ===== 経理追加収支 =====
   // 計上月は entry_date の属する月（NULL は月未確定として別枠集計）
@@ -369,7 +362,6 @@ export const buildMonthlyReport = ({
     orgWideRecurringCosts,
     extraEntries: countedExtraEntries,
     orgWideExtraEntries,
-    canEditExtraEntries,
     ordinaryProfit: grossProfitTotal - recurringCostTotal,
     byTeam,
     undated,
