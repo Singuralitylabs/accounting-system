@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  currentJstDate,
   currentJstMonth,
   formatCurrency,
   formatDateToJp,
@@ -136,6 +137,22 @@ describe("currentJstMonth", () => {
 
   it("年末の JST 年跨ぎを正しく扱う", () => {
     expect(currentJstMonth(new Date("2026-12-31T15:00:00Z"))).toBe("2027-01");
+  });
+});
+
+describe("currentJstDate", () => {
+  it("UTC の日付をまたぐ深夜は JST では翌日になる", () => {
+    // 2026-09-19T15:00:00Z = 2026-09-20T00:00 JST
+    expect(currentJstDate(new Date("2026-09-19T15:00:00Z"))).toBe(20);
+  });
+
+  it("UTC の日中は JST でも同じ日", () => {
+    expect(currentJstDate(new Date("2026-09-20T03:00:00Z"))).toBe(20);
+  });
+
+  it("月末の JST 月跨ぎを正しく扱う", () => {
+    // 2026-09-30T15:00:00Z = 2026-10-01T00:00 JST
+    expect(currentJstDate(new Date("2026-09-30T15:00:00Z"))).toBe(1);
   });
 });
 

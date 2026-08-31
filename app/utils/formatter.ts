@@ -52,6 +52,11 @@ export const toFirstOfMonth = (value: string): string =>
 export const currentJstMonth = (now: Date = new Date()): string =>
   new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 7);
 
+// JST 基準の「今日」の日（1-31）。Vercel Cron の実行環境は UTC のため、
+// currentJstMonth と同じ +9 時間シフトで判定する（事前収支申告の未申告リマインド対象日判定用）。
+export const currentJstDate = (now: Date = new Date()): number =>
+  new Date(now.getTime() + 9 * 60 * 60 * 1000).getUTCDate();
+
 // 月キー（YYYY-MM）を「YYYY年M月」表記にする
 export const formatMonthLabel = (month: string) =>
   `${month.slice(0, 4)}年${parseInt(month.slice(5, 7), 10)}月`;
