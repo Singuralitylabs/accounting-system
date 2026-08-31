@@ -56,18 +56,19 @@
 
 ## 2. テーブル一覧
 
-| テーブル名               | 説明                                                                |
-| ------------------------ | ------------------------------------------------------------------- |
-| profiles                 | ユーザー情報を管理するテーブル                                      |
-| matters                  | 案件情報を管理するテーブル                                          |
-| costs                    | コスト情報を管理するテーブル                                        |
-| business                 | 取引先情報を管理するテーブル                                        |
-| select_option_types      | 選択肢の種類を管理するテーブル                                      |
-| select_options           | 選択肢の値を管理するテーブル                                        |
-| recurring_costs          | 定期費用（管理費）を管理するテーブル                                |
-| extra_entries            | 経理追加収支（案件に紐づかない収入・支出）を管理するテーブル        |
-| budget_declarations      | 事前収支申告（チーム×対象月の見込み収支）のヘッダを管理するテーブル |
-| budget_declaration_items | 事前収支申告の明細（見込み収入・支出の内訳）を管理するテーブル      |
+| テーブル名                           | 説明                                                                          |
+| ------------------------------------ | ----------------------------------------------------------------------------- |
+| profiles                             | ユーザー情報を管理するテーブル                                                |
+| matters                              | 案件情報を管理するテーブル                                                    |
+| costs                                | コスト情報を管理するテーブル                                                  |
+| business                             | 取引先情報を管理するテーブル                                                  |
+| select_option_types                  | 選択肢の種類を管理するテーブル                                                |
+| select_options                       | 選択肢の値を管理するテーブル                                                  |
+| recurring_costs                      | 定期費用（管理費）を管理するテーブル                                          |
+| extra_entries                        | 経理追加収支（案件に紐づかない収入・支出）を管理するテーブル                  |
+| budget_declarations                  | 事前収支申告（チーム×対象月の見込み収支）のヘッダを管理するテーブル           |
+| budget_declaration_items             | 事前収支申告の明細（見込み収入・支出の内訳）を管理するテーブル                |
+| budget_declaration_reminder_settings | 事前収支申告の未申告 Slack リマインド対象日を管理する設定テーブル（1 行のみ） |
 
 ## 3. テーブル詳細
 
@@ -317,6 +318,28 @@ UNIQUE 制約:
 インデックス:
 
 - declaration_id
+
+### 3.11 budget_declaration_reminder_settings テーブル
+
+事前収支申告の未申告 Slack リマインド（`app/api/cron/budget-declaration-reminder/route.ts`）の対象日を保持する設定テーブル。1 行のみを持つシングルトンで、`id` は `1` に固定する（CHECK 制約）。対象日リストをデプロイなしで編集できるようにする（Issue #94）。
+
+| カラム名    | データ型                 | 制約                                                   | 説明                                                                                                                                                                                    |
+| ----------- | ------------------------ | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| id          | smallint                 | PRIMARY KEY, DEFAULT 1, CHECK (id = 1)                 | シングルトン強制用の固定 ID                                                                                                                                                             |
+| target_days | smallint[]               | NOT NULL, DEFAULT '{15,18,20}', CHECK (各要素が 1〜31) | リマインド対象日（JST の日）。**空配列にするとリマインド停止**（`isBudgetDeclarationReminderTargetDay` が常に false を返す）。移行時点の初期値は従来のハードコード値と同じ `{15,18,20}` |
+| updated_at  | timestamp with time zone | NOT NULL, DEFAULT now()                                | 更新日時                                                                                                                                                                                |
+
+CHECK 制約（対象日の範囲検証）:
+
+```sql
+-- 編集手段が RLS をバイパスする Supabase ダッシュボード直編集のため、
+-- typo（0 や 32 等）による無言のリマインド停止を防ぐ DB 層での検証
+CHECK (1 <= ALL(target_days) AND 31 >= ALL(target_days))
+```
+
+読み取り: cron ルートは `app/utils/supabase/budgetDeclarationReminderData.ts` の `getBudgetDeclarationReminderTargetDays()` で取得する。**取得失敗（DB エラー・行が存在しない・`createServiceRoleSupabase()` が投げる例外を含む）の場合は `app/utils/budgetDeclarationReminder.ts` の `DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS`（`[15, 18, 20]`）にフォールバックし、リマインドが無応答で止まらないようにする。** このフォールバックは「対象日を空にして意図的に停止した」状態でも取得が一時的に失敗すればデフォルト値に戻ってしまう trade-off を内包するが、cron を無応答で止めないことを優先している（fail-open）。
+
+編集: admin / accounting 向け編集 UI は用意しておらず、Supabase ダッシュボード（Table editor は RLS をバイパスする）から `target_days` を直接編集する運用とする。UI は別 Issue で追加予定。
 
 ## 4. 列挙型
 
@@ -936,6 +959,30 @@ CREATE POLICY "budget_declaration_items_all_policy" ON budget_declaration_items
     );
 ```
 
+### 5.10 budget_declaration_reminder_settings テーブル
+
+> 運用上の設定値であり一般ユーザーは関与しないため、`admin` / `accounting` のみ SELECT / UPDATE できる（budget_declarations の `can_access_team_budget` と同じロール区分。[5.8](#58-budget_declarations-テーブル) 参照）。cron ルートは `SUPABASE_SERVICE_ROLE_KEY` を用いた service role クライアント（`createServiceRoleSupabase`）で読むため RLS の対象外。
+>
+> 行は migration で作成した 1 行のみを更新し続ける運用のため、INSERT / DELETE のポリシーは設けていない。migration 17 の `ALTER DEFAULT PRIVILEGES` により新規テーブルには何もしなくても `authenticated` に INSERT / DELETE の権限まで自動で付くため、RLS の deny-by-default だけに頼らず `REVOKE INSERT, DELETE ... FROM authenticated` で権限レベルでも明示的に塞ぐ（`id = 1` の CHECK 制約もあるため、admin / accounting であっても新規行は追加できない）。
+
+```sql
+CREATE POLICY "budget_declaration_reminder_settings_select_policy"
+    ON budget_declaration_reminder_settings
+    FOR SELECT TO authenticated
+    USING (public.auth_user_class() IN ('admin', 'accounting'));
+
+CREATE POLICY "budget_declaration_reminder_settings_update_policy"
+    ON budget_declaration_reminder_settings
+    FOR UPDATE TO authenticated
+    USING (public.auth_user_class() IN ('admin', 'accounting'))
+    WITH CHECK (public.auth_user_class() IN ('admin', 'accounting'));
+
+GRANT SELECT, UPDATE ON TABLE budget_declaration_reminder_settings TO authenticated;
+REVOKE INSERT, DELETE ON TABLE budget_declaration_reminder_settings FROM authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE budget_declaration_reminder_settings TO service_role;
+REVOKE ALL ON TABLE budget_declaration_reminder_settings FROM anon;
+```
+
 ## 6. トリガー
 
 ### 6.1 updated_at 更新トリガー
@@ -995,6 +1042,11 @@ CREATE TRIGGER update_budget_declarations_updated_at
 
 CREATE TRIGGER update_budget_declaration_items_updated_at
     BEFORE UPDATE ON budget_declaration_items
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_updated_at_column();
+
+CREATE TRIGGER update_budget_declaration_reminder_settings_updated_at
+    BEFORE UPDATE ON budget_declaration_reminder_settings
     FOR EACH ROW
     EXECUTE PROCEDURE update_updated_at_column();
 ```

@@ -5,21 +5,24 @@
 
 import { currentJstDate, formatMonthLabel } from "./formatter";
 
-// リマインド対象日（JST の日）。期限（毎月20日）の数日前から通知する運用のため、
-// 20日を含め複数日を対象にしている。運用に合わせて調整可能なようここで定数化する。
-export const BUDGET_DECLARATION_REMINDER_TARGET_DAYS: readonly number[] = [
-  15, 18, 20,
-];
+// リマインド対象日（JST の日）のフォールバックデフォルト値。期限（毎月20日）の
+// 数日前から通知する運用のため、20日を含め複数日を対象にしている。
+// 実際の対象日は budget_declaration_reminder_settings テーブルで管理し、DB 取得に
+// 失敗した場合のみこの値を使う（app/utils/supabase/budgetDeclarationReminderData.ts の
+// getBudgetDeclarationReminderTargetDays 参照）。
+export const DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS: readonly number[] =
+  [15, 18, 20];
 
 // 申告期限（毎月この日まで）。メッセージ本文の表示にのみ使う
 // （期限は Slack リマインドのトリガーであり、DB / UI ではロックしない）。
 export const BUDGET_DECLARATION_DEADLINE_DAY = 20;
 
-// 今日（JST）がリマインド対象日か
+// 今日（JST）がリマインド対象日か。targetDays が空配列の場合は常に false
+// （= 対象日リストを空にするとリマインドが停止する運用。Issue #94）。
 export const isBudgetDeclarationReminderTargetDay = (
-  now: Date = new Date(),
-): boolean =>
-  BUDGET_DECLARATION_REMINDER_TARGET_DAYS.includes(currentJstDate(now));
+  now: Date,
+  targetDays: readonly number[],
+): boolean => targetDays.includes(currentJstDate(now));
 
 // チームマスタ全体から、対象月の申告が無いチームを抽出する
 export const undeclaredBudgetTeams = (

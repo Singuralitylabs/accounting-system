@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BUDGET_DECLARATION_DEADLINE_DAY,
-  BUDGET_DECLARATION_REMINDER_TARGET_DAYS,
+  DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS,
   buildBudgetDeclarationReminderMessage,
   groupSlackIdsByTeam,
   isBudgetDeclarationReminderTargetDay,
@@ -11,31 +11,52 @@ import {
 // vitest.config.ts で TZ=Asia/Tokyo に固定している（JST 前提のアプリのため）
 
 describe("isBudgetDeclarationReminderTargetDay", () => {
-  it.each(BUDGET_DECLARATION_REMINDER_TARGET_DAYS)(
+  it.each(DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS)(
     "JST %d日は対象日である",
     (day) => {
       const dateString = `2026-09-${String(day).padStart(2, "0")}T03:00:00Z`; // JST 12:00
-      expect(isBudgetDeclarationReminderTargetDay(new Date(dateString))).toBe(
-        true,
-      );
+      expect(
+        isBudgetDeclarationReminderTargetDay(
+          new Date(dateString),
+          DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS,
+        ),
+      ).toBe(true);
     },
   );
 
   it("対象日以外は false", () => {
     expect(
-      isBudgetDeclarationReminderTargetDay(new Date("2026-09-16T03:00:00Z")),
+      isBudgetDeclarationReminderTargetDay(
+        new Date("2026-09-16T03:00:00Z"),
+        DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS,
+      ),
     ).toBe(false);
   });
 
   it("UTC 深夜は JST 日付にシフトして判定する", () => {
     // 2026-09-14T15:00:00Z = 2026-09-15T00:00 JST（対象日）
     expect(
-      isBudgetDeclarationReminderTargetDay(new Date("2026-09-14T15:00:00Z")),
+      isBudgetDeclarationReminderTargetDay(
+        new Date("2026-09-14T15:00:00Z"),
+        DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS,
+      ),
     ).toBe(true);
     // 2026-09-19T15:00:00Z = 2026-09-20T00:00 JST（対象日）
     expect(
-      isBudgetDeclarationReminderTargetDay(new Date("2026-09-19T15:00:00Z")),
+      isBudgetDeclarationReminderTargetDay(
+        new Date("2026-09-19T15:00:00Z"),
+        DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS,
+      ),
     ).toBe(true);
+  });
+
+  it("対象日リストが空なら常に false（リマインド停止。Issue #94）", () => {
+    expect(
+      isBudgetDeclarationReminderTargetDay(
+        new Date("2026-09-20T03:00:00Z"),
+        [],
+      ),
+    ).toBe(false);
   });
 });
 

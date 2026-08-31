@@ -645,7 +645,8 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 - Vercel Cron が毎日 09:00 JST（`0 0 * * *` UTC）に `app/api/cron/budget-declaration-reminder/route.ts`（Route Handler）を実行する（`vercel.json`）
 - `Authorization: Bearer ${CRON_SECRET}` を検証し、一致しない場合は 401 を返す
-- JST の「今日」がリマインド対象日（15日・18日・20日。`BUDGET_DECLARATION_REMINDER_TARGET_DAYS` で定数化）でなければ何もしない（対象日以外は 200 でスキップを返す）
+- リマインド対象日は `budget_declaration_reminder_settings` テーブル（1 行のみ。[database.md 3.11](database.md#311-budget_declaration_reminder_settings-テーブル)）の `target_days` で管理し、デプロイなしで編集できる。DB 取得に失敗した場合は `DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS`（`[15, 18, 20]`）にフォールバックする（`getBudgetDeclarationReminderTargetDays`）
+- JST の「今日」が対象日リストに含まれていなければ何もしない（対象日以外は 200 でスキップを返す）。**対象日リストを空にするとリマインド自体が停止する**（cron は動作するが常にスキップ）
 - 対象日であれば、対象月（JST の翌月。一覧の初期表示と同じ `defaultTargetMonth`）について以下を行う
   1. 有効な team 選択肢（チームマスタ）から全チームを取得する
   2. 翌月分の `budget_declarations` が存在しないチームを抽出する（`undeclaredBudgetTeams`）。未申告チームが 0 件なら通知しない
@@ -1039,32 +1040,33 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 ### 7.2 ユーティリティ関数
 
-| 関数名                                | 説明                                                   | ファイル                              |
-| ------------------------------------- | ------------------------------------------------------ | ------------------------------------- |
-| addMatterInfo                         | 案件情報の登録処理                                     | utils/supabase/addMatterInfo.ts       |
-| editMatterInfo                        | 案件情報の更新処理                                     | utils/supabase/editMatterInfo.ts      |
-| deleteMatter                          | 案件の削除処理                                         | utils/supabase/deleteMatter.ts        |
-| checkMatterInfoList                   | 案件の完了処理                                         | utils/supabase/checkMatterInfoList.ts |
-| updateProfile                         | ユーザープロフィールの更新処理                         | utils/supabase/updateProfile.ts       |
-| sendMessageToSlack                    | Slack 通知の送信処理                                   | utils/slack/sendMessageToSlack.ts     |
-| formatCurrency                        | 金額のフォーマット                                     | utils/formatter.ts                    |
-| formatTimeToJp                        | 日時のフォーマット                                     | utils/formatter.ts                    |
-| formatDateToJp                        | 日付のフォーマット                                     | utils/formatter.ts                    |
-| summarizeBudgetItems                  | 事前収支申告の明細集計（収入・支出・差引）             | utils/budgetDeclaration.ts            |
-| buildBudgetDeclarationStatusList      | チーム × 申告状況の行組み立て                          | utils/budgetDeclaration.ts            |
-| defaultTargetMonth                    | 事前収支申告の既定対象月（JST 翌月）                   | utils/budgetDeclaration.ts            |
-| visibleBudgetTeams                    | 事前収支申告の一覧に並べるチームの決定                 | utils/budgetDeclaration.ts            |
-| canWriteBudgetTeam                    | 事前収支申告の対象チームへの書き込み可否判定           | utils/budgetDeclaration.ts            |
-| validateBudgetDeclarationPayload      | 事前収支申告フォームのバリデーション（必須項目・金額） | utils/budgetDeclarationValidation.ts  |
-| isDuplicateDeclarationError           | (target_month, team) の一意制約違反判定                | utils/budgetDeclarationValidation.ts  |
-| toFirstOfMonth                        | 月初日（YYYY-MM-01）への正規化                         | utils/formatter.ts                    |
-| currentJstMonth                       | JST 基準の当月キー（YYYY-MM）                          | utils/formatter.ts                    |
-| currentJstDate                        | JST 基準の当日（1-31）                                 | utils/formatter.ts                    |
-| isBudgetDeclarationReminderTargetDay  | 未申告リマインドの対象日（15日・18日・20日）判定       | utils/budgetDeclarationReminder.ts    |
-| undeclaredBudgetTeams                 | 未申告チームの抽出                                     | utils/budgetDeclarationReminder.ts    |
-| groupSlackIdsByTeam                   | チームごとのチームリーダー slack_id の集約             | utils/budgetDeclarationReminder.ts    |
-| buildBudgetDeclarationReminderMessage | 未申告リマインドの Slack メッセージ生成                | utils/budgetDeclarationReminder.ts    |
-| getAuthorizedViewer                   | 閲覧者のプロフィール取得＋ロール確認                   | utils/supabase/viewerAccess.ts        |
+| 関数名                                 | 説明                                                                                 | ファイル                                        |
+| -------------------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------- |
+| addMatterInfo                          | 案件情報の登録処理                                                                   | utils/supabase/addMatterInfo.ts                 |
+| editMatterInfo                         | 案件情報の更新処理                                                                   | utils/supabase/editMatterInfo.ts                |
+| deleteMatter                           | 案件の削除処理                                                                       | utils/supabase/deleteMatter.ts                  |
+| checkMatterInfoList                    | 案件の完了処理                                                                       | utils/supabase/checkMatterInfoList.ts           |
+| updateProfile                          | ユーザープロフィールの更新処理                                                       | utils/supabase/updateProfile.ts                 |
+| sendMessageToSlack                     | Slack 通知の送信処理                                                                 | utils/slack/sendMessageToSlack.ts               |
+| formatCurrency                         | 金額のフォーマット                                                                   | utils/formatter.ts                              |
+| formatTimeToJp                         | 日時のフォーマット                                                                   | utils/formatter.ts                              |
+| formatDateToJp                         | 日付のフォーマット                                                                   | utils/formatter.ts                              |
+| summarizeBudgetItems                   | 事前収支申告の明細集計（収入・支出・差引）                                           | utils/budgetDeclaration.ts                      |
+| buildBudgetDeclarationStatusList       | チーム × 申告状況の行組み立て                                                        | utils/budgetDeclaration.ts                      |
+| defaultTargetMonth                     | 事前収支申告の既定対象月（JST 翌月）                                                 | utils/budgetDeclaration.ts                      |
+| visibleBudgetTeams                     | 事前収支申告の一覧に並べるチームの決定                                               | utils/budgetDeclaration.ts                      |
+| canWriteBudgetTeam                     | 事前収支申告の対象チームへの書き込み可否判定                                         | utils/budgetDeclaration.ts                      |
+| validateBudgetDeclarationPayload       | 事前収支申告フォームのバリデーション（必須項目・金額）                               | utils/budgetDeclarationValidation.ts            |
+| isDuplicateDeclarationError            | (target_month, team) の一意制約違反判定                                              | utils/budgetDeclarationValidation.ts            |
+| toFirstOfMonth                         | 月初日（YYYY-MM-01）への正規化                                                       | utils/formatter.ts                              |
+| currentJstMonth                        | JST 基準の当月キー（YYYY-MM）                                                        | utils/formatter.ts                              |
+| currentJstDate                         | JST 基準の当日（1-31）                                                               | utils/formatter.ts                              |
+| isBudgetDeclarationReminderTargetDay   | 未申告リマインドの対象日判定（対象日リストを引数で受け取る。空リストなら常に false） | utils/budgetDeclarationReminder.ts              |
+| undeclaredBudgetTeams                  | 未申告チームの抽出                                                                   | utils/budgetDeclarationReminder.ts              |
+| groupSlackIdsByTeam                    | チームごとのチームリーダー slack_id の集約                                           | utils/budgetDeclarationReminder.ts              |
+| buildBudgetDeclarationReminderMessage  | 未申告リマインドの Slack メッセージ生成                                              | utils/budgetDeclarationReminder.ts              |
+| getBudgetDeclarationReminderTargetDays | リマインド対象日を DB から取得（失敗時はデフォルト値にフォールバック）               | utils/supabase/budgetDeclarationReminderData.ts |
+| getAuthorizedViewer                    | 閲覧者のプロフィール取得＋ロール確認                                                 | utils/supabase/viewerAccess.ts                  |
 
 ## 8. セキュリティ設計
 
@@ -1151,10 +1153,10 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 詳細は [4.20.6](#4206-未申告-slack-リマインド) を参照。
 
 - Vercel Cron（毎日 09:00 JST）が `app/api/cron/budget-declaration-reminder/route.ts` を起動
-- リマインド対象日（15日・18日・20日）にのみ、翌月分が未申告のチームへ 1 通のメッセージで通知
+- `budget_declaration_reminder_settings.target_days`（DB。空にすると停止可能）で指定した対象日にのみ、翌月分が未申告のチームへ 1 通のメッセージで通知
 - 送信フロー
   1. Vercel Cron が `Authorization: Bearer ${CRON_SECRET}` 付きでリクエスト
-  2. `SUPABASE_SERVICE_ROLE_KEY` の server-only クライアントでチームマスタ・申告状況・チームリーダーの `slack_id` を取得
+  2. `SUPABASE_SERVICE_ROLE_KEY` の server-only クライアントでリマインド対象日設定・チームマスタ・申告状況・チームリーダーの `slack_id` を取得
   3. `buildBudgetDeclarationReminderMessage` でメッセージを組み立て、`SLACK_WEBHOOK_URL` に POST リクエスト
   4. 未申告チームが無い（全チーム申告済み）場合や対象日以外は送信しない
 
