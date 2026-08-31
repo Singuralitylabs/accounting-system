@@ -40,11 +40,16 @@ const BudgetDeclarationList = ({
   // 作成・編集フォームで開いている対象（null なら非表示）
   const [formTarget, setFormTarget] = useState<FormTarget | null>(null);
 
-  const { data, isLoading, isError, error } = useBudgetDeclarationList(
-    month,
-    month === initialMonth ? (initialData ?? undefined) : undefined,
-    initialDataUpdatedAt,
-  );
+  const { data, isLoading, isError, error, isPlaceholderData } =
+    useBudgetDeclarationList(
+      month,
+      month === initialMonth ? (initialData ?? undefined) : undefined,
+      initialDataUpdatedAt,
+    );
+  // 月切替直後は keepPreviousData で前月の行がそのまま表示され続ける
+  // （isLoading は false のまま）。この間に行の操作ボタンを押すと、表示上は
+  // 新しい対象月でも実際には前月の declarationId を渡してしまうため無効化する
+  const isSwitchingMonth = isPlaceholderData;
 
   const rows = data ?? [];
   const total = totalBudgetSummary(rows);
@@ -140,7 +145,7 @@ const BudgetDeclarationList = ({
                       <Button
                         size="xs"
                         variant="subtle"
-                        disabled={!row.isDeclared}
+                        disabled={!row.isDeclared || isSwitchingMonth}
                         onClick={() =>
                           setExpandedTeam((prev) =>
                             prev === row.team ? null : row.team,
@@ -154,6 +159,7 @@ const BudgetDeclarationList = ({
                       <Button
                         size="xs"
                         variant="outline"
+                        disabled={isSwitchingMonth}
                         onClick={() =>
                           setFormTarget({
                             team: row.team,

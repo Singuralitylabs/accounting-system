@@ -4,6 +4,7 @@
 // （docs/testing.md「2.6 テスト容易化リファクタリング方針」）。
 
 import { BudgetDeclarationItemInput } from "../types/types";
+import { UNIQUE_VIOLATION } from "./supabase/errorCodes";
 
 export type BudgetDeclarationHeaderInput = {
   targetMonth: string;
@@ -13,11 +14,19 @@ export type BudgetDeclarationHeaderInput = {
 export type BudgetDeclarationValidationReason =
   | "header_required"
   | "item_required"
-  | "item_amount";
+  | "item_amount"
+  | "item_amount_overflow";
 
 export type BudgetDeclarationValidationResult =
   | { ok: true }
   | { ok: false; reason: BudgetDeclarationValidationReason };
+
+// budget_declaration_items.amount は numeric(15,2)（13 桁 + 小数点以下 2 桁）。
+// これを超える金額は DB の INSERT が 22003（numeric field overflow）で失敗する。
+// 明細差し替えは非トランザクションのため、保存前にここで弾かないと、
+// 既存明細の削除は完了した後に INSERT だけが失敗し、明細が消失した状態が残る
+// （app/utils/supabase/budgetDeclarations.ts の saveBudgetDeclaration 参照）。
+export const MAX_ITEM_AMOUNT = 10 ** 13 - 1; // 9,999,999,999,999
 
 export const BUDGET_DECLARATION_VALIDATION_MESSAGES: Record<
   BudgetDeclarationValidationReason,
@@ -26,6 +35,7 @@ export const BUDGET_DECLARATION_VALIDATION_MESSAGES: Record<
   header_required: "対象月・チームは必須です。",
   item_required: "明細の種別・分類・内容が未入力の行があります。",
   item_amount: "明細の金額は0より大きい値を入力してください。",
+  item_amount_overflow: `明細の金額が大きすぎます（上限: ¥${MAX_ITEM_AMOUNT.toLocaleString("ja-JP")}）。`,
 };
 
 export const hasBudgetDeclarationRequiredHeader = (
@@ -35,7 +45,7 @@ export const hasBudgetDeclarationRequiredHeader = (
 // 明細 1 行の妥当性。"ok" 以外は理由を返し、呼び出し側でメッセージを出し分ける
 export const validateBudgetDeclarationItem = (
   item: BudgetDeclarationItemInput,
-): "ok" | "required" | "amount" => {
+): "ok" | "required" | "amount" | "overflow" => {
   // trim() で空白のみの入力（例: 内容に半角スペースのみ）も未入力扱いにする
   if (
     !item.entry_type.trim() ||
@@ -48,10 +58,14 @@ export const validateBudgetDeclarationItem = (
   if (!(item.amount > 0)) {
     return "amount";
   }
+  // DB の numeric(15,2) 上限と同じ基準
+  if (item.amount > MAX_ITEM_AMOUNT) {
+    return "overflow";
+  }
   return "ok";
 };
 
-// ヘッダ必須項目と明細（種別・分類・内容の必須、金額 > 0）をまとめて検証する。
+// ヘッダ必須項目と明細（種別・分類・内容の必須、金額 > 0・上限以下）をまとめて検証する。
 // 明細 0 件（コメントのみの申告）は許容する（DB 側も明細 0 件のヘッダを許容するため）
 export const validateBudgetDeclarationPayload = (
   header: BudgetDeclarationHeaderInput,
@@ -69,6 +83,9 @@ export const validateBudgetDeclarationPayload = (
     if (result === "amount") {
       return { ok: false, reason: "item_amount" };
     }
+    if (result === "overflow") {
+      return { ok: false, reason: "item_amount_overflow" };
+    }
   }
 
   return { ok: true };
@@ -83,7 +100,7 @@ export const getBudgetDeclarationValidationMessage = (
 // 気付かず上書きするのを防ぎ、「既に申告済み」であることを利用者に明示するため。
 export const isDuplicateDeclarationError = (
   error: { code?: string } | null | undefined,
-): boolean => error?.code === "23505";
+): boolean => error?.code === UNIQUE_VIOLATION;
 
 export const DUPLICATE_DECLARATION_MESSAGE =
   "この対象月・チームの事前収支申告は既に登録されています。一覧から編集してください。";

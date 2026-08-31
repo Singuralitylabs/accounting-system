@@ -3,6 +3,7 @@ import { BudgetDeclarationItemInput } from "@/app/types/types";
 import {
   BudgetDeclarationValidationReason,
   DUPLICATE_DECLARATION_MESSAGE,
+  MAX_ITEM_AMOUNT,
   getBudgetDeclarationValidationMessage,
   hasBudgetDeclarationRequiredHeader,
   isDuplicateDeclarationError,
@@ -77,6 +78,15 @@ describe("validateBudgetDeclarationItem", () => {
       "amount",
     );
   });
+
+  it("金額が上限（numeric(15,2)）を超えると overflow", () => {
+    expect(
+      validateBudgetDeclarationItem(validItem({ amount: MAX_ITEM_AMOUNT })),
+    ).toBe("ok");
+    expect(
+      validateBudgetDeclarationItem(validItem({ amount: MAX_ITEM_AMOUNT + 1 })),
+    ).toBe("overflow");
+  });
 });
 
 describe("validateBudgetDeclarationPayload", () => {
@@ -109,6 +119,13 @@ describe("validateBudgetDeclarationPayload", () => {
     expect(result).toEqual({ ok: false, reason: "item_amount" });
   });
 
+  it("明細の金額が上限を超えると item_amount_overflow", () => {
+    const result = validateBudgetDeclarationPayload(header, [
+      validItem({ amount: MAX_ITEM_AMOUNT + 1 }),
+    ]);
+    expect(result).toEqual({ ok: false, reason: "item_amount_overflow" });
+  });
+
   it("すべての明細が妥当なら ok", () => {
     const result = validateBudgetDeclarationPayload(header, [
       validItem(),
@@ -124,6 +141,7 @@ describe("getBudgetDeclarationValidationMessage", () => {
       "header_required",
       "item_required",
       "item_amount",
+      "item_amount_overflow",
     ];
     for (const reason of reasons) {
       expect(getBudgetDeclarationValidationMessage(reason)).toMatch(/./);

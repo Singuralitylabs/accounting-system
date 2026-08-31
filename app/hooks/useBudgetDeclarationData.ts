@@ -54,7 +54,11 @@ export const useBudgetDeclarationList = (
   });
 };
 
-// 申告の明細（行を開いたときだけ取得する）。declarationId は一覧行が保持している
+// 申告の明細（行を開いたときだけ取得する）。declarationId は一覧行が保持している。
+// 読み取り専用の明細パネルと、書き込みを行う編集フォームの両方がこのクエリキーを
+// 共有する。staleTime（2分）内のキャッシュを編集フォームがそのまま使うと、他の
+// 担当者が直近で更新した明細を古いまま保存してしまう（lost update）ため、
+// マウントのたびに staleTime を無視して必ず再取得する（refetchOnMount: "always"）
 export const useBudgetDeclarationDetail = (declarationId: number | null) => {
   return useQuery<BudgetDeclarationDetailType | null>({
     queryKey: ["budgetDeclarations", "detail", declarationId],
@@ -69,14 +73,13 @@ export const useBudgetDeclarationDetail = (declarationId: number | null) => {
       return detail;
     },
     enabled: declarationId !== null,
-    staleTime: 2 * 60 * 1000, // 2分
+    staleTime: 2 * 60 * 1000, // 2分（明細パネルの再表示での不要な再取得を抑える目的）
+    refetchOnMount: "always",
     retry: retryUnlessForbidden,
   });
 };
 
 // 申告の作成・編集（ヘッダ + 明細差し替え）。
-// 対象月・チームの組み合わせ次第で一覧のどの行が更新されるか分からないため、
-// 一覧クエリは月単位の絞り込みをせず budgetDeclarations 配下を丸ごと無効化する
 export const useSaveBudgetDeclaration = () => {
   const queryClient = useQueryClient();
 
@@ -91,8 +94,15 @@ export const useSaveBudgetDeclaration = () => {
       }
       return result;
     },
-    onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["budgetDeclarations"] });
+    onSuccess: (result, variables) => {
+      // 一覧は対象月・チームの組み合わせ次第でどの行が変わるか分からないため
+      // list 全体（月違い含む）を無効化し、明細は保存した申告の分だけ無効化する
+      queryClient.invalidateQueries({
+        queryKey: ["budgetDeclarations", "list"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["budgetDeclarations", "detail", result.id],
+      });
       notifySuccess(
         variables.declarationId === null
           ? `${variables.team}の事前収支申告を作成しました。`
@@ -101,13 +111,21 @@ export const useSaveBudgetDeclaration = () => {
     },
     onError: (error) => {
       console.error("事前収支申告の保存エラー:", error);
+      // ヘッダ保存 → 明細差し替え（全削除→全登録）は複数ステップの非トランザクション
+      // 処理のため、失敗時点までの変更（ヘッダの新規作成・更新、明細の削除等）が
+      // 既に DB に反映されている可能性がある。無効化しないと、失敗直後にモーダルを
+      // 閉じても一覧・明細のキャッシュが保存前の状態のまま残り、実際の DB と食い違う
+      // （新規作成の部分失敗ではヘッダだけ残り「未申告」表示のまま再作成を試みて
+      // 一意制約違反を繰り返すループにもなる）
+      queryClient.invalidateQueries({
+        queryKey: ["budgetDeclarations", "list"],
+      });
       const message = toErrorMessage(
         error,
         "事前収支申告の保存に失敗しました。",
       );
-      // ヘッダ保存 → 明細差し替え（全削除→全登録）は複数ステップの非トランザクション
-      // 処理のため、DB 障害（fetchFailed）はどのステップまで反映済みか呼び出し側から
-      // 判別できない（RecurringCostList の一括保存と同方針で案内する）
+      // partialWriteFailed（明細差し替えの途中で失敗）のときだけ、途中まで
+      // 反映されている可能性がある旨を案内する（RecurringCostList の一括保存と同方針）
       notifyError(
         isPartialWriteFailureError(error)
           ? `${message}\n一部のみ反映されている可能性があるため、画面を再読み込みして内容を確認してください。`
@@ -122,6 +140,10 @@ export const useDeleteBudgetDeclaration = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
+    // 削除は非冪等（成功後にレスポンスが失われても再試行すると 0 行ヒットになり、
+    // 実際は削除済みなのに失敗として扱われる）。useSaveBudgetDeclaration と同様に
+    // グローバル retry による mutationFn 再実行を防ぐ
+    retry: 0,
     mutationFn: async (data: { declarationId: number; team: string }) => {
       const result = await deleteBudgetDeclaration(
         data.declarationId,

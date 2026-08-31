@@ -237,6 +237,65 @@ describe("BudgetDeclarationForm", () => {
     await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
+  it("編集中に detail が新しい参照で再取得されても、入力中の内容を上書きしない", () => {
+    const initialDetail = {
+      comment: "元のコメント",
+      items: [
+        {
+          id: 1,
+          declaration_id: 7,
+          entry_type: "income",
+          category: "セミナー",
+          description: "元の内容",
+          amount: 500000,
+          display_order: 0,
+          inserted_at: "",
+          updated_at: "",
+        },
+      ],
+    };
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: initialDetail,
+      isLoading: false,
+      isError: false,
+    });
+
+    const { rerender } = renderWithMantine(
+      <BudgetDeclarationForm
+        opened
+        onClose={vi.fn()}
+        targetMonth="2026-10"
+        team="開発チーム"
+        declarationId={7}
+        teamLocked={false}
+      />,
+    );
+
+    const descriptionInput = screen.getByPlaceholderText("例: ○○受託案件");
+    fireEvent.change(descriptionInput, { target: { value: "編集中の内容" } });
+    expect(descriptionInput).toHaveValue("編集中の内容");
+
+    // 保存成功時の invalidate や再フォーカス等で detail が新しい参照になった状況を模す
+    // （declarationId は同じ 7 のまま）
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: { ...initialDetail, items: [...initialDetail.items] },
+      isLoading: false,
+      isError: false,
+    });
+    rerender(
+      <BudgetDeclarationForm
+        opened
+        onClose={vi.fn()}
+        targetMonth="2026-10"
+        team="開発チーム"
+        declarationId={7}
+        teamLocked={false}
+      />,
+    );
+
+    expect(descriptionInput).toHaveValue("編集中の内容");
+  });
+
   it("削除ボタンは確認後に削除処理を呼ぶ", async () => {
     useBudgetDeclarationDetail.mockReturnValue({
       data: { comment: "", items: [] },

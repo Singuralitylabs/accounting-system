@@ -97,6 +97,10 @@ const BudgetDeclarationForm = ({
 
   const [items, setItems] = useState<ItemRow[]>([]);
   const nextKeyRef = useRef(0);
+  // detail から items/comment を反映済みの declarationId。編集中に detail が
+  // 再取得（保存成功時の invalidate・ウィンドウ再フォーカス等）されても、
+  // 同じ申告を反映済みなら上書きしない（入力中の内容を消さないため）
+  const populatedForIdRef = useRef<number | null>(null);
 
   // モーダルを開くたび（対象行の切り替え含む）に初期値へ戻す。
   // 編集時は明細取得を待って反映する（既存データを空で上書きしないため）
@@ -105,11 +109,14 @@ const BudgetDeclarationForm = ({
     form.setValues({ team, comment: "" });
     nextKeyRef.current = 0;
     setItems([]);
+    populatedForIdRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [opened, declarationId, team]);
 
   useEffect(() => {
     if (!opened || !isEditMode || !detail) return;
+    if (populatedForIdRef.current === declarationId) return;
+    populatedForIdRef.current = declarationId;
     form.setValues({ team, comment: detail.comment ?? "" });
     setItems(
       detail.items.map((item) => ({
@@ -121,7 +128,7 @@ const BudgetDeclarationForm = ({
       })),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opened, isEditMode, detail]);
+  }, [opened, isEditMode, detail, declarationId]);
 
   const teamOptions = teamList.includes(team) ? teamList : [team, ...teamList];
   const categoryOptionsFor = (entryType: string) =>

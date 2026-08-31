@@ -18,6 +18,7 @@ import {
 } from "../budgetDeclaration";
 import {
   DUPLICATE_DECLARATION_MESSAGE,
+  getBudgetDeclarationValidationMessage,
   isDuplicateDeclarationError,
   validateBudgetDeclarationPayload,
 } from "../budgetDeclarationValidation";
@@ -198,7 +199,10 @@ export const saveBudgetDeclaration = async (
   );
   if (!validation.ok) {
     return {
-      error: { kind: "validationFailed", message: "入力内容を確認してください。" },
+      error: {
+        kind: "validationFailed",
+        message: getBudgetDeclarationValidationMessage(validation.reason),
+      },
     };
   }
 
@@ -234,10 +238,16 @@ export const saveBudgetDeclaration = async (
 
     declarationId = data.id;
   } else {
+    // team・target_month でも絞る。フォームでは両方とも編集不可（対象月は表示専用、
+    // チームは編集時に常に固定）だが、渡された id が別の申告を指していた場合に
+    // 誤って別チーム・別月の申告を書き換えないための整合性チェック
+    // （RLS がチーム単位のアクセス制御自体は担保する）
     const { data, error } = await supabase
       .from("budget_declarations")
       .update({ declared_by: profileInfo.id, comment: input.comment })
       .eq("id", declarationId)
+      .eq("team", input.team)
+      .eq("target_month", targetMonth)
       .select("id");
 
     if (error) {
@@ -335,11 +345,14 @@ export const deleteBudgetDeclaration = async (
   const supabase = createServerSupabase();
 
   // .select() を付けないと削除行が返らず、RLS で 0 行になっても error は null に
-  // なるため、削除できていないのに成功として扱われてしまう（matters.ts と同方針）
+  // なるため、削除できていないのに成功として扱われてしまう（matters.ts と同方針）。
+  // team でも絞るのは update 同様の整合性チェック（渡された id が別チームの
+  // 申告を指していた場合に誤って削除しないため）
   const { data, error } = await supabase
     .from("budget_declarations")
     .delete()
     .eq("id", declarationId)
+    .eq("team", team)
     .select();
 
   if (error) {

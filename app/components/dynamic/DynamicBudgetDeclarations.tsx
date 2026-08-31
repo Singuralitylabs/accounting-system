@@ -11,10 +11,19 @@ const DynamicBudgetDeclarations = async () => {
   const initialMonth = defaultTargetMonth();
   // getProfileInfo は React cache() 経由で dedupe されるため、
   // getBudgetDeclarationList 内で既に呼ばれていても DB 往復は増えない
-  const [{ rows }, { profileInfo }] = await Promise.all([
+  const [{ rows }, { profileInfo, error: profileError }] = await Promise.all([
     getBudgetDeclarationList(initialMonth),
     getProfileInfo(),
   ]);
+
+  // 取得失敗時は canEditAllTeams が false（チーム固定）側にフォールバックする。
+  // 経理・管理者が対象でも、失敗の原因を追えるようログだけは残す
+  if (profileError) {
+    console.error(
+      "事前収支申告フォームの権限判定用プロフィール取得に失敗しました:",
+      profileError,
+    );
+  }
 
   return (
     <BudgetDeclarationList
