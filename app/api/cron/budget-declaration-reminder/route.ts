@@ -77,8 +77,15 @@ export async function GET(request: NextRequest) {
     resolveBudgetDeclarationUrl(),
   );
 
+  // reminderTeams は undeclaredTeams（このスコープでは 0 件を弾いた後なので必ず 1 件以上）
+  // から作るため、buildBudgetDeclarationReminderMessage が null を返す（teams.length === 0
+  // のときのみ）ことは現状ない。将来その条件が増えても壊れた Slack POST を送らないための
+  // 防御（ここに来るのは実装不整合なので all-declared とは別の internal-error として扱う）。
   if (!message) {
-    return NextResponse.json({ skipped: true, reason: "all-declared" });
+    console.error(
+      "事前収支申告リマインドのメッセージ生成に失敗しました（未申告チームがあるのに message が null）。",
+    );
+    return NextResponse.json({ error: "internal-error" }, { status: 500 });
   }
 
   const slackResult = await sendBudgetDeclarationReminderToSlack(message);

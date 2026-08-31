@@ -1,17 +1,5 @@
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/app/lib/database.types";
 import type { TeamLeaderSlackRow } from "../budgetDeclarationReminder";
-
-// cron ルート（app/api/cron/budget-declaration-reminder/route.ts）限定の
-// server-only な service role クライアント。cron 実行には認証セッション（cookie）が無く
-// createServerSupabase（anon key + RLS）では読めないため、ここだけ RLS をバイパスする
-// service role キーを使う。読み取り専用の用途に限り、キーはこのモジュール外に出さない。
-const createReminderServiceSupabase = () =>
-  createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false } },
-  );
+import { createServiceRoleSupabase } from "./clients";
 
 // 有効な team 選択肢を全件取得する（select_options + select_option_types の構成は
 // selectOptionsCache.ts と同じ。type 名で絞らず全種類取得してから team だけ抜き出す
@@ -20,7 +8,7 @@ export const getActiveBudgetTeams = async (): Promise<{
   teams: string[];
   error: unknown;
 }> => {
-  const supabase = createReminderServiceSupabase();
+  const supabase = createServiceRoleSupabase();
 
   const { data, error } = await supabase
     .from("select_options")
@@ -44,7 +32,7 @@ export const getActiveBudgetTeams = async (): Promise<{
 export const getDeclaredBudgetTeams = async (
   targetMonth: string,
 ): Promise<{ teams: string[]; error: unknown }> => {
-  const supabase = createReminderServiceSupabase();
+  const supabase = createServiceRoleSupabase();
 
   const { data, error } = await supabase
     .from("budget_declarations")
@@ -65,7 +53,7 @@ export const getTeamLeaderSlackContacts = async (
 ): Promise<{ contacts: TeamLeaderSlackRow[]; error: unknown }> => {
   if (teams.length === 0) return { contacts: [], error: null };
 
-  const supabase = createReminderServiceSupabase();
+  const supabase = createServiceRoleSupabase();
 
   const { data, error } = await supabase
     .from("profiles")
