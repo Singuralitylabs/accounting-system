@@ -4,11 +4,7 @@ import { MatterList } from "../MatterList";
 const DynamicTeamMatterList = async () => {
   const matterList = await getTeamMatterInfoList();
 
-  return (
-    <main>
-      <MatterList variant="readonly" matterList={matterList || []} />
-    </main>
-  );
+  return <MatterList variant="readonly" matterList={matterList || []} />;
 };
 
 export default DynamicTeamMatterList;

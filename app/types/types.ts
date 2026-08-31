@@ -126,9 +126,6 @@ export type PLReportType = {
   orgWideRecurringCosts?: RecurringCostType[]; // teamleader 向け「全体共通（参考）」（損益に算入しない）
   extraEntries: ExtraEntryType[]; // 経理追加収支明細（teamleader は自チーム分のみ。損益に算入済み）
   orgWideExtraEntries?: ExtraEntryType[]; // teamleader 向け「全体共通（参考）」（損益に算入しない）
-  canEditExtraEntries: boolean; // 経理追加収支を管理できるか（accounting / admin のみ true）。
-  // 管理画面への導線自体は損益計算書ページ上部の AccountingMasterActions に集約済みのため、
-  // 現状 UI コンポーネントはこの値を直接は参照していない（レポート API の一部として維持）
   ordinaryProfit: number; // 経常利益 = 粗利合計 − 管理費合計（= 売上 − 案件費用 − 管理費）
   byTeam?: TeamBreakdown[]; // チーム別内訳（accounting / admin のみ）
   undated: { revenue: number; matterCost: number }; // 月未確定（日付未入力。経理追加収支の日付未入力分を含む）
