@@ -144,7 +144,7 @@ https://matter-controller.vercel.app/
 Supabase・Google 認証・Slack 通知に加え、事前収支申告の未申告リマインド（Vercel Cron）用に以下が必要です。
 
 - `CRON_SECRET`: Vercel Cron からのリクエストを認証するシークレット
-- `SUPABASE_SERVICE_ROLE_KEY`: cron ルート限定で RLS をバイパスする読み取り専用参照に使用
+- `SUPABASE_SERVICE_ROLE_KEY`: RLS を完全にバイパスできる強力な権限を持つキー。本アプリでは cron ルート限定で読み取り専用の参照にのみ使用しているが、キー自体の権限を絞るものではないため厳重に管理すること
 
 一覧・設定手順は [docs/setup.md](./docs/setup.md) を参照してください。
 

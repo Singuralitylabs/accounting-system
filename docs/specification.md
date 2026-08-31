@@ -651,7 +651,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
   2. 翌月分の `budget_declarations` が存在しないチームを抽出する（`undeclaredBudgetTeams`）。未申告チームが 0 件なら通知しない
   3. 未申告チームのチームリーダー（`profiles.class = 'teamleader' AND team = 対象チーム`）の `slack_id` を取得する。`slack_id` 未設定のリーダーやリーダー不在のチームはメンションなしでチーム名のみ通知する（`groupSlackIdsByTeam`）
   4. チームごとに `<@slack_id>` メンション（複数リーダーがいれば全員分）+ チーム名を並べ、期限（毎月20日）と申告ページ URL を添えた 1 通のメッセージを組み立て（`buildBudgetDeclarationReminderMessage`）、`SLACK_WEBHOOK_URL` に送信する
-- cron ハンドラは認証セッション（cookie）を持たないため、`app/utils/supabase/budgetDeclarationReminderData.ts` に限り `SUPABASE_SERVICE_ROLE_KEY` を用いた server-only なクライアントで参照する（RLS をバイパスするのは読み取りのみ・このモジュール限定。キーはクライアントへ露出させない）
+- cron ハンドラは認証セッション（cookie）を持たないため、`app/utils/supabase/budgetDeclarationReminderData.ts` に限り `SUPABASE_SERVICE_ROLE_KEY`（RLS を完全にバイパスできる強力な権限を持つキー）を用いた server-only なクライアントで参照する。アプリ側の利用は読み取りのみ・このモジュール限定に絞っているが、キー自体の権限がそれに限定されるわけではないため、キーはクライアントへ露出させない
 - 申告ページ URL は Vercel が自動設定する `VERCEL_PROJECT_PRODUCTION_URL` / `VERCEL_URL` から組み立てる（追加の環境変数は不要）
 - 対象日・未申告チーム抽出・メッセージ生成は副作用のない純粋関数（`app/utils/budgetDeclarationReminder.ts`）に切り出し、ユニットテストする（TZ=Asia/Tokyo 固定）
 
@@ -1099,7 +1099,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 - 環境変数による機密情報の保護
   - SLACK_WEBHOOK_URL: Slack 通知用 Webhook URL
   - CRON_SECRET: Vercel Cron ルート（未申告 Slack リマインド）の認証用シークレット。`Authorization: Bearer` ヘッダで照合し、不一致は 401
-  - SUPABASE_SERVICE_ROLE_KEY: cron ルート限定で RLS をバイパスする読み取り専用参照に使用。クライアントには露出させない
+  - SUPABASE_SERVICE_ROLE_KEY: RLS を完全にバイパスできる強力な権限を持つキー。本アプリでは cron ルート限定・読み取り専用の参照にのみ使用しているが、キー自体の権限を絞るものではないため、クライアントには露出させない
 
 ## 9. エラーハンドリング
 

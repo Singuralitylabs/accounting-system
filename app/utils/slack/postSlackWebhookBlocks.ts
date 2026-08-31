@@ -18,8 +18,11 @@ export const postSlackWebhookBlocks = async (
     });
 
     if (!response.ok) {
+      // statusText だけでは Slack 側の失敗理由（invalid_payload / channel_not_found 等）が
+      // 追えないため、ステータスコードとレスポンス本文も含めて調査しやすくする
+      const body = await response.text();
       throw new Error(
-        `Failed to send Slack notification: ${response.statusText}`,
+        `Failed to send Slack notification: ${response.status} ${response.statusText} ${body}`,
       );
     }
 
