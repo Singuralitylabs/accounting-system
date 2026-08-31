@@ -13,7 +13,11 @@ CREATE TABLE budget_declaration_reminder_settings (
   id          smallint NOT NULL DEFAULT 1 PRIMARY KEY,
   target_days smallint[] NOT NULL DEFAULT '{15,18,20}',
   updated_at  timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT budget_declaration_reminder_settings_singleton_check CHECK (id = 1)
+  CONSTRAINT budget_declaration_reminder_settings_singleton_check CHECK (id = 1),
+  -- 編集手段が RLS をバイパスする Supabase ダッシュボード直編集（docs/database.md
+  -- 3.11）のため、typo（0 や 32 等）による無言のリマインド停止を防ぐ DB 層での検証
+  CONSTRAINT budget_declaration_reminder_settings_target_days_range_check
+    CHECK (1 <= ALL(target_days) AND 31 >= ALL(target_days))
 );
 
 COMMENT ON TABLE budget_declaration_reminder_settings IS '事前収支申告の未申告 Slack リマインド対象日設定。1 行のみ（id=1 固定）。target_days が空配列だとリマインド停止。詳細: docs/database.md 3.11 / 5.10';
@@ -23,10 +27,10 @@ CREATE TRIGGER update_budget_declaration_reminder_settings_updated_at
     BEFORE UPDATE ON budget_declaration_reminder_settings
     FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 
--- 初期データ: 従来のハードコード値と同じにして、移行時点で挙動が変わらないようにする
-INSERT INTO budget_declaration_reminder_settings (id, target_days)
-VALUES (1, '{15,18,20}')
-ON CONFLICT (id) DO NOTHING;
+-- 初期データ: カラム DEFAULT がそのまま従来のハードコード値と同じなので、
+-- 全カラム DEFAULT の 1 行を挿入するだけで移行時点の挙動を変えずに済む
+-- （直後の CREATE TABLE への INSERT のため ON CONFLICT は不要）
+INSERT INTO budget_declaration_reminder_settings DEFAULT VALUES;
 
 -- ===== RLS =====
 -- 運用上の設定値であり一般ユーザーは関与しないため、admin / accounting のみ参照・
@@ -51,11 +55,15 @@ CREATE POLICY "budget_declaration_reminder_settings_update_policy"
   WITH CHECK (public.auth_user_class() IN ('admin', 'accounting'));
 
 -- ===== GRANT =====
--- migration 17 の方針に従い、テーブル権限を明示的に付与する（制限的な DEFAULT
--- PRIVILEGES を持つ環境で PostgREST が RLS を評価する前に 403 を返すのを防ぐ）。
--- 実効的なアクセス制御は上記 RLS が担う。INSERT / DELETE は上記の通りポリシーが
--- 無いため authenticated には権限自体も付与しない。
+-- migration 17 の ALTER DEFAULT PRIVILEGES により、新規テーブルには何もしなくても
+-- anon / authenticated / service_role に SELECT, INSERT, UPDATE, DELETE が
+-- 自動的に付く。GRANT SELECT, UPDATE は明示化のためだけで実質的な意味は無いが、
+-- INSERT / DELETE は上記の通りポリシーが無く常に拒否したいので、
+-- authenticated からは明示的に REVOKE して権限レベルでも塞ぐ
+-- （RLS の deny-by-default だけに頼らない多層防御。無いと将来
+-- INSERT / DELETE ポリシーを誤って足した瞬間に authenticated から書き込めてしまう）。
 GRANT SELECT, UPDATE ON TABLE budget_declaration_reminder_settings TO authenticated;
+REVOKE INSERT, DELETE ON TABLE budget_declaration_reminder_settings FROM authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE budget_declaration_reminder_settings TO service_role;
 
 -- anon（未ログイン）は一切アクセスしない

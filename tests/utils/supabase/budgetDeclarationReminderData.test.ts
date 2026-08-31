@@ -15,15 +15,14 @@ import { getBudgetDeclarationReminderTargetDays } from "@/app/utils/supabase/bud
 // 直接検証する。取得成功時は DB 値、失敗・行なしはデフォルト値にフォールバックすること。
 describe("getBudgetDeclarationReminderTargetDays", () => {
   const maybeSingle = vi.fn();
-  const eq = vi.fn(() => ({ maybeSingle }));
-  const select = vi.fn(() => ({ eq }));
+  const select = vi.fn(() => ({ maybeSingle }));
   const from = vi.fn(() => ({ select }));
 
   beforeEach(() => {
     maybeSingle.mockReset();
-    eq.mockClear();
     select.mockClear();
     from.mockClear();
+    createServiceRoleSupabase.mockReset();
     createServiceRoleSupabase.mockReturnValue({ from });
   });
 
@@ -36,7 +35,6 @@ describe("getBudgetDeclarationReminderTargetDays", () => {
     const result = await getBudgetDeclarationReminderTargetDays();
 
     expect(from).toHaveBeenCalledWith("budget_declaration_reminder_settings");
-    expect(eq).toHaveBeenCalledWith("id", 1);
     expect(result).toEqual([10, 25]);
   });
 
@@ -59,6 +57,16 @@ describe("getBudgetDeclarationReminderTargetDays", () => {
 
   it("設定行が存在しない場合もデフォルト値にフォールバックする", async () => {
     maybeSingle.mockResolvedValue({ data: null, error: null });
+
+    expect(await getBudgetDeclarationReminderTargetDays()).toEqual(
+      DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS,
+    );
+  });
+
+  it("createServiceRoleSupabase が例外を投げた場合もデフォルト値にフォールバックする（環境変数未設定など）", async () => {
+    createServiceRoleSupabase.mockImplementation(() => {
+      throw new Error("supabaseUrl is required.");
+    });
 
     expect(await getBudgetDeclarationReminderTargetDays()).toEqual(
       DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS,
