@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  currentJstDate,
+  currentJstMonth,
   formatCurrency,
   formatDateToJp,
   formatMonthHeader,
@@ -7,6 +9,7 @@ import {
   formatTimeToJp,
   parseDateString,
   toDateString,
+  toFirstOfMonth,
   toMonthString,
 } from "@/app/utils/formatter";
 
@@ -87,8 +90,69 @@ describe("formatTimeToJp", () => {
     expect(formatTimeToJp("2025-01-05T00:00:00Z")).toBe("2025/1/5 9:00:00");
   });
 
+  it("実行環境の TZ に依存せず JST で表示する（SSR ハイドレーション不一致の回帰）", () => {
+    // Intl の timeZone 指定が無いと、UTC のサーバでは "2025/1/5 0:00:00" になり、
+    // JST のブラウザと 9 時間ズレてハイドレーションエラーになる。
+    // TZ 環境変数はプロセス起動時に固定されるため、ここでは Intl 側の
+    // タイムゾーンを直接比較して指定漏れを検知する。
+    const utcRendering = new Date("2025-01-05T00:00:00Z").toLocaleDateString(
+      "ja-JP",
+      {
+        timeZone: "UTC",
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+        hour: "numeric",
+        minute: "numeric",
+        second: "numeric",
+      },
+    );
+    expect(formatTimeToJp("2025-01-05T00:00:00Z")).not.toBe(utcRendering);
+  });
+
   it("null の場合は - を返す", () => {
     expect(formatTimeToJp(null)).toBe("-");
+  });
+});
+
+describe("toFirstOfMonth", () => {
+  it("月キー（YYYY-MM）を月初日にする", () => {
+    expect(toFirstOfMonth("2026-10")).toBe("2026-10-01");
+  });
+
+  it("日付文字列（YYYY-MM-DD）も月初日に丸める", () => {
+    expect(toFirstOfMonth("2026-10-25")).toBe("2026-10-01");
+  });
+});
+
+describe("currentJstMonth", () => {
+  it("UTC の月末深夜は JST では翌月になる", () => {
+    // 2026-09-30T15:00:00Z = 2026-10-01T00:00 JST
+    expect(currentJstMonth(new Date("2026-09-30T15:00:00Z"))).toBe("2026-10");
+  });
+
+  it("UTC の月初は JST でも同じ月", () => {
+    expect(currentJstMonth(new Date("2026-10-01T00:00:00Z"))).toBe("2026-10");
+  });
+
+  it("年末の JST 年跨ぎを正しく扱う", () => {
+    expect(currentJstMonth(new Date("2026-12-31T15:00:00Z"))).toBe("2027-01");
+  });
+});
+
+describe("currentJstDate", () => {
+  it("UTC の日付をまたぐ深夜は JST では翌日になる", () => {
+    // 2026-09-19T15:00:00Z = 2026-09-20T00:00 JST
+    expect(currentJstDate(new Date("2026-09-19T15:00:00Z"))).toBe(20);
+  });
+
+  it("UTC の日中は JST でも同じ日", () => {
+    expect(currentJstDate(new Date("2026-09-20T03:00:00Z"))).toBe(20);
+  });
+
+  it("月末の JST 月跨ぎを正しく扱う", () => {
+    // 2026-09-30T15:00:00Z = 2026-10-01T00:00 JST
+    expect(currentJstDate(new Date("2026-09-30T15:00:00Z"))).toBe(1);
   });
 });
 

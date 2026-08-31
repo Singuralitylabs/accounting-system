@@ -222,8 +222,12 @@ export const useDeleteMatter = () => {
       queryClient.invalidateQueries({ queryKey: ["matters"] });
       notifySuccess(`案件[${deletedMatter.title}]を削除しました。`);
     },
-    onError: (error) => {
+    onError: (error, deletedMatter) => {
       console.error("案件削除エラー:", error);
+      // 二重クリックや別タブでの先行削除では削除 0 行がエラーになるが、案件は
+      // 実際には消えている。キャッシュを無効化して一覧・詳細を実状態に合わせる。
+      queryClient.invalidateQueries({ queryKey: ["matter", deletedMatter.id] });
+      queryClient.invalidateQueries({ queryKey: ["matters"] });
       notifyError(toErrorMessage(error, "案件削除に失敗しました。"));
     },
   });

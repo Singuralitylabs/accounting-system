@@ -2,24 +2,16 @@ import Link from "next/link";
 import type { IconType } from "react-icons";
 import {
   FaChartLine,
-  FaClipboardList,
   FaCog,
-  FaMoneyBillWave,
-  FaPlus,
+  FaFileInvoiceDollar,
   FaRegIdCard,
-  FaSyncAlt,
-  FaUsers,
 } from "react-icons/fa";
 import type { NavItem } from "../utils/permissions";
 
 const NAV_ICONS: Record<string, IconType> = {
   "/matters": FaRegIdCard,
-  "/new": FaPlus,
-  "/team": FaUsers,
-  "/accounting": FaClipboardList,
   "/profit-loss": FaChartLine,
-  "/recurring-costs": FaSyncAlt,
-  "/extra-entries": FaMoneyBillWave,
+  "/budget-declarations": FaFileInvoiceDollar,
   "/dashboard": FaCog,
 };
 

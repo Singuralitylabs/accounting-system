@@ -110,6 +110,24 @@ describe("classifyPath（public / protected / restricted）", () => {
   });
 
   it("ロール制限ルートと許可ロール", () => {
+    // /matters/team・/matters/accounting は /matters（AUTH_ONLY_ROUTES）の配下だが、
+    // ROUTE_PERMISSIONS に一致するルートがあるため restricted が優先される
+    expect(classifyPath("/matters/team")).toEqual({
+      kind: "restricted",
+      route: "/matters/team",
+      allowed: ["teamleader", "admin"],
+    });
+    expect(classifyPath("/matters/accounting")).toEqual({
+      kind: "restricted",
+      route: "/matters/accounting",
+      allowed: ["accounting", "admin"],
+    });
+    expect(classifyPath("/matters/team/sub")).toEqual({
+      kind: "restricted",
+      route: "/matters/team",
+      allowed: ["teamleader", "admin"],
+    });
+    // 旧 URL。新 URL と同じ許可ロールで、リダイレクト前の保護として残す
     expect(classifyPath("/team")).toEqual({
       kind: "restricted",
       route: "/team",

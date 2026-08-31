@@ -84,7 +84,6 @@ const buildInput = (
   extraEntries: [],
   isTeamLeader: false,
   includeTeamBreakdown: false,
-  canEditExtraEntries: false,
   ...override,
 });
 
@@ -220,29 +219,25 @@ describe("fiscalYearMonths", () => {
 });
 
 describe("reportFlags", () => {
-  it("teamleader はチーム別内訳・経理追加収支の管理を持たない", () => {
+  it("teamleader はチーム別内訳を持たない", () => {
     expect(reportFlags("teamleader")).toEqual({
       isTeamLeader: true,
       includeTeamBreakdown: false,
-      canEditExtraEntries: false,
     });
   });
 
-  it("accounting / admin はチーム別内訳と経理追加収支の管理を持つ", () => {
+  it("accounting / admin はチーム別内訳を持つ", () => {
     expect(reportFlags("accounting")).toEqual({
       isTeamLeader: false,
       includeTeamBreakdown: true,
-      canEditExtraEntries: true,
     });
     expect(reportFlags("admin").includeTeamBreakdown).toBe(true);
-    expect(reportFlags("admin").canEditExtraEntries).toBe(true);
   });
 
   it("public / 未設定ロールはすべてのフラグが false になる", () => {
     const expected = {
       isTeamLeader: false,
       includeTeamBreakdown: false,
-      canEditExtraEntries: false,
     };
     expect(reportFlags("public")).toEqual(expected);
     expect(reportFlags(null)).toEqual(expected);
@@ -705,7 +700,6 @@ describe("buildMonthlyReport: ロール別の表示スコープ", () => {
     buildInput({
       isTeamLeader,
       includeTeamBreakdown: !isTeamLeader,
-      canEditExtraEntries: !isTeamLeader,
       businessRows: [business(300000, "2026-07-10", "受託案件")],
       costRows: [cost(50000, "2026-07-10", "外注費", "受託案件")],
       recurringCosts: [
@@ -798,17 +792,6 @@ describe("buildMonthlyReport: ロール別の表示スコープ", () => {
     ]);
     expect(report.ordinaryProfit).toBe(225000);
     expect(report.byTeam).toBeDefined();
-  });
-
-  it("canEditExtraEntries はレポートへそのまま引き継がれる", () => {
-    expect(
-      buildMonthlyReport(buildInput({ canEditExtraEntries: true }))
-        .canEditExtraEntries,
-    ).toBe(true);
-    expect(
-      buildMonthlyReport(buildInput({ canEditExtraEntries: false }))
-        .canEditExtraEntries,
-    ).toBe(false);
   });
 });
 

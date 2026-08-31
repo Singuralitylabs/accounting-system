@@ -384,11 +384,8 @@ const ProfitLossStatement = ({ report }: Props) => {
         </Table>
       </Paper>
 
-      {/* 経理追加収支: 明細一覧（accounting / admin には管理リンクを表示） */}
-      <ExtraEntrySection
-        extraEntries={report.extraEntries}
-        canEdit={report.canEditExtraEntries}
-      />
+      {/* 経理追加収支: 明細一覧（管理リンクはページ上部の AccountingMasterActions） */}
+      <ExtraEntrySection extraEntries={report.extraEntries} />
 
       {/* 全体共通（参考）: teamleader のみデータが入る */}
       {((report.orgWideRecurringCosts &&

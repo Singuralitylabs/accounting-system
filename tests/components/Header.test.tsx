@@ -169,7 +169,7 @@ describe("Header", () => {
     expect(mockGetProfileInfoById).toHaveBeenCalledWith("user-2");
     expect(mockGetUser).not.toHaveBeenCalled();
     expect(screen.getByText("セッションユーザー")).toBeInTheDocument();
-    expect(screen.getByText("チーム案件一覧")).toBeInTheDocument();
+    expect(screen.getByText("損益計算書")).toBeInTheDocument();
   });
 
   it("同一 user id の 2 回目のイベントではプロフィールを再フェッチしない", async () => {
@@ -196,7 +196,7 @@ describe("Header", () => {
     });
 
     expect(mockGetProfileInfoById).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("チーム案件一覧")).toBeInTheDocument();
+    expect(screen.getByText("損益計算書")).toBeInTheDocument();
   });
 
   it("遅延した古いイベントのプロフィール取得結果を破棄する", async () => {
@@ -242,7 +242,7 @@ describe("Header", () => {
     });
 
     expect(screen.getByText("ユーザー3")).toBeInTheDocument();
-    expect(screen.queryByText("チーム案件一覧")).not.toBeInTheDocument();
+    expect(screen.queryByText("損益計算書")).not.toBeInTheDocument();
 
     await act(async () => {
       resolveUser2?.({ profileInfo: teamleaderProfile });
@@ -250,7 +250,7 @@ describe("Header", () => {
     });
 
     expect(screen.getByText("ユーザー3")).toBeInTheDocument();
-    expect(screen.queryByText("チーム案件一覧")).not.toBeInTheDocument();
+    expect(screen.queryByText("損益計算書")).not.toBeInTheDocument();
   });
 
   it("プロフィール取得失敗時は profile を null にする", async () => {
@@ -272,7 +272,7 @@ describe("Header", () => {
     });
 
     expect(screen.getByText("セッションユーザー")).toBeInTheDocument();
-    expect(screen.queryByText("チーム案件一覧")).not.toBeInTheDocument();
+    expect(screen.queryByText("損益計算書")).not.toBeInTheDocument();
   });
 
   it("認証イベントが複数回発火しても onAuthStateChange の購読は張り替わらない", async () => {

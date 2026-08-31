@@ -20,15 +20,36 @@ export default async function AuthProvider({
     let initialOptions = null;
     if (user) {
       // プロフィールと選択肢マスタは互いに独立しているため並列で取得する
-      const [profileResult, { optionsByType }] = await Promise.all([
-        getCachedProfileInfo(),
-        getActiveSelectOptionsByType([
-          "team",
-          "category",
-          "item",
-          "certificate",
-        ]),
-      ]);
+      const [profileResult, { optionsByType, error: optionsError }] =
+        await Promise.all([
+          getCachedProfileInfo(),
+          getActiveSelectOptionsByType([
+            "team",
+            "category",
+            "item",
+            "certificate",
+          ]),
+        ]);
+
+      // 空のマスタを optionsAtom に投入すると全フォームのチーム・分類・品目が
+      // 選べなくなるうえ、利用者は取得失敗に気付けない。握りつぶさず throw する。
+      // NOTE: AuthProvider はルートレイアウトから描画されるため、ここで投げた
+      // 例外は各セグメントの error.tsx では捕捉されず app/global-error.tsx に
+      // 到達する（全ルートが再試行ボタン付きのエラー画面に置き換わる）。
+      // マスタが引けない状態は全画面の入力が成立しないため、ページ単位で
+      // 部分的に壊れたまま描画を続けるより望ましいと判断している。
+      if (optionsError) {
+        throw optionsError;
+      }
+
+      // プロフィール取得の失敗はヘッダー表示にしか影響しない（認可は middleware /
+      // RLS が担う）ため、ログを残したうえでプロフィールなしの描画を続ける。
+      if (profileResult.error) {
+        console.error(
+          "プロフィール情報の取得に失敗しました。",
+          profileResult.error,
+        );
+      }
 
       profile = profileResult.profileInfo ?? null;
 
@@ -60,8 +81,9 @@ export default async function AuthProvider({
       return <>{children}</>;
     }
 
-    // その他の予期せぬエラーの場合はコンソールに出力
+    // その他の予期せぬエラーは握りつぶさず再 throw する
+    // （上と同じくルートレイアウト経由のため app/global-error.tsx に到達する）
     console.error("Unexpected error in AuthProvider:", error);
-    return <>{children}</>;
+    throw error;
   }
 }

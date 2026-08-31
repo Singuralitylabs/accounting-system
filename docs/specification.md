@@ -58,6 +58,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 | F018    | 年間推移表示         | 年度（7月〜翌6月）の月別損益推移     | チームリーダー・経理担当者・管理者 |
 | F019    | 定期費用マスタ管理   | 毎月固定の管理費の登録・編集         | 経理担当者・管理者                 |
 | F020    | 経理追加収支管理     | 案件に紐づかない収入・支出の登録     | 経理担当者・管理者                 |
+| F021    | 事前収支申告         | 翌月のチーム収支見込みの申告・確認   | チームリーダー・経理担当者・管理者 |
 
 ## 4. 機能詳細
 
@@ -298,7 +299,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 #### 4.10.4 画面
 
-- チーム案件一覧画面 (/team)
+- チーム案件一覧画面（案件カードのタブ。/matters/team。旧 /team はリダイレクト）
 
 ### 4.11 経理用案件一覧 (F011)
 
@@ -468,7 +469,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
   - 管理費合計（費目別内訳。各費目行は展開可能で、定期費用の明細（名称・チーム［未指定は「全体共通」と表示］。支払サイクルは月払い以外の場合のみ併記）を表示）
   - 経常利益（太字。マイナスは赤字表示）
 - サマリーカード（売上 / 案件費用 / 粗利 / 管理費 / 経常利益）
-- 経理追加収支セクション（選択月の明細一覧を全閲覧者に表示。経理担当者・管理者には経理追加収支画面（/extra-entries）への管理リンクを表示する）
+- 経理追加収支セクション（選択月の明細一覧。0件の月は非表示。経理追加収支画面（/extra-entries）への管理リンクはページ上部の経理マスタ系操作ボタンに集約）
 - チーム別内訳（経理担当者・管理者のみ。列は 売上 / 案件費用 / 粗利 / 管理費 / 経常利益。チームに紐づかない管理費・経理追加収支は「全体共通」として表示）
 - 全体共通（参考）セクション（チームリーダーのみ。全体共通の管理費・経理追加収支を参考表示し、チーム損益には算入しない）
 - 月未確定の注記（該当データがある場合のみ。経理追加収支の日付未入力分を含む）
@@ -577,7 +578,84 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 #### 4.19.5 画面
 
 - 経理追加収支画面 (/extra-entries)
-- 損益計算書画面 (/profit-loss) 内の経理追加収支セクション（明細表示＋管理リンク）
+- 損益計算書画面 (/profit-loss) 内の経理追加収支セクション（明細表示）・経理マスタ系操作ボタン（管理リンク）
+
+### 4.20 事前収支申告 (F021)
+
+#### 4.20.1 概要
+
+- 各チームのチームリーダーが、翌月のチーム収支（見込み収入・見込み支出）を明細付きで申告する
+- 申告期限は毎月20日（当月20日までに翌月分を申告）。期限は未申告リマインドのトリガーであり、期限後の申告・修正も可能（DB / UI ではロックしない）
+- 閲覧・編集はチームリーダー・経理担当者・管理者のみ。チームリーダーは自チーム分のみ
+- 1 チーム × 1 対象月につき申告は 1 件（`budget_declarations` の UNIQUE 制約）。合計金額はヘッダに持たず明細から集計する
+
+未申告チームへの Slack リマインドは [4.20.6](#4206-未申告-slack-リマインド) を参照。
+
+#### 4.20.2 申告項目
+
+| 項目       | 説明                                                     | 必須 |
+| ---------- | -------------------------------------------------------- | ---- |
+| 対象月     | 申告対象の月（月初日で保持）。一覧の初期表示は翌月       | ○    |
+| チーム     | チームマスタの値。チームリーダーは自チームのみ           | ○    |
+| 申告者     | 最終更新したメンバー（`declared_by`）                    | ○    |
+| コメント   | 補足コメント（自由入力）                                 | -    |
+| 明細：種別 | 収入 / 支出                                              | ○    |
+| 明細：分類 | 収入は案件分類マスタ、支出は品目マスタ                   | ○    |
+| 明細：内容 | 自由入力（例: ○○受託案件、外注費）                       | ○    |
+| 明細：金額 | 見込み金額（円・税別）。正の値のみ（符号は種別が決める） | ○    |
+
+#### 4.20.3 一覧ビューの機能
+
+- 対象月を月ピッカーで選択する。初期表示は JST 基準の翌月
+- 対象月のチーム × 申告状況（申告済み / 未申告）を一覧表示する
+  - チームリーダー: 自チームのみ。経理担当者・管理者: 全チーム
+  - 未申告のチームも行として並べる（未申告の可視化が目的のため、申告のあるチームだけを並べない）
+  - チームマスタから外れた（無効化・改名された）チームの申告も末尾に表示し、取りこぼさない
+- 各行に収入合計・支出合計・差引（収入合計 − 支出合計）を表示し、表示中の行の合計を合計行に表示する
+- 行を開くと申告明細（種別・分類・内容・金額）とコメントを参照表示する
+- 申告者名は `profiles` の RLS で読めない場合に「-」表示となる（申告状況・集計はそのまま表示する）
+- 各行に「申告する」（未申告）／「編集する」（申告済み）ボタンを表示し、作成・編集フォームを開く
+
+#### 4.20.4 作成・編集・削除フォームの機能
+
+- 一覧の行から作成・編集フォーム（モーダル）を開く。対象月は一覧で選択中の月に固定（フォーム内では変更不可）
+- チーム
+  - チームリーダー: 自チーム固定（選択不可）
+  - 経理担当者・管理者: 選択可能。ただし編集時（既存の申告を開いた場合）は対象月・チームの組み合わせを変えないため、ロールに関わらず固定表示にする
+- 明細行を動的に追加・削除できる。各行は種別（収入 / 支出）・分類・内容・金額を入力する
+  - 分類の選択肢は種別に連動する（収入 = category、支出 = item の既存マスタを流用）。種別を変更すると分類は未選択に戻る
+- 収入合計・支出合計・差引（収支）をフォーム内にリアルタイム表示する（保存前の集計は `summarizeBudgetItems` を流用）
+- 保存前にバリデーションを行い、不備があれば保存を中止して案内を表示する
+  - 対象月・チームが未設定（通常は発生しない。表示上の防御）
+  - 明細の種別・分類・内容のいずれかが未入力
+  - 明細の金額が0以下
+  - 明細 0 件（コメントのみ）は許容する
+- 保存は確認ダイアログを経てから実行する。作成・更新とも「ヘッダの upsert（作成は INSERT、編集は UPDATE）+ 明細の差し替え（既存明細を全削除して入力内容を登録し直す）」という単一の Server Action（`saveBudgetDeclaration`）で行う
+  - 新規作成が `(target_month, team)` の一意制約に違反した場合（既に他の担当者が作成済み）は、その旨を案内して保存を中止する（一覧から編集するよう促す）
+- 削除は編集フォームからのみ行える。確認ダイアログの上で `deleteBudgetDeclaration` を呼び、ヘッダを削除する（明細は `ON DELETE CASCADE` で同時に削除される）
+- 期限（毎月20日）を過ぎても作成・編集・削除は常に可能（DB / UI ではロックしない。仕様どおり）
+- 書き込み権限（チームの判定）は RLS が最終防御だが、フォーム表示・Server Action の双方で `canWriteBudgetTeam` により事前チェックし、権限不足を分かりやすいメッセージで案内する
+
+#### 4.20.5 画面
+
+- 事前収支申告画面 (/budget-declarations)
+- 事前収支申告フォームモーダル（一覧から開く。作成・編集・削除を兼ねる）
+
+#### 4.20.6 未申告 Slack リマインド
+
+- Vercel Cron が毎日 09:00 JST（`0 0 * * *` UTC）に `app/api/cron/budget-declaration-reminder/route.ts`（Route Handler）を実行する（`vercel.json`）
+- `Authorization: Bearer ${CRON_SECRET}` を検証し、一致しない場合は 401 を返す
+- リマインド対象日は `budget_declaration_reminder_settings` テーブル（1 行のみ。[database.md 3.11](database.md#311-budget_declaration_reminder_settings-テーブル)）の `target_days` で管理し、デプロイなしで編集できる。DB 取得に失敗した場合は `DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS`（`[15, 18, 20]`）にフォールバックする（`getBudgetDeclarationReminderTargetDays`）
+- 対象日の編集 UI は `/budget-declarations` の「リマインド設定」セクション（admin / accounting のみ表示。[5.3.14](#5314-事前収支申告画面-s014)）から行う。対象日（1〜31）を複数選択して保存すると `updateBudgetDeclarationReminderTargetDays` が `id = 1` の既存行を UPDATE する（INSERT / DELETE は不可）。対象日を空にして保存するとリマインドが停止し（cron は動作するが送信されない）、UI 上に警告を表示する
+- JST の「今日」が対象日リストに含まれていなければ何もしない（対象日以外は 200 でスキップを返す）。**対象日リストを空にするとリマインド自体が停止する**（cron は動作するが常にスキップ）
+- 対象日であれば、対象月（JST の翌月。一覧の初期表示と同じ `defaultTargetMonth`）について以下を行う
+  1. 有効な team 選択肢（チームマスタ）から全チームを取得する
+  2. 翌月分の `budget_declarations` が存在しないチームを抽出する（`undeclaredBudgetTeams`）。未申告チームが 0 件なら通知しない
+  3. 未申告チームのチームリーダー（`profiles.class = 'teamleader' AND team = 対象チーム`）の `slack_id` を取得する。`slack_id` 未設定のリーダーやリーダー不在のチームはメンションなしでチーム名のみ通知する（`groupSlackIdsByTeam`）
+  4. チームごとに `<@slack_id>` メンション（複数リーダーがいれば全員分）+ チーム名を並べ、期限（毎月20日）と申告ページ URL を添えた 1 通のメッセージを組み立て（`buildBudgetDeclarationReminderMessage`）、`SLACK_WEBHOOK_URL` に送信する
+- cron ハンドラは認証セッション（cookie）を持たないため、`app/utils/supabase/budgetDeclarationReminderData.ts` に限り `SUPABASE_SERVICE_ROLE_KEY`（RLS を完全にバイパスできる強力な権限を持つキー）を用いた server-only なクライアントで参照する。アプリ側の利用は読み取りのみ・このモジュール限定に絞っているが、キー自体の権限がそれに限定されるわけではないため、キーはクライアントへ露出させない
+- 申告ページ URL は Vercel が自動設定する `VERCEL_PROJECT_PRODUCTION_URL` / `VERCEL_URL` から組み立てる（追加の環境変数は不要）
+- 対象日・未申告チーム抽出・メッセージ生成は副作用のない純粋関数（`app/utils/budgetDeclarationReminder.ts`）に切り出し、ユニットテストする（TZ=Asia/Tokyo 固定）
 
 ## 5. 画面設計
 
@@ -592,21 +670,23 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 ### 5.2 画面一覧
 
-| 画面 ID | 画面名                 | URL              | 対象ユーザー                       |
-| ------- | ---------------------- | ---------------- | ---------------------------------- |
-| S001    | ログイン画面           | /login           | 全ユーザー                         |
-| S013    | トップページ           | /                | 全ユーザー                         |
-| S002    | 案件一覧画面           | /matters         | 全ユーザー                         |
-| S003    | 新規案件作成画面       | /new             | 全ユーザー                         |
-| S004    | 案件詳細モーダル       | -                | 全ユーザー                         |
-| S005    | チーム案件一覧画面     | /team            | チームリーダー・管理者             |
-| S006    | 経理用案件一覧画面     | /accounting      | 経理担当者・管理者                 |
-| S007    | 経理用案件詳細モーダル | -                | 経理担当者・管理者                 |
-| S008    | 通知内容入力モーダル   | -                | 経理担当者・管理者                 |
-| S009    | 管理画面               | /dashboard       | 管理者                             |
-| S010    | 損益計算書画面         | /profit-loss     | チームリーダー・経理担当者・管理者 |
-| S011    | 定期費用マスタ画面     | /recurring-costs | 経理担当者・管理者                 |
-| S012    | 経理追加収支画面       | /extra-entries   | 経理担当者・管理者                 |
+| 画面 ID | 画面名                           | URL                                                  | 対象ユーザー                       |
+| ------- | -------------------------------- | ---------------------------------------------------- | ---------------------------------- |
+| S001    | ログイン画面                     | /login                                               | 全ユーザー                         |
+| S013    | トップページ                     | /                                                    | 全ユーザー                         |
+| S002    | 案件一覧画面（タブ: 自分の案件） | /matters                                             | 全ユーザー                         |
+| S003    | 新規案件作成画面                 | /new                                                 | 全ユーザー                         |
+| S004    | 案件詳細モーダル                 | -                                                    | 全ユーザー                         |
+| S005    | 案件一覧画面（タブ: チーム案件） | /matters/team（旧 /team はリダイレクト）             | チームリーダー・管理者             |
+| S006    | 案件一覧画面（タブ: 経理用一覧） | /matters/accounting（旧 /accounting はリダイレクト） | 経理担当者・管理者                 |
+| S007    | 経理用案件詳細モーダル           | -                                                    | 経理担当者・管理者                 |
+| S008    | 通知内容入力モーダル             | -                                                    | 経理担当者・管理者                 |
+| S009    | 管理画面                         | /dashboard                                           | 管理者                             |
+| S010    | 損益計算書画面                   | /profit-loss                                         | チームリーダー・経理担当者・管理者 |
+| S011    | 定期費用マスタ画面               | /recurring-costs                                     | 経理担当者・管理者                 |
+| S012    | 経理追加収支画面                 | /extra-entries                                       | 経理担当者・管理者                 |
+| S014    | 事前収支申告画面                 | /budget-declarations                                 | チームリーダー・経理担当者・管理者 |
+| S015    | 事前収支申告フォームモーダル     | -                                                    | チームリーダー・経理担当者・管理者 |
 
 ### 5.3 画面詳細
 
@@ -620,8 +700,10 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 #### 5.3.2 案件一覧画面 (S002)
 
 - URL: /matters
+- サブルート方式のタブで自分の案件（/matters）・チーム案件（/matters/team、S005）・経理用一覧（/matters/accounting、S006）を切り替える。タブの表示可否は `ROUTE_PERMISSIONS` によるロール判定（表示するタブが自分の案件のみのロールはタブ自体を表示しない）
 - 構成要素
   - ページタイトル「案件カード」
+  - 新規作成ボタン（/new への導線）
   - 表示形式切替ボタン（カード/テーブル）
   - 案件未申請警告メッセージ（未申請案件がある場合）
   - 案件カード（カード表示時）
@@ -694,9 +776,9 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 #### 5.3.5 チーム案件一覧画面 (S005)
 
-- URL: /team
+- URL: /matters/team（案件カード（S002）のタブの1つ。旧 /team はリダイレクト）
 - 構成要素
-  - ページタイトル「チーム案件一覧」
+  - ページタイトル「（チーム名）チーム案件一覧」
   - 表示形式切替ボタン（カード/テーブル）
   - 案件カード（カード表示時）
     - 案件名
@@ -721,7 +803,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 #### 5.3.6 経理用案件一覧画面 (S006)
 
-- URL: /accounting
+- URL: /matters/accounting（案件カード（S002）のタブの1つ。旧 /accounting はリダイレクト）
 - 構成要素
   - ページタイトル「経理用 案件一覧」
   - 確認完了/担当者に連絡ボタン
@@ -816,6 +898,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 - URL: /profit-loss
 - 構成要素
   - ページタイトル「損益計算書」
+  - 経理マスタ系操作ボタン（経理担当者・管理者のみ）: 定期費用マスタ（/recurring-costs）・経理追加収支（/extra-entries）へのボタン
   - タブ切替（月次 / 年間推移）
   - 【月次タブ】
     - 対象月選択（月ピッカー、初期値は当月）
@@ -826,7 +909,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
       - 売上総利益（粗利）（分類別内訳・各行に「売上 − 案件費用」を併記。マイナスは赤字）
       - 管理費合計（費目別内訳・展開で定期費用明細）
       - 経常利益（太字、マイナスは赤字）
-    - 経理追加収支セクション（選択月の明細一覧。経理担当者・管理者には経理追加収支画面への管理リンクを表示）
+    - 経理追加収支セクション（選択月の明細一覧。0件の月は非表示）
     - チーム別内訳テーブル（経理担当者・管理者のみ。列: 売上 / 案件費用 / 粗利 / 管理費 / 経常利益）
     - 全体共通の管理費・経理追加収支（参考）セクション（チームリーダーのみ）
     - 月未確定の注記（該当データがある場合のみ）
@@ -863,13 +946,46 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 #### 5.3.13 トップページ (S013)
 
 - URL: /
-- ログイン中のロールでアクセスできるページの一覧（ナビゲーションハブ）
+- ログイン中のロールでアクセスできるページの一覧（ナビゲーションハブ）。カテゴリ別に整理し、案件カード / 損益計算書 / 事前収支申告 / 管理画面 の4カードに集約する（ロールにより表示数は変わる）
+  - 新規作成・チーム案件・経理用一覧は案件カード（/matters）内のタブ・ボタンに、定期費用マスタ・経理追加収支は損益計算書（/profit-loss）内のボタンに集約したため、トップページのカードには出さない
 - 構成要素
   - ページタイトル「ページ一覧」
   - カードグリッド（アイコン・ページ名・説明文）
     - 権限のないページのカードは表示しない（ヘッダーナビと同じ `visibleNavItems` によるフィルタ）
     - 案件カードを先頭に配置し、従来のトップページからの導線を維持する
 - ヘッダーはアプリ名とユーザーメニューのみ（ナビメニューは非表示）
+
+#### 5.3.14 事前収支申告画面 (S014)
+
+- URL: /budget-declarations
+- 構成要素
+  - ページタイトル「事前収支申告」
+  - リマインド設定セクション（admin / accounting のみ表示。teamleader / public には描画しない）
+    - 対象日（1〜31）を選択する Chip 群（複数選択）と保存ボタン
+    - 対象日が 0 件のときは「現在リマインドは無効です」の警告を表示する
+    - 29〜31日は月によって存在しない旨の注記を表示する
+    - 保存は確認ダイアログを経てから実行する（対象日を空にする場合はリマインド停止になる旨を案内する）
+  - 対象月ピッカー（初期値は翌月）
+  - チーム別申告状況テーブル
+    - チーム / 申告状況（申告済み・未申告バッジ） / 収入合計 / 支出合計 / 差引 / 申告者 / 最終更新 / 明細表示ボタン / 操作ボタン
+    - 未申告のチームは金額欄を「-」とし、明細表示ボタンを無効化する
+    - 差引がマイナスの行は金額を赤字で表示する
+    - 合計行に表示中のチームの収入合計・支出合計・差引を表示する
+    - 操作ボタンは未申告なら「申告する」、申告済みなら「編集する」と表示し、S015 のフォームモーダルを開く
+  - 明細パネル（行を開いたときのみ取得・表示）
+    - 種別 / 分類 / 内容 / 金額、コメント（参照のみ）
+    - 明細が 0 件の申告でもコメントは表示する（DB は明細 0 件のヘッダを許容する）
+
+#### 5.3.15 事前収支申告フォームモーダル (S015)
+
+- 構成要素
+  - 対象月（固定表示）・チーム（Select。チームリーダーは固定、経理・管理者は選択可。編集時は常に固定）
+  - コメント（Textarea）
+  - 明細テーブル（種別 Select / 分類 Select（種別に連動） / 内容 TextInput / 金額 NumberInput / 行削除ボタン）+ 明細追加ボタン
+  - 収入合計・支出合計・差引のリアルタイム表示
+  - 削除ボタン（編集時のみ）・キャンセルボタン・保存ボタン
+- 保存・削除はいずれも確認ダイアログを経て実行する
+- バリデーションエラー（必須未入力・金額 0 以下、一意制約違反）は保存を中止し通知で案内する
 
 ## 6. 状態管理
 
@@ -895,52 +1011,76 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 ### 7.1 Server Actions
 
-| 関数名                  | 説明                                 | パラメータ                            | レスポンス                 |
-| ----------------------- | ------------------------------------ | ------------------------------------- | -------------------------- |
-| getProfileInfo          | ログインユーザーのプロフィール取得   | -                                     | {profileInfo, error}       |
-| getProfileInfoById      | 指定ユーザーのプロフィール取得       | userId: string                        | {profileInfo, error}       |
-| getAllUserInfo          | 全ユーザー情報の取得                 | -                                     | ProfilesType[]             |
-| insertUserInfo          | ユーザー情報の登録                   | {user, name, email}                   | {error}                    |
-| updateUserInfo          | ユーザー情報の更新                   | {profile}                             | {error}                    |
-| getAllMatterInfoList    | 全案件情報の取得                     | -                                     | MatterType[]               |
-| getUserMatterInfoList   | ユーザーの案件情報の取得             | -                                     | MatterType[]               |
-| getTeamMatterInfoList   | チームの案件情報の取得               | -                                     | MatterType[]               |
-| insertMatterInfo        | 案件情報の登録                       | (title, category, team, ...)          | {newId, error}             |
-| updateMatterInfo        | 案件情報の更新                       | matterInfo: MatterType                | {status, error}            |
-| deleteMatterInfo        | 案件情報の削除                       | id: number                            | {status, error}            |
-| getUserCostInfoList     | コスト情報の取得                     | matter_id: number                     | {costInfoList, error}      |
-| updateCostInfo          | コスト情報の更新                     | (id, name, item, ...)                 | -                          |
-| insertCostInfo          | コスト情報の登録                     | (name, item, ...)                     | {error}                    |
-| deleteCostInfo          | コスト情報の削除                     | id: number                            | -                          |
-| getUserBusinessInfoList | 取引先情報の取得                     | matter_id: number                     | {businessInfoList, error}  |
-| insertBusinessInfo      | 取引先情報の登録                     | (name, amount, ...)                   | {error}                    |
-| updateBusinessInfo      | 取引先情報の更新                     | (id, name, amount, ...)               | -                          |
-| deleteBusinessInfo      | 取引先情報の削除                     | id: number                            | -                          |
-| getSelectOptions        | 選択肢情報の取得                     | typeName: string                      | {options, error}           |
-| insertSelectOption      | 選択肢情報の登録                     | (typeName, value, display_order)      | boolean                    |
-| updateSelectOption      | 選択肢情報の更新                     | (id, value, display_order, is_active) | boolean                    |
-| sendSlackNotification   | Slack 通知の送信                     | (message, metadata)                   | {success, error}           |
-| getProfitLossReport     | 月次損益レポートの取得               | month: string ("YYYY-MM")             | PLReportType \| null       |
-| getAnnualTrend          | 年間推移の取得                       | fiscalYear: number                    | AnnualTrendType \| null    |
-| getMatterInfoById       | 案件情報の単体取得（詳細モーダル用） | matterId: number                      | {matterInfo, error}        |
-| getRecurringCostList    | 定期費用一覧の取得                   | -                                     | {recurringCostList, error} |
-| bulkUpsertRecurringCost | 定期費用の一括登録・更新・削除       | rows: RecurringCostInListType[]       | boolean                    |
-| getExtraEntryList       | 経理追加収支一覧の取得               | -                                     | {extraEntryList, error}    |
-| bulkUpsertExtraEntry    | 経理追加収支の一括登録・更新・削除   | rows: ExtraEntryInListType[]          | boolean                    |
+| 関数名                                    | 説明                                                              | パラメータ                            | レスポンス                 |
+| ----------------------------------------- | ----------------------------------------------------------------- | ------------------------------------- | -------------------------- |
+| getProfileInfo                            | ログインユーザーのプロフィール取得                                | -                                     | {profileInfo, error}       |
+| getProfileInfoById                        | 指定ユーザーのプロフィール取得                                    | userId: string                        | {profileInfo, error}       |
+| getAllUserInfo                            | 全ユーザー情報の取得                                              | -                                     | {userInfoList, error}      |
+| insertUserInfo                            | ユーザー情報の登録                                                | {user, name, email}                   | {error}                    |
+| updateUserInfo                            | ユーザー情報の更新                                                | {profile}                             | {error}                    |
+| getAllMatterInfoList                      | 全案件情報の取得                                                  | -                                     | MatterType[]               |
+| getUserMatterInfoList                     | ユーザーの案件情報の取得                                          | -                                     | MatterType[]               |
+| getTeamMatterInfoList                     | チームの案件情報の取得                                            | -                                     | MatterType[]               |
+| insertMatterInfo                          | 案件情報の登録                                                    | (title, category, team, ...)          | {newId, error}             |
+| updateMatterInfo                          | 案件情報の更新                                                    | matterInfo: MatterType                | {status, error}            |
+| deleteMatterInfo                          | 案件情報の削除                                                    | id: number                            | {status, error}            |
+| getUserCostInfoList                       | コスト情報の取得                                                  | matter_id: number                     | {costInfoList, error}      |
+| updateCostInfo                            | コスト情報の更新                                                  | (id, name, item, ...)                 | -                          |
+| insertCostInfo                            | コスト情報の登録                                                  | (name, item, ...)                     | {error}                    |
+| deleteCostInfo                            | コスト情報の削除                                                  | id: number                            | -                          |
+| getUserBusinessInfoList                   | 取引先情報の取得                                                  | matter_id: number                     | {businessInfoList, error}  |
+| insertBusinessInfo                        | 取引先情報の登録                                                  | (name, amount, ...)                   | {error}                    |
+| updateBusinessInfo                        | 取引先情報の更新                                                  | (id, name, amount, ...)               | -                          |
+| deleteBusinessInfo                        | 取引先情報の削除                                                  | id: number                            | -                          |
+| getSelectOptions                          | 選択肢情報の取得                                                  | typeName: string                      | {options, error}           |
+| insertSelectOption                        | 選択肢情報の登録                                                  | (typeName, value, display_order)      | boolean                    |
+| updateSelectOption                        | 選択肢情報の更新                                                  | (id, value, display_order, is_active) | boolean                    |
+| sendSlackNotification                     | Slack 通知の送信                                                  | (message, metadata)                   | {success, error}           |
+| getProfitLossReport                       | 月次損益レポートの取得                                            | month: string ("YYYY-MM")             | PLReportType \| null       |
+| getAnnualTrend                            | 年間推移の取得                                                    | fiscalYear: number                    | AnnualTrendType \| null    |
+| getMatterInfoById                         | 案件情報の単体取得（詳細モーダル用）                              | matterId: number                      | {matterInfo, error}        |
+| getRecurringCostList                      | 定期費用一覧の取得                                                | -                                     | {recurringCostList, error} |
+| bulkUpsertRecurringCost                   | 定期費用の一括登録・更新・削除                                    | rows: RecurringCostInListType[]       | boolean                    |
+| getExtraEntryList                         | 経理追加収支一覧の取得                                            | -                                     | {extraEntryList, error}    |
+| bulkUpsertExtraEntry                      | 経理追加収支の一括登録・更新・削除                                | rows: ExtraEntryInListType[]          | boolean                    |
+| getBudgetDeclarationList                  | 事前収支申告のチーム別状況一覧の取得                              | month: string ("YYYY-MM")             | {rows} \| {error}          |
+| getBudgetDeclarationDetail                | 事前収支申告の明細・コメントの取得                                | declarationId: number                 | {detail} \| {error}        |
+| saveBudgetDeclaration                     | 事前収支申告の作成・編集（ヘッダ upsert + 明細差し替え）          | input: BudgetDeclarationSaveInput     | {id} \| {error}            |
+| deleteBudgetDeclaration                   | 事前収支申告の削除（明細は CASCADE）                              | declarationId: number, team: string   | {error?}                   |
+| getBudgetDeclarationReminderSettings      | 事前収支申告リマインドの対象日設定取得（admin / accounting のみ） | -                                     | {targetDays} \| {error}    |
+| updateBudgetDeclarationReminderTargetDays | 事前収支申告リマインドの対象日設定更新（`id = 1` の UPDATE のみ） | targetDays: readonly number[]         | {error?}                   |
 
 ### 7.2 ユーティリティ関数
 
-| 関数名              | 説明                           | ファイル                              |
-| ------------------- | ------------------------------ | ------------------------------------- |
-| addMatterInfo       | 案件情報の登録処理             | utils/supabase/addMatterInfo.ts       |
-| editMatterInfo      | 案件情報の更新処理             | utils/supabase/editMatterInfo.ts      |
-| deleteMatter        | 案件の削除処理                 | utils/supabase/deleteMatter.ts        |
-| checkMatterInfoList | 案件の完了処理                 | utils/supabase/checkMatterInfoList.ts |
-| updateProfile       | ユーザープロフィールの更新処理 | utils/supabase/updateProfile.ts       |
-| sendMessageToSlack  | Slack 通知の送信処理           | utils/slack/sendMessageToSlack.ts     |
-| formatCurrency      | 金額のフォーマット             | utils/formatter.ts                    |
-| formatTimeToJp      | 日時のフォーマット             | utils/formatter.ts                    |
-| formatDateToJp      | 日付のフォーマット             | utils/formatter.ts                    |
+| 関数名                                       | 説明                                                                                 | ファイル                                        |
+| -------------------------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------- |
+| addMatterInfo                                | 案件情報の登録処理                                                                   | utils/supabase/addMatterInfo.ts                 |
+| editMatterInfo                               | 案件情報の更新処理                                                                   | utils/supabase/editMatterInfo.ts                |
+| deleteMatter                                 | 案件の削除処理                                                                       | utils/supabase/deleteMatter.ts                  |
+| checkMatterInfoList                          | 案件の完了処理                                                                       | utils/supabase/checkMatterInfoList.ts           |
+| updateProfile                                | ユーザープロフィールの更新処理                                                       | utils/supabase/updateProfile.ts                 |
+| sendMessageToSlack                           | Slack 通知の送信処理                                                                 | utils/slack/sendMessageToSlack.ts               |
+| formatCurrency                               | 金額のフォーマット                                                                   | utils/formatter.ts                              |
+| formatTimeToJp                               | 日時のフォーマット                                                                   | utils/formatter.ts                              |
+| formatDateToJp                               | 日付のフォーマット                                                                   | utils/formatter.ts                              |
+| summarizeBudgetItems                         | 事前収支申告の明細集計（収入・支出・差引）                                           | utils/budgetDeclaration.ts                      |
+| buildBudgetDeclarationStatusList             | チーム × 申告状況の行組み立て                                                        | utils/budgetDeclaration.ts                      |
+| defaultTargetMonth                           | 事前収支申告の既定対象月（JST 翌月）                                                 | utils/budgetDeclaration.ts                      |
+| visibleBudgetTeams                           | 事前収支申告の一覧に並べるチームの決定                                               | utils/budgetDeclaration.ts                      |
+| canWriteBudgetTeam                           | 事前収支申告の対象チームへの書き込み可否判定                                         | utils/budgetDeclaration.ts                      |
+| validateBudgetDeclarationPayload             | 事前収支申告フォームのバリデーション（必須項目・金額）                               | utils/budgetDeclarationValidation.ts            |
+| isDuplicateDeclarationError                  | (target_month, team) の一意制約違反判定                                              | utils/budgetDeclarationValidation.ts            |
+| toFirstOfMonth                               | 月初日（YYYY-MM-01）への正規化                                                       | utils/formatter.ts                              |
+| currentJstMonth                              | JST 基準の当月キー（YYYY-MM）                                                        | utils/formatter.ts                              |
+| currentJstDate                               | JST 基準の当日（1-31）                                                               | utils/formatter.ts                              |
+| isBudgetDeclarationReminderTargetDay         | 未申告リマインドの対象日判定（対象日リストを引数で受け取る。空リストなら常に false） | utils/budgetDeclarationReminder.ts              |
+| undeclaredBudgetTeams                        | 未申告チームの抽出                                                                   | utils/budgetDeclarationReminder.ts              |
+| groupSlackIdsByTeam                          | チームごとのチームリーダー slack_id の集約                                           | utils/budgetDeclarationReminder.ts              |
+| buildBudgetDeclarationReminderMessage        | 未申告リマインドの Slack メッセージ生成                                              | utils/budgetDeclarationReminder.ts              |
+| getBudgetDeclarationReminderTargetDays       | リマインド対象日を DB から取得（失敗時はデフォルト値にフォールバック）               | utils/supabase/budgetDeclarationReminderData.ts |
+| normalizeBudgetDeclarationReminderTargetDays | リマインド対象日の正規化（範囲チェック・重複排除・昇順ソート）                       | utils/budgetDeclarationReminder.ts              |
+| canManageBudgetDeclarationReminderSettings   | リマインド設定の編集可否判定（admin / accounting のみ）                              | utils/budgetDeclarationReminder.ts              |
+| getAuthorizedViewer                          | 閲覧者のプロフィール取得＋ロール確認                                                 | utils/supabase/viewerAccess.ts                  |
 
 ## 8. セキュリティ設計
 
@@ -950,8 +1090,9 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 - 未来技術推進協会のドメイン(`future-tech-association.org`)のみログイン可能
 - ミドルウェアによる保護されたルートの制御
   - /, /new, /matters: 認証済みユーザーのみアクセス可能
-  - /team: チームリーダー・管理者のみアクセス可能
-  - /accounting: 経理担当者・管理者のみアクセス可能
+  - /matters/team: チームリーダー・管理者のみアクセス可能
+  - /matters/accounting: 経理担当者・管理者のみアクセス可能
+  - /team, /accounting: 旧 URL。ロール保護は /matters/team, /matters/accounting と同じ（新 URL へのリダイレクト前に判定する）
   - /dashboard: 管理者のみアクセス可能
   - /profit-loss: チームリーダー・経理担当者・管理者のみアクセス可能
   - /recurring-costs: 経理担当者・管理者のみアクセス可能
@@ -974,6 +1115,8 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 - HTTPS 通信のみ使用
 - 環境変数による機密情報の保護
   - SLACK_WEBHOOK_URL: Slack 通知用 Webhook URL
+  - CRON_SECRET: Vercel Cron ルート（未申告 Slack リマインド）の認証用シークレット。`Authorization: Bearer` ヘッダで照合し、不一致は 401
+  - SUPABASE_SERVICE_ROLE_KEY: RLS を完全にバイパスできる強力な権限を持つキー。本アプリでは cron ルート限定・読み取り専用の参照にのみ使用しているが、キー自体の権限を絞るものではないため、クライアントには露出させない
 
 ## 9. エラーハンドリング
 
@@ -1019,6 +1162,18 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
   2. 環境変数から Webhook URL を取得
   3. Webhook URL に POST リクエスト
   4. 結果に応じて UI 表示を更新
+
+### 11.2 未申告 Slack リマインド（事前収支申告）
+
+詳細は [4.20.6](#4206-未申告-slack-リマインド) を参照。
+
+- Vercel Cron（毎日 09:00 JST）が `app/api/cron/budget-declaration-reminder/route.ts` を起動
+- `budget_declaration_reminder_settings.target_days`（DB。空にすると停止可能）で指定した対象日にのみ、翌月分が未申告のチームへ 1 通のメッセージで通知
+- 送信フロー
+  1. Vercel Cron が `Authorization: Bearer ${CRON_SECRET}` 付きでリクエスト
+  2. `SUPABASE_SERVICE_ROLE_KEY` の server-only クライアントでリマインド対象日設定・チームマスタ・申告状況・チームリーダーの `slack_id` を取得
+  3. `buildBudgetDeclarationReminderMessage` でメッセージを組み立て、`SLACK_WEBHOOK_URL` に POST リクエスト
+  4. 未申告チームが無い（全チーム申告済み）場合や対象日以外は送信しない
 
 ## 12. 今後の拡張予定
 

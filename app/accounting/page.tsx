@@ -1,17 +1,8 @@
-import PageTitle from "../components/PageTitle";
-import { Suspense } from "react";
-import DynamicAccouting from "../components/dynamic/DynamicAccounting";
-import { LoadingSpinner } from "../components/LoadingSpinner";
+import { redirect } from "next/navigation";
 
+// 旧 URL。案件カードのタブ化（/matters/accounting）に伴うブックマーク互換のリダイレクト。
 const AccountingMatterPage = () => {
-  return (
-    <main>
-      <PageTitle title="経理用 案件一覧" />
-      <Suspense fallback={<LoadingSpinner />}>
-        <DynamicAccouting />
-      </Suspense>
-    </main>
-  );
+  redirect("/matters/accounting");
 };
 
 export default AccountingMatterPage;

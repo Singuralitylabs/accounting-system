@@ -1,4 +1,5 @@
 import { createServerClient } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import type { Database } from "@/app/lib/database.types";
 
@@ -35,3 +36,18 @@ export const createServerSupabase = () => {
     },
   );
 };
+
+/**
+ * cron ルート（`app/api/cron/budget-declaration-reminder/route.ts`）限定の
+ * server-only な service role クライアント。cron 実行には認証セッション（cookie）が無く
+ * createServerSupabase（anon key + RLS）では読めないため、ここだけ RLS をバイパスする
+ * service role キーを使う。読み取り専用の用途に限り、キーはこのクライアント外に出さない。
+ * 他の用途（Server Component / Server Action / Route Handler の通常アクセス）には
+ * createServerSupabase を使うこと。
+ */
+export const createServiceRoleSupabase = () =>
+  createClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } },
+  );

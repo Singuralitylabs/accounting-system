@@ -11,10 +11,13 @@ import { CustomMonthPicker } from "../CustomMonthPicker";
 import { LoadingSpinner } from "../LoadingSpinner";
 import ProfitLossStatement from "./ProfitLossStatement";
 import AnnualTrendTable from "./AnnualTrendTable";
+import AccountingMasterActions from "./AccountingMasterActions";
 
 type Props = {
   initialMonth: string; // "YYYY-MM"
   initialReport: PLReportType | null;
+  canEditRecurringCosts: boolean; // 定期費用マスタへの管理リンクを表示するか
+  canEditExtraEntries: boolean; // 経理追加収支への管理リンクを表示するか
 };
 
 // 月キー（YYYY-MM）から年度（7月始まり）を求める
@@ -24,7 +27,12 @@ const monthToFiscalYear = (month: string) => {
   return monthNumber >= 7 ? year : year - 1;
 };
 
-const ProfitLossView = ({ initialMonth, initialReport }: Props) => {
+const ProfitLossView = ({
+  initialMonth,
+  initialReport,
+  canEditRecurringCosts,
+  canEditExtraEntries,
+}: Props) => {
   const currentFiscalYear = monthToFiscalYear(initialMonth);
 
   const [activeTab, setActiveTab] = useState<string | null>("monthly");
@@ -56,6 +64,10 @@ const ProfitLossView = ({ initialMonth, initialReport }: Props) => {
 
   return (
     <div className="px-4 pb-8 max-w-5xl mx-auto">
+      <AccountingMasterActions
+        canEditRecurringCosts={canEditRecurringCosts}
+        canEditExtraEntries={canEditExtraEntries}
+      />
       <Tabs value={activeTab} onChange={setActiveTab}>
         <Tabs.List>
           <Tabs.Tab value="monthly">月次</Tabs.Tab>

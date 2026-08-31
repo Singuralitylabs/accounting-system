@@ -5,11 +5,19 @@ export type Role = "public" | "teamleader" | "accounting" | "admin";
 // middleware のルート保護・ヘッダーのナビゲーション表示・Server Action の権限確認で
 // 共用する単一の定義（ロール変更時はここだけ直せばよい）。
 export const ROUTE_PERMISSIONS: Record<string, Role[]> = {
+  // 案件カード（/matters）配下のタブ。/matters 自体は AUTH_ONLY_ROUTES で
+  // ログインのみ必須（ロール制限なし）のため、サブルートのみここに追加する。
+  // どちらも "/matters" 配下の他方の前方一致にはならないため評価順は問わない。
+  "/matters/team": ["teamleader", "admin"],
+  "/matters/accounting": ["accounting", "admin"],
+  // 旧 URL。ページ側で新 URL へリダイレクトするが、リダイレクト前のロール保護は
+  // 従来どおりここで行う（未許可ロールは旧 URL の時点で "/" に弾く）。
   "/team": ["teamleader", "admin"],
   "/accounting": ["accounting", "admin"],
   "/profit-loss": ["teamleader", "accounting", "admin"],
   "/recurring-costs": ["accounting", "admin"],
   "/extra-entries": ["accounting", "admin"],
+  "/budget-declarations": ["teamleader", "accounting", "admin"],
   "/dashboard": ["admin"],
 };
 
@@ -45,41 +53,27 @@ export type NavItem = {
 // ROUTE_PERMISSIONS に無いルートはログインユーザー全員に表示する。
 // アイコンはここに置かない（middleware が本モジュールを import するため、
 // Edge バンドルに React コンポーネントが漏れる）。href → アイコンの対応はハブ側。
+//
+// 案件カード（新規作成・チーム案件・経理用一覧）と損益計算書（定期費用マスタ・
+// 経理追加収支）はそれぞれのページ内タブ・ボタンに集約したため、ここには
+// カテゴリの入口となる4項目のみを置く（案件カード / 損益計算書 / 事前収支申告 / 管理画面）。
 const NAV_ITEMS: NavItem[] = [
   {
     href: "/matters",
     label: "案件カード",
-    description: "自分の案件を一覧で確認・編集します",
-  },
-  {
-    href: "/new",
-    label: "新規作成",
-    description: "新しい案件を登録します",
-  },
-  {
-    href: "/team",
-    label: "チーム案件一覧",
-    description: "自チームの案件を一覧で確認します",
-  },
-  {
-    href: "/accounting",
-    label: "経理用一覧",
-    description: "全案件の経理確認・完了処理を行います",
+    description:
+      "自分の案件の確認・新規作成に加え、チーム案件・経理用一覧をタブで切り替えます",
   },
   {
     href: "/profit-loss",
     label: "損益計算書",
-    description: "月次の売上・費用・損益を確認します",
+    description:
+      "月次の売上・費用・損益を確認します（経理担当者・管理者は定期費用マスタ・経理追加収支への導線あり）",
   },
   {
-    href: "/recurring-costs",
-    label: "定期費用マスタ",
-    description: "毎月固定の管理費を登録・編集します",
-  },
-  {
-    href: "/extra-entries",
-    label: "経理追加収支",
-    description: "案件に紐づかない収入・支出を登録します",
+    href: "/budget-declarations",
+    label: "事前収支申告",
+    description: "翌月のチーム収支の見込みを申告・確認します",
   },
   {
     href: "/dashboard",

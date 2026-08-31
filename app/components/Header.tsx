@@ -139,28 +139,33 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
         >
           経理システム
         </Link>
-        {!isHub && (
-          <div className="hidden sm:flex flex-wrap gap-2">
-            {visibleNavItems(profile?.class).map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
-              >
-                {item.label}
-              </Link>
-            ))}
+        {/* ロゴの右側の余白をここで一括吸収し、ナビ・ユーザーメニューを
+            まとめて右寄せにする（個々に ml-auto を付けると余白が分散し、
+            中央寄りになってしまうため、グループ全体に1つだけ付ける） */}
+        <div className="ml-auto flex items-center gap-4">
+          {!isHub && (
+            <div className="hidden sm:flex flex-wrap gap-2">
+              {visibleNavItems(profile?.class).map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </div>
+          )}
+          <div className="hidden sm:flex items-center">
+            <UserButton user={user} onSignOut={handleSignOut} />
           </div>
-        )}
-        <div className="hidden sm:flex ml-auto items-center">
-          <UserButton user={user} onSignOut={handleSignOut} />
-        </div>
-        <div className="sm:hidden ml-auto">
-          <MobileHeader
-            profile={profile}
-            onSignOut={handleSignOut}
-            hideNav={isHub}
-          />
+          <div className="sm:hidden">
+            <MobileHeader
+              profile={profile}
+              onSignOut={handleSignOut}
+              hideNav={isHub}
+            />
+          </div>
         </div>
       </nav>
     </header>

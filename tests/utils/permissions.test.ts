@@ -31,6 +31,11 @@ describe("hasClassAccess", () => {
 
 describe("ROUTE_PERMISSIONS による各保護ルートの認可", () => {
   it.each([
+    ["/matters/team", "teamleader", true],
+    ["/matters/team", "accounting", false],
+    ["/matters/accounting", "accounting", true],
+    ["/matters/accounting", "teamleader", false],
+    // 旧 URL。許可ロールは新 URL と同一（リダイレクト前の保護を維持するため残す）
     ["/team", "teamleader", true],
     ["/team", "accounting", false],
     ["/accounting", "accounting", true],
@@ -42,6 +47,9 @@ describe("ROUTE_PERMISSIONS による各保護ルートの認可", () => {
     ["/recurring-costs", "teamleader", false],
     ["/extra-entries", "accounting", true],
     ["/extra-entries", "teamleader", false],
+    ["/budget-declarations", "teamleader", true],
+    ["/budget-declarations", "accounting", true],
+    ["/budget-declarations", "public", false],
     ["/dashboard", "admin", true],
     ["/dashboard", "accounting", false],
   ])("%s へのアクセス: ロール %s → %s", (route, role, expected) => {
@@ -87,50 +95,45 @@ describe("visibleNavItems", () => {
   const hrefsFor = (profileClass: string | null | undefined) =>
     visibleNavItems(profileClass).map((item) => item.href);
 
+  // 新規作成・チーム案件・経理用一覧は案件カード（/matters）内のタブ・ボタンに、
+  // 定期費用マスタ・経理追加収支は損益計算書（/profit-loss）内のボタンに集約したため、
+  // トップページ／ヘッダーのナビ項目は4つ（案件カード・損益計算書・事前収支申告・管理画面）のみ。
   it("admin には全項目を表示する", () => {
     expect(hrefsFor("admin")).toEqual([
       "/matters",
-      "/new",
-      "/team",
-      "/accounting",
       "/profit-loss",
-      "/recurring-costs",
-      "/extra-entries",
+      "/budget-declarations",
       "/dashboard",
     ]);
   });
 
-  it("public にはロール制限のない項目のみ表示する", () => {
-    expect(hrefsFor("public")).toEqual(["/matters", "/new"]);
+  it("public には案件カードのみ表示する", () => {
+    expect(hrefsFor("public")).toEqual(["/matters"]);
   });
 
-  it("teamleader にはチーム案件と損益計算書を表示する", () => {
+  it("teamleader には案件カード・損益計算書・事前収支申告を表示する", () => {
     expect(hrefsFor("teamleader")).toEqual([
       "/matters",
-      "/new",
-      "/team",
       "/profit-loss",
+      "/budget-declarations",
     ]);
   });
 
-  it("accounting には経理用一覧・損益計算書・定期費用マスタ・経理追加収支を表示する", () => {
+  it("accounting には案件カード・損益計算書・事前収支申告を表示する", () => {
     expect(hrefsFor("accounting")).toEqual([
       "/matters",
-      "/new",
-      "/accounting",
       "/profit-loss",
-      "/recurring-costs",
-      "/extra-entries",
+      "/budget-declarations",
     ]);
   });
 
-  it("ロールが null の場合はロール制限のない項目のみ表示する", () => {
-    expect(hrefsFor(null)).toEqual(["/matters", "/new"]);
+  it("ロールが null の場合は案件カードのみ表示する", () => {
+    expect(hrefsFor(null)).toEqual(["/matters"]);
   });
 
   it("すべてのナビ項目にハブ用の説明文がある", () => {
     const items = visibleNavItems("admin");
-    expect(items).toHaveLength(8);
+    expect(items).toHaveLength(4);
     for (const item of items) {
       expect(item.description.length).toBeGreaterThan(0);
     }

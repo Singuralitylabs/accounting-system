@@ -5,7 +5,13 @@ import { Title } from "@mantine/core";
 import SelectOptionList from "../SelectOptionList";
 
 const DynamicDashboard = async () => {
-  const userList = await getAllUserInfo();
+  const { userInfoList, error: userInfoError } = await getAllUserInfo();
+  // ユーザー一覧はこのページの主要コンテンツであり、取得失敗を「0 件」として
+  // 描画すると利用者が気付けない。失敗時は throw して
+  // ルートの error boundary（app/dashboard/error.tsx）に処理させる。
+  if (userInfoError || !userInfoList) {
+    throw new Error("ユーザー情報の取得に失敗しました。");
+  }
   const { options: teamList, error: teamError } =
     await getSelectOptions("team");
   if (teamError) {
@@ -39,7 +45,7 @@ const DynamicDashboard = async () => {
 
   return (
     <main className="p-4">
-      <UserList userList={userList} />
+      <UserList userList={userInfoList} />
       <div className="p-4">
         <Title order={2} className="py-4">
           項目管理
