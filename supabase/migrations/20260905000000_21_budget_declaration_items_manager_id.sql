@@ -22,6 +22,15 @@ CREATE INDEX IF NOT EXISTS idx_budget_declaration_items_manager_id
 -- migration 12 の auth_user_class() / auth_user_team() と同じ SECURITY DEFINER
 -- パターンで RLS をバイパスするが、返すのは id / name のみとし、email / slack_id /
 -- class / team 等の migration 12 が保護対象とする機微情報は含めない。
+--
+-- 呼び出し可能ロールは budget_declarations の許可ロール（ROUTE_PERMISSIONS の
+-- /budget-declarations と同じ teamleader / accounting / admin）に絞る。
+-- GRANT EXECUTE ... TO authenticated だけでは関数内にロール判定が無く、
+-- public クラスのユーザーも自分のセッションから直接 RPC 呼び出しできてしまい、
+-- migration 12 がまさに防いだ「public を含む全ログインユーザーが他人の情報を
+-- 読める」を id/name について再び開けてしまう（PostgREST の RPC エンドポイントは
+-- テーブルの RLS ポリシーとは独立に公開されるため、アプリ側のルートガードでは
+-- 防げない）。
 CREATE OR REPLACE FUNCTION public.get_member_options()
 RETURNS TABLE(id bigint, name text)
 LANGUAGE sql
@@ -29,11 +38,13 @@ STABLE
 SECURITY DEFINER
 SET search_path = ''
 AS $$
-  SELECT profiles.id, profiles.name FROM public.profiles ORDER BY profiles.id
+  SELECT profiles.id, profiles.name FROM public.profiles
+  WHERE public.auth_user_class() IN ('teamleader', 'accounting', 'admin')
+  ORDER BY profiles.id
 $$;
 
 COMMENT ON FUNCTION public.get_member_options() IS
-  '事前収支申告の明細担当者選択肢（全メンバーの id/name のみ）。profiles の SELECT RLS（teamleader は自チームのみ）をバイパスするが、機微情報は返さない。詳細: docs/database.md';
+  '事前収支申告の明細担当者選択肢（全メンバーの id/name のみ）。profiles の SELECT RLS（teamleader は自チームのみ）をバイパスするが、機微情報は返さない。呼び出し可能ロールは teamleader/accounting/admin（/budget-declarations の許可ロールと同じ）に限定し、public から呼ばれた場合は 0 行を返す。詳細: docs/database.md';
 
 REVOKE EXECUTE ON FUNCTION public.get_member_options() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_member_options() TO authenticated;

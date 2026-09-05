@@ -440,11 +440,17 @@ CREATE POLICY "Users can update own profile or admin can update any profile"
 
 `auth_user_class()` / `auth_user_team()` と同じ `SECURITY DEFINER` パターンで RLS をバイパスするが、返すのは `id` / `name` のみとし、SELECT ポリシーが保護する `email` / `slack_id` / `class` / `team` 等は含めない。
 
+`GRANT EXECUTE ... TO authenticated` だけでは関数内にロール判定が無く、PostgREST の RPC エンドポイントはテーブルの RLS ポリシーとは独立に公開されるため、`public` クラスのユーザーもアプリのルートガードを経由せず直接呼び出せてしまう（migration 12 が防いだ「public を含む全ログインユーザーが他人の情報を読める」を id/name について再び開けてしまう）。そのため呼び出し可能ロールを関数内で `/budget-declarations` の許可ロール（teamleader / accounting / admin）に絞り、それ以外のロールから呼ばれた場合は 0 行を返す。
+
 ```sql
 CREATE OR REPLACE FUNCTION public.get_member_options()
 RETURNS TABLE(id bigint, name text)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = ''
-AS $$ SELECT profiles.id, profiles.name FROM public.profiles ORDER BY profiles.id $$;
+AS $$
+  SELECT profiles.id, profiles.name FROM public.profiles
+  WHERE public.auth_user_class() IN ('teamleader', 'accounting', 'admin')
+  ORDER BY profiles.id
+$$;
 
 REVOKE EXECUTE ON FUNCTION public.get_member_options() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_member_options() TO authenticated;
