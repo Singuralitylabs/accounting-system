@@ -64,6 +64,7 @@ export type RecurringCostInListType = {
 
 type ExtraEntriesTable = Database["public"]["Tables"]["extra_entries"];
 export type ExtraEntryType = ExtraEntriesTable["Row"];
+export type ExtraEntryInsertType = ExtraEntriesTable["Insert"];
 
 export type ExtraEntryInListType = {
   isNew?: boolean;

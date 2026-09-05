@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  addMonths,
   currentJstDate,
   currentJstMonth,
   formatCurrency,
@@ -14,6 +15,29 @@ import {
 } from "@/app/utils/formatter";
 
 // vitest.config.ts で TZ=Asia/Tokyo に固定している（JST 前提のアプリのため）
+
+describe("addMonths", () => {
+  it("同一年内で加算する", () => {
+    expect(addMonths("2026-03", 2)).toBe("2026-05");
+  });
+
+  it("年をまたいで繰り上がる", () => {
+    expect(addMonths("2026-12", 1)).toBe("2027-01");
+  });
+
+  it("年をまたいで繰り下がる", () => {
+    expect(addMonths("2026-01", -1)).toBe("2025-12");
+  });
+
+  it("12ヶ月以上の加算・減算でも年が正しく動く", () => {
+    expect(addMonths("2026-06", 18)).toBe("2027-12");
+    expect(addMonths("2026-06", -18)).toBe("2024-12");
+  });
+
+  it("0 の加算は同じ月を返す", () => {
+    expect(addMonths("2026-06", 0)).toBe("2026-06");
+  });
+});
 
 describe("toMonthString", () => {
   it("月キー（YYYY-MM）へ変換し、1桁の月はゼロ埋めする", () => {

@@ -3,10 +3,9 @@ import {
   getExtraEntryList,
   bulkUpsertExtraEntry,
   getPreviousMonthExtraEntries,
-  bulkInsertExtraEntries,
+  copyExtraEntriesFromPreviousMonth,
 } from "../utils/supabase/extraEntries";
 import { ExtraEntryInListType, ExtraEntryType } from "../types/types";
-import { ExtraEntryInsert } from "../utils/extraEntry";
 
 // 経理追加収支一覧
 export const useExtraEntryList = (initialData?: ExtraEntryType[] | null) => {
@@ -43,8 +42,10 @@ export const useUpsertExtraEntry = () => {
 };
 
 // 対象月の前月分の経理追加収支（「前月の経理追加収支をコピー」ボタンの活性判定・
-// 件数表示用）。月次タブを開くたび最新化する（refetchOnMount: "always"）。
-// 他画面での編集・削除後に古いキャッシュのまま「コピーできる」と誤表示するのを避ける
+// 件数表示・複製対象 id の一覧を兼ねる）。表示のみに使い、実際の複製時は
+// サーバ側で id 指定により改めて取得するため、ここでの多少のキャッシュ古さは
+// 実行結果（実登録件数）には影響しない。staleTime 経過後や、対象月を変える
+// （= 月次タブが再マウントされる）たびに最新化する（refetchOnMount: "always"）
 export const usePreviousMonthExtraEntries = (month: string) => {
   return useQuery<ExtraEntryType[]>({
     queryKey: ["extraEntries", "previousMonth", month],
@@ -62,19 +63,24 @@ export const usePreviousMonthExtraEntries = (month: string) => {
   });
 };
 
-// 前月分の経理追加収支を当月分として一括登録する（呼び出し側が
-// buildCopiedExtraEntries で組み立てた行を渡す。確認ダイアログに表示した
-// 件数と実際に登録される件数を一致させるため、ここでは前月分の再取得は行わない）
+// 前月分の経理追加収支（sourceIds）を当月分として一括複製する
 export const useCopyExtraEntriesFromPreviousMonth = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (rows: ExtraEntryInsert[]) => {
-      const { insertedCount, error } = await bulkInsertExtraEntries(rows);
+    mutationFn: async ({
+      sourceIds,
+      targetMonth,
+    }: {
+      sourceIds: number[];
+      targetMonth: string;
+    }) => {
+      const { insertedCount, skippedCount, error } =
+        await copyExtraEntriesFromPreviousMonth(sourceIds, targetMonth);
       if (error) {
         throw new Error("経理追加収支の前月コピーに失敗しました");
       }
-      return insertedCount;
+      return { insertedCount, skippedCount };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["extraEntries"] });

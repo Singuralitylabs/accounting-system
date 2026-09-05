@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCopiedExtraEntries,
+  excludeDuplicateExtraEntries,
+  extraEntryDuplicateKey,
   formatEntryType,
   shiftDateToMonth,
 } from "@/app/utils/extraEntry";
@@ -128,5 +130,72 @@ describe("buildCopiedExtraEntries", () => {
   it("全体共通（team: null）の明細もチーム未設定のまま複製する", () => {
     const rows = buildCopiedExtraEntries([entry({ team: null })], "2026-09");
     expect(rows[0].team).toBeNull();
+  });
+});
+
+describe("extraEntryDuplicateKey", () => {
+  it("entry_type・分類・内容・責任者・チーム・金額が同じなら同じキーになる", () => {
+    const a = entry({ id: 1, entry_date: "2026-08-10" });
+    const b = entry({ id: 2, entry_date: "2026-09-10", invoice_number: null });
+    expect(extraEntryDuplicateKey(a)).toBe(extraEntryDuplicateKey(b));
+  });
+
+  it("金額が違えば別キーになる", () => {
+    const a = entry({ billing_amount: 300000 });
+    const b = entry({ billing_amount: 300001 });
+    expect(extraEntryDuplicateKey(a)).not.toBe(extraEntryDuplicateKey(b));
+  });
+
+  it("チームが違えば別キーになる（全体共通 team: null との区別も含む）", () => {
+    const a = entry({ team: "Aチーム" });
+    const b = entry({ team: "Bチーム" });
+    const c = entry({ team: null });
+    expect(extraEntryDuplicateKey(a)).not.toBe(extraEntryDuplicateKey(b));
+    expect(extraEntryDuplicateKey(a)).not.toBe(extraEntryDuplicateKey(c));
+  });
+
+  it("ExtraEntryInsertType 形（team 等が省略された行）でも Row と同じキーになる", () => {
+    const row = buildCopiedExtraEntries([entry()], "2026-09")[0];
+    expect(extraEntryDuplicateKey(row)).toBe(
+      extraEntryDuplicateKey(entry({ entry_date: "2026-09-10" })),
+    );
+  });
+});
+
+describe("excludeDuplicateExtraEntries", () => {
+  it("当月に同一内容の明細が既にあれば除外する", () => {
+    const rows = buildCopiedExtraEntries([entry()], "2026-09");
+    const existing = [entry({ id: 99, entry_date: "2026-09-10" })];
+
+    expect(excludeDuplicateExtraEntries(rows, existing)).toEqual([]);
+  });
+
+  it("重複が無ければそのまま返す", () => {
+    const rows = buildCopiedExtraEntries([entry()], "2026-09");
+    const existing = [entry({ id: 99, billing_amount: 999999 })];
+
+    expect(excludeDuplicateExtraEntries(rows, existing)).toEqual(rows);
+  });
+
+  it("一部だけ重複する場合は重複分だけ除外する", () => {
+    const rows = buildCopiedExtraEntries(
+      [
+        entry({ id: 1, description: "受託案件A" }),
+        entry({ id: 2, description: "受託案件B" }),
+      ],
+      "2026-09",
+    );
+    const existing = [
+      entry({ id: 99, entry_date: "2026-09-10", description: "受託案件A" }),
+    ];
+
+    const result = excludeDuplicateExtraEntries(rows, existing);
+    expect(result).toHaveLength(1);
+    expect(result[0].description).toBe("受託案件B");
+  });
+
+  it("当月に既存明細が無ければ全件そのまま返す", () => {
+    const rows = buildCopiedExtraEntries([entry()], "2026-09");
+    expect(excludeDuplicateExtraEntries(rows, [])).toEqual(rows);
   });
 });

@@ -1,9 +1,11 @@
 "use server";
 
 import { ExtraEntryInListType } from "../../types/types";
-import { addMonths } from "../budgetDeclaration";
-import { ExtraEntryInsert } from "../extraEntry";
-import { toFirstOfMonth } from "../formatter";
+import {
+  buildCopiedExtraEntries,
+  excludeDuplicateExtraEntries,
+} from "../extraEntry";
+import { addMonths, toFirstOfMonth } from "../formatter";
 import { createServerSupabase } from "./clients";
 
 // 一覧の行データを DB 書き込み用の形に変換する（INSERT / UPDATE 共通）
@@ -140,23 +142,70 @@ export const getPreviousMonthExtraEntries = async (month: string) => {
   return { extraEntryList, error };
 };
 
-// 経理追加収支の一括登録（「前月の経理追加収支をコピー」ボタン用）。
-// 書き込み権限（accounting / admin のみ）は RLS で担保される。
-// 複製元データの取得（getPreviousMonthExtraEntries）とここでの INSERT の間で
-// サーバ側の再取得を挟まないのは、確認ダイアログに表示した件数（クライアントが
-// 取得済みの一覧から算出）と実際に登録される件数を一致させるため。
-export const bulkInsertExtraEntries = async (rows: ExtraEntryInsert[]) => {
-  if (rows.length === 0) {
-    return { insertedCount: 0, error: null };
+// 前月分の経理追加収支（sourceIds で指定した行）を当月分として一括複製する
+// （「前月の経理追加収支をコピー」ボタン用）。書き込み権限（accounting / admin
+// のみ）は RLS で担保される。
+//
+// 確認ダイアログでは呼び出し側がクライアント取得済みの一覧から件数・対象月を
+// 表示するが、複製元は id 指定でここで改めて取得し直す。これにより、
+// (1) 確認から実行までの間に他の利用者が編集・削除した内容を反映できる
+//     （削除済みの行は select に含まれず複製されない）、
+// (2) INSERT する列を buildCopiedExtraEntries のホワイトリストに揃えられる
+//     （呼び出し側が任意の列を指定できる経路を作らない）。
+// さらに、当月に既に同一内容の明細がある場合は二重コピーとみなしスキップする
+// （確認ダイアログを見逃した連続クリック対策）。
+export const copyExtraEntriesFromPreviousMonth = async (
+  sourceIds: number[],
+  targetMonth: string,
+) => {
+  if (sourceIds.length === 0) {
+    return { insertedCount: 0, skippedCount: 0, error: null };
   }
 
   const supabase = createServerSupabase();
-  const { error } = await supabase.from("extra_entries").insert(rows);
 
-  if (error) {
-    console.error("経理追加収支の一括登録に失敗しました:", error);
-    return { insertedCount: 0, error };
+  const { data: sourceEntries, error: sourceError } = await supabase
+    .from("extra_entries")
+    .select("*")
+    .in("id", sourceIds);
+
+  if (sourceError) {
+    console.error("経理追加収支の前月コピー元の取得に失敗しました:", sourceError);
+    return { insertedCount: 0, skippedCount: 0, error: sourceError };
   }
 
-  return { insertedCount: rows.length, error: null };
+  const rows = buildCopiedExtraEntries(sourceEntries ?? [], targetMonth);
+  if (rows.length === 0) {
+    return { insertedCount: 0, skippedCount: 0, error: null };
+  }
+
+  const targetRangeStart = toFirstOfMonth(targetMonth);
+  const targetRangeEnd = toFirstOfMonth(addMonths(targetMonth, 1));
+  const { data: existingEntries, error: existingError } = await supabase
+    .from("extra_entries")
+    .select("*")
+    .gte("entry_date", targetRangeStart)
+    .lt("entry_date", targetRangeEnd);
+
+  if (existingError) {
+    console.error("当月の経理追加収支の確認に失敗しました:", existingError);
+    return { insertedCount: 0, skippedCount: 0, error: existingError };
+  }
+
+  const newRows = excludeDuplicateExtraEntries(rows, existingEntries ?? []);
+  const skippedCount = rows.length - newRows.length;
+  if (newRows.length === 0) {
+    return { insertedCount: 0, skippedCount, error: null };
+  }
+
+  const { error: insertError } = await supabase
+    .from("extra_entries")
+    .insert(newRows);
+
+  if (insertError) {
+    console.error("経理追加収支の前月コピーに失敗しました:", insertError);
+    return { insertedCount: 0, skippedCount: 0, error: insertError };
+  }
+
+  return { insertedCount: newRows.length, skippedCount, error: null };
 };
