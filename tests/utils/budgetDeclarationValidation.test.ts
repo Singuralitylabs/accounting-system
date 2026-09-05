@@ -18,6 +18,7 @@ const validItem = (
   category: "セミナー",
   description: "○○受託案件",
   amount: 100000,
+  manager_id: null,
   ...overrides,
 });
 

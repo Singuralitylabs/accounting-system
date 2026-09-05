@@ -163,10 +163,15 @@ export type BudgetDeclarationStatusType = {
   summary: BudgetSummaryType;
 };
 
+// 明細 1 行 + 担当者名（profiles の RLS で読めない場合は null。declaredByName と同方式）
+export type BudgetDeclarationItemWithManagerName = BudgetDeclarationItemType & {
+  managerName: string | null;
+};
+
 // 申告の詳細（行を開いたときに表示する明細とコメント）
 export type BudgetDeclarationDetailType = {
   comment: string | null;
-  items: BudgetDeclarationItemType[];
+  items: BudgetDeclarationItemWithManagerName[];
 };
 
 // ===== Server Action の失敗種別 =====
@@ -209,6 +214,7 @@ export type BudgetDeclarationItemInput = {
   category: string;
   description: string;
   amount: number;
+  manager_id: number | null; // 担当者（メンバー）。任意選択
 };
 
 // 申告の作成・編集で送信するペイロード。declarationId が null なら新規作成

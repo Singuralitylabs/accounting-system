@@ -27,6 +27,8 @@ type Props = {
   canManageReminderSettings?: boolean;
   // 取得済みの現在の対象日。canManageReminderSettings が true でも取得失敗時は null
   initialReminderTargetDays?: number[] | null;
+  // 明細の担当者候補（全メンバー）。フォームにそのまま渡す
+  memberList: { value: string; label: string }[];
 };
 
 type FormTarget = {
@@ -45,6 +47,7 @@ const BudgetDeclarationList = ({
   canEditAllTeams,
   canManageReminderSettings = false,
   initialReminderTargetDays = null,
+  memberList,
 }: Props) => {
   const [month, setMonth] = useState<string>(initialMonth);
   // 明細を開いている申告（declarationId で管理する。チーム名で管理すると、
@@ -280,6 +283,7 @@ const BudgetDeclarationList = ({
           team={formTarget.team}
           declarationId={formTarget.declarationId}
           teamLocked={!canEditAllTeams}
+          memberList={memberList}
         />
       )}
     </div>

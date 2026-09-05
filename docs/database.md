@@ -303,21 +303,23 @@ UNIQUE 制約:
 
 事前収支申告の明細。1 ヘッダに対して収入・支出の内訳を複数行持つ。
 
-| カラム名       | データ型                 | 制約                                                             | 説明                                                                    |
-| -------------- | ------------------------ | ---------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| id             | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                        | 主キー                                                                  |
-| declaration_id | bigint                   | NOT NULL, FOREIGN KEY (budget_declarations.id) ON DELETE CASCADE | 申告ヘッダ ID（ヘッダ削除時に明細も削除される）                         |
-| entry_type     | text                     | NOT NULL, CHECK (entry_type IN ('income', 'expense'))            | 種別（income = 収入 / expense = 支出。extra_entries と同じ値域）        |
-| category       | text                     | NOT NULL                                                         | 分類（収入時は案件分類 category、支出時は品目 item マスタの値域を想定） |
-| description    | text                     | NOT NULL                                                         | 内容（例: ○○受託案件、外注費）                                          |
-| amount         | numeric(15,2)            | NOT NULL, CHECK (amount > 0)                                     | 見込み金額（円・税別。正の値のみ）                                      |
-| display_order  | integer                  | NOT NULL, DEFAULT 0                                              | 表示順                                                                  |
-| inserted_at    | timestamp with time zone | NOT NULL, DEFAULT now()                                          | 作成日時                                                                |
-| updated_at     | timestamp with time zone | NOT NULL, DEFAULT now()                                          | 更新日時                                                                |
+| カラム名       | データ型                 | 制約                                                                  | 説明                                                                                                                                                                                                                                                                                                                                                                  |
+| -------------- | ------------------------ | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| id             | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                             | 主キー                                                                                                                                                                                                                                                                                                                                                                |
+| declaration_id | bigint                   | NOT NULL, FOREIGN KEY (budget_declarations.id) ON DELETE CASCADE      | 申告ヘッダ ID（ヘッダ削除時に明細も削除される）                                                                                                                                                                                                                                                                                                                       |
+| entry_type     | text                     | NOT NULL, CHECK (entry_type IN ('income', 'expense'))                 | 種別（income = 収入 / expense = 支出。extra_entries と同じ値域）                                                                                                                                                                                                                                                                                                      |
+| category       | text                     | NOT NULL                                                              | 分類（収入時は案件分類 category、支出時は品目 item マスタの値域を想定）                                                                                                                                                                                                                                                                                               |
+| description    | text                     | NOT NULL                                                              | 内容（例: ○○受託案件、外注費）                                                                                                                                                                                                                                                                                                                                        |
+| amount         | numeric(15,2)            | NOT NULL, CHECK (amount > 0)                                          | 見込み金額（円・税別。正の値のみ）                                                                                                                                                                                                                                                                                                                                    |
+| manager_id     | bigint                   | NULL, FOREIGN KEY (profiles.id)（参照アクション指定なし = NO ACTION） | 明細（収入・支出）ごとの担当者。メンバー（profiles）から任意選択、NULL 許容（既存明細はバックフィルせず NULL のまま）。declared_by / extra_entries.manager_id と同じく CASCADE にしない（担当者の退会で明細が消えるのを避ける）。担当者に設定された profiles を削除するとこの FK でエラーになるため、先に manager_id を別のメンバーに付け替えるか NULL に解除すること |
+| display_order  | integer                  | NOT NULL, DEFAULT 0                                                   | 表示順                                                                                                                                                                                                                                                                                                                                                                |
+| inserted_at    | timestamp with time zone | NOT NULL, DEFAULT now()                                               | 作成日時                                                                                                                                                                                                                                                                                                                                                              |
+| updated_at     | timestamp with time zone | NOT NULL, DEFAULT now()                                               | 更新日時                                                                                                                                                                                                                                                                                                                                                              |
 
 インデックス:
 
 - declaration_id
+- manager_id（FK 側の索引。extra_entries.manager_id / budget_declarations.declared_by と同じ方針）
 
 ### 3.11 budget_declaration_reminder_settings テーブル
 
@@ -1169,6 +1171,7 @@ erDiagram
     profiles ||--o{ matters : "creates"
     profiles ||--o{ extra_entries : "manages"
     profiles ||--o{ budget_declarations : "declares"
+    profiles ||--o{ budget_declaration_items : "manages"
     budget_declarations ||--o{ budget_declaration_items : "contains"
     matters ||--o{ costs : "contains"
     matters ||--o{ business : "has"
@@ -1306,6 +1309,7 @@ erDiagram
         text category
         text description
         numeric amount
+        bigint manager_id FK
         integer display_order
         timestamp inserted_at
         timestamp updated_at

@@ -136,9 +136,14 @@ export const getBudgetDeclarationDetail = async (
 
   const supabase = createServerSupabase();
 
+  // manager_id の profiles も declared_by と同じく inner join にしない。
+  // 担当者の profiles が RLS で読めない場合に明細行ごと消えてしまうのを避けるため
+  // （読めないときは managerName だけ null になる）
   const { data, error } = await supabase
     .from("budget_declarations")
-    .select("comment, budget_declaration_items (*)")
+    .select(
+      "comment, budget_declaration_items (*, profiles!budget_declaration_items_manager_id_fkey (name))",
+    )
     .eq("id", declarationId)
     // 主キー検索なので最大 1 行。0 行（RLS で見えない場合を含む）を
     // error にしないため single() ではなく maybeSingle() を使う
@@ -159,9 +164,12 @@ export const getBudgetDeclarationDetail = async (
     detail: {
       comment: data.comment,
       // display_order → id の順で安定させる（DB 側の並びに依存しない）
-      items: [...(data.budget_declaration_items ?? [])].sort(
-        (a, b) => a.display_order - b.display_order || a.id - b.id,
-      ),
+      items: [...(data.budget_declaration_items ?? [])]
+        .sort((a, b) => a.display_order - b.display_order || a.id - b.id)
+        .map(({ profiles, ...item }) => ({
+          ...item,
+          managerName: profiles?.name ?? null,
+        })),
     },
   };
 };
@@ -302,6 +310,7 @@ export const saveBudgetDeclaration = async (
           category: item.category.trim(),
           description: item.description.trim(),
           amount: item.amount,
+          manager_id: item.manager_id,
           display_order: index,
         })),
       );
