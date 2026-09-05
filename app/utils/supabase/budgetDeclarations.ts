@@ -4,12 +4,14 @@ import {
   BudgetDeclarationDeleteResult,
   BudgetDeclarationDetailResult,
   BudgetDeclarationListResult,
+  BudgetDeclarationPreviousItemsResult,
   BudgetDeclarationSaveInput,
   BudgetDeclarationSaveResult,
 } from "../../types/types";
 import {
   BUDGET_DECLARATION_ALLOWED_CLASSES,
   BudgetDeclarationWithItems,
+  addMonths,
   buildBudgetDeclarationStatusList,
   canViewAllBudgetTeams,
   canWriteBudgetTeam,
@@ -172,6 +174,58 @@ export const getBudgetDeclarationDetail = async (
           managerName: profiles?.name ?? null,
         })),
     },
+  };
+};
+
+// 対象月の前月・同チームの申告明細を取得する（フォームの「前月の明細をコピー」用）。
+// 前月に申告そのものが無い場合は items: null を返す（コピーボタンの活性判定に使う。
+// 申告はあるが明細が 0 件の場合と区別するため、明細取得失敗時とは別に null にする）。
+// チームリーダーは自チームの前月申告しか読めない（他チームは RLS で 0 行になり、
+// null 扱いになる。「他チームの申告はコピーできない」という完了条件はこれで満たす）
+export const getPreviousBudgetDeclarationItems = async (
+  targetMonth: string,
+  team: string,
+): Promise<BudgetDeclarationPreviousItemsResult> => {
+  const { error: accessError } = await getAuthorizedViewer(
+    BUDGET_DECLARATION_ALLOWED_CLASSES,
+    SUBJECT,
+  );
+  if (accessError) {
+    return { error: accessError };
+  }
+
+  const supabase = createServerSupabase();
+  const previousMonth = toFirstOfMonth(addMonths(targetMonth, -1));
+
+  const { data, error } = await supabase
+    .from("budget_declarations")
+    .select(
+      "budget_declaration_items (entry_type, category, description, amount, manager_id, display_order)",
+    )
+    .eq("target_month", previousMonth)
+    .eq("team", team)
+    // 主キー検索ではないが (target_month, team) は UNIQUE 制約対象。
+    // 0 行（前月未申告 / RLS で見えない）を error にしないため maybeSingle()
+    .maybeSingle();
+
+  if (error) {
+    console.error("前月の事前収支申告明細の取得に失敗しました:", error);
+    return {
+      error: {
+        kind: "fetchFailed",
+        message: `前月の${SUBJECT}の取得に失敗しました。`,
+      },
+    };
+  }
+
+  if (!data) {
+    return { items: null };
+  }
+
+  return {
+    items: [...(data.budget_declaration_items ?? [])].sort(
+      (a, b) => a.display_order - b.display_order,
+    ),
   };
 };
 

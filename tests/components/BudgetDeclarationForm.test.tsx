@@ -7,12 +7,14 @@ import { renderWithMantine } from "../testUtils/renderWithMantine";
 
 const {
   useBudgetDeclarationDetail,
+  usePreviousBudgetDeclarationItems,
   saveMutation,
   deleteMutation,
   confirmAction,
   notifyError,
 } = vi.hoisted(() => ({
   useBudgetDeclarationDetail: vi.fn(),
+  usePreviousBudgetDeclarationItems: vi.fn(),
   saveMutation: {
     mutateAsync: vi.fn().mockResolvedValue({}),
     isPending: false,
@@ -27,6 +29,7 @@ const {
 
 vi.mock("@/app/hooks/useBudgetDeclarationData", () => ({
   useBudgetDeclarationDetail,
+  usePreviousBudgetDeclarationItems,
   useSaveBudgetDeclaration: () => saveMutation,
   useDeleteBudgetDeclaration: () => deleteMutation,
 }));
@@ -54,6 +57,11 @@ describe("BudgetDeclarationForm", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useBudgetDeclarationDetail.mockReturnValue(emptyDetail());
+    usePreviousBudgetDeclarationItems.mockReturnValue({
+      data: null,
+      isLoading: false,
+      isError: false,
+    });
     saveMutation.isPending = false;
     deleteMutation.isPending = false;
   });
@@ -612,5 +620,150 @@ describe("BudgetDeclarationForm", () => {
     const managerInput =
       screen.getByPlaceholderText("担当者一覧を取得できませんでした");
     expect(managerInput).toBeDisabled();
+  });
+
+  describe("前月の明細をコピー", () => {
+    it("前月の申告が無い場合はボタンを無効化する", () => {
+      usePreviousBudgetDeclarationItems.mockReturnValue({
+        data: null,
+        isLoading: false,
+        isError: false,
+      });
+
+      renderWithMantine(
+        <BudgetDeclarationForm
+          opened
+          onClose={vi.fn()}
+          targetMonth="2026-10"
+          team="開発チーム"
+          declarationId={null}
+          teamLocked
+          memberList={testMemberList}
+        />,
+      );
+
+      expect(
+        screen.getByRole("button", { name: "前月の明細をコピー" }),
+      ).toBeDisabled();
+    });
+
+    it("明細が未入力の状態では確認なしで前月の明細（担当者含む）を取り込む", () => {
+      usePreviousBudgetDeclarationItems.mockReturnValue({
+        data: [
+          {
+            entry_type: "income",
+            category: "セミナー",
+            description: "○○受託案件",
+            amount: 500000,
+            manager_id: 1,
+            display_order: 0,
+          },
+        ],
+        isLoading: false,
+        isError: false,
+      });
+
+      renderWithMantine(
+        <BudgetDeclarationForm
+          opened
+          onClose={vi.fn()}
+          targetMonth="2026-10"
+          team="開発チーム"
+          declarationId={null}
+          teamLocked
+          memberList={testMemberList}
+        />,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", { name: "前月の明細をコピー" }),
+      );
+
+      expect(confirmAction).not.toHaveBeenCalled();
+      expect(screen.getByDisplayValue("○○受託案件")).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("担当者を選択")).toHaveValue(
+        "山田太郎",
+      );
+    });
+
+    it("既に明細行がある状態で押すと追記の確認ダイアログを出し、承諾すると末尾に追加する", async () => {
+      usePreviousBudgetDeclarationItems.mockReturnValue({
+        data: [
+          {
+            entry_type: "expense",
+            category: "外注費",
+            description: "外注A",
+            amount: 100000,
+            manager_id: null,
+            display_order: 0,
+          },
+        ],
+        isLoading: false,
+        isError: false,
+      });
+      confirmAction.mockResolvedValue(true);
+
+      renderWithMantine(
+        <BudgetDeclarationForm
+          opened
+          onClose={vi.fn()}
+          targetMonth="2026-10"
+          team="開発チーム"
+          declarationId={null}
+          teamLocked
+          memberList={testMemberList}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "明細追加" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "前月の明細をコピー" }),
+      );
+
+      expect(confirmAction).toHaveBeenCalled();
+      await screen.findByDisplayValue("外注A");
+      // 既存の空行 + コピーした 1 行で明細は 2 行になる
+      expect(
+        screen.getAllByRole("button", { name: "明細を削除" }),
+      ).toHaveLength(2);
+    });
+
+    it("追記の確認をキャンセルすると取り込まない", async () => {
+      usePreviousBudgetDeclarationItems.mockReturnValue({
+        data: [
+          {
+            entry_type: "expense",
+            category: "外注費",
+            description: "外注A",
+            amount: 100000,
+            manager_id: null,
+            display_order: 0,
+          },
+        ],
+        isLoading: false,
+        isError: false,
+      });
+      confirmAction.mockResolvedValue(false);
+
+      renderWithMantine(
+        <BudgetDeclarationForm
+          opened
+          onClose={vi.fn()}
+          targetMonth="2026-10"
+          team="開発チーム"
+          declarationId={null}
+          teamLocked
+          memberList={testMemberList}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "明細追加" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "前月の明細をコピー" }),
+      );
+
+      await vi.waitFor(() => expect(confirmAction).toHaveBeenCalled());
+      expect(screen.queryByDisplayValue("外注A")).not.toBeInTheDocument();
+    });
   });
 });

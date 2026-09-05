@@ -232,6 +232,23 @@ export type BudgetDeclarationSaveResult =
 
 export type BudgetDeclarationDeleteResult = { error?: AccessFailure };
 
+// 前月コピー用の明細（DB から取得したそのままの形。フォームの新規行への変換は
+// app/utils/budgetDeclaration.ts の previousItemsToFormRows が行う）
+export type BudgetDeclarationPreviousItem = {
+  entry_type: string;
+  category: string;
+  description: string;
+  amount: number;
+  manager_id: number | null;
+  display_order: number;
+};
+
+export type BudgetDeclarationPreviousItemsResult =
+  // 前月の申告が無い場合は items: null（コピーボタンの活性判定に使う。
+  // 申告はあるが明細が 0 件の場合と区別する）
+  | { items: BudgetDeclarationPreviousItem[] | null; error?: undefined }
+  | { items?: undefined; error: AccessFailure };
+
 // リマインド設定（対象日）の取得・保存結果
 export type BudgetDeclarationReminderSettingsResult =
   | { targetDays: number[]; error?: undefined }

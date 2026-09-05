@@ -8,10 +8,12 @@ import {
   deleteBudgetDeclaration,
   getBudgetDeclarationDetail,
   getBudgetDeclarationList,
+  getPreviousBudgetDeclarationItems,
   saveBudgetDeclaration,
 } from "../utils/supabase/budgetDeclarations";
 import {
   BudgetDeclarationDetailType,
+  BudgetDeclarationPreviousItem,
   BudgetDeclarationSaveInput,
   BudgetDeclarationStatusType,
 } from "../types/types";
@@ -81,6 +83,32 @@ export const useBudgetDeclarationDetail = (declarationId: number | null) => {
     // stale 判定に使われる
     staleTime: 2 * 60 * 1000,
     refetchOnMount: "always",
+    retry: retryUnlessForbidden,
+  });
+};
+
+// 対象月の前月・同チームの申告明細（フォームの「前月の明細をコピー」ボタン用）。
+// items: null は前月に申告が無いことを示し、呼び出し側でボタンを無効化する判定に使う。
+// フォームを開いている間だけ有効化する想定（enabled は呼び出し側が渡す）
+export const usePreviousBudgetDeclarationItems = (
+  enabled: boolean,
+  targetMonth: string,
+  team: string,
+) => {
+  return useQuery<BudgetDeclarationPreviousItem[] | null>({
+    queryKey: ["budgetDeclarations", "previousItems", targetMonth, team],
+    queryFn: async () => {
+      const { items, error } = await getPreviousBudgetDeclarationItems(
+        targetMonth,
+        team,
+      );
+      if (error) {
+        throw new BudgetDeclarationError(error);
+      }
+      return items;
+    },
+    enabled: enabled && !!targetMonth && !!team,
+    staleTime: 2 * 60 * 1000,
     retry: retryUnlessForbidden,
   });
 };

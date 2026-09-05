@@ -10,6 +10,7 @@ import {
   defaultTargetMonth,
   isForbiddenError,
   isPartialWriteFailureError,
+  previousItemsToFormRows,
   summarizeBudgetItems,
   totalBudgetSummary,
   visibleBudgetTeams,
@@ -389,5 +390,72 @@ describe("isPartialWriteFailureError", () => {
   it("無関係なエラーは対象外", () => {
     expect(isPartialWriteFailureError(new Error("network"))).toBe(false);
     expect(isPartialWriteFailureError(null)).toBe(false);
+  });
+});
+
+describe("previousItemsToFormRows", () => {
+  it("display_order 順に並べ、id を持たない新規行に変換する（担当者も引き継ぐ）", () => {
+    expect(
+      previousItemsToFormRows([
+        {
+          entry_type: "expense",
+          category: "外注費",
+          description: "外注A",
+          amount: 100000,
+          manager_id: 2,
+          display_order: 1,
+        },
+        {
+          entry_type: "income",
+          category: "セミナー",
+          description: "○○受託案件",
+          amount: 500000,
+          manager_id: 1,
+          display_order: 0,
+        },
+      ]),
+    ).toEqual([
+      {
+        entry_type: "income",
+        category: "セミナー",
+        description: "○○受託案件",
+        amount: 500000,
+        manager_id: 1,
+      },
+      {
+        entry_type: "expense",
+        category: "外注費",
+        description: "外注A",
+        amount: 100000,
+        manager_id: 2,
+      },
+    ]);
+  });
+
+  it("担当者未設定（manager_id: null）の明細もそのまま変換する", () => {
+    expect(
+      previousItemsToFormRows([
+        {
+          entry_type: "income",
+          category: "セミナー",
+          description: "○○受託案件",
+          amount: 500000,
+          manager_id: null,
+          display_order: 0,
+        },
+      ]),
+    ).toEqual([
+      {
+        entry_type: "income",
+        category: "セミナー",
+        description: "○○受託案件",
+        amount: 500000,
+        manager_id: null,
+      },
+    ]);
+  });
+
+  it("明細 0 件なら空配列を返す", () => {
+    expect(previousItemsToFormRows([])).toEqual([]);
   });
 });

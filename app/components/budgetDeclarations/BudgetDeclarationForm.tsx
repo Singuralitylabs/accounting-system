@@ -11,6 +11,7 @@ import {
   Table,
   Textarea,
   TextInput,
+  Tooltip,
 } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useAtomValue } from "jotai";
@@ -21,11 +22,15 @@ import { optionsAtom } from "@/app/atoms/optionsAtom";
 import {
   useBudgetDeclarationDetail,
   useDeleteBudgetDeclaration,
+  usePreviousBudgetDeclarationItems,
   useSaveBudgetDeclaration,
 } from "@/app/hooks/useBudgetDeclarationData";
 import { BudgetDeclarationItemInput } from "@/app/types/types";
 import { confirmAction } from "@/app/utils/confirmAction";
-import { summarizeBudgetItems } from "@/app/utils/budgetDeclaration";
+import {
+  previousItemsToFormRows,
+  summarizeBudgetItems,
+} from "@/app/utils/budgetDeclaration";
 import {
   getBudgetDeclarationValidationMessage,
   validateBudgetDeclarationPayload,
@@ -110,6 +115,22 @@ const BudgetDeclarationForm = ({
     initialValues: { team, comment: "" },
   });
 
+  // 前月・同チームの申告明細（「前月の明細をコピー」ボタン用）。チーム選択が
+  // 変わる（経理・管理者の新規作成時）たびに対象チームを切り替えて再取得する
+  const {
+    data: previousItems,
+    isLoading: isPreviousItemsLoading,
+    isError: isPreviousItemsError,
+  } = usePreviousBudgetDeclarationItems(opened, targetMonth, form.values.team);
+
+  const copyDisabledReason = isPreviousItemsLoading
+    ? "前月の申告を確認しています…"
+    : isPreviousItemsError
+      ? "前月の申告の確認に失敗しました。"
+      : !previousItems
+        ? "前月の申告がありません。"
+        : null;
+
   const [items, setItems] = useState<ItemRow[]>([]);
   const nextKeyRef = useRef(0);
   // detail から items/comment を反映済みの declarationId。編集中に detail が
@@ -153,11 +174,36 @@ const BudgetDeclarationForm = ({
   }, [opened, isEditMode, detail, declarationId, isDetailFetching]);
 
   const teamOptions = teamList.includes(team) ? teamList : [team, ...teamList];
-  const categoryOptionsFor = (entryType: string) =>
-    entryType === "income" ? categoryList : itemList;
+  // 分類がマスタから外れていても（無効化・改名。前月コピーで持ち込んだ場合を含む）
+  // 選択肢に残し、見せかけ上クリアされたように見せない（teamOptions と同方針）
+  const categoryOptionsFor = (entryType: string, category: string) => {
+    const master = entryType === "income" ? categoryList : itemList;
+    return category && !master.includes(category)
+      ? [category, ...master]
+      : master;
+  };
 
   const handleAddItem = () => {
     setItems((prev) => [...prev, emptyItem(nextKeyRef.current++)]);
+  };
+
+  // 前月・同チームの明細を現在の明細行の末尾に追加する（未保存状態のまま。
+  // コメントはコピー対象に含めない＝前月固有の内容の可能性が高いため）
+  const handleCopyPreviousItems = async () => {
+    if (!previousItems) return;
+
+    if (items.length > 0) {
+      const confirmed = await confirmAction(
+        "既に入力済みの明細があります。前月の明細を追記しますか？",
+      );
+      if (!confirmed) return;
+    }
+
+    const rows = previousItemsToFormRows(previousItems).map((item) => ({
+      ...item,
+      key: nextKeyRef.current++,
+    }));
+    setItems((prev) => [...prev, ...rows]);
   };
 
   const handleRemoveItem = (key: number) => {
@@ -287,7 +333,23 @@ const BudgetDeclarationForm = ({
           {...form.getInputProps("comment")}
         />
 
-        <div className="overflow-x-auto mt-4 border border-gray-300 rounded bg-slate-50 p-4">
+        <Group justify="flex-end" className="mt-4">
+          <Tooltip label={copyDisabledReason} disabled={!copyDisabledReason}>
+            <span>
+              <Button
+                type="button"
+                variant="outline"
+                color="dark"
+                disabled={!!copyDisabledReason}
+                onClick={handleCopyPreviousItems}
+              >
+                前月の明細をコピー
+              </Button>
+            </span>
+          </Tooltip>
+        </Group>
+
+        <div className="overflow-x-auto mt-2 border border-gray-300 rounded bg-slate-50 p-4">
           <Table verticalSpacing="sm" className="whitespace-nowrap">
             <Table.Thead>
               <Table.Tr>
@@ -318,7 +380,7 @@ const BudgetDeclarationForm = ({
                   </Table.Td>
                   <Table.Td>
                     <Select
-                      data={categoryOptionsFor(item.entry_type)}
+                      data={categoryOptionsFor(item.entry_type, item.category)}
                       value={item.category || null}
                       placeholder="分類を選択"
                       onChange={(value) =>

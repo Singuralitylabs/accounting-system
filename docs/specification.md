@@ -629,6 +629,11 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 - 明細行を動的に追加・削除できる。各行は種別（収入 / 支出）・分類・内容・金額・担当者を入力する
   - 分類の選択肢は種別に連動する（収入 = category、支出 = item の既存マスタを流用）。種別を変更すると分類は未選択に戻る
   - 担当者はメンバー（profiles）から選択する任意項目（NULL 許容）。選択肢は全メンバー（チーム所属で絞らない）。経理追加収支の責任者と同じ方式で、選択後にクリアもできる
+- 「前月の明細をコピー」ボタンで、対象月の前月・同チームの申告明細（種別・分類・内容・金額・担当者）を現在の明細行の末尾にまとめて取り込める（コメントは対象外。前月固有の内容の可能性が高いため）
+  - 取り込んだ行は未保存の新規行として追加されるだけで、他の行と同様に編集・削除してから保存できる
+  - 前月・同チームの申告が無い場合はボタンを無効化し、理由をツールチップで表示する。チームリーダーは自チームの前月申告しか読めない（他チームの前月申告は RLS 上そもそも存在しないものとして扱われ、コピーできない）
+  - 既に明細行がある状態で押した場合は「追記しますか」の確認ダイアログを経てから追加する（重複防止）。明細 0 件の状態では確認なしで取り込む
+  - 分類がマスタから消えている前月明細を取り込んだ場合も値はそのまま保持し、分類 Select の選択肢に一時的に追加して表示する（既存の入力途中の値がマスタに無い場合と同じ扱い）
 - 収入合計・支出合計・差引（収支）をフォーム内にリアルタイム表示する（保存前の集計は `summarizeBudgetItems` を流用）
 - 保存前にバリデーションを行い、不備があれば保存を中止して案内を表示する
   - 対象月・チームが未設定（通常は発生しない。表示上の防御）
@@ -987,6 +992,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 - 構成要素
   - 対象月（固定表示）・チーム（Select。チームリーダーは固定、経理・管理者は選択可。編集時は常に固定）
   - コメント（Textarea）
+  - 「前月の明細をコピー」ボタン（前月・同チームの申告が無い場合は無効化＋ツールチップで理由表示）
   - 明細テーブル（種別 Select / 分類 Select（種別に連動） / 内容 TextInput / 金額 NumberInput / 担当者 Select（全メンバー、任意・クリア可） / 行削除ボタン）+ 明細追加ボタン
   - 収入合計・支出合計・差引のリアルタイム表示
   - 削除ボタン（編集時のみ）・キャンセルボタン・保存ボタン
@@ -1051,6 +1057,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 | bulkUpsertExtraEntry                      | 経理追加収支の一括登録・更新・削除                                | rows: ExtraEntryInListType[]          | boolean                    |
 | getBudgetDeclarationList                  | 事前収支申告のチーム別状況一覧の取得                              | month: string ("YYYY-MM")             | {rows} \| {error}          |
 | getBudgetDeclarationDetail                | 事前収支申告の明細・コメントの取得                                | declarationId: number                 | {detail} \| {error}        |
+| getPreviousBudgetDeclarationItems         | 前月・同チームの申告明細の取得（「前月の明細をコピー」用）        | targetMonth: string, team: string     | {items} \| {error}         |
 | saveBudgetDeclaration                     | 事前収支申告の作成・編集（ヘッダ upsert + 明細差し替え）          | input: BudgetDeclarationSaveInput     | {id} \| {error}            |
 | deleteBudgetDeclaration                   | 事前収支申告の削除（明細は CASCADE）                              | declarationId: number, team: string   | {error?}                   |
 | getBudgetDeclarationReminderSettings      | 事前収支申告リマインドの対象日設定取得（admin / accounting のみ） | -                                     | {targetDays} \| {error}    |
