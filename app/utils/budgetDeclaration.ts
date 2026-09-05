@@ -159,22 +159,22 @@ export const buildBudgetDeclarationStatusList = (
   return [...rows, ...orphanRows];
 };
 
-// 前月の明細を「新規行」に変換する（id を持たない。フォームの明細追加ボタンで
-// 作る行と同じ形にする）。分類がマスタから外れていても値はそのまま保持する
-// （フォーム側の Select で選択肢に含めるかどうかは表示側の責務であり、ここでは
-// 判定・除外しない）
+// 前月の明細を「新規行」に変換する（id・display_order を持たない。フォームの
+// 明細追加ボタンで作る行と同じ形にする）。並び順は取得側
+// （getPreviousBudgetDeclarationItems）が display_order 順に揃えて渡すため、
+// ここでは並べ替えない（二重ソートで判定基準がずれるのを避ける）。分類が
+// マスタから外れていても値はそのまま保持する（フォーム側の Select で選択肢に
+// 含めるかどうかは表示側の責務であり、ここでは判定・除外しない）
 export const previousItemsToFormRows = (
   items: readonly BudgetDeclarationPreviousItem[],
 ): BudgetDeclarationItemInput[] =>
-  [...items]
-    .sort((a, b) => a.display_order - b.display_order)
-    .map(({ entry_type, category, description, amount, manager_id }) => ({
-      entry_type,
-      category,
-      description,
-      amount,
-      manager_id,
-    }));
+  items.map(({ entry_type, category, description, amount, manager_id }) => ({
+    entry_type,
+    category,
+    description,
+    amount,
+    manager_id,
+  }));
 
 // 一覧全体の合計（表示中のチーム分のみ）
 export const totalBudgetSummary = (

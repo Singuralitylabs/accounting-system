@@ -200,7 +200,7 @@ export const getPreviousBudgetDeclarationItems = async (
   const { data, error } = await supabase
     .from("budget_declarations")
     .select(
-      "budget_declaration_items (entry_type, category, description, amount, manager_id, display_order)",
+      "budget_declaration_items (id, entry_type, category, description, amount, manager_id, display_order)",
     )
     .eq("target_month", previousMonth)
     .eq("team", team)
@@ -223,8 +223,11 @@ export const getPreviousBudgetDeclarationItems = async (
   }
 
   return {
+    // display_order → id の順で安定させる。getBudgetDeclarationDetail と
+    // 同じ並び順にする（並べ替えはここで一度だけ行い、
+    // previousItemsToFormRows 側では再ソートしない）
     items: [...(data.budget_declaration_items ?? [])].sort(
-      (a, b) => a.display_order - b.display_order,
+      (a, b) => a.display_order - b.display_order || a.id - b.id,
     ),
   };
 };

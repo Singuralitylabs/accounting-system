@@ -394,24 +394,28 @@ describe("isPartialWriteFailureError", () => {
 });
 
 describe("previousItemsToFormRows", () => {
-  it("display_order 順に並べ、id を持たない新規行に変換する（担当者も引き継ぐ）", () => {
+  // 並び順は取得側（getPreviousBudgetDeclarationItems）が display_order 順に
+  // 揃えて渡す前提のため、ここでは渡された順のまま変換されることだけ確認する
+  it("id・display_order を持たない新規行に変換する（担当者も引き継ぐ）", () => {
     expect(
       previousItemsToFormRows([
         {
-          entry_type: "expense",
-          category: "外注費",
-          description: "外注A",
-          amount: 100000,
-          manager_id: 2,
-          display_order: 1,
-        },
-        {
+          id: 10,
           entry_type: "income",
           category: "セミナー",
           description: "○○受託案件",
           amount: 500000,
           manager_id: 1,
           display_order: 0,
+        },
+        {
+          id: 11,
+          entry_type: "expense",
+          category: "外注費",
+          description: "外注A",
+          amount: 100000,
+          manager_id: 2,
+          display_order: 1,
         },
       ]),
     ).toEqual([
@@ -436,6 +440,7 @@ describe("previousItemsToFormRows", () => {
     expect(
       previousItemsToFormRows([
         {
+          id: 10,
           entry_type: "income",
           category: "セミナー",
           description: "○○受託案件",

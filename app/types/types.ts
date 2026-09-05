@@ -232,16 +232,13 @@ export type BudgetDeclarationSaveResult =
 
 export type BudgetDeclarationDeleteResult = { error?: AccessFailure };
 
-// 前月コピー用の明細（DB から取得したそのままの形。フォームの新規行への変換は
-// app/utils/budgetDeclaration.ts の previousItemsToFormRows が行う）
-export type BudgetDeclarationPreviousItem = {
-  entry_type: string;
-  category: string;
-  description: string;
-  amount: number;
-  manager_id: number | null;
-  display_order: number;
-};
+// 前月コピー用の明細（DB から取得したそのままの形。display_order 順への
+// 並べ替えは取得側（getPreviousBudgetDeclarationItems）が行う。フォームの
+// 新規行への変換は app/utils/budgetDeclaration.ts の previousItemsToFormRows
+// が行う。フォーム入力と同じ列は BudgetDeclarationItemInput から流用し、
+// 選択列と型の手動同期を減らす）
+export type BudgetDeclarationPreviousItem = BudgetDeclarationItemInput &
+  Pick<BudgetDeclarationItemType, "id" | "display_order">;
 
 export type BudgetDeclarationPreviousItemsResult =
   // 前月の申告が無い場合は items: null（コピーボタンの活性判定に使う。
