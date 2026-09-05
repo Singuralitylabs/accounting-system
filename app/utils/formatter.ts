@@ -41,6 +41,17 @@ export const toDateString = (date: Date | null): string | null => {
   return `${year}-${month}-${day}`;
 };
 
+// 月キー（YYYY-MM）に月数を加算する。Date を経由しないため DST・UTC ズレの影響を受けない。
+export const addMonths = (month: string, count: number): string => {
+  const year = parseInt(month.slice(0, 4), 10);
+  const monthNumber = parseInt(month.slice(5, 7), 10);
+  // 0 始まりに直してから加算し、年繰り上がり・繰り下がりを剰余で処理する
+  const zeroBased = year * 12 + (monthNumber - 1) + count;
+  const nextYear = Math.floor(zeroBased / 12);
+  const nextMonthNumber = zeroBased - nextYear * 12 + 1;
+  return `${String(nextYear).padStart(4, "0")}-${String(nextMonthNumber).padStart(2, "0")}`;
+};
+
 // 月キー（YYYY-MM）または日付文字列（YYYY-MM-DD）→ 月初日（YYYY-MM-01）。
 // 月単位で保持するカラム（recurring_costs.start_month /
 // budget_declarations.target_month）への書き込み・絞り込みで使う。

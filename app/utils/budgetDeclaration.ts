@@ -11,8 +11,12 @@ import {
   BudgetDeclarationStatusType,
   BudgetSummaryType,
 } from "../types/types";
-import { currentJstMonth } from "./formatter";
+import { addMonths, currentJstMonth } from "./formatter";
 import { ROUTE_PERMISSIONS, Role, hasClassAccess } from "./permissions";
+
+// addMonths は月キー（YYYY-MM）の汎用ヘルパのため app/utils/formatter.ts に定義し、
+// 既存の import 元（本ファイル経由）を壊さないようここで re-export する
+export { addMonths };
 
 // 事前収支申告を閲覧できるロール（/budget-declarations のルート保護と常に一致する）
 export const BUDGET_DECLARATION_ALLOWED_CLASSES =
@@ -34,17 +38,6 @@ export const BUDGET_ALL_TEAMS_CLASSES =
 export type BudgetItemAmount = {
   entry_type: string;
   amount: number;
-};
-
-// 月キー（YYYY-MM）に月数を加算する。Date を経由しないため DST・UTC ズレの影響を受けない。
-export const addMonths = (month: string, count: number): string => {
-  const year = parseInt(month.slice(0, 4), 10);
-  const monthNumber = parseInt(month.slice(5, 7), 10);
-  // 0 始まりに直してから加算し、年繰り上がり・繰り下がりを剰余で処理する
-  const zeroBased = year * 12 + (monthNumber - 1) + count;
-  const nextYear = Math.floor(zeroBased / 12);
-  const nextMonthNumber = zeroBased - nextYear * 12 + 1;
-  return `${String(nextYear).padStart(4, "0")}-${String(nextMonthNumber).padStart(2, "0")}`;
 };
 
 // 一覧の初期表示に使う対象月 = JST の翌月。
