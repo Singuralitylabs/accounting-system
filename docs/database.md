@@ -434,6 +434,22 @@ CREATE POLICY "Users can update own profile or admin can update any profile"
   );
 ```
 
+#### 担当者選択肢用の関数（get_member_options）
+
+事前収支申告の明細担当者（`budget_declaration_items.manager_id`）は、選択肢を全メンバーとする（[3.10](#310-budget_declaration_items-テーブル)、Issue #112）。しかし `/budget-declarations` は teamleader もアクセスでき、上記 SELECT ポリシーでは teamleader は自チームの行しか読めないため、`profiles` への直接 SELECT では全メンバー一覧を取得できない。
+
+`auth_user_class()` / `auth_user_team()` と同じ `SECURITY DEFINER` パターンで RLS をバイパスするが、返すのは `id` / `name` のみとし、SELECT ポリシーが保護する `email` / `slack_id` / `class` / `team` 等は含めない。
+
+```sql
+CREATE OR REPLACE FUNCTION public.get_member_options()
+RETURNS TABLE(id bigint, name text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = ''
+AS $$ SELECT profiles.id, profiles.name FROM public.profiles ORDER BY profiles.id $$;
+
+REVOKE EXECUTE ON FUNCTION public.get_member_options() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_member_options() TO authenticated;
+```
+
 ### 5.2 matters テーブル
 
 ```sql

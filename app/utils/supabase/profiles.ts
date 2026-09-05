@@ -41,6 +41,24 @@ export const getAllUserInfo = async () => {
   return { userInfoList, error };
 };
 
+// 担当者選択の選択肢（全メンバーの id/name）を返す。profiles への直接 SELECT
+// （getAllUserInfo）は RLS で teamleader が自チームに絞られるため使えない
+// （事前収支申告は teamleader もアクセスでき、選択肢は全メンバーである必要がある）。
+// DB 関数 get_member_options（SECURITY DEFINER。migration 21）経由で取得する
+export const getMemberOptions = async () => {
+  const supabase = createServerSupabase();
+
+  const { data: memberOptions, error } = await supabase.rpc(
+    "get_member_options",
+  );
+
+  if (error) {
+    console.error("担当者選択肢の取得に失敗しました:", error);
+  }
+
+  return { memberOptions, error };
+};
+
 export const insertUserInfo = async ({
   user,
   name,

@@ -1,6 +1,9 @@
 import { getBudgetDeclarationList } from "@/app/utils/supabase/budgetDeclarations";
 import { getBudgetDeclarationReminderSettings } from "@/app/utils/supabase/budgetDeclarationReminderSettings";
-import { getAllUserInfo, getProfileInfo } from "@/app/utils/supabase/profiles";
+import {
+  getMemberOptions,
+  getProfileInfo,
+} from "@/app/utils/supabase/profiles";
 import {
   canViewAllBudgetTeams,
   defaultTargetMonth,
@@ -16,19 +19,19 @@ const DynamicBudgetDeclarations = async () => {
   const [
     { rows },
     { profileInfo, error: profileError },
-    { userInfoList, error: userInfoError },
+    { memberOptions, error: memberOptionsError },
   ] = await Promise.all([
     getBudgetDeclarationList(initialMonth),
     getProfileInfo(),
-    getAllUserInfo(),
+    getMemberOptions(),
   ]);
 
   // 担当者選択肢は補助的な入力項目のため、取得に失敗しても一覧自体は表示する
   // （選択肢が空になるだけで、既存の担当者設定済み明細の表示・保存自体は妨げない）
-  if (userInfoError) {
+  if (memberOptionsError) {
     console.error(
-      "事前収支申告の担当者選択肢用ユーザー情報の取得に失敗しました:",
-      userInfoError,
+      "事前収支申告の担当者選択肢の取得に失敗しました:",
+      memberOptionsError,
     );
   }
 
@@ -69,9 +72,9 @@ const DynamicBudgetDeclarations = async () => {
       canEditAllTeams={canViewAllBudgetTeams(profileInfo?.class)}
       canManageReminderSettings={canManageReminderSettings}
       initialReminderTargetDays={reminderSettings?.targetDays ?? null}
-      memberList={(userInfoList ?? []).map((user) => ({
-        value: String(user.id),
-        label: user.name,
+      memberList={(memberOptions ?? []).map((member) => ({
+        value: String(member.id),
+        label: member.name,
       }))}
     />
   );

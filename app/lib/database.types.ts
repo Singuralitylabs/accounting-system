@@ -545,6 +545,13 @@ export type Database = {
         Returns: boolean
       }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
+      get_member_options: {
+        Args: never
+        Returns: {
+          id: number
+          name: string
+        }[]
+      }
     }
     Enums: {
       information_category: "basic_info" | "business_info" | "cost_info"

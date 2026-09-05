@@ -13,3 +13,27 @@ COMMENT ON COLUMN budget_declaration_items.manager_id IS
 -- FK 側の索引（extra_entries.manager_id / budget_declarations.declared_by と同じ方針）
 CREATE INDEX IF NOT EXISTS idx_budget_declaration_items_manager_id
   ON budget_declaration_items (manager_id);
+
+-- 明細担当者の選択肢（全メンバー）を返す関数。
+--
+-- profiles の SELECT RLS（migration 12）は teamleader を自チーム + 自分自身に
+-- 制限するが、事前収支申告は teamleader もアクセスでき（ROUTE_PERMISSIONS）、
+-- Issue #112 の受け入れ基準は「選択肢は全メンバー（チーム所属で絞らない）」。
+-- migration 12 の auth_user_class() / auth_user_team() と同じ SECURITY DEFINER
+-- パターンで RLS をバイパスするが、返すのは id / name のみとし、email / slack_id /
+-- class / team 等の migration 12 が保護対象とする機微情報は含めない。
+CREATE OR REPLACE FUNCTION public.get_member_options()
+RETURNS TABLE(id bigint, name text)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT profiles.id, profiles.name FROM public.profiles ORDER BY profiles.id
+$$;
+
+COMMENT ON FUNCTION public.get_member_options() IS
+  '事前収支申告の明細担当者選択肢（全メンバーの id/name のみ）。profiles の SELECT RLS（teamleader は自チームのみ）をバイパスするが、機微情報は返さない。詳細: docs/database.md';
+
+REVOKE EXECUTE ON FUNCTION public.get_member_options() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_member_options() TO authenticated;
