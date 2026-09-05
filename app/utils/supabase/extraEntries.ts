@@ -1,6 +1,9 @@
 "use server";
 
 import { ExtraEntryInListType } from "../../types/types";
+import { addMonths } from "../budgetDeclaration";
+import { buildCopiedExtraEntries } from "../extraEntry";
+import { toFirstOfMonth } from "../formatter";
 import { createServerSupabase } from "./clients";
 
 // 一覧の行データを DB 書き込み用の形に変換する（INSERT / UPDATE 共通）
@@ -110,4 +113,57 @@ export const bulkUpsertExtraEntry = async (
   }
 
   return true;
+};
+
+// 対象月の前月分の経理追加収支を取得する（損益計算書 月次タブの
+// 「前月の経理追加収支をコピー」ボタン用。ボタンの活性判定・確認ダイアログの
+// 件数表示・複製元データの取得を兼ねる）。entry_date が対象月内の行のみ返す
+// （NULL＝月未確定の明細は範囲比較で自動的に除外される）
+export const getPreviousMonthExtraEntries = async (month: string) => {
+  const supabase = createServerSupabase();
+  const previousMonth = addMonths(month, -1);
+  const rangeStart = toFirstOfMonth(previousMonth);
+  const rangeEnd = toFirstOfMonth(addMonths(previousMonth, 1));
+
+  const { data: extraEntryList, error } = await supabase
+    .from("extra_entries")
+    .select("*")
+    .gte("entry_date", rangeStart)
+    .lt("entry_date", rangeEnd)
+    .order("entry_date", { ascending: true })
+    .order("id", { ascending: true });
+
+  if (error) {
+    console.error("前月の経理追加収支の取得に失敗しました:", error);
+  }
+
+  return { extraEntryList, error };
+};
+
+// 前月分の経理追加収支を当月分として一括複製する（bulk INSERT）。
+// 書き込み権限（accounting / admin のみ）は RLS で担保される。
+// 前月分の取得から INSERT までをサーバ側で完結させることで、ボタンの活性判定用に
+// クライアントがキャッシュした一覧に多少のタイムラグがあっても、実際に複製するのは
+// 実行時点の最新データになる
+export const copyExtraEntriesFromPreviousMonth = async (month: string) => {
+  const { extraEntryList, error } = await getPreviousMonthExtraEntries(month);
+  if (error) {
+    return { insertedCount: 0, error };
+  }
+  if (!extraEntryList || extraEntryList.length === 0) {
+    return { insertedCount: 0, error: null };
+  }
+
+  const rows = buildCopiedExtraEntries(extraEntryList, month);
+  const supabase = createServerSupabase();
+  const { error: insertError } = await supabase
+    .from("extra_entries")
+    .insert(rows);
+
+  if (insertError) {
+    console.error("経理追加収支の前月コピーに失敗しました:", insertError);
+    return { insertedCount: 0, error: insertError };
+  }
+
+  return { insertedCount: rows.length, error: null };
 };
