@@ -47,6 +47,7 @@ const emptyItem = (key: number): ItemRow => ({
   category: "",
   description: "",
   amount: 0,
+  manager_id: null,
 });
 
 type Props = {
@@ -58,6 +59,12 @@ type Props = {
   // チーム選択を固定するか（teamleader は自チーム固定。経理・管理者は選択可だが、
   // 編集時は対象月・チームの組み合わせを変えないよう常に固定する）
   teamLocked: boolean;
+  // 明細の担当者候補（全メンバー。チーム所属で絞らない。経理追加収支の責任者と同じ方式）
+  memberList: { value: string; label: string }[];
+  // 担当者候補の取得に失敗したか。true の間は担当者 Select を disabled にする
+  // （memberList が空のまま有効にすると、既存明細の manager_id が選択肢に無いため
+  // Select が空欄に見え、値は保持されているのに「クリアされた」と誤認しうる）
+  memberListError?: boolean;
 };
 
 type HeaderFormValues = {
@@ -72,6 +79,8 @@ const BudgetDeclarationForm = ({
   team,
   declarationId,
   teamLocked,
+  memberList,
+  memberListError = false,
 }: Props) => {
   const { teamList, categoryList, itemList } = useAtomValue(optionsAtom);
   const isEditMode = declarationId !== null;
@@ -137,6 +146,7 @@ const BudgetDeclarationForm = ({
         category: item.category,
         description: item.description,
         amount: item.amount,
+        manager_id: item.manager_id,
       })),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -189,12 +199,15 @@ const BudgetDeclarationForm = ({
         targetMonth,
         team: currentTeam,
         comment: form.getValues().comment || null,
-        items: items.map(({ entry_type, category, description, amount }) => ({
-          entry_type,
-          category,
-          description,
-          amount,
-        })),
+        items: items.map(
+          ({ entry_type, category, description, amount, manager_id }) => ({
+            entry_type,
+            category,
+            description,
+            amount,
+            manager_id,
+          }),
+        ),
       });
       onClose();
     } catch {
@@ -282,6 +295,7 @@ const BudgetDeclarationForm = ({
                 <Table.Th className="min-w-36">分類</Table.Th>
                 <Table.Th className="min-w-44">内容</Table.Th>
                 <Table.Th className="min-w-36">金額</Table.Th>
+                <Table.Th className="min-w-36">担当者</Table.Th>
                 <Table.Th className="w-12" />
               </Table.Tr>
             </Table.Thead>
@@ -333,6 +347,29 @@ const BudgetDeclarationForm = ({
                       onChange={(value) =>
                         handleUpdateItem(item.key, {
                           amount: typeof value === "number" ? value : 0,
+                        })
+                      }
+                    />
+                  </Table.Td>
+                  <Table.Td>
+                    <Select
+                      data={memberList}
+                      value={
+                        item.manager_id !== null
+                          ? String(item.manager_id)
+                          : null
+                      }
+                      placeholder={
+                        memberListError
+                          ? "担当者一覧を取得できませんでした"
+                          : "担当者を選択"
+                      }
+                      disabled={memberListError}
+                      searchable
+                      clearable
+                      onChange={(value) =>
+                        handleUpdateItem(item.key, {
+                          manager_id: value ? parseInt(value, 10) : null,
                         })
                       }
                     />

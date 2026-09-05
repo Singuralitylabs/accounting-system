@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import BudgetDeclarationForm from "@/app/components/budgetDeclarations/BudgetDeclarationForm";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
@@ -45,6 +45,11 @@ const emptyDetail = () => ({
   isError: false,
 });
 
+const testMemberList = [
+  { value: "1", label: "山田太郎" },
+  { value: "2", label: "鈴木花子" },
+];
+
 describe("BudgetDeclarationForm", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -62,6 +67,7 @@ describe("BudgetDeclarationForm", () => {
         team="開発チーム"
         declarationId={null}
         teamLocked
+        memberList={testMemberList}
       />,
     );
 
@@ -83,6 +89,7 @@ describe("BudgetDeclarationForm", () => {
         team="開発チーム"
         declarationId={null}
         teamLocked={false}
+        memberList={testMemberList}
       />,
     );
 
@@ -104,6 +111,7 @@ describe("BudgetDeclarationForm", () => {
         team="開発チーム"
         declarationId={7}
         teamLocked={false}
+        memberList={testMemberList}
       />,
     );
 
@@ -126,6 +134,7 @@ describe("BudgetDeclarationForm", () => {
         team="開発チーム"
         declarationId={7}
         teamLocked={false}
+        memberList={testMemberList}
       />,
     );
 
@@ -169,6 +178,7 @@ describe("BudgetDeclarationForm", () => {
         team="開発チーム"
         declarationId={7}
         teamLocked={false}
+        memberList={testMemberList}
       />,
     );
 
@@ -191,6 +201,7 @@ describe("BudgetDeclarationForm", () => {
         team="開発チーム"
         declarationId={7}
         teamLocked={false}
+        memberList={testMemberList}
       />,
     );
 
@@ -207,6 +218,7 @@ describe("BudgetDeclarationForm", () => {
         team="開発チーム"
         declarationId={null}
         teamLocked
+        memberList={testMemberList}
       />,
     );
 
@@ -233,6 +245,7 @@ describe("BudgetDeclarationForm", () => {
         team="開発チーム"
         declarationId={null}
         teamLocked
+        memberList={testMemberList}
       />,
     );
 
@@ -258,6 +271,7 @@ describe("BudgetDeclarationForm", () => {
             category: "セミナー",
             description: "○○受託案件",
             amount: 500000,
+            manager_id: null,
             display_order: 0,
             inserted_at: "",
             updated_at: "",
@@ -278,6 +292,7 @@ describe("BudgetDeclarationForm", () => {
         team="開発チーム"
         declarationId={7}
         teamLocked={false}
+        memberList={testMemberList}
       />,
     );
 
@@ -295,6 +310,7 @@ describe("BudgetDeclarationForm", () => {
           category: "セミナー",
           description: "○○受託案件",
           amount: 500000,
+          manager_id: null,
         },
       ],
     });
@@ -333,6 +349,7 @@ describe("BudgetDeclarationForm", () => {
         team="開発チーム"
         declarationId={7}
         teamLocked={false}
+        memberList={testMemberList}
       />,
     );
 
@@ -355,6 +372,7 @@ describe("BudgetDeclarationForm", () => {
         team="開発チーム"
         declarationId={7}
         teamLocked={false}
+        memberList={testMemberList}
       />,
     );
 
@@ -378,6 +396,7 @@ describe("BudgetDeclarationForm", () => {
         team="開発チーム"
         declarationId={7}
         teamLocked={false}
+        memberList={testMemberList}
       />,
     );
 
@@ -407,6 +426,7 @@ describe("BudgetDeclarationForm", () => {
         team="開発チーム"
         declarationId={7}
         teamLocked={false}
+        memberList={testMemberList}
       />,
     );
 
@@ -429,11 +449,168 @@ describe("BudgetDeclarationForm", () => {
         team="開発チーム"
         declarationId={7}
         teamLocked={false}
+        memberList={testMemberList}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "削除" }));
     await vi.waitFor(() => expect(confirmAction).toHaveBeenCalled());
     expect(deleteMutation.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("明細行の担当者を選択・変更・クリアでき、保存時に manager_id として送信される", async () => {
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: {
+        comment: "",
+        items: [
+          {
+            id: 1,
+            declaration_id: 7,
+            entry_type: "income",
+            category: "セミナー",
+            description: "○○受託案件",
+            amount: 500000,
+            manager_id: null,
+            display_order: 0,
+            inserted_at: "",
+            updated_at: "",
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    });
+    confirmAction.mockResolvedValue(true);
+
+    renderWithMantine(
+      <BudgetDeclarationForm
+        opened
+        onClose={vi.fn()}
+        targetMonth="2026-10"
+        team="開発チーム"
+        declarationId={7}
+        teamLocked={false}
+        memberList={testMemberList}
+      />,
+    );
+
+    // 担当者を選択する
+    const managerInput = screen.getByPlaceholderText("担当者を選択");
+    fireEvent.click(managerInput);
+    fireEvent.click(await screen.findByRole("option", { name: "山田太郎" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await vi.waitFor(() => expect(saveMutation.mutateAsync).toHaveBeenCalled());
+    expect(saveMutation.mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: [expect.objectContaining({ manager_id: 1 })],
+      }),
+    );
+
+    // 担当者を変更する
+    saveMutation.mutateAsync.mockClear();
+    fireEvent.click(managerInput);
+    fireEvent.click(await screen.findByRole("option", { name: "鈴木花子" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await vi.waitFor(() => expect(saveMutation.mutateAsync).toHaveBeenCalled());
+    expect(saveMutation.mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: [expect.objectContaining({ manager_id: 2 })],
+      }),
+    );
+
+    // 担当者をクリアする（未選択で保存できる）
+    saveMutation.mutateAsync.mockClear();
+    const managerCell = managerInput.closest("td") as HTMLElement;
+    fireEvent.click(within(managerCell).getByRole("button", { hidden: true }));
+
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await vi.waitFor(() => expect(saveMutation.mutateAsync).toHaveBeenCalled());
+    expect(saveMutation.mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: [expect.objectContaining({ manager_id: null })],
+      }),
+    );
+  });
+
+  it("担当者未設定の既存明細も従来どおり表示・編集できる", () => {
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: {
+        comment: "",
+        items: [
+          {
+            id: 1,
+            declaration_id: 7,
+            entry_type: "income",
+            category: "セミナー",
+            description: "既存の明細",
+            amount: 300000,
+            manager_id: null,
+            display_order: 0,
+            inserted_at: "",
+            updated_at: "",
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    });
+
+    renderWithMantine(
+      <BudgetDeclarationForm
+        opened
+        onClose={vi.fn()}
+        targetMonth="2026-10"
+        team="開発チーム"
+        declarationId={7}
+        teamLocked={false}
+        memberList={testMemberList}
+      />,
+    );
+
+    expect(screen.getByDisplayValue("既存の明細")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("担当者を選択")).toHaveValue("");
+  });
+
+  it("担当者選択肢の取得に失敗している間は担当者 Select を disabled にし、既存の manager_id を見せかけ上クリアしない", () => {
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: {
+        comment: "",
+        items: [
+          {
+            id: 1,
+            declaration_id: 7,
+            entry_type: "income",
+            category: "セミナー",
+            description: "既存の明細",
+            amount: 300000,
+            manager_id: 1,
+            display_order: 0,
+            inserted_at: "",
+            updated_at: "",
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    });
+
+    renderWithMantine(
+      <BudgetDeclarationForm
+        opened
+        onClose={vi.fn()}
+        targetMonth="2026-10"
+        team="開発チーム"
+        declarationId={7}
+        teamLocked={false}
+        memberList={[]}
+        memberListError
+      />,
+    );
+
+    const managerInput =
+      screen.getByPlaceholderText("担当者一覧を取得できませんでした");
+    expect(managerInput).toBeDisabled();
   });
 });

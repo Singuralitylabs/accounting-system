@@ -91,6 +91,7 @@ const renderList = (
       initialData={null}
       initialDataUpdatedAt={Date.now()}
       canEditAllTeams
+      memberList={[]}
       {...props}
     />,
   );
@@ -241,6 +242,7 @@ describe("BudgetDeclarationList", () => {
         initialData={null}
         initialDataUpdatedAt={Date.now()}
         canEditAllTeams
+        memberList={[]}
       />,
     );
 
@@ -262,6 +264,7 @@ describe("BudgetDeclarationList", () => {
         initialData={null}
         initialDataUpdatedAt={Date.now()}
         canEditAllTeams
+        memberList={[]}
       />,
     );
 

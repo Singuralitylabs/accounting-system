@@ -303,21 +303,23 @@ UNIQUE 制約:
 
 事前収支申告の明細。1 ヘッダに対して収入・支出の内訳を複数行持つ。
 
-| カラム名       | データ型                 | 制約                                                             | 説明                                                                    |
-| -------------- | ------------------------ | ---------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| id             | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                        | 主キー                                                                  |
-| declaration_id | bigint                   | NOT NULL, FOREIGN KEY (budget_declarations.id) ON DELETE CASCADE | 申告ヘッダ ID（ヘッダ削除時に明細も削除される）                         |
-| entry_type     | text                     | NOT NULL, CHECK (entry_type IN ('income', 'expense'))            | 種別（income = 収入 / expense = 支出。extra_entries と同じ値域）        |
-| category       | text                     | NOT NULL                                                         | 分類（収入時は案件分類 category、支出時は品目 item マスタの値域を想定） |
-| description    | text                     | NOT NULL                                                         | 内容（例: ○○受託案件、外注費）                                          |
-| amount         | numeric(15,2)            | NOT NULL, CHECK (amount > 0)                                     | 見込み金額（円・税別。正の値のみ）                                      |
-| display_order  | integer                  | NOT NULL, DEFAULT 0                                              | 表示順                                                                  |
-| inserted_at    | timestamp with time zone | NOT NULL, DEFAULT now()                                          | 作成日時                                                                |
-| updated_at     | timestamp with time zone | NOT NULL, DEFAULT now()                                          | 更新日時                                                                |
+| カラム名       | データ型                 | 制約                                                                  | 説明                                                                                                                                                                                                                                                                                                                                                                  |
+| -------------- | ------------------------ | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| id             | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                             | 主キー                                                                                                                                                                                                                                                                                                                                                                |
+| declaration_id | bigint                   | NOT NULL, FOREIGN KEY (budget_declarations.id) ON DELETE CASCADE      | 申告ヘッダ ID（ヘッダ削除時に明細も削除される）                                                                                                                                                                                                                                                                                                                       |
+| entry_type     | text                     | NOT NULL, CHECK (entry_type IN ('income', 'expense'))                 | 種別（income = 収入 / expense = 支出。extra_entries と同じ値域）                                                                                                                                                                                                                                                                                                      |
+| category       | text                     | NOT NULL                                                              | 分類（収入時は案件分類 category、支出時は品目 item マスタの値域を想定）                                                                                                                                                                                                                                                                                               |
+| description    | text                     | NOT NULL                                                              | 内容（例: ○○受託案件、外注費）                                                                                                                                                                                                                                                                                                                                        |
+| amount         | numeric(15,2)            | NOT NULL, CHECK (amount > 0)                                          | 見込み金額（円・税別。正の値のみ）                                                                                                                                                                                                                                                                                                                                    |
+| manager_id     | bigint                   | NULL, FOREIGN KEY (profiles.id)（参照アクション指定なし = NO ACTION） | 明細（収入・支出）ごとの担当者。メンバー（profiles）から任意選択、NULL 許容（既存明細はバックフィルせず NULL のまま）。declared_by / extra_entries.manager_id と同じく CASCADE にしない（担当者の退会で明細が消えるのを避ける）。担当者に設定された profiles を削除するとこの FK でエラーになるため、先に manager_id を別のメンバーに付け替えるか NULL に解除すること |
+| display_order  | integer                  | NOT NULL, DEFAULT 0                                                   | 表示順                                                                                                                                                                                                                                                                                                                                                                |
+| inserted_at    | timestamp with time zone | NOT NULL, DEFAULT now()                                               | 作成日時                                                                                                                                                                                                                                                                                                                                                              |
+| updated_at     | timestamp with time zone | NOT NULL, DEFAULT now()                                               | 更新日時                                                                                                                                                                                                                                                                                                                                                              |
 
 インデックス:
 
 - declaration_id
+- manager_id（FK 側の索引。extra_entries.manager_id / budget_declarations.declared_by と同じ方針）
 
 ### 3.11 budget_declaration_reminder_settings テーブル
 
@@ -430,6 +432,48 @@ CREATE POLICY "Users can update own profile or admin can update any profile"
       AND team  IS NOT DISTINCT FROM public.auth_user_team()
     )
   );
+```
+
+#### 担当者選択肢用の関数（get_member_options）
+
+事前収支申告の明細担当者（`budget_declaration_items.manager_id`）は、選択肢を全メンバーとする（[3.10](#310-budget_declaration_items-テーブル)、Issue #112）。しかし `/budget-declarations` は teamleader もアクセスでき、上記 SELECT ポリシーでは teamleader は自チームの行しか読めないため、`profiles` への直接 SELECT では全メンバー一覧を取得できない。
+
+`auth_user_class()` / `auth_user_team()` と同じ `SECURITY DEFINER` パターンで RLS をバイパスするが、返すのは `id` / `name` のみとし、SELECT ポリシーが保護する `email` / `slack_id` / `class` / `team` 等は含めない。
+
+`GRANT EXECUTE ... TO authenticated` だけでは関数内にロール判定が無く、PostgREST の RPC エンドポイントはテーブルの RLS ポリシーとは独立に公開されるため、`public` クラスのユーザーもアプリのルートガードを経由せず直接呼び出せてしまう（migration 12 が防いだ「public を含む全ログインユーザーが他人の情報を読める」を id/name について再び開けてしまう）。そのため呼び出し可能ロールを関数内で `/budget-declarations` の許可ロール（teamleader / accounting / admin）に絞り、それ以外のロールから呼ばれた場合は 0 行を返す。
+
+```sql
+CREATE OR REPLACE FUNCTION public.get_member_options()
+RETURNS TABLE(id bigint, name text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = ''
+AS $$
+  SELECT profiles.id, profiles.name FROM public.profiles
+  WHERE public.auth_user_class() IN ('teamleader', 'accounting', 'admin')
+  ORDER BY profiles.id
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.get_member_options() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_member_options() TO authenticated;
+```
+
+#### 担当者保存前検証用の関数（validate_member_ids）
+
+事前収支申告の保存（明細差し替え）は非トランザクション（既存明細を全 DELETE → INSERT）のため、フォーム表示後に担当者の `profiles` が削除される等で存在しない `manager_id` が保存されようとすると、DELETE 成功後の INSERT が FK 違反（23503）で失敗し、既存明細が消えたまま保存が中断する。保存前に渡された `manager_id` が実在するか確認する必要がある。
+
+`get_member_options()` で全メンバーを取得して JS 側で照合することもできるが、保存のたびに全メンバー分の行を転送するのは無駄（メンバー数が増えるほど悪化する）。渡された id 集合だけを DB 側で照合し、実在する id のみを返す。ロール制限は `get_member_options()` と同じ（teamleader / accounting / admin のみ。それ以外は 0 行）。
+
+```sql
+CREATE OR REPLACE FUNCTION public.validate_member_ids(target_ids bigint[])
+RETURNS TABLE(id bigint)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = ''
+AS $$
+  SELECT profiles.id FROM public.profiles
+  WHERE public.auth_user_class() IN ('teamleader', 'accounting', 'admin')
+    AND profiles.id = ANY(target_ids)
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.validate_member_ids(bigint[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.validate_member_ids(bigint[]) TO authenticated;
 ```
 
 ### 5.2 matters テーブル
@@ -1169,6 +1213,7 @@ erDiagram
     profiles ||--o{ matters : "creates"
     profiles ||--o{ extra_entries : "manages"
     profiles ||--o{ budget_declarations : "declares"
+    profiles ||--o{ budget_declaration_items : "manages"
     budget_declarations ||--o{ budget_declaration_items : "contains"
     matters ||--o{ costs : "contains"
     matters ||--o{ business : "has"
@@ -1306,6 +1351,7 @@ erDiagram
         text category
         text description
         numeric amount
+        bigint manager_id FK
         integer display_order
         timestamp inserted_at
         timestamp updated_at

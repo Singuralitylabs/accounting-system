@@ -41,6 +41,38 @@ export const getAllUserInfo = async () => {
   return { userInfoList, error };
 };
 
+// 担当者選択の選択肢（全メンバーの id/name）を返す。profiles への直接 SELECT
+// （getAllUserInfo）は RLS で teamleader が自チームに絞られるため使えない
+// （事前収支申告は teamleader もアクセスでき、選択肢は全メンバーである必要がある）。
+// DB 関数 get_member_options（SECURITY DEFINER。migration 21）経由で取得する
+// エラー時のログは呼び出し元（利用箇所の文脈が分かる場所）に任せる。
+// ここで console.error すると、呼び出し元も別途ログする場合に同じエラーが
+// 2 回出力されてノイズになる（DynamicBudgetDeclarations.tsx 参照）
+export const getMemberOptions = async () => {
+  const supabase = createServerSupabase();
+
+  const { data: memberOptions, error } = await supabase.rpc(
+    "get_member_options",
+  );
+
+  return { memberOptions, error };
+};
+
+// 渡された id のうち実在する profiles.id のみを返す（事前収支申告の manager_id
+// 保存前検証用）。get_member_options() で全メンバーを取得して JS 側で照合する
+// こともできるが、保存のたびに全メンバー分の行を転送するのは無駄
+// （メンバー数が増えるほど悪化する）ため、id 集合だけを DB 側で照合する
+export const validateMemberIds = async (targetIds: number[]) => {
+  const supabase = createServerSupabase();
+
+  const { data: existingIds, error } = await supabase.rpc(
+    "validate_member_ids",
+    { target_ids: targetIds },
+  );
+
+  return { existingIds, error };
+};
+
 export const insertUserInfo = async ({
   user,
   name,
