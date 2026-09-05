@@ -456,6 +456,26 @@ REVOKE EXECUTE ON FUNCTION public.get_member_options() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_member_options() TO authenticated;
 ```
 
+#### 担当者保存前検証用の関数（validate_member_ids）
+
+事前収支申告の保存（明細差し替え）は非トランザクション（既存明細を全 DELETE → INSERT）のため、フォーム表示後に担当者の `profiles` が削除される等で存在しない `manager_id` が保存されようとすると、DELETE 成功後の INSERT が FK 違反（23503）で失敗し、既存明細が消えたまま保存が中断する。保存前に渡された `manager_id` が実在するか確認する必要がある。
+
+`get_member_options()` で全メンバーを取得して JS 側で照合することもできるが、保存のたびに全メンバー分の行を転送するのは無駄（メンバー数が増えるほど悪化する）。渡された id 集合だけを DB 側で照合し、実在する id のみを返す。ロール制限は `get_member_options()` と同じ（teamleader / accounting / admin のみ。それ以外は 0 行）。
+
+```sql
+CREATE OR REPLACE FUNCTION public.validate_member_ids(target_ids bigint[])
+RETURNS TABLE(id bigint)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = ''
+AS $$
+  SELECT profiles.id FROM public.profiles
+  WHERE public.auth_user_class() IN ('teamleader', 'accounting', 'admin')
+    AND profiles.id = ANY(target_ids)
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.validate_member_ids(bigint[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.validate_member_ids(bigint[]) TO authenticated;
+```
+
 ### 5.2 matters テーブル
 
 ```sql

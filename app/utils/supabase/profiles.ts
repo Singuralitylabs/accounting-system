@@ -58,6 +58,21 @@ export const getMemberOptions = async () => {
   return { memberOptions, error };
 };
 
+// 渡された id のうち実在する profiles.id のみを返す（事前収支申告の manager_id
+// 保存前検証用）。get_member_options() で全メンバーを取得して JS 側で照合する
+// こともできるが、保存のたびに全メンバー分の行を転送するのは無駄
+// （メンバー数が増えるほど悪化する）ため、id 集合だけを DB 側で照合する
+export const validateMemberIds = async (targetIds: number[]) => {
+  const supabase = createServerSupabase();
+
+  const { data: existingIds, error } = await supabase.rpc(
+    "validate_member_ids",
+    { target_ids: targetIds },
+  );
+
+  return { existingIds, error };
+};
+
 export const insertUserInfo = async ({
   user,
   name,

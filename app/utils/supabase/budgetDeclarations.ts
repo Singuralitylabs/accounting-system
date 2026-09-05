@@ -24,6 +24,7 @@ import {
 } from "../budgetDeclarationValidation";
 import { toFirstOfMonth } from "../formatter";
 import { createServerSupabase } from "./clients";
+import { validateMemberIds } from "./profiles";
 import { getSelectOptions } from "./selectOptions";
 import { getAuthorizedViewer } from "./viewerAccess";
 
@@ -224,8 +225,10 @@ export const saveBudgetDeclaration = async (
   // 存在確認せずに進めると DELETE 成功後の INSERT が FK 違反（23503）で失敗し、
   // 既存明細が消えたまま partialWriteFailed になる。ヘッダ更新の前に確認して弾く。
   // profiles への直接 SELECT は RLS で teamleader が自チームに絞られ、他チームの
-  // 担当者を誤って「存在しない」と判定してしまうため、get_member_options()
-  // （migration 21）経由で確認する
+  // 担当者を誤って「存在しない」と判定してしまうため、validateMemberIds()
+  // （migration 21 の validate_member_ids）経由で確認する。get_member_options()
+  // で全メンバーを取得して照合することもできるが、保存のたびに全メンバー分の
+  // 行を転送するのは無駄なため、渡された id 集合だけを DB 側で照合する
   const managerIds = Array.from(
     new Set(
       input.items
@@ -234,10 +237,10 @@ export const saveBudgetDeclaration = async (
     ),
   );
   if (managerIds.length > 0) {
-    const { data: memberOptions, error: memberOptionsError } =
-      await supabase.rpc("get_member_options");
-    if (memberOptionsError) {
-      console.error(`${SUBJECT}の担当者確認に失敗しました:`, memberOptionsError);
+    const { existingIds: validIds, error: validateError } =
+      await validateMemberIds(managerIds);
+    if (validateError) {
+      console.error(`${SUBJECT}の担当者確認に失敗しました:`, validateError);
       return {
         error: {
           kind: "fetchFailed",
@@ -245,9 +248,7 @@ export const saveBudgetDeclaration = async (
         },
       };
     }
-    const existingIds = new Set(
-      (memberOptions ?? []).map((member) => member.id),
-    );
+    const existingIds = new Set((validIds ?? []).map((row) => row.id));
     if (managerIds.some((id) => !existingIds.has(id))) {
       return {
         error: {

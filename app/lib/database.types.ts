@@ -552,6 +552,12 @@ export type Database = {
           name: string
         }[]
       }
+      validate_member_ids: {
+        Args: { target_ids: number[] }
+        Returns: {
+          id: number
+        }[]
+      }
     }
     Enums: {
       information_category: "basic_info" | "business_info" | "cost_info"

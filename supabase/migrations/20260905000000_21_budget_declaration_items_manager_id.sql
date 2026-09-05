@@ -48,3 +48,31 @@ COMMENT ON FUNCTION public.get_member_options() IS
 
 REVOKE EXECUTE ON FUNCTION public.get_member_options() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_member_options() TO authenticated;
+
+-- 保存時に manager_id が実在する profiles.id か確認するための関数。
+--
+-- 明細差し替え（saveBudgetDeclaration）は非トランザクション（既存明細を全 DELETE →
+-- INSERT）のため、フォーム表示後に担当者の profiles が削除される等で存在しない
+-- manager_id が渡されると、DELETE 成功後の INSERT が FK 違反（23503）で失敗し、
+-- 既存明細が消えたまま partialWriteFailed になる。DELETE の前にここで弾く。
+--
+-- get_member_options() を流用して全メンバーを取得し JS 側で照合することもできるが、
+-- 保存のたびに全メンバー分の行を転送するのは無駄（メンバー数が増えるほど悪化する）。
+-- 渡された id 集合だけを DB 側で照合し、実在する id のみを返す。
+CREATE OR REPLACE FUNCTION public.validate_member_ids(target_ids bigint[])
+RETURNS TABLE(id bigint)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT profiles.id FROM public.profiles
+  WHERE public.auth_user_class() IN ('teamleader', 'accounting', 'admin')
+    AND profiles.id = ANY(target_ids)
+$$;
+
+COMMENT ON FUNCTION public.validate_member_ids(bigint[]) IS
+  '渡された id のうち、実在する profiles.id のみを返す（事前収支申告の manager_id 保存前検証用）。get_member_options() と同じくロールを teamleader/accounting/admin に限定する。詳細: docs/database.md';
+
+REVOKE EXECUTE ON FUNCTION public.validate_member_ids(bigint[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.validate_member_ids(bigint[]) TO authenticated;
