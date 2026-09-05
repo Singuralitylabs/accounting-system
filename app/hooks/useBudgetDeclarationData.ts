@@ -73,7 +73,13 @@ export const useBudgetDeclarationDetail = (declarationId: number | null) => {
       return detail;
     },
     enabled: declarationId !== null,
-    staleTime: 2 * 60 * 1000, // 2分（明細パネルの再表示での不要な再取得を抑える目的）
+    // refetchOnMount: "always" のため、マウント時（明細パネルを閉じて再度開く
+    // 場合を含む）の再取得可否にはこの staleTime は影響しない（常に再取得する）。
+    // 編集フォーム用の lost update 対策（直近の担当者更新を古いまま保存しない）は
+    // refetchOnMount 側で担保している。staleTime は reconnect 時の自動再取得
+    // （refetchOnReconnect。既定で有効）など、マウント以外のタイミングでの
+    // stale 判定に使われる
+    staleTime: 2 * 60 * 1000,
     refetchOnMount: "always",
     retry: retryUnlessForbidden,
   });

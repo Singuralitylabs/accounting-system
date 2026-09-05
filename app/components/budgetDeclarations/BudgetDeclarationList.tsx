@@ -1,6 +1,6 @@
 "use client";
 
-import { Alert, Badge, Button, Table } from "@mantine/core";
+import { Alert, Badge, Button, Group, Table } from "@mantine/core";
 import { Fragment, useState } from "react";
 import { BudgetDeclarationStatusType } from "@/app/types/types";
 import { useBudgetDeclarationList } from "@/app/hooks/useBudgetDeclarationData";
@@ -47,10 +47,25 @@ const BudgetDeclarationList = ({
   initialReminderTargetDays = null,
 }: Props) => {
   const [month, setMonth] = useState<string>(initialMonth);
-  // 明細を開いているチーム（1 行ずつ開く）
-  const [expandedTeam, setExpandedTeam] = useState<string | null>(null);
+  // 明細を開いている申告（declarationId で管理する。チーム名で管理すると、
+  // 申告を削除して同じチームを再申告したときに別 ID の明細が意図せず自動で開く）
+  const [expandedDeclarations, setExpandedDeclarations] = useState<Set<number>>(
+    new Set(),
+  );
   // 作成・編集フォームで開いている対象（null なら非表示）
   const [formTarget, setFormTarget] = useState<FormTarget | null>(null);
+
+  const toggleDeclaration = (declarationId: number) => {
+    setExpandedDeclarations((prev) => {
+      const next = new Set(prev);
+      if (next.has(declarationId)) {
+        next.delete(declarationId);
+      } else {
+        next.add(declarationId);
+      }
+      return next;
+    });
+  };
 
   const { data, isLoading, isError, error, isPlaceholderData } =
     useBudgetDeclarationList(
@@ -65,6 +80,16 @@ const BudgetDeclarationList = ({
 
   const rows = data ?? [];
   const total = totalBudgetSummary(rows);
+  // 明細を持つ（申告済みの）チームのみが「すべて開く」の対象
+  const declaredDeclarationIds = rows.flatMap((row) =>
+    row.declarationId !== null ? [row.declarationId] : [],
+  );
+  // expandedDeclarations には、申告の削除等で行から無くなった declarationId が
+  // 残り続ける可能性がある（その行自体は個別にガードしているため表示上は問題ない）。
+  // 「すべて閉じる」の活性判定は実際に表示されているものだけを数える
+  const openDeclarationIds = declaredDeclarationIds.filter((id) =>
+    expandedDeclarations.has(id),
+  );
 
   return (
     <div className="mx-auto max-w-5xl px-4 pb-8">
@@ -81,7 +106,7 @@ const BudgetDeclarationList = ({
           onChange={(selected) => {
             if (selected) {
               setMonth(selected);
-              setExpandedTeam(null);
+              setExpandedDeclarations(new Set());
             }
           }}
         />
@@ -108,116 +133,143 @@ const BudgetDeclarationList = ({
           チームマスタが未登録か、所属チームが設定されていない可能性があります。
         </Alert>
       ) : (
-        <div className="overflow-x-auto">
-          <Table withTableBorder withColumnBorders striped>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>チーム</Table.Th>
-                <Table.Th>申告状況</Table.Th>
-                <Table.Th className="text-right">収入合計</Table.Th>
-                <Table.Th className="text-right">支出合計</Table.Th>
-                <Table.Th className="text-right">差引</Table.Th>
-                <Table.Th>申告者</Table.Th>
-                <Table.Th>最終更新</Table.Th>
-                <Table.Th>明細</Table.Th>
-                <Table.Th>操作</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {rows.map((row) => (
-                <Fragment key={row.team}>
-                  <Table.Tr>
-                    <Table.Td>{row.team}</Table.Td>
-                    <Table.Td>
-                      <Badge color={row.isDeclared ? "teal" : "gray"}>
-                        {row.isDeclared ? "申告済み" : "未申告"}
-                      </Badge>
-                    </Table.Td>
-                    <Table.Td className="text-right">
-                      {row.isDeclared
-                        ? formatCurrency(row.summary.incomeTotal)
-                        : "-"}
-                    </Table.Td>
-                    <Table.Td className="text-right">
-                      {row.isDeclared
-                        ? formatCurrency(row.summary.expenseTotal)
-                        : "-"}
-                    </Table.Td>
-                    <Table.Td
-                      className={`text-right ${
-                        row.isDeclared && row.summary.balance < 0
-                          ? "text-red-600"
-                          : ""
-                      }`}
-                    >
-                      {row.isDeclared
-                        ? formatCurrency(row.summary.balance)
-                        : "-"}
-                    </Table.Td>
-                    <Table.Td>{row.declaredByName ?? "-"}</Table.Td>
-                    <Table.Td>
-                      {row.updatedAt ? formatTimeToJp(row.updatedAt) : "-"}
-                    </Table.Td>
-                    <Table.Td>
-                      <Button
-                        size="xs"
-                        variant="subtle"
-                        disabled={!row.isDeclared || isSwitchingMonth}
-                        onClick={() =>
-                          setExpandedTeam((prev) =>
-                            prev === row.team ? null : row.team,
-                          )
-                        }
-                      >
-                        {expandedTeam === row.team ? "閉じる" : "明細を表示"}
-                      </Button>
-                    </Table.Td>
-                    <Table.Td>
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        disabled={isSwitchingMonth}
-                        onClick={() =>
-                          setFormTarget({
-                            team: row.team,
-                            declarationId: row.declarationId,
-                            targetMonth: month,
-                          })
-                        }
-                      >
-                        {row.isDeclared ? "編集する" : "申告する"}
-                      </Button>
-                    </Table.Td>
-                  </Table.Tr>
-                  {expandedTeam === row.team && row.declarationId !== null && (
-                    <Table.Tr>
-                      <Table.Td colSpan={9}>
-                        <BudgetDeclarationItemTable
-                          declarationId={row.declarationId}
-                        />
-                      </Table.Td>
-                    </Table.Tr>
-                  )}
-                </Fragment>
-              ))}
-            </Table.Tbody>
-            <Table.Tfoot>
-              <Table.Tr>
-                <Table.Th colSpan={2}>合計</Table.Th>
-                <Table.Th className="text-right">
-                  {formatCurrency(total.incomeTotal)}
-                </Table.Th>
-                <Table.Th className="text-right">
-                  {formatCurrency(total.expenseTotal)}
-                </Table.Th>
-                <Table.Th className="text-right">
-                  {formatCurrency(total.balance)}
-                </Table.Th>
-                <Table.Th colSpan={4} />
-              </Table.Tr>
-            </Table.Tfoot>
-          </Table>
-        </div>
+        <>
+          <Group justify="flex-end" mb="xs">
+            <Button
+              size="xs"
+              variant="default"
+              disabled={declaredDeclarationIds.length === 0 || isSwitchingMonth}
+              onClick={() =>
+                setExpandedDeclarations(new Set(declaredDeclarationIds))
+              }
+            >
+              すべて開く
+            </Button>
+            <Button
+              size="xs"
+              variant="default"
+              disabled={openDeclarationIds.length === 0}
+              onClick={() => setExpandedDeclarations(new Set())}
+            >
+              すべて閉じる
+            </Button>
+          </Group>
+          <div className="overflow-x-auto">
+            <Table withTableBorder withColumnBorders striped>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>チーム</Table.Th>
+                  <Table.Th>申告状況</Table.Th>
+                  <Table.Th className="text-right">収入合計</Table.Th>
+                  <Table.Th className="text-right">支出合計</Table.Th>
+                  <Table.Th className="text-right">差引</Table.Th>
+                  <Table.Th>申告者</Table.Th>
+                  <Table.Th>最終更新</Table.Th>
+                  <Table.Th>明細</Table.Th>
+                  <Table.Th>操作</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {rows.map((row) => {
+                  const isExpanded =
+                    row.declarationId !== null &&
+                    expandedDeclarations.has(row.declarationId);
+                  return (
+                    <Fragment key={row.team}>
+                      <Table.Tr>
+                        <Table.Td>{row.team}</Table.Td>
+                        <Table.Td>
+                          <Badge color={row.isDeclared ? "teal" : "gray"}>
+                            {row.isDeclared ? "申告済み" : "未申告"}
+                          </Badge>
+                        </Table.Td>
+                        <Table.Td className="text-right">
+                          {row.isDeclared
+                            ? formatCurrency(row.summary.incomeTotal)
+                            : "-"}
+                        </Table.Td>
+                        <Table.Td className="text-right">
+                          {row.isDeclared
+                            ? formatCurrency(row.summary.expenseTotal)
+                            : "-"}
+                        </Table.Td>
+                        <Table.Td
+                          className={`text-right ${
+                            row.isDeclared && row.summary.balance < 0
+                              ? "text-red-600"
+                              : ""
+                          }`}
+                        >
+                          {row.isDeclared
+                            ? formatCurrency(row.summary.balance)
+                            : "-"}
+                        </Table.Td>
+                        <Table.Td>{row.declaredByName ?? "-"}</Table.Td>
+                        <Table.Td>
+                          {row.updatedAt ? formatTimeToJp(row.updatedAt) : "-"}
+                        </Table.Td>
+                        <Table.Td>
+                          <Button
+                            size="xs"
+                            variant="subtle"
+                            disabled={!row.isDeclared || isSwitchingMonth}
+                            onClick={() => {
+                              if (row.declarationId !== null) {
+                                toggleDeclaration(row.declarationId);
+                              }
+                            }}
+                          >
+                            {isExpanded ? "閉じる" : "明細を表示"}
+                          </Button>
+                        </Table.Td>
+                        <Table.Td>
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            disabled={isSwitchingMonth}
+                            onClick={() =>
+                              setFormTarget({
+                                team: row.team,
+                                declarationId: row.declarationId,
+                                targetMonth: month,
+                              })
+                            }
+                          >
+                            {row.isDeclared ? "編集する" : "申告する"}
+                          </Button>
+                        </Table.Td>
+                      </Table.Tr>
+                      {isExpanded && row.declarationId !== null && (
+                        <Table.Tr>
+                          <Table.Td colSpan={9}>
+                            <BudgetDeclarationItemTable
+                              declarationId={row.declarationId}
+                            />
+                          </Table.Td>
+                        </Table.Tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </Table.Tbody>
+              <Table.Tfoot>
+                <Table.Tr>
+                  <Table.Th colSpan={2}>合計</Table.Th>
+                  <Table.Th className="text-right">
+                    {formatCurrency(total.incomeTotal)}
+                  </Table.Th>
+                  <Table.Th className="text-right">
+                    {formatCurrency(total.expenseTotal)}
+                  </Table.Th>
+                  <Table.Th className="text-right">
+                    {formatCurrency(total.balance)}
+                  </Table.Th>
+                  <Table.Th colSpan={4} />
+                </Table.Tr>
+              </Table.Tfoot>
+            </Table>
+          </div>
+        </>
       )}
 
       {formTarget && (

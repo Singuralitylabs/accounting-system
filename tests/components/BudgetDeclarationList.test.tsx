@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { fireEvent, screen } from "@testing-library/react";
+import { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 import BudgetDeclarationList from "@/app/components/budgetDeclarations/BudgetDeclarationList";
 import { BudgetDeclarationStatusType } from "@/app/types/types";
@@ -64,46 +65,48 @@ const row = (
   ...overrides,
 });
 
+// 一覧データのモックと描画をまとめたヘルパ。isPlaceholderData や
+// canManageReminderSettings 等、テストごとに変わる値だけ渡す
+const renderList = (
+  rows: BudgetDeclarationStatusType[],
+  {
+    isPlaceholderData = false,
+    props,
+  }: {
+    isPlaceholderData?: boolean;
+    props?: Partial<ComponentProps<typeof BudgetDeclarationList>>;
+  } = {},
+) => {
+  useBudgetDeclarationList.mockReturnValue({
+    data: rows,
+    isLoading: false,
+    isError: false,
+    error: null,
+    isPlaceholderData,
+  });
+
+  return renderWithMantine(
+    <BudgetDeclarationList
+      initialMonth="2026-10"
+      initialData={null}
+      initialDataUpdatedAt={Date.now()}
+      canEditAllTeams
+      {...props}
+    />,
+  );
+};
+
 describe("BudgetDeclarationList", () => {
   it("月切替直後（isPlaceholderData）は行の操作ボタンを無効化する", () => {
-    useBudgetDeclarationList.mockReturnValue({
-      data: [row()],
-      isLoading: false,
-      isError: false,
-      error: null,
-      isPlaceholderData: true,
-    });
-
-    renderWithMantine(
-      <BudgetDeclarationList
-        initialMonth="2026-10"
-        initialData={null}
-        initialDataUpdatedAt={Date.now()}
-        canEditAllTeams
-      />,
-    );
+    renderList([row()], { isPlaceholderData: true });
 
     expect(screen.getByRole("button", { name: "明細を表示" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "編集する" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "すべて開く" })).toBeDisabled();
   });
 
   it("通常時（isPlaceholderData=false）は行の操作ボタンが有効", () => {
-    useBudgetDeclarationList.mockReturnValue({
-      data: [row()],
-      isLoading: false,
-      isError: false,
-      error: null,
-      isPlaceholderData: false,
-    });
-
-    renderWithMantine(
-      <BudgetDeclarationList
-        initialMonth="2026-10"
-        initialData={null}
-        initialDataUpdatedAt={Date.now()}
-        canEditAllTeams
-      />,
-    );
+    renderList([row()]);
 
     expect(
       screen.getByRole("button", { name: "明細を表示" }),
@@ -112,22 +115,7 @@ describe("BudgetDeclarationList", () => {
   });
 
   it("フォームを開いた後に月を変えても、開いているフォームの対象月は変わらない", () => {
-    useBudgetDeclarationList.mockReturnValue({
-      data: [row()],
-      isLoading: false,
-      isError: false,
-      error: null,
-      isPlaceholderData: false,
-    });
-
-    renderWithMantine(
-      <BudgetDeclarationList
-        initialMonth="2026-10"
-        initialData={null}
-        initialDataUpdatedAt={Date.now()}
-        canEditAllTeams
-      />,
-    );
+    renderList([row()]);
 
     fireEvent.click(screen.getByRole("button", { name: "編集する" }));
     expect(screen.getByDisplayValue("2026年10月")).toBeInTheDocument();
@@ -143,45 +131,154 @@ describe("BudgetDeclarationList", () => {
   });
 
   it("canManageReminderSettings が false のときはリマインド設定セクションを表示しない", () => {
-    useBudgetDeclarationList.mockReturnValue({
-      data: [row()],
-      isLoading: false,
-      isError: false,
-      error: null,
-      isPlaceholderData: false,
-    });
-
-    renderWithMantine(
-      <BudgetDeclarationList
-        initialMonth="2026-10"
-        initialData={null}
-        initialDataUpdatedAt={Date.now()}
-        canEditAllTeams
-      />,
-    );
+    renderList([row()]);
 
     expect(screen.queryByText("リマインド設定")).not.toBeInTheDocument();
   });
 
-  it("canManageReminderSettings が true のときはリマインド設定セクションを表示する", () => {
+  it("申告済みチームが0件のときは「すべて開く」を無効化する", () => {
+    renderList([
+      row({
+        team: "未申告チーム",
+        declarationId: null,
+        isDeclared: false,
+        declaredByName: null,
+        updatedAt: null,
+        summary: { incomeTotal: 0, expenseTotal: 0, balance: 0 },
+      }),
+    ]);
+
+    expect(screen.getByRole("button", { name: "すべて開く" })).toBeDisabled();
+  });
+
+  it("「すべて開く」で申告済みの全チームの明細パネルが同時に表示され、「すべて閉じる」で全て閉じる", () => {
+    renderList([
+      row({ team: "開発チーム", declarationId: 1 }),
+      row({ team: "広報チーム", declarationId: 2 }),
+      row({
+        team: "未申告チーム",
+        declarationId: null,
+        isDeclared: false,
+        declaredByName: null,
+        updatedAt: null,
+        summary: { incomeTotal: 0, expenseTotal: 0, balance: 0 },
+      }),
+    ]);
+
+    expect(screen.queryByText("申告が見つかりません")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "すべて開く" }));
+    expect(screen.getAllByText("申告が見つかりません")).toHaveLength(2);
+    // 未申告チームは対象外のまま（明細が無いため「明細を表示」から変わらない）
+    expect(
+      screen.getByRole("button", { name: "明細を表示" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "すべて閉じる" }));
+    expect(screen.queryByText("申告が見つかりません")).not.toBeInTheDocument();
+  });
+
+  it("個別の「明細を表示 / 閉じる」で複数チームを個別に開いたままにできる", () => {
+    renderList([
+      row({ team: "開発チーム", declarationId: 1 }),
+      row({ team: "広報チーム", declarationId: 2 }),
+    ]);
+
+    const showButtons = screen.getAllByRole("button", { name: "明細を表示" });
+    fireEvent.click(showButtons[0]);
+    expect(screen.getAllByText("申告が見つかりません")).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "明細を表示" }));
+    expect(screen.getAllByText("申告が見つかりません")).toHaveLength(2);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "閉じる" })[0]);
+    expect(screen.getAllByText("申告が見つかりません")).toHaveLength(1);
+  });
+
+  it("月を切り替えると開閉状態がリセットされる", () => {
+    renderList([row({ team: "開発チーム", declarationId: 1 })]);
+
+    fireEvent.click(screen.getByRole("button", { name: "明細を表示" }));
+    expect(screen.getByText("申告が見つかりません")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "月を変更" }));
+
+    expect(screen.queryByText("申告が見つかりません")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "明細を表示" }),
+    ).toBeInTheDocument();
+  });
+
+  it("申告を削除して同じチームを再申告しても、別 ID の明細パネルが勝手に開かない", () => {
+    // 「開発チーム」の明細を開いた状態から、申告が削除され（declarationId: null）、
+    // 続けて別 ID（99）で再申告された場合の一覧再取得をシミュレートする
+    const { rerender } = renderList([
+      row({ team: "開発チーム", declarationId: 1 }),
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "明細を表示" }));
+    expect(screen.getByText("申告が見つかりません")).toBeInTheDocument();
+
     useBudgetDeclarationList.mockReturnValue({
-      data: [row()],
+      data: [
+        row({
+          team: "開発チーム",
+          declarationId: null,
+          isDeclared: false,
+          declaredByName: null,
+          updatedAt: null,
+          summary: { incomeTotal: 0, expenseTotal: 0, balance: 0 },
+        }),
+      ],
       isLoading: false,
       isError: false,
       error: null,
       isPlaceholderData: false,
     });
-
-    renderWithMantine(
+    rerender(
       <BudgetDeclarationList
         initialMonth="2026-10"
         initialData={null}
         initialDataUpdatedAt={Date.now()}
         canEditAllTeams
-        canManageReminderSettings
-        initialReminderTargetDays={[15, 18, 20]}
       />,
     );
+
+    expect(screen.queryByText("申告が見つかりません")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "明細を表示" })).toBeDisabled();
+    // 開いていたパネルは無くなったので「すべて閉じる」は無効に戻る
+    expect(screen.getByRole("button", { name: "すべて閉じる" })).toBeDisabled();
+
+    useBudgetDeclarationList.mockReturnValue({
+      data: [row({ team: "開発チーム", declarationId: 99 })],
+      isLoading: false,
+      isError: false,
+      error: null,
+      isPlaceholderData: false,
+    });
+    rerender(
+      <BudgetDeclarationList
+        initialMonth="2026-10"
+        initialData={null}
+        initialDataUpdatedAt={Date.now()}
+        canEditAllTeams
+      />,
+    );
+
+    // 新しい declarationId（99）の申告は、クリックするまで自動では開かない
+    expect(screen.queryByText("申告が見つかりません")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "明細を表示" }),
+    ).toBeInTheDocument();
+  });
+
+  it("canManageReminderSettings が true のときはリマインド設定セクションを表示する", () => {
+    renderList([row()], {
+      props: {
+        canManageReminderSettings: true,
+        initialReminderTargetDays: [15, 18, 20],
+      },
+    });
 
     expect(screen.getByText("リマインド設定")).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "15" })).toBeChecked();
