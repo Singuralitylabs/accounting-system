@@ -647,6 +647,37 @@ describe("BudgetDeclarationForm", () => {
       ).toBeDisabled();
     });
 
+    it("前月の申告はあるが明細が0件の場合はボタンを活性化する（コピーしても追加はされない）", () => {
+      usePreviousBudgetDeclarationItems.mockReturnValue({
+        data: [],
+        isLoading: false,
+        isError: false,
+      });
+
+      renderWithMantine(
+        <BudgetDeclarationForm
+          opened
+          onClose={vi.fn()}
+          targetMonth="2026-10"
+          team="開発チーム"
+          declarationId={null}
+          teamLocked
+          memberList={testMemberList}
+        />,
+      );
+
+      const copyButton = screen.getByRole("button", {
+        name: "前月の明細をコピー",
+      });
+      expect(copyButton).not.toBeDisabled();
+
+      fireEvent.click(copyButton);
+      expect(confirmAction).not.toHaveBeenCalled();
+      expect(
+        screen.getByText("明細が登録されていません。"),
+      ).toBeInTheDocument();
+    });
+
     it("明細が未入力の状態では確認なしで前月の明細（担当者含む）を取り込む", () => {
       usePreviousBudgetDeclarationItems.mockReturnValue({
         data: [
