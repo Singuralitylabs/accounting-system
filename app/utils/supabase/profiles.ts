@@ -45,16 +45,15 @@ export const getAllUserInfo = async () => {
 // （getAllUserInfo）は RLS で teamleader が自チームに絞られるため使えない
 // （事前収支申告は teamleader もアクセスでき、選択肢は全メンバーである必要がある）。
 // DB 関数 get_member_options（SECURITY DEFINER。migration 21）経由で取得する
+// エラー時のログは呼び出し元（利用箇所の文脈が分かる場所）に任せる。
+// ここで console.error すると、呼び出し元も別途ログする場合に同じエラーが
+// 2 回出力されてノイズになる（DynamicBudgetDeclarations.tsx 参照）
 export const getMemberOptions = async () => {
   const supabase = createServerSupabase();
 
   const { data: memberOptions, error } = await supabase.rpc(
     "get_member_options",
   );
-
-  if (error) {
-    console.error("担当者選択肢の取得に失敗しました:", error);
-  }
 
   return { memberOptions, error };
 };

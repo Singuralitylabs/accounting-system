@@ -101,6 +101,33 @@ describe("validateBudgetDeclarationItem", () => {
       validateBudgetDeclarationItem(validItem({ entry_type: "expense" })),
     ).toBe("ok");
   });
+
+  it("manager_id は null なら ok（任意項目）", () => {
+    expect(validateBudgetDeclarationItem(validItem({ manager_id: null }))).toBe(
+      "ok",
+    );
+  });
+
+  it("manager_id は正の整数なら ok", () => {
+    expect(validateBudgetDeclarationItem(validItem({ manager_id: 1 }))).toBe(
+      "ok",
+    );
+  });
+
+  it("manager_id が小数・負数・0・NaN は manager_id エラーにする（Server Action は任意ペイロードを受け取れるため）", () => {
+    expect(validateBudgetDeclarationItem(validItem({ manager_id: 1.5 }))).toBe(
+      "manager_id",
+    );
+    expect(validateBudgetDeclarationItem(validItem({ manager_id: -1 }))).toBe(
+      "manager_id",
+    );
+    expect(validateBudgetDeclarationItem(validItem({ manager_id: 0 }))).toBe(
+      "manager_id",
+    );
+    expect(validateBudgetDeclarationItem(validItem({ manager_id: NaN }))).toBe(
+      "manager_id",
+    );
+  });
 });
 
 describe("validateBudgetDeclarationPayload", () => {
@@ -138,6 +165,13 @@ describe("validateBudgetDeclarationPayload", () => {
       validItem({ amount: MAX_ITEM_AMOUNT + 1 }),
     ]);
     expect(result).toEqual({ ok: false, reason: "item_amount_overflow" });
+  });
+
+  it("明細の manager_id が不正だと item_manager_id", () => {
+    const result = validateBudgetDeclarationPayload(header, [
+      validItem({ manager_id: -1 }),
+    ]);
+    expect(result).toEqual({ ok: false, reason: "item_manager_id" });
   });
 
   it("すべての明細が妥当なら ok", () => {

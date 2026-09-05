@@ -217,6 +217,48 @@ export const saveBudgetDeclaration = async (
   const supabase = createServerSupabase();
   const targetMonth = toFirstOfMonth(input.targetMonth);
 
+  // manager_id は保存前の型チェック（validateBudgetDeclarationPayload）だけでは
+  // 「実在する profiles.id か」までは検証できない。フォームを開いた後にそのメンバーの
+  // profiles が削除された場合、型は正しいまま存在しない id が送られてきうる。
+  // 明細差し替えは非トランザクション（既存明細を全 DELETE → INSERT）のため、
+  // 存在確認せずに進めると DELETE 成功後の INSERT が FK 違反（23503）で失敗し、
+  // 既存明細が消えたまま partialWriteFailed になる。ヘッダ更新の前に確認して弾く。
+  // profiles への直接 SELECT は RLS で teamleader が自チームに絞られ、他チームの
+  // 担当者を誤って「存在しない」と判定してしまうため、get_member_options()
+  // （migration 21）経由で確認する
+  const managerIds = Array.from(
+    new Set(
+      input.items
+        .map((item) => item.manager_id)
+        .filter((id): id is number => id !== null),
+    ),
+  );
+  if (managerIds.length > 0) {
+    const { data: memberOptions, error: memberOptionsError } =
+      await supabase.rpc("get_member_options");
+    if (memberOptionsError) {
+      console.error(`${SUBJECT}の担当者確認に失敗しました:`, memberOptionsError);
+      return {
+        error: {
+          kind: "fetchFailed",
+          message: `${SUBJECT}の担当者確認に失敗しました。`,
+        },
+      };
+    }
+    const existingIds = new Set(
+      (memberOptions ?? []).map((member) => member.id),
+    );
+    if (managerIds.some((id) => !existingIds.has(id))) {
+      return {
+        error: {
+          kind: "validationFailed",
+          message:
+            "選択された担当者が見つかりません。フォームを開き直して選び直してください。",
+        },
+      };
+    }
+  }
+
   const isCreate = input.declarationId === null;
   let declarationId = input.declarationId;
 

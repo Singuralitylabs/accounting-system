@@ -26,8 +26,11 @@ const DynamicBudgetDeclarations = async () => {
     getMemberOptions(),
   ]);
 
-  // 担当者選択肢は補助的な入力項目のため、取得に失敗しても一覧自体は表示する
-  // （選択肢が空になるだけで、既存の担当者設定済み明細の表示・保存自体は妨げない）
+  // 担当者選択肢は補助的な入力項目のため、取得に失敗しても一覧自体は表示する。
+  // ただしフォーム側の担当者 Select は disabled にする（memberListError 参照）。
+  // memberList が空のまま表示すると、既存明細の manager_id が選択肢に無いため
+  // Select が空欄に描画され、値は保持されているにもかかわらず「担当者が
+  // クリアされた」と利用者に誤認させてしまう
   if (memberOptionsError) {
     console.error(
       "事前収支申告の担当者選択肢の取得に失敗しました:",
@@ -76,6 +79,7 @@ const DynamicBudgetDeclarations = async () => {
         value: String(member.id),
         label: member.name,
       }))}
+      memberListError={!!memberOptionsError}
     />
   );
 };

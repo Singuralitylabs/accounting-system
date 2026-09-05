@@ -271,6 +271,7 @@ describe("BudgetDeclarationForm", () => {
             category: "セミナー",
             description: "○○受託案件",
             amount: 500000,
+            manager_id: null,
             display_order: 0,
             inserted_at: "",
             updated_at: "",
@@ -309,6 +310,7 @@ describe("BudgetDeclarationForm", () => {
           category: "セミナー",
           description: "○○受託案件",
           amount: 500000,
+          manager_id: null,
         },
       ],
     });
@@ -569,5 +571,46 @@ describe("BudgetDeclarationForm", () => {
 
     expect(screen.getByDisplayValue("既存の明細")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("担当者を選択")).toHaveValue("");
+  });
+
+  it("担当者選択肢の取得に失敗している間は担当者 Select を disabled にし、既存の manager_id を見せかけ上クリアしない", () => {
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: {
+        comment: "",
+        items: [
+          {
+            id: 1,
+            declaration_id: 7,
+            entry_type: "income",
+            category: "セミナー",
+            description: "既存の明細",
+            amount: 300000,
+            manager_id: 1,
+            display_order: 0,
+            inserted_at: "",
+            updated_at: "",
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    });
+
+    renderWithMantine(
+      <BudgetDeclarationForm
+        opened
+        onClose={vi.fn()}
+        targetMonth="2026-10"
+        team="開発チーム"
+        declarationId={7}
+        teamLocked={false}
+        memberList={[]}
+        memberListError
+      />,
+    );
+
+    const managerInput =
+      screen.getByPlaceholderText("担当者一覧を取得できませんでした");
+    expect(managerInput).toBeDisabled();
   });
 });

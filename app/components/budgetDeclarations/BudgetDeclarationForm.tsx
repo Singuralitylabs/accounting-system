@@ -61,6 +61,10 @@ type Props = {
   teamLocked: boolean;
   // 明細の担当者候補（全メンバー。チーム所属で絞らない。経理追加収支の責任者と同じ方式）
   memberList: { value: string; label: string }[];
+  // 担当者候補の取得に失敗したか。true の間は担当者 Select を disabled にする
+  // （memberList が空のまま有効にすると、既存明細の manager_id が選択肢に無いため
+  // Select が空欄に見え、値は保持されているのに「クリアされた」と誤認しうる）
+  memberListError?: boolean;
 };
 
 type HeaderFormValues = {
@@ -76,6 +80,7 @@ const BudgetDeclarationForm = ({
   declarationId,
   teamLocked,
   memberList,
+  memberListError = false,
 }: Props) => {
   const { teamList, categoryList, itemList } = useAtomValue(optionsAtom);
   const isEditMode = declarationId !== null;
@@ -354,7 +359,12 @@ const BudgetDeclarationForm = ({
                           ? String(item.manager_id)
                           : null
                       }
-                      placeholder="担当者を選択"
+                      placeholder={
+                        memberListError
+                          ? "担当者一覧を取得できませんでした"
+                          : "担当者を選択"
+                      }
+                      disabled={memberListError}
                       searchable
                       clearable
                       onChange={(value) =>
