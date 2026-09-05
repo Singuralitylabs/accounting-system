@@ -7,6 +7,7 @@ import {
 } from "@/app/hooks/useExtraEntryData";
 import { addMonths } from "@/app/utils/budgetDeclaration";
 import { confirmAction } from "@/app/utils/confirmAction";
+import { buildCopiedExtraEntries } from "@/app/utils/extraEntry";
 import { formatMonthLabel } from "@/app/utils/formatter";
 import { notifyError, notifySuccess } from "@/app/utils/notify";
 
@@ -40,6 +41,8 @@ const CopyPreviousExtraEntriesButton = ({
         : null;
 
   const handleCopy = async () => {
+    if (!previousEntries?.length) return;
+
     const appendNote = hasExistingEntries
       ? "\n※ 当月には既に経理追加収支が登録されています。コピーした明細は追記されます。"
       : "";
@@ -50,8 +53,13 @@ const CopyPreviousExtraEntriesButton = ({
     );
     if (!confirmed) return;
 
+    // 確認ダイアログに表示した件数と実際に登録される件数を一致させるため、
+    // ここで取得済みの previousEntries から行を組み立てて渡す
+    // （サーバ側では前月分を再取得しない）
+    const rows = buildCopiedExtraEntries(previousEntries, month);
+
     try {
-      const insertedCount = await copyMutation.mutateAsync(month);
+      const insertedCount = await copyMutation.mutateAsync(rows);
       notifySuccess(`${insertedCount}件の経理追加収支をコピーしました。`);
     } catch (error) {
       console.error("経理追加収支の前月コピーに失敗しました:", error);

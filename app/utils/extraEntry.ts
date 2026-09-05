@@ -14,7 +14,8 @@ export const formatEntryType = (entryType: string): string =>
 // Supabase アクセス（app/utils/supabase/extraEntries.ts）から切り離しているのは、
 // 副作用なしでユニットテストできるようにするため（docs/testing.md「2.6」）。
 
-type ExtraEntryInsert = Database["public"]["Tables"]["extra_entries"]["Insert"];
+export type ExtraEntryInsert =
+  Database["public"]["Tables"]["extra_entries"]["Insert"];
 
 // 対象月（YYYY-MM）の日数。Date のローカルコンストラクタ/ゲッターのみで計算し、
 // toISOString 等の UTC 変換を経由しないため TZ の影響を受けない

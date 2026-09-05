@@ -2,7 +2,7 @@
 
 import { ExtraEntryInListType } from "../../types/types";
 import { addMonths } from "../budgetDeclaration";
-import { buildCopiedExtraEntries } from "../extraEntry";
+import { ExtraEntryInsert } from "../extraEntry";
 import { toFirstOfMonth } from "../formatter";
 import { createServerSupabase } from "./clients";
 
@@ -140,29 +140,22 @@ export const getPreviousMonthExtraEntries = async (month: string) => {
   return { extraEntryList, error };
 };
 
-// 前月分の経理追加収支を当月分として一括複製する（bulk INSERT）。
+// 経理追加収支の一括登録（「前月の経理追加収支をコピー」ボタン用）。
 // 書き込み権限（accounting / admin のみ）は RLS で担保される。
-// 前月分の取得から INSERT までをサーバ側で完結させることで、ボタンの活性判定用に
-// クライアントがキャッシュした一覧に多少のタイムラグがあっても、実際に複製するのは
-// 実行時点の最新データになる
-export const copyExtraEntriesFromPreviousMonth = async (month: string) => {
-  const { extraEntryList, error } = await getPreviousMonthExtraEntries(month);
-  if (error) {
-    return { insertedCount: 0, error };
-  }
-  if (!extraEntryList || extraEntryList.length === 0) {
+// 複製元データの取得（getPreviousMonthExtraEntries）とここでの INSERT の間で
+// サーバ側の再取得を挟まないのは、確認ダイアログに表示した件数（クライアントが
+// 取得済みの一覧から算出）と実際に登録される件数を一致させるため。
+export const bulkInsertExtraEntries = async (rows: ExtraEntryInsert[]) => {
+  if (rows.length === 0) {
     return { insertedCount: 0, error: null };
   }
 
-  const rows = buildCopiedExtraEntries(extraEntryList, month);
   const supabase = createServerSupabase();
-  const { error: insertError } = await supabase
-    .from("extra_entries")
-    .insert(rows);
+  const { error } = await supabase.from("extra_entries").insert(rows);
 
-  if (insertError) {
-    console.error("経理追加収支の前月コピーに失敗しました:", insertError);
-    return { insertedCount: 0, error: insertError };
+  if (error) {
+    console.error("経理追加収支の一括登録に失敗しました:", error);
+    return { insertedCount: 0, error };
   }
 
   return { insertedCount: rows.length, error: null };

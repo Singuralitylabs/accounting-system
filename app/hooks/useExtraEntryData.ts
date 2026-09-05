@@ -3,9 +3,10 @@ import {
   getExtraEntryList,
   bulkUpsertExtraEntry,
   getPreviousMonthExtraEntries,
-  copyExtraEntriesFromPreviousMonth,
+  bulkInsertExtraEntries,
 } from "../utils/supabase/extraEntries";
 import { ExtraEntryInListType, ExtraEntryType } from "../types/types";
+import { ExtraEntryInsert } from "../utils/extraEntry";
 
 // 経理追加収支一覧
 export const useExtraEntryList = (initialData?: ExtraEntryType[] | null) => {
@@ -61,14 +62,15 @@ export const usePreviousMonthExtraEntries = (month: string) => {
   });
 };
 
-// 前月分の経理追加収支を当月分として一括複製する
+// 前月分の経理追加収支を当月分として一括登録する（呼び出し側が
+// buildCopiedExtraEntries で組み立てた行を渡す。確認ダイアログに表示した
+// 件数と実際に登録される件数を一致させるため、ここでは前月分の再取得は行わない）
 export const useCopyExtraEntriesFromPreviousMonth = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (month: string) => {
-      const { insertedCount, error } =
-        await copyExtraEntriesFromPreviousMonth(month);
+    mutationFn: async (rows: ExtraEntryInsert[]) => {
+      const { insertedCount, error } = await bulkInsertExtraEntries(rows);
       if (error) {
         throw new Error("経理追加収支の前月コピーに失敗しました");
       }
