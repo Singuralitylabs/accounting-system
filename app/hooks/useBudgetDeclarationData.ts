@@ -73,12 +73,12 @@ export const useBudgetDeclarationDetail = (declarationId: number | null) => {
       return detail;
     },
     enabled: declarationId !== null,
-    // refetchOnMount: "always" が優先されるため、マウント時の再取得可否には
-    // この staleTime は影響しない（明細パネルを閉じて再度開いても必ず再取得する）。
-    // isStale はアプリ内で参照しておらず、他に refetchOnWindowFocus 等の
-    // 自動再取得トリガーも無効化されているため、現状は実質的に無効な設定。
+    // refetchOnMount: "always" のため、マウント時（明細パネルを閉じて再度開く
+    // 場合を含む）の再取得可否にはこの staleTime は影響しない（常に再取得する）。
     // 編集フォーム用の lost update 対策（直近の担当者更新を古いまま保存しない）は
-    // refetchOnMount: "always" 側で担保している
+    // refetchOnMount 側で担保している。staleTime は reconnect 時の自動再取得
+    // （refetchOnReconnect。既定で有効）など、マウント以外のタイミングでの
+    // stale 判定に使われる
     staleTime: 2 * 60 * 1000,
     refetchOnMount: "always",
     retry: retryUnlessForbidden,
