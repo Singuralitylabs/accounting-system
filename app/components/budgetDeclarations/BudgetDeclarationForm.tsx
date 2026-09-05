@@ -11,6 +11,7 @@ import {
   Table,
   Textarea,
   TextInput,
+  Tooltip,
 } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useAtomValue } from "jotai";
@@ -21,11 +22,15 @@ import { optionsAtom } from "@/app/atoms/optionsAtom";
 import {
   useBudgetDeclarationDetail,
   useDeleteBudgetDeclaration,
+  usePreviousBudgetDeclarationItems,
   useSaveBudgetDeclaration,
 } from "@/app/hooks/useBudgetDeclarationData";
 import { BudgetDeclarationItemInput } from "@/app/types/types";
 import { confirmAction } from "@/app/utils/confirmAction";
-import { summarizeBudgetItems } from "@/app/utils/budgetDeclaration";
+import {
+  previousItemsToFormRows,
+  summarizeBudgetItems,
+} from "@/app/utils/budgetDeclaration";
 import {
   getBudgetDeclarationValidationMessage,
   validateBudgetDeclarationPayload,
@@ -110,6 +115,30 @@ const BudgetDeclarationForm = ({
     initialValues: { team, comment: "" },
   });
 
+  // 前月・同チームの申告明細（「前月の明細をコピー」ボタン用）。新規作成時のみ
+  // 有効化する（編集時は既存明細の取得完了を待つ必要があり、detail 取得中の
+  // 競合を避けるため単純に対象外にする。用途としても、既存申告を編集中に前月を
+  // 取り込む場面は薄い）。チーム選択が変わる（経理・管理者の新規作成時）たびに
+  // 対象チームを切り替えて再取得する。保存・削除後にキャッシュが古いまま
+  // 残らないよう、useBudgetDeclarationDetail と同様にマウントのたび再取得する
+  const {
+    data: previousItems,
+    isLoading: isPreviousItemsLoading,
+    isError: isPreviousItemsError,
+  } = usePreviousBudgetDeclarationItems(
+    opened && !isEditMode,
+    targetMonth,
+    form.values.team,
+  );
+
+  const copyDisabledReason = isPreviousItemsLoading
+    ? "前月の申告を確認しています…"
+    : isPreviousItemsError
+      ? "前月の申告の確認に失敗しました。"
+      : !previousItems?.length
+        ? "前月の明細がありません。"
+        : null;
+
   const [items, setItems] = useState<ItemRow[]>([]);
   const nextKeyRef = useRef(0);
   // detail から items/comment を反映済みの declarationId。編集中に detail が
@@ -153,11 +182,58 @@ const BudgetDeclarationForm = ({
   }, [opened, isEditMode, detail, declarationId, isDetailFetching]);
 
   const teamOptions = teamList.includes(team) ? teamList : [team, ...teamList];
-  const categoryOptionsFor = (entryType: string) =>
-    entryType === "income" ? categoryList : itemList;
+  // 分類がマスタから外れていても（無効化・改名。前月コピーで持ち込んだ場合を含む）
+  // 選択肢に残し、見せかけ上クリアされたように見せない（teamOptions と同方針）。
+  // ただしマスタの値と紛れないよう、注入した選択肢のラベルだけ「（マスタ未登録）」
+  // と付記する（保存される値そのものは変えない）
+  const categoryOptionsFor = (entryType: string, category: string) => {
+    const master = entryType === "income" ? categoryList : itemList;
+    if (!category || master.includes(category)) return master;
+    return [
+      { value: category, label: `${category}（マスタ未登録）` },
+      ...master,
+    ];
+  };
 
   const handleAddItem = () => {
     setItems((prev) => [...prev, emptyItem(nextKeyRef.current++)]);
+  };
+
+  // チームを変更すると、既に取り込んだ明細が別チームのものとして紛れ込む
+  // （前月コピーで担当者ごと別チームの明細一式を持ち込める経路ができたため、
+  // 手入力より誤操作の実害が大きい）。明細行がある状態でチームを変えるときは
+  // 確認のうえクリアする
+  const handleTeamChange = async (value: string | null) => {
+    if (!value || value === form.values.team) return;
+
+    if (items.length > 0) {
+      const confirmed = await confirmAction(
+        "チームを変更すると入力済みの明細はクリアされます。変更しますか？",
+      );
+      if (!confirmed) return;
+      setItems([]);
+    }
+
+    form.setFieldValue("team", value);
+  };
+
+  // 前月・同チームの明細を現在の明細行の末尾に追加する（未保存状態のまま。
+  // コメントはコピー対象に含めない＝前月固有の内容の可能性が高いため）
+  const handleCopyPreviousItems = async () => {
+    if (!previousItems) return;
+
+    if (items.length > 0) {
+      const confirmed = await confirmAction(
+        "既に入力済みの明細があります。前月の明細を追記しますか？",
+      );
+      if (!confirmed) return;
+    }
+
+    const rows = previousItemsToFormRows(previousItems).map((item) => ({
+      ...item,
+      key: nextKeyRef.current++,
+    }));
+    setItems((prev) => [...prev, ...rows]);
   };
 
   const handleRemoveItem = (key: number) => {
@@ -276,6 +352,7 @@ const BudgetDeclarationForm = ({
             allowDeselect={false}
             key={form.key("team")}
             {...form.getInputProps("team")}
+            onChange={handleTeamChange}
           />
         </div>
 
@@ -287,7 +364,25 @@ const BudgetDeclarationForm = ({
           {...form.getInputProps("comment")}
         />
 
-        <div className="overflow-x-auto mt-4 border border-gray-300 rounded bg-slate-50 p-4">
+        {!isEditMode && (
+          <Group justify="flex-end" className="mt-4">
+            <Tooltip label={copyDisabledReason} disabled={!copyDisabledReason}>
+              <span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  color="dark"
+                  disabled={!!copyDisabledReason}
+                  onClick={handleCopyPreviousItems}
+                >
+                  前月の明細をコピー
+                </Button>
+              </span>
+            </Tooltip>
+          </Group>
+        )}
+
+        <div className="overflow-x-auto mt-2 border border-gray-300 rounded bg-slate-50 p-4">
           <Table verticalSpacing="sm" className="whitespace-nowrap">
             <Table.Thead>
               <Table.Tr>
@@ -318,7 +413,7 @@ const BudgetDeclarationForm = ({
                   </Table.Td>
                   <Table.Td>
                     <Select
-                      data={categoryOptionsFor(item.entry_type)}
+                      data={categoryOptionsFor(item.entry_type, item.category)}
                       value={item.category || null}
                       placeholder="分類を選択"
                       onChange={(value) =>

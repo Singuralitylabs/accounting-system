@@ -1,18 +1,22 @@
 // @vitest-environment jsdom
 
 import { fireEvent, screen, within } from "@testing-library/react";
+import { createStore, Provider } from "jotai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { optionsAtom } from "@/app/atoms/optionsAtom";
 import BudgetDeclarationForm from "@/app/components/budgetDeclarations/BudgetDeclarationForm";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
 
 const {
   useBudgetDeclarationDetail,
+  usePreviousBudgetDeclarationItems,
   saveMutation,
   deleteMutation,
   confirmAction,
   notifyError,
 } = vi.hoisted(() => ({
   useBudgetDeclarationDetail: vi.fn(),
+  usePreviousBudgetDeclarationItems: vi.fn(),
   saveMutation: {
     mutateAsync: vi.fn().mockResolvedValue({}),
     isPending: false,
@@ -27,6 +31,7 @@ const {
 
 vi.mock("@/app/hooks/useBudgetDeclarationData", () => ({
   useBudgetDeclarationDetail,
+  usePreviousBudgetDeclarationItems,
   useSaveBudgetDeclaration: () => saveMutation,
   useDeleteBudgetDeclaration: () => deleteMutation,
 }));
@@ -38,6 +43,22 @@ vi.mock("@/app/utils/notify", () => ({
   toErrorMessage: (error: unknown, fallback: string) =>
     error instanceof Error ? error.message : fallback,
 }));
+
+// 「チーム」Select のドロップダウンは、この Modal 配下では開いた後も
+// ラッパーに aria-hidden が残る（Mantine + jsdom の組み合わせによる既知の
+// 表示上のクセで、他の Select（担当者・分類など）では発生しない）ため
+// screen.findByRole("option", …) では見つからない。実 DOM 上には
+// role="option" の要素自体は存在し、click も正しく処理されるため、
+// querySelector で直接取得してクリックする
+const selectTeamOption = async (teamInput: HTMLElement, label: string) => {
+  fireEvent.click(teamInput);
+  const option = await vi.waitFor(() => {
+    const el = document.querySelector(`[role="option"][value="${label}"]`);
+    if (!el) throw new Error(`option "${label}" not found`);
+    return el as HTMLElement;
+  });
+  fireEvent.click(option);
+};
 
 const emptyDetail = () => ({
   data: undefined,
@@ -54,6 +75,11 @@ describe("BudgetDeclarationForm", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useBudgetDeclarationDetail.mockReturnValue(emptyDetail());
+    usePreviousBudgetDeclarationItems.mockReturnValue({
+      data: null,
+      isLoading: false,
+      isError: false,
+    });
     saveMutation.isPending = false;
     deleteMutation.isPending = false;
   });
@@ -612,5 +638,334 @@ describe("BudgetDeclarationForm", () => {
     const managerInput =
       screen.getByPlaceholderText("担当者一覧を取得できませんでした");
     expect(managerInput).toBeDisabled();
+  });
+
+  describe("前月の明細をコピー", () => {
+    it("前月の申告が無い場合はボタンを無効化する", () => {
+      usePreviousBudgetDeclarationItems.mockReturnValue({
+        data: null,
+        isLoading: false,
+        isError: false,
+      });
+
+      renderWithMantine(
+        <BudgetDeclarationForm
+          opened
+          onClose={vi.fn()}
+          targetMonth="2026-10"
+          team="開発チーム"
+          declarationId={null}
+          teamLocked
+          memberList={testMemberList}
+        />,
+      );
+
+      expect(
+        screen.getByRole("button", { name: "前月の明細をコピー" }),
+      ).toBeDisabled();
+    });
+
+    it("前月の申告はあるが明細が0件の場合もボタンを無効化する（何も追加できないため）", () => {
+      usePreviousBudgetDeclarationItems.mockReturnValue({
+        data: [],
+        isLoading: false,
+        isError: false,
+      });
+
+      renderWithMantine(
+        <BudgetDeclarationForm
+          opened
+          onClose={vi.fn()}
+          targetMonth="2026-10"
+          team="開発チーム"
+          declarationId={null}
+          teamLocked
+          memberList={testMemberList}
+        />,
+      );
+
+      expect(
+        screen.getByRole("button", { name: "前月の明細をコピー" }),
+      ).toBeDisabled();
+    });
+
+    it("編集時はボタンを表示しない", () => {
+      useBudgetDeclarationDetail.mockReturnValue({
+        data: { comment: "", items: [] },
+        isLoading: false,
+        isError: false,
+      });
+      usePreviousBudgetDeclarationItems.mockReturnValue({
+        data: [
+          {
+            id: 1,
+            entry_type: "income",
+            category: "セミナー",
+            description: "○○受託案件",
+            amount: 500000,
+            manager_id: 1,
+            display_order: 0,
+          },
+        ],
+        isLoading: false,
+        isError: false,
+      });
+
+      renderWithMantine(
+        <BudgetDeclarationForm
+          opened
+          onClose={vi.fn()}
+          targetMonth="2026-10"
+          team="開発チーム"
+          declarationId={7}
+          teamLocked={false}
+          memberList={testMemberList}
+        />,
+      );
+
+      expect(
+        screen.queryByRole("button", { name: "前月の明細をコピー" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("明細が未入力の状態では確認なしで前月の明細（担当者含む）を取り込む", () => {
+      usePreviousBudgetDeclarationItems.mockReturnValue({
+        data: [
+          {
+            id: 1,
+            entry_type: "income",
+            category: "セミナー",
+            description: "○○受託案件",
+            amount: 500000,
+            manager_id: 1,
+            display_order: 0,
+          },
+        ],
+        isLoading: false,
+        isError: false,
+      });
+
+      renderWithMantine(
+        <BudgetDeclarationForm
+          opened
+          onClose={vi.fn()}
+          targetMonth="2026-10"
+          team="開発チーム"
+          declarationId={null}
+          teamLocked
+          memberList={testMemberList}
+        />,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", { name: "前月の明細をコピー" }),
+      );
+
+      expect(confirmAction).not.toHaveBeenCalled();
+      expect(screen.getByDisplayValue("○○受託案件")).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("担当者を選択")).toHaveValue(
+        "山田太郎",
+      );
+    });
+
+    it("既に明細行がある状態で押すと追記の確認ダイアログを出し、承諾すると末尾に追加する", async () => {
+      usePreviousBudgetDeclarationItems.mockReturnValue({
+        data: [
+          {
+            id: 1,
+            entry_type: "expense",
+            category: "外注費",
+            description: "外注A",
+            amount: 100000,
+            manager_id: null,
+            display_order: 0,
+          },
+        ],
+        isLoading: false,
+        isError: false,
+      });
+      confirmAction.mockResolvedValue(true);
+
+      renderWithMantine(
+        <BudgetDeclarationForm
+          opened
+          onClose={vi.fn()}
+          targetMonth="2026-10"
+          team="開発チーム"
+          declarationId={null}
+          teamLocked
+          memberList={testMemberList}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "明細追加" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "前月の明細をコピー" }),
+      );
+
+      expect(confirmAction).toHaveBeenCalled();
+      await screen.findByDisplayValue("外注A");
+      // 既存の空行 + コピーした 1 行で明細は 2 行になる
+      expect(
+        screen.getAllByRole("button", { name: "明細を削除" }),
+      ).toHaveLength(2);
+    });
+
+    it("追記の確認をキャンセルすると取り込まない", async () => {
+      usePreviousBudgetDeclarationItems.mockReturnValue({
+        data: [
+          {
+            id: 1,
+            entry_type: "expense",
+            category: "外注費",
+            description: "外注A",
+            amount: 100000,
+            manager_id: null,
+            display_order: 0,
+          },
+        ],
+        isLoading: false,
+        isError: false,
+      });
+      confirmAction.mockResolvedValue(false);
+
+      renderWithMantine(
+        <BudgetDeclarationForm
+          opened
+          onClose={vi.fn()}
+          targetMonth="2026-10"
+          team="開発チーム"
+          declarationId={null}
+          teamLocked
+          memberList={testMemberList}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "明細追加" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "前月の明細をコピー" }),
+      );
+
+      await vi.waitFor(() => expect(confirmAction).toHaveBeenCalled());
+      expect(screen.queryByDisplayValue("外注A")).not.toBeInTheDocument();
+    });
+
+    it("コピー後にチームを変更すると確認のうえ明細をクリアする（別チームの明細を紛れ込ませない）", async () => {
+      usePreviousBudgetDeclarationItems.mockReturnValue({
+        data: [
+          {
+            id: 1,
+            entry_type: "expense",
+            category: "外注費",
+            description: "外注A",
+            amount: 100000,
+            manager_id: null,
+            display_order: 0,
+          },
+        ],
+        isLoading: false,
+        isError: false,
+      });
+      confirmAction.mockResolvedValue(true);
+
+      const store = createStore();
+      store.set(optionsAtom, {
+        teamList: ["開発チーム", "経理チーム"],
+        categoryList: [],
+        itemList: [],
+        certificateList: [],
+      });
+
+      renderWithMantine(
+        <Provider store={store}>
+          <BudgetDeclarationForm
+            opened
+            onClose={vi.fn()}
+            targetMonth="2026-10"
+            team="開発チーム"
+            declarationId={null}
+            teamLocked={false}
+            memberList={testMemberList}
+          />
+        </Provider>,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", { name: "前月の明細をコピー" }),
+      );
+      await screen.findByDisplayValue("外注A");
+
+      confirmAction.mockClear();
+      await selectTeamOption(
+        screen.getByRole("textbox", { name: "チーム" }),
+        "経理チーム",
+      );
+
+      await vi.waitFor(() => expect(confirmAction).toHaveBeenCalled());
+      expect(screen.queryByDisplayValue("外注A")).not.toBeInTheDocument();
+      // confirmAction の resolve から setItems/form.setFieldValue までは
+      // イベントハンドラの外（Promise 継続）での state 更新のため、
+      // 反映まで 1 tick 分のズレが生じうる。値の確定を待ってから検証する
+      await vi.waitFor(() =>
+        expect(screen.getByRole("textbox", { name: "チーム" })).toHaveValue(
+          "経理チーム",
+        ),
+      );
+    });
+
+    it("明細がある状態でチームの変更をキャンセルするとチーム・明細とも変わらない", async () => {
+      usePreviousBudgetDeclarationItems.mockReturnValue({
+        data: [
+          {
+            id: 1,
+            entry_type: "expense",
+            category: "外注費",
+            description: "外注A",
+            amount: 100000,
+            manager_id: null,
+            display_order: 0,
+          },
+        ],
+        isLoading: false,
+        isError: false,
+      });
+      confirmAction.mockResolvedValue(true);
+
+      const store = createStore();
+      store.set(optionsAtom, {
+        teamList: ["開発チーム", "経理チーム"],
+        categoryList: [],
+        itemList: [],
+        certificateList: [],
+      });
+
+      renderWithMantine(
+        <Provider store={store}>
+          <BudgetDeclarationForm
+            opened
+            onClose={vi.fn()}
+            targetMonth="2026-10"
+            team="開発チーム"
+            declarationId={null}
+            teamLocked={false}
+            memberList={testMemberList}
+          />
+        </Provider>,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", { name: "前月の明細をコピー" }),
+      );
+      await screen.findByDisplayValue("外注A");
+
+      confirmAction.mockClear();
+      confirmAction.mockResolvedValue(false);
+      const teamInput = screen.getByRole("textbox", { name: "チーム" });
+      await selectTeamOption(teamInput, "経理チーム");
+
+      await vi.waitFor(() => expect(confirmAction).toHaveBeenCalled());
+      expect(screen.getByDisplayValue("外注A")).toBeInTheDocument();
+      expect(teamInput).toHaveValue("開発チーム");
+    });
   });
 });

@@ -10,6 +10,7 @@ import {
   defaultTargetMonth,
   isForbiddenError,
   isPartialWriteFailureError,
+  previousItemsToFormRows,
   summarizeBudgetItems,
   totalBudgetSummary,
   visibleBudgetTeams,
@@ -389,5 +390,77 @@ describe("isPartialWriteFailureError", () => {
   it("無関係なエラーは対象外", () => {
     expect(isPartialWriteFailureError(new Error("network"))).toBe(false);
     expect(isPartialWriteFailureError(null)).toBe(false);
+  });
+});
+
+describe("previousItemsToFormRows", () => {
+  // 並び順は取得側（getPreviousBudgetDeclarationItems）が display_order 順に
+  // 揃えて渡す前提のため、ここでは渡された順のまま変換されることだけ確認する
+  it("id・display_order を持たない新規行に変換する（担当者も引き継ぐ）", () => {
+    expect(
+      previousItemsToFormRows([
+        {
+          id: 10,
+          entry_type: "income",
+          category: "セミナー",
+          description: "○○受託案件",
+          amount: 500000,
+          manager_id: 1,
+          display_order: 0,
+        },
+        {
+          id: 11,
+          entry_type: "expense",
+          category: "外注費",
+          description: "外注A",
+          amount: 100000,
+          manager_id: 2,
+          display_order: 1,
+        },
+      ]),
+    ).toEqual([
+      {
+        entry_type: "income",
+        category: "セミナー",
+        description: "○○受託案件",
+        amount: 500000,
+        manager_id: 1,
+      },
+      {
+        entry_type: "expense",
+        category: "外注費",
+        description: "外注A",
+        amount: 100000,
+        manager_id: 2,
+      },
+    ]);
+  });
+
+  it("担当者未設定（manager_id: null）の明細もそのまま変換する", () => {
+    expect(
+      previousItemsToFormRows([
+        {
+          id: 10,
+          entry_type: "income",
+          category: "セミナー",
+          description: "○○受託案件",
+          amount: 500000,
+          manager_id: null,
+          display_order: 0,
+        },
+      ]),
+    ).toEqual([
+      {
+        entry_type: "income",
+        category: "セミナー",
+        description: "○○受託案件",
+        amount: 500000,
+        manager_id: null,
+      },
+    ]);
+  });
+
+  it("明細 0 件なら空配列を返す", () => {
+    expect(previousItemsToFormRows([])).toEqual([]);
   });
 });

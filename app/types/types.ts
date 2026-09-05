@@ -232,6 +232,20 @@ export type BudgetDeclarationSaveResult =
 
 export type BudgetDeclarationDeleteResult = { error?: AccessFailure };
 
+// 前月コピー用の明細（DB から取得したそのままの形。display_order 順への
+// 並べ替えは取得側（getPreviousBudgetDeclarationItems）が行う。フォームの
+// 新規行への変換は app/utils/budgetDeclaration.ts の previousItemsToFormRows
+// が行う。フォーム入力と同じ列は BudgetDeclarationItemInput から流用し、
+// 選択列と型の手動同期を減らす）
+export type BudgetDeclarationPreviousItem = BudgetDeclarationItemInput &
+  Pick<BudgetDeclarationItemType, "id" | "display_order">;
+
+export type BudgetDeclarationPreviousItemsResult =
+  // 前月の申告が無い場合は items: null（コピーボタンの活性判定に使う。
+  // 申告はあるが明細が 0 件の場合と区別する）
+  | { items: BudgetDeclarationPreviousItem[] | null; error?: undefined }
+  | { items?: undefined; error: AccessFailure };
+
 // リマインド設定（対象日）の取得・保存結果
 export type BudgetDeclarationReminderSettingsResult =
   | { targetDays: number[]; error?: undefined }

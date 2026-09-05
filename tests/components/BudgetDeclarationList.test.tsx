@@ -10,6 +10,7 @@ import { renderWithMantine } from "../testUtils/renderWithMantine";
 const {
   useBudgetDeclarationList,
   useBudgetDeclarationDetail,
+  usePreviousBudgetDeclarationItems,
   saveMutation,
   deleteMutation,
 } = vi.hoisted(() => ({
@@ -20,6 +21,11 @@ const {
     isError: false,
     isFetching: false,
   })),
+  usePreviousBudgetDeclarationItems: vi.fn(() => ({
+    data: null,
+    isLoading: false,
+    isError: false,
+  })),
   saveMutation: { mutateAsync: vi.fn(), isPending: false },
   deleteMutation: { mutateAsync: vi.fn(), isPending: false },
 }));
@@ -27,6 +33,7 @@ const {
 vi.mock("@/app/hooks/useBudgetDeclarationData", () => ({
   useBudgetDeclarationList,
   useBudgetDeclarationDetail,
+  usePreviousBudgetDeclarationItems,
   useSaveBudgetDeclaration: () => saveMutation,
   useDeleteBudgetDeclaration: () => deleteMutation,
 }));

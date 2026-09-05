@@ -8,10 +8,12 @@ import {
   deleteBudgetDeclaration,
   getBudgetDeclarationDetail,
   getBudgetDeclarationList,
+  getPreviousBudgetDeclarationItems,
   saveBudgetDeclaration,
 } from "../utils/supabase/budgetDeclarations";
 import {
   BudgetDeclarationDetailType,
+  BudgetDeclarationPreviousItem,
   BudgetDeclarationSaveInput,
   BudgetDeclarationStatusType,
 } from "../types/types";
@@ -79,6 +81,39 @@ export const useBudgetDeclarationDetail = (declarationId: number | null) => {
     // refetchOnMount 側で担保している。staleTime は reconnect 時の自動再取得
     // （refetchOnReconnect。既定で有効）など、マウント以外のタイミングでの
     // stale 判定に使われる
+    staleTime: 2 * 60 * 1000,
+    refetchOnMount: "always",
+    retry: retryUnlessForbidden,
+  });
+};
+
+// 対象月の前月・同チームの申告明細（フォームの「前月の明細をコピー」ボタン用）。
+// items: null は前月に申告が無いことを示し、呼び出し側でボタンを無効化する判定に使う。
+// フォームを開いている間だけ有効化する想定（enabled は呼び出し側が渡す）。
+// useBudgetDeclarationDetail と同じ理由で refetchOnMount: "always" にする。
+// このクエリは保存・削除ミューテーションが invalidate/remove しないため、
+// QueryProvider既定の refetchOnMount: false のままだと、他の月・チームの
+// 申告を保存・削除した後にフォームを開き直しても gcTime（10分）内は
+// 古いキャッシュ（前月申告なし判定や、削除済み・編集前の明細）がそのまま
+// 使われてしまう
+export const usePreviousBudgetDeclarationItems = (
+  enabled: boolean,
+  targetMonth: string,
+  team: string,
+) => {
+  return useQuery<BudgetDeclarationPreviousItem[] | null>({
+    queryKey: ["budgetDeclarations", "previousItems", targetMonth, team],
+    queryFn: async () => {
+      const { items, error } = await getPreviousBudgetDeclarationItems(
+        targetMonth,
+        team,
+      );
+      if (error) {
+        throw new BudgetDeclarationError(error);
+      }
+      return items;
+    },
+    enabled: enabled && !!targetMonth && !!team,
     staleTime: 2 * 60 * 1000,
     refetchOnMount: "always",
     retry: retryUnlessForbidden,
