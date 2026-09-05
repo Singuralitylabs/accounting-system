@@ -163,6 +163,105 @@ describe("BudgetDeclarationList", () => {
     expect(screen.queryByText("リマインド設定")).not.toBeInTheDocument();
   });
 
+  it("「すべて開く」で申告済みの全チームの明細パネルが同時に表示され、「すべて閉じる」で全て閉じる", () => {
+    useBudgetDeclarationList.mockReturnValue({
+      data: [
+        row({ team: "開発チーム", declarationId: 1 }),
+        row({ team: "広報チーム", declarationId: 2 }),
+        row({
+          team: "未申告チーム",
+          declarationId: null,
+          isDeclared: false,
+          declaredByName: null,
+          updatedAt: null,
+          summary: { incomeTotal: 0, expenseTotal: 0, balance: 0 },
+        }),
+      ],
+      isLoading: false,
+      isError: false,
+      error: null,
+      isPlaceholderData: false,
+    });
+
+    renderWithMantine(
+      <BudgetDeclarationList
+        initialMonth="2026-10"
+        initialData={null}
+        initialDataUpdatedAt={Date.now()}
+        canEditAllTeams
+      />,
+    );
+
+    expect(screen.queryByText("申告が見つかりません")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "すべて開く" }));
+    expect(screen.getAllByText("申告が見つかりません")).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "すべて閉じる" }));
+    expect(screen.queryByText("申告が見つかりません")).not.toBeInTheDocument();
+  });
+
+  it("個別の「明細を表示 / 閉じる」で複数チームを個別に開いたままにできる", () => {
+    useBudgetDeclarationList.mockReturnValue({
+      data: [
+        row({ team: "開発チーム", declarationId: 1 }),
+        row({ team: "広報チーム", declarationId: 2 }),
+      ],
+      isLoading: false,
+      isError: false,
+      error: null,
+      isPlaceholderData: false,
+    });
+
+    renderWithMantine(
+      <BudgetDeclarationList
+        initialMonth="2026-10"
+        initialData={null}
+        initialDataUpdatedAt={Date.now()}
+        canEditAllTeams
+      />,
+    );
+
+    const showButtons = screen.getAllByRole("button", { name: "明細を表示" });
+    fireEvent.click(showButtons[0]);
+    expect(screen.getAllByText("申告が見つかりません")).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "明細を表示" }));
+    expect(screen.getAllByText("申告が見つかりません")).toHaveLength(2);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "閉じる" })[0]);
+    expect(screen.getAllByText("申告が見つかりません")).toHaveLength(1);
+  });
+
+  it("月を切り替えると開閉状態がリセットされる", () => {
+    useBudgetDeclarationList.mockReturnValue({
+      data: [row({ team: "開発チーム", declarationId: 1 })],
+      isLoading: false,
+      isError: false,
+      error: null,
+      isPlaceholderData: false,
+    });
+
+    renderWithMantine(
+      <BudgetDeclarationList
+        initialMonth="2026-10"
+        initialData={null}
+        initialDataUpdatedAt={Date.now()}
+        canEditAllTeams
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "明細を表示" }));
+    expect(screen.getByText("申告が見つかりません")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "月を変更" }));
+
+    expect(screen.queryByText("申告が見つかりません")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "明細を表示" }),
+    ).toBeInTheDocument();
+  });
+
   it("canManageReminderSettings が true のときはリマインド設定セクションを表示する", () => {
     useBudgetDeclarationList.mockReturnValue({
       data: [row()],
