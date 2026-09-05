@@ -117,15 +117,20 @@ export const bulkUpsertExtraEntry = async (
   return true;
 };
 
+// 月キー（YYYY-MM）の範囲を [月初, 翌月初) の半開区間で返す（entry_date の絞り込み用）
+const monthDateRange = (month: string) => ({
+  start: toFirstOfMonth(month),
+  end: toFirstOfMonth(addMonths(month, 1)),
+});
+
 // 対象月の前月分の経理追加収支を取得する（損益計算書 月次タブの
 // 「前月の経理追加収支をコピー」ボタン用。ボタンの活性判定・確認ダイアログの
-// 件数表示・複製元データの取得を兼ねる）。entry_date が対象月内の行のみ返す
+// 件数表示・複製元データの取得を兼ねる）。entry_date が前月内の行のみ返す
 // （NULL＝月未確定の明細は範囲比較で自動的に除外される）
 export const getPreviousMonthExtraEntries = async (month: string) => {
   const supabase = createServerSupabase();
   const previousMonth = addMonths(month, -1);
-  const rangeStart = toFirstOfMonth(previousMonth);
-  const rangeEnd = toFirstOfMonth(addMonths(previousMonth, 1));
+  const { start: rangeStart, end: rangeEnd } = monthDateRange(previousMonth);
 
   const { data: extraEntryList, error } = await supabase
     .from("extra_entries")
@@ -152,6 +157,9 @@ export const getPreviousMonthExtraEntries = async (month: string) => {
 //     （削除済みの行は select に含まれず複製されない）、
 // (2) INSERT する列を buildCopiedExtraEntries のホワイトリストに揃えられる
 //     （呼び出し側が任意の列を指定できる経路を作らない）。
+// 取得クエリには sourceIds に加えて前月の日付範囲も必ず付与する。改変された
+// リクエストで前月以外の id を渡されても、対象は前月分に限定され、
+// 「前月コピー」という機能の前提から外れた複製ができないようにする。
 // さらに、当月に既に同一内容の明細がある場合は二重コピーとみなしスキップする
 // （確認ダイアログを見逃した連続クリック対策）。
 export const copyExtraEntriesFromPreviousMonth = async (
@@ -163,11 +171,16 @@ export const copyExtraEntriesFromPreviousMonth = async (
   }
 
   const supabase = createServerSupabase();
+  const previousMonth = addMonths(targetMonth, -1);
+  const { start: previousRangeStart, end: previousRangeEnd } =
+    monthDateRange(previousMonth);
 
   const { data: sourceEntries, error: sourceError } = await supabase
     .from("extra_entries")
     .select("*")
-    .in("id", sourceIds);
+    .in("id", sourceIds)
+    .gte("entry_date", previousRangeStart)
+    .lt("entry_date", previousRangeEnd);
 
   if (sourceError) {
     console.error("経理追加収支の前月コピー元の取得に失敗しました:", sourceError);
@@ -179,8 +192,8 @@ export const copyExtraEntriesFromPreviousMonth = async (
     return { insertedCount: 0, skippedCount: 0, error: null };
   }
 
-  const targetRangeStart = toFirstOfMonth(targetMonth);
-  const targetRangeEnd = toFirstOfMonth(addMonths(targetMonth, 1));
+  const { start: targetRangeStart, end: targetRangeEnd } =
+    monthDateRange(targetMonth);
   const { data: existingEntries, error: existingError } = await supabase
     .from("extra_entries")
     .select("*")
