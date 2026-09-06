@@ -51,6 +51,10 @@ const ProfitLossAdjustmentModal = ({
     onClose();
   };
 
+  // 開いた時点で既に調整が存在したか（実績額が元データと同額なら調整は無い）。
+  // 「実績額を修正」せずに保存を押した場合に、不要な確認・成功トーストを出さないために使う
+  const hadExistingAdjustment = currentActualAmount !== sourceAmount;
+
   const handleSave = async () => {
     if (actualAmount === "") {
       notifyError("実績額を入力してください。");
@@ -60,6 +64,11 @@ const ProfitLossAdjustmentModal = ({
     const willRevert = actualAmount === sourceAmount;
     if (!willRevert && reason.trim() === "") {
       notifyError("調整理由を入力してください。");
+      return;
+    }
+    // 元々調整が無く、実績額も変更していない場合は何もせず閉じる
+    if (willRevert && !hadExistingAdjustment) {
+      onClose();
       return;
     }
 

@@ -33,7 +33,11 @@ CREATE TABLE profit_loss_adjustments (
   -- ポリモーフィック参照にせず実 FK を3本張るため、対象は必ずちょうど1つに限定する
   -- （0個だと調整対象が無い、2個以上だと元データ変更検知がどの行を指すか決まらない）
   CONSTRAINT profit_loss_adjustments_exactly_one_target_check
-    CHECK (num_nonnulls(business_id, cost_id, recurring_cost_id) = 1)
+    CHECK (num_nonnulls(business_id, cost_id, recurring_cost_id) = 1),
+  -- 空文字の理由を保存させない（アプリ側でも必須入力にしているが、Server Action の
+  -- 直接呼び出しなど経路が増えたときに備えて DB 側でも担保する）
+  CONSTRAINT profit_loss_adjustments_reason_check
+    CHECK (btrim(reason) <> '')
 );
 
 COMMENT ON TABLE profit_loss_adjustments IS '損益調整。対象行（business / costs / recurring_costs のいずれか1つ）× target_month（月初日）ごとに、実績額と元データの差分（adjustment_amount）を保持する。損益計算書は「元データ + adjustment_amount = 実績」として表示・集計する。元データ（business / costs / recurring_costs）は変更しない。source_amount_snapshot は保存時点の元データ金額で、現在の元データ金額と異なる場合は画面に「元データが変更されています」警告を表示する（本テーブルの値は自動追従しない）';
@@ -79,7 +83,23 @@ CREATE TRIGGER update_profit_loss_adjustments_updated_at
 -- 共通」として誤って表示を許可してしまう（auth_user_class / auth_user_team と同じ
 -- 理由。migration 12 参照）。SECURITY DEFINER で常に実際のチームを取得することで、
 -- 「対象行のチームが分からない」状態を作らない。
-CREATE OR REPLACE FUNCTION public.pl_adjustment_team(
+--
+-- 両関数は private スキーマに置く（public に置かないのは auth_user_class /
+-- auth_user_team / can_access_team_budget と異なる理由）。この2関数は「呼び出し側が
+-- 渡した business_id / cost_id / recurring_cost_id が指す行のチーム（や、そこから
+-- 導いた可視性）」を返すため、public に置いて authenticated へ EXECUTE を許可すると
+-- PostgREST の /rest/v1/rpc/pl_adjustment_team 経由でどのロールからも直接呼び出せて
+-- しまい、SECURITY DEFINER が business_select_policy / costs_select_policy
+-- （teamleader を自チームに絞る RLS）を素通りして、他チームの matters.team を返す
+-- 情報漏えい経路になる（id を総当たりされれば行の存在有無まで分かる）。
+-- private スキーマは supabase/config.toml の [api].schemas に含まれず PostgREST から
+-- 直接ルーティングされないため、RLS ポリシーの USING 句からの内部呼び出しのみに限定できる。
+CREATE SCHEMA IF NOT EXISTS private;
+-- PostgREST 経由での直接公開はされないが、明示的に anon には権限を渡さない
+REVOKE ALL ON SCHEMA private FROM anon, authenticated, PUBLIC;
+GRANT USAGE ON SCHEMA private TO authenticated;
+
+CREATE OR REPLACE FUNCTION private.pl_adjustment_team(
   p_business_id bigint,
   p_cost_id bigint,
   p_recurring_cost_id bigint
@@ -108,10 +128,10 @@ AS $$
   END
 $$;
 
-COMMENT ON FUNCTION public.pl_adjustment_team(bigint, bigint, bigint) IS
-  '損益調整（profit_loss_adjustments）の対象行が属するチームを返す。business / costs は matters.team 経由（NOT NULL）、recurring_costs は team 列を直接参照する（NULL 可 = 全体共通）。matters / costs / business 自体の RLS に依存しないよう SECURITY DEFINER にしている。詳細: docs/database.md 5.12';
+COMMENT ON FUNCTION private.pl_adjustment_team(bigint, bigint, bigint) IS
+  '損益調整（profit_loss_adjustments）の対象行が属するチームを返す。business / costs は matters.team 経由（NOT NULL）、recurring_costs は team 列を直接参照する（NULL 可 = 全体共通）。matters / costs / business 自体の RLS に依存しないよう SECURITY DEFINER にしている。他人の行のチームを返す関数のため、PostgREST に公開される public スキーマには置かない（private スキーマ）。詳細: docs/database.md 5.12';
 
-CREATE OR REPLACE FUNCTION public.can_view_pl_adjustment(
+CREATE OR REPLACE FUNCTION private.can_view_pl_adjustment(
   p_business_id bigint,
   p_cost_id bigint,
   p_recurring_cost_id bigint
@@ -126,27 +146,28 @@ AS $$
         public.auth_user_class() = 'teamleader'
         AND public.auth_user_team() IS NOT NULL
         AND (
-          public.pl_adjustment_team(p_business_id, p_cost_id, p_recurring_cost_id) IS NULL
-          OR public.pl_adjustment_team(p_business_id, p_cost_id, p_recurring_cost_id) = public.auth_user_team()
+          private.pl_adjustment_team(p_business_id, p_cost_id, p_recurring_cost_id) IS NULL
+          OR private.pl_adjustment_team(p_business_id, p_cost_id, p_recurring_cost_id) = public.auth_user_team()
         )
       )
 $$;
 
-COMMENT ON FUNCTION public.can_view_pl_adjustment(bigint, bigint, bigint) IS
-  '損益調整（profit_loss_adjustments）の SELECT 判定。経理・管理者は全行、チームリーダーは自チームの対象行 + 全体共通（recurring_costs.team IS NULL）の対象行のみ true。詳細: docs/database.md 5.12';
+COMMENT ON FUNCTION private.can_view_pl_adjustment(bigint, bigint, bigint) IS
+  '損益調整（profit_loss_adjustments）の SELECT 判定。経理・管理者は全行、チームリーダーは自チームの対象行 + 全体共通（recurring_costs.team IS NULL）の対象行のみ true。pl_adjustment_team と同じ理由で private スキーマに置く（他チームか否かの boolean でも、任意の id を総当たりする列挙攻撃の材料になり得るため）。詳細: docs/database.md 5.12';
 
--- 不特定多数からの直接呼び出しを避け、認証済みロールのみに実行を許可する（migration 12 と同方針）
-REVOKE EXECUTE ON FUNCTION public.pl_adjustment_team(bigint, bigint, bigint) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.pl_adjustment_team(bigint, bigint, bigint) TO authenticated;
-REVOKE EXECUTE ON FUNCTION public.can_view_pl_adjustment(bigint, bigint, bigint) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.can_view_pl_adjustment(bigint, bigint, bigint) TO authenticated;
+-- private スキーマは PostgREST に公開されないため、EXECUTE を authenticated に
+-- 許可しても直接の RPC 呼び出しはできない（RLS ポリシー内部からの呼び出しのみ）
+REVOKE EXECUTE ON FUNCTION private.pl_adjustment_team(bigint, bigint, bigint) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION private.pl_adjustment_team(bigint, bigint, bigint) TO authenticated;
+REVOKE EXECUTE ON FUNCTION private.can_view_pl_adjustment(bigint, bigint, bigint) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION private.can_view_pl_adjustment(bigint, bigint, bigint) TO authenticated;
 
 ALTER TABLE profit_loss_adjustments ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "profit_loss_adjustments_select_policy" ON profit_loss_adjustments
   FOR SELECT TO authenticated
   USING (
-    public.can_view_pl_adjustment(business_id, cost_id, recurring_cost_id)
+    private.can_view_pl_adjustment(business_id, cost_id, recurring_cost_id)
   );
 
 -- 書き込みは accounting / admin のみ（対象行のチームは問わない。extra_entries /

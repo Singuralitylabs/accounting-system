@@ -123,6 +123,11 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
   const [loadingMatterId, setLoadingMatterId] = useState<number | null>(null);
   const [adjustmentModal, setAdjustmentModal] =
     useState<AdjustmentModalState | null>(null);
+  // 削除中の対象行が当月に存在しない調整の id（複数行のボタンが同時にスピナーにならないよう
+  // deleteAdjustmentMutation.isPending だけでなくどの行かを個別に持つ）
+  const [deletingAdjustmentId, setDeletingAdjustmentId] = useState<
+    number | null
+  >(null);
   const deleteAdjustmentMutation = useDeleteProfitLossAdjustment();
 
   const toggleRow = (key: string) => {
@@ -206,10 +211,13 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
     if (!confirmed) return;
 
     try {
+      setDeletingAdjustmentId(adjustmentId);
       await deleteAdjustmentMutation.mutateAsync(adjustmentId);
       notifySuccess("損益調整を削除しました。");
     } catch (error) {
       notifyError(toErrorMessage(error, "損益調整の削除に失敗しました。"));
+    } finally {
+      setDeletingAdjustmentId(null);
     }
   };
 
@@ -227,13 +235,17 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
     </>
   );
 
-  // 調整あり・元データ変更検知のバッジ・警告（明細行の「実績」セル内に付ける）
+  // 調整あり・元データ変更検知のバッジ・警告（明細行の「実績」セル内に付ける）。
+  // 調整ありバッジは調整理由をツールチップで表示する（チームリーダーは調整理由を
+  // 閲覧できるが編集操作は表示されない、という仕様のため）
   const adjustmentIndicators = (detail: AdjustableAmount) => (
     <>
       {detail.adjustment && (
-        <Badge size="xs" color="blue" variant="light" className="ml-2">
-          調整あり
-        </Badge>
+        <Tooltip label={`調整理由: ${detail.adjustment.reason}`}>
+          <Badge size="xs" color="blue" variant="light" className="ml-2">
+            調整あり
+          </Badge>
+        </Tooltip>
       )}
       {detail.sourceChanged && (
         <Tooltip label="調整の保存後に元データの金額が変更されています。実績額をご確認ください。">
@@ -327,56 +339,80 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
                     </Table.Td>
                     <Table.Td />
                   </Table.Tr>
-                  {isExpanded &&
-                    breakdown.businesses.map((business) => (
-                      <Table.Tr
-                        key={`${rowKey}-business-${business.businessId}`}
-                        className="bg-gray-50"
-                      >
-                        <Table.Td className="pl-16 text-gray-600">
-                          {business.matterTitle}
-                        </Table.Td>
-                        {sourceAndAdjustmentCells(business)}
-                        <Table.Td className="text-right text-gray-600">
-                          {formatCurrency(business.actualAmount)}
-                          {adjustmentIndicators(business)}
-                        </Table.Td>
-                        <Table.Td>
-                          <Group gap="xs" justify="center" wrap="nowrap">
-                            <Button
-                              size="xs"
-                              variant="light"
-                              loading={loadingMatterId === business.matterId}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleShowMatter(business.matterId);
-                              }}
-                            >
-                              案件を表示
-                            </Button>
-                            {canEditAdjustments && (
+                  {isExpanded && (
+                    <>
+                      {breakdown.businesses.map((business) => (
+                        <Table.Tr
+                          key={`${rowKey}-business-${business.businessId}`}
+                          className="bg-gray-50"
+                        >
+                          <Table.Td className="pl-16 text-gray-600">
+                            {business.matterTitle}
+                          </Table.Td>
+                          {sourceAndAdjustmentCells(business)}
+                          <Table.Td className="text-right text-gray-600">
+                            {formatCurrency(business.actualAmount)}
+                            {adjustmentIndicators(business)}
+                          </Table.Td>
+                          <Table.Td>
+                            <Group gap="xs" justify="center" wrap="nowrap">
                               <Button
                                 size="xs"
-                                variant="subtle"
+                                variant="light"
+                                loading={loadingMatterId === business.matterId}
                                 onClick={(event) => {
                                   event.stopPropagation();
-                                  openAdjustmentModal(
-                                    {
-                                      targetType: "business",
-                                      businessId: business.businessId,
-                                    },
-                                    `${business.matterTitle}の売上`,
-                                    business,
-                                  );
+                                  handleShowMatter(business.matterId);
                                 }}
                               >
-                                実績額を修正
+                                案件を表示
                               </Button>
-                            )}
-                          </Group>
-                        </Table.Td>
-                      </Table.Tr>
-                    ))}
+                              {canEditAdjustments && (
+                                <Button
+                                  size="xs"
+                                  variant="subtle"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    openAdjustmentModal(
+                                      {
+                                        targetType: "business",
+                                        businessId: business.businessId,
+                                      },
+                                      `${business.matterTitle}の売上`,
+                                      business,
+                                    );
+                                  }}
+                                >
+                                  実績額を修正
+                                </Button>
+                              )}
+                            </Group>
+                          </Table.Td>
+                        </Table.Tr>
+                      ))}
+                      {/* 経理追加収支の収入明細行（案件に紐づかないため「案件を表示」ボタンなし。
+                          本 Issue の調整対象外のため元データ/調整は表示しない） */}
+                      {breakdown.extraEntries.map((entry) => (
+                        <Table.Tr
+                          key={`${rowKey}-extra-${entry.id}`}
+                          className="bg-gray-50"
+                        >
+                          <Table.Td className="pl-16 text-gray-600">
+                            {entry.description}
+                            <span className="text-xs text-gray-500 ml-2">
+                              （経理追加）
+                            </span>
+                          </Table.Td>
+                          <Table.Td />
+                          <Table.Td />
+                          <Table.Td className="text-right text-gray-600">
+                            {formatCurrency(entry.billing_amount)}
+                          </Table.Td>
+                          <Table.Td />
+                        </Table.Tr>
+                      ))}
+                    </>
+                  )}
                 </Fragment>
               );
             })}
@@ -643,7 +679,7 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
                       size="xs"
                       color="red"
                       variant="light"
-                      loading={deleteAdjustmentMutation.isPending}
+                      loading={deletingAdjustmentId === adjustment.id}
                       onClick={() =>
                         handleDeleteOrphanedAdjustment(
                           adjustment.id,

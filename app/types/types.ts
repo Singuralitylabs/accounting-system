@@ -109,11 +109,13 @@ export type OrphanedAdjustmentType = {
   targetType: AdjustmentTargetType;
 };
 
-// 分類別売上内訳（matters.category ごと。案件別（business 行別）の実績額修正対象の明細を含む）
+// 分類別売上内訳（matters.category ごと。案件別（business 行別）の実績額修正対象の明細＋
+// 経理追加収支の収入明細を含む。合計 amount は businesses と extraEntries の両方を含む）
 export type CategoryBreakdown = {
   category: string;
   amount: number;
   businesses: BusinessDetail[];
+  extraEntries: ExtraEntryType[]; // 経理追加収支の収入（「経理追加」表示の明細行）
 };
 
 // 案件の売上明細（1 business 行 = 1 行。実績額修正の対象単位）

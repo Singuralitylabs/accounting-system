@@ -133,6 +133,18 @@ export const saveProfitLossAdjustment = async (
   const month = toFirstOfMonth(targetMonth);
   const adjustmentAmount = actualAmount - source.sourceAmount;
 
+  // 理由は必須（実績額を元データと同額に戻す＝調整を削除する場合は不要）。
+  // クライアント側（ProfitLossAdjustmentModal）でも検証するが、Server Action は
+  // 直接呼び出せるためサーバ側でも担保する
+  if (adjustmentAmount !== 0 && reason.trim() === "") {
+    return {
+      error: {
+        kind: "validationFailed",
+        message: "調整理由を入力してください。",
+      },
+    };
+  }
+
   const { data: existing, error: existingError } = await supabase
     .from("profit_loss_adjustments")
     .select("id")
@@ -180,6 +192,22 @@ export const saveProfitLossAdjustment = async (
     : await supabase.from("profit_loss_adjustments").insert(row);
 
   if (writeError) {
+    // 既存レコードの確認から INSERT までの間に、他の経理担当者が同じ対象月・対象行へ
+    // 調整を保存した場合、部分 UNIQUE インデックス違反（23505）になる。ここまでの
+    // check-then-insert には同時実行時の競合の余地があるため、区別できるメッセージにする
+    if (writeError.code === "23505") {
+      console.error(
+        "損益調整の保存が他の更新と競合しました:",
+        writeError,
+      );
+      return {
+        error: {
+          kind: "duplicate",
+          message:
+            "他の担当者が同じ対象を更新しました。画面を再読み込みしてもう一度お試しください。",
+        },
+      };
+    }
     console.error("損益調整の保存に失敗しました:", writeError);
     return {
       error: { kind: "fetchFailed", message: "損益調整の保存に失敗しました。" },

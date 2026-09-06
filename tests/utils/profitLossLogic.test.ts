@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   BusinessRow,
   CostRow,
@@ -18,9 +18,14 @@ import {
 // ===== フィクスチャ生成ヘルパー =====
 
 // business / costs の id は自動採番する（テストでは値そのものに意味は無く、
-// 一意であることのみが必要）
+// 一意であることのみが必要）。テスト間で実行順に依存しないよう各テスト前にリセットする
 let nextBusinessId = 1;
 let nextCostId = 1;
+
+beforeEach(() => {
+  nextBusinessId = 1;
+  nextCostId = 1;
+});
 
 const business = (
   amount: number | null,
@@ -1158,5 +1163,80 @@ describe("buildMonthlyReport: 損益調整（実績額修正）", () => {
     );
 
     expect(report.orphanedAdjustments).toBeUndefined();
+  });
+
+  it("チーム別内訳にも調整後の実績額が反映される（本表と同じ実績額を使う）", () => {
+    const businessRow = business(100000, "2026-07-31", "受託案件", "チームA");
+    const costRow = cost(
+      30000,
+      "2026-07-31",
+      "外注費",
+      "受託案件",
+      1,
+      "チームA",
+    );
+    const recurringCostRow = recurringCost({
+      id: 1,
+      price: 10000,
+      team: "チームA",
+    });
+
+    const report = buildMonthlyReport(
+      buildInput({
+        includeTeamBreakdown: true,
+        businessRows: [businessRow],
+        costRows: [costRow],
+        recurringCosts: [recurringCostRow],
+        adjustments: [
+          adjustment({
+            id: 1,
+            business_id: businessRow.id,
+            adjustment_amount: 20000,
+            source_amount_snapshot: 100000,
+          }),
+          adjustment({
+            id: 2,
+            cost_id: costRow.id,
+            adjustment_amount: -5000,
+            source_amount_snapshot: 30000,
+          }),
+          adjustment({
+            id: 3,
+            recurring_cost_id: 1,
+            adjustment_amount: 3000,
+            source_amount_snapshot: 10000,
+          }),
+        ],
+      }),
+    );
+
+    const teamA = report.byTeam?.find((row) => row.team === "チームA");
+    expect(teamA).toMatchObject({
+      revenue: 120000, // 100000 + 20000
+      matterCost: 25000, // 30000 - 5000
+      recurringCost: 13000, // 10000 + 3000
+    });
+  });
+
+  it("経理追加収支の収入は分類別売上内訳の extraEntries にも含まれる", () => {
+    const report = buildMonthlyReport(
+      buildInput({
+        extraEntries: [
+          extraEntry({
+            id: 1,
+            entry_type: "income",
+            category: "協賛金",
+            billing_amount: 50000,
+          }),
+        ],
+      }),
+    );
+
+    const category = report.revenueByCategory.find(
+      (row) => row.category === "協賛金",
+    );
+    expect(category?.extraEntries.map((entry) => entry.id)).toEqual([1]);
+    expect(category?.businesses).toEqual([]);
+    expect(category?.amount).toBe(50000);
   });
 });

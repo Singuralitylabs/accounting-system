@@ -385,19 +385,19 @@ CHECK (end_month IS NULL OR end_month >= start_month)
 
 損益調整。損益計算書（/profit-loss）の売上・案件費用・管理費が実際の入金・支払額と一致しない場合に、経理担当者・管理者が対象月ごとの実績額へ修正できるようにするテーブル（Issue #108）。元データ（business / costs / recurring_costs）は書き換えず、対象行 × 対象月ごとの差分（`adjustment_amount`）だけを保持し、損益計算書では「元データ + 調整 = 実績」として表示・集計する。business / costs は案件ライフサイクル・差し戻し検知の対象であり経理が直接書き換えると担当者の見ている案件が変わってしまう、recurring_costs は適用期間で全月に反映されるため金額欄を直すと全月が変わってしまう、という理由から元データを直接編集する方式は採らない。
 
-| カラム名               | データ型                 | 制約                                                                      | 説明                                                                                                                                                    |
-| ---------------------- | ------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| id                     | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                                 | 主キー                                                                                                                                                  |
-| target_month           | date                     | NOT NULL, CHECK (月初日であること)                                        | 調整を効かせる対象月（月初日で格納。budget_declarations.target_month と同方式）                                                                         |
-| business_id            | bigint                   | NULL, FOREIGN KEY (business.id) ON DELETE CASCADE                         | 調整対象（案件の売上）。business_id / cost_id / recurring_cost_id のうちちょうど1つが NOT NULL                                                          |
-| cost_id                | bigint                   | NULL, FOREIGN KEY (costs.id) ON DELETE CASCADE                            | 調整対象（案件費用）                                                                                                                                    |
-| recurring_cost_id      | bigint                   | NULL, FOREIGN KEY (recurring_costs.id) ON DELETE CASCADE                  | 調整対象（管理費）                                                                                                                                      |
-| adjustment_amount      | numeric(15,2)            | NOT NULL, CHECK (adjustment_amount <> 0)                                  | 実績額と元データ金額の差分（実績額 − 保存時点の元データ金額）。マイナス可。0 は許可しない（実績額が元データと同額になった場合はレコード自体を削除する） |
-| source_amount_snapshot | numeric(15,2)            | NOT NULL                                                                  | 保存時点の元データ金額。元データ変更検知用（現在の元データ金額との比較にのみ使う。実績額の計算には現在の元データ金額 + adjustment_amount を使う）       |
-| reason                 | text                     | NOT NULL                                                                  | 調整理由                                                                                                                                                |
-| adjusted_by            | bigint                   | NOT NULL, FOREIGN KEY (profiles.id)（参照アクション指定なし = NO ACTION） | 調整した経理担当者・管理者                                                                                                                              |
-| inserted_at            | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 作成日時                                                                                                                                                |
-| updated_at             | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 更新日時                                                                                                                                                |
+| カラム名               | データ型                 | 制約                                                                      | 説明                                                                                                                                                                                                    |
+| ---------------------- | ------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| id                     | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                                 | 主キー                                                                                                                                                                                                  |
+| target_month           | date                     | NOT NULL, CHECK (月初日であること)                                        | 調整を効かせる対象月（月初日で格納。budget_declarations.target_month と同方式）                                                                                                                         |
+| business_id            | bigint                   | NULL, FOREIGN KEY (business.id) ON DELETE CASCADE                         | 調整対象（案件の売上）。business_id / cost_id / recurring_cost_id のうちちょうど1つが NOT NULL                                                                                                          |
+| cost_id                | bigint                   | NULL, FOREIGN KEY (costs.id) ON DELETE CASCADE                            | 調整対象（案件費用）                                                                                                                                                                                    |
+| recurring_cost_id      | bigint                   | NULL, FOREIGN KEY (recurring_costs.id) ON DELETE CASCADE                  | 調整対象（管理費）                                                                                                                                                                                      |
+| adjustment_amount      | numeric(15,2)            | NOT NULL, CHECK (adjustment_amount <> 0)                                  | 実績額と元データ金額の差分（実績額 − 保存時点の元データ金額）。マイナス可。0 は許可しない（実績額が元データと同額になった場合はレコード自体を削除する）                                                 |
+| source_amount_snapshot | numeric(15,2)            | NOT NULL                                                                  | 保存時点の元データ金額。元データ変更検知用（現在の元データ金額との比較にのみ使う。実績額の計算には現在の元データ金額 + adjustment_amount を使う）                                                       |
+| reason                 | text                     | NOT NULL, CHECK (空白のみを除いて空でないこと)                            | 調整理由                                                                                                                                                                                                |
+| adjusted_by            | bigint                   | NOT NULL, FOREIGN KEY (profiles.id)（参照アクション指定なし = NO ACTION） | 調整した経理担当者・管理者。budget_declarations.declared_by 等と同じ方針（担当者に設定された profiles を削除しようとするとこの FK でエラーになるため、先に adjusted_by を別のメンバーに付け替えること） |
+| inserted_at            | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 作成日時                                                                                                                                                                                                |
+| updated_at             | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 更新日時                                                                                                                                                                                                |
 
 CHECK 制約:
 
@@ -409,6 +409,8 @@ CHECK (adjustment_amount <> 0)
 -- ポリモーフィック参照にせず実 FK を3本張るため、対象は必ずちょうど1つに限定する
 -- （0個だと調整対象が無い、2個以上だと元データ変更検知がどの行を指すか決まらない）
 CHECK (num_nonnulls(business_id, cost_id, recurring_cost_id) = 1)
+-- 空文字の理由を保存させない（アプリ側でも必須入力にしているが、DB 側でも担保する）
+CHECK (btrim(reason) <> '')
 ```
 
 UNIQUE 制約（部分インデックス。対象行 × 対象月は1件に限定する）:
@@ -1142,9 +1144,15 @@ REVOKE ALL ON TABLE budget_recurring_items FROM anon;
 > 調整行自体には team 列が無く、対象（business → matters.team / costs → matters.team / recurring_costs.team）を辿って判定する必要があるため、`public.can_access_team_budget`（5.8）と同じ理由でヘルパー関数へ切り出している。
 >
 > `pl_adjustment_team` は SECURITY DEFINER にしている。matters / costs / business の既存 RLS（チームリーダーは自チームの行のみ SELECT 可。5.2 〜 5.4）に判定を委ねると、他チームの対象行は「見えない」＝ NULL が返り、下の `can_view_pl_adjustment` が「対象不明 = 全体共通」として誤って表示を許可してしまう（`auth_user_class` / `auth_user_team` と同じ理由。migration 12 参照）。SECURITY DEFINER により、対象行の可視性に関わらず常に実際のチームを取得する。
+>
+> 両関数は `private` スキーマに置く。`auth_user_class` / `auth_user_team` / `can_access_team_budget` を `public` に置いて `authenticated` へ EXECUTE を許可しているのとは異なり、この2関数は「呼び出し側が渡した `business_id` / `cost_id` / `recurring_cost_id` が指す行のチーム（や、そこから導いた可視性）」を返す。`public` に置くと PostgREST の `/rest/v1/rpc/pl_adjustment_team` 経由でどのロールからも直接呼び出せてしまい、SECURITY DEFINER が business / costs の RLS（チームリーダーを自チームに絞る）を素通りして、他チームの `matters.team` を返す情報漏えい経路になる（id を総当たりされれば行の存在有無まで分かる）。`private` スキーマは `supabase/config.toml` の `[api].schemas` に含まれず PostgREST から直接ルーティングされないため、RLS ポリシーの `USING` 句からの内部呼び出しに限定できる。
 
 ```sql
-CREATE OR REPLACE FUNCTION public.pl_adjustment_team(
+CREATE SCHEMA IF NOT EXISTS private;
+REVOKE ALL ON SCHEMA private FROM anon, authenticated, PUBLIC;
+GRANT USAGE ON SCHEMA private TO authenticated;
+
+CREATE OR REPLACE FUNCTION private.pl_adjustment_team(
   p_business_id bigint,
   p_cost_id bigint,
   p_recurring_cost_id bigint
@@ -1173,7 +1181,7 @@ AS $$
   END
 $$;
 
-CREATE OR REPLACE FUNCTION public.can_view_pl_adjustment(
+CREATE OR REPLACE FUNCTION private.can_view_pl_adjustment(
   p_business_id bigint,
   p_cost_id bigint,
   p_recurring_cost_id bigint
@@ -1188,15 +1196,22 @@ AS $$
         public.auth_user_class() = 'teamleader'
         AND public.auth_user_team() IS NOT NULL
         AND (
-          public.pl_adjustment_team(p_business_id, p_cost_id, p_recurring_cost_id) IS NULL
-          OR public.pl_adjustment_team(p_business_id, p_cost_id, p_recurring_cost_id) = public.auth_user_team()
+          private.pl_adjustment_team(p_business_id, p_cost_id, p_recurring_cost_id) IS NULL
+          OR private.pl_adjustment_team(p_business_id, p_cost_id, p_recurring_cost_id) = public.auth_user_team()
         )
       )
 $$;
 
+-- private スキーマは PostgREST に公開されないため、EXECUTE を authenticated に
+-- 許可しても直接の RPC 呼び出しはできない（RLS ポリシー内部からの呼び出しのみ）
+REVOKE EXECUTE ON FUNCTION private.pl_adjustment_team(bigint, bigint, bigint) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION private.pl_adjustment_team(bigint, bigint, bigint) TO authenticated;
+REVOKE EXECUTE ON FUNCTION private.can_view_pl_adjustment(bigint, bigint, bigint) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION private.can_view_pl_adjustment(bigint, bigint, bigint) TO authenticated;
+
 CREATE POLICY "profit_loss_adjustments_select_policy" ON profit_loss_adjustments
     FOR SELECT TO authenticated
-    USING (public.can_view_pl_adjustment(business_id, cost_id, recurring_cost_id));
+    USING (private.can_view_pl_adjustment(business_id, cost_id, recurring_cost_id));
 
 -- 書き込みは経理担当者・管理者のみ（対象行のチームは問わない。extra_entries /
 -- recurring_costs と同じ方針で、チームリーダーには一切の書き込みを許可しない）

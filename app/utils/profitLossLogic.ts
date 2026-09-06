@@ -144,15 +144,6 @@ export const buildMonthlyReport = ({
   isTeamLeader,
   includeTeamBreakdown,
 }: MonthlyReportInput): PLReportType => {
-  // 実績額のみを必要とする箇所（チーム別内訳）向けの簡易ヘルパー
-  const actualAmountOf = (
-    key: "business_id" | "cost_id" | "recurring_cost_id",
-    id: number,
-    sourceAmount: number,
-  ) =>
-    toAdjustable(sourceAmount, findAdjustment(adjustments, month, key, id))
-      .actualAmount;
-
   // ===== 経理追加収支 =====
   // 計上月は entry_date の属する月（NULL は月未確定として別枠集計）
   const monthlyExtraEntries = extraEntries.filter(
@@ -183,15 +174,22 @@ export const buildMonthlyReport = ({
 
   const categoryMap = new Map<
     string,
-    { total: number; businesses: BusinessDetail[] }
+    {
+      total: number;
+      businesses: BusinessDetail[];
+      extraEntries: ExtraEntryType[];
+    }
   >();
   const getCategoryEntry = (category: string) => {
     if (!categoryMap.has(category)) {
-      categoryMap.set(category, { total: 0, businesses: [] });
+      categoryMap.set(category, { total: 0, businesses: [], extraEntries: [] });
     }
     return categoryMap.get(category)!;
   };
 
+  // チーム別内訳（後段）でも同じ実績額を使うため、business_id をキーに保持しておく
+  // （findAdjustment の再計算を避け、本表とチーム別内訳の実績額がズレないようにする）
+  const businessActualAmounts = new Map<number, number>();
   monthlyBusiness.forEach((row) => {
     const adjustment = findAdjustment(
       adjustments,
@@ -206,23 +204,32 @@ export const buildMonthlyReport = ({
       matterId: row.matter_id,
       matterTitle: row.matters.title,
     };
+    businessActualAmounts.set(row.id, adjustable.actualAmount);
     const entry = getCategoryEntry(row.matters.category);
     entry.total += adjustable.actualAmount;
     entry.businesses.push(detail);
   });
   incomeEntries.forEach((entry) => {
     // 収入エントリの billing_amount は CHECK 制約で NOT NULL（型上は nullable）
-    getCategoryEntry(entry.category).total += entry.billing_amount ?? 0;
+    const categoryEntry = getCategoryEntry(entry.category);
+    categoryEntry.total += entry.billing_amount ?? 0;
+    categoryEntry.extraEntries.push(entry);
   });
 
   const revenueByCategory: CategoryBreakdown[] = Array.from(
     categoryMap.entries(),
   )
-    .map(([category, { total, businesses }]) => ({
-      category,
-      amount: total,
-      businesses: businesses.sort((a, b) => b.actualAmount - a.actualAmount),
-    }))
+    .map(
+      ([
+        category,
+        { total, businesses, extraEntries: categoryExtraEntries },
+      ]) => ({
+        category,
+        amount: total,
+        businesses: businesses.sort((a, b) => b.actualAmount - a.actualAmount),
+        extraEntries: categoryExtraEntries,
+      }),
+    )
     .sort((a, b) => b.amount - a.amount);
 
   const revenueTotal = revenueByCategory.reduce((sum, c) => sum + c.amount, 0);
@@ -234,6 +241,8 @@ export const buildMonthlyReport = ({
 
   const itemMap = new Map<string, CostDetail[]>();
   const categoryCostMap = new Map<string, number>();
+  // チーム別内訳（後段）でも同じ実績額を使うため、cost_id をキーに保持しておく
+  const costActualAmounts = new Map<number, number>();
   monthlyCosts.forEach((row) => {
     const adjustment = findAdjustment(adjustments, month, "cost_id", row.id);
     const adjustable = toAdjustable(row.price, adjustment);
@@ -243,6 +252,7 @@ export const buildMonthlyReport = ({
       matterId: row.matter_id,
       matterTitle: row.matters.title,
     };
+    costActualAmounts.set(row.id, adjustable.actualAmount);
     if (!itemMap.has(row.item)) {
       itemMap.set(row.item, []);
     }
@@ -319,35 +329,33 @@ export const buildMonthlyReport = ({
     isRecurringCostChargedInMonth(rc, month),
   );
 
-  const toRecurringCostDetail = (
-    rc: RecurringCostType,
-  ): RecurringCostDetail => {
-    const adjustment = findAdjustment(
-      adjustments,
-      month,
-      "recurring_cost_id",
-      rc.id,
-    );
-    return { ...toAdjustable(rc.price, adjustment), recurringCost: rc };
-  };
+  // チーム別内訳（後段）でも同じ実績額（明細オブジェクト）を使うため、一度だけ計算する
+  const activeRecurringCostDetails: RecurringCostDetail[] =
+    activeRecurringCosts.map((rc) => {
+      const adjustment = findAdjustment(
+        adjustments,
+        month,
+        "recurring_cost_id",
+        rc.id,
+      );
+      return { ...toAdjustable(rc.price, adjustment), recurringCost: rc };
+    });
 
   // teamleader の場合、全体共通（team IS NULL）は損益に算入せず参考表示に分離する
-  const countedRecurringCosts = isTeamLeader
-    ? activeRecurringCosts.filter((rc) => rc.team !== null)
-    : activeRecurringCosts;
+  const countedRecurringCostDetails = isTeamLeader
+    ? activeRecurringCostDetails.filter((d) => d.recurringCost.team !== null)
+    : activeRecurringCostDetails;
   const orgWideRecurringCosts = isTeamLeader
-    ? activeRecurringCosts
-        .filter((rc) => rc.team === null)
-        .map(toRecurringCostDetail)
+    ? activeRecurringCostDetails.filter((d) => d.recurringCost.team === null)
     : undefined;
 
   // 費目（recurring_costs.item）別の管理費内訳。明細は展開表示に使う。
   const recurringItemMap = new Map<string, RecurringCostDetail[]>();
-  countedRecurringCosts.forEach((rc) => {
-    if (!recurringItemMap.has(rc.item)) {
-      recurringItemMap.set(rc.item, []);
+  countedRecurringCostDetails.forEach((detail) => {
+    if (!recurringItemMap.has(detail.recurringCost.item)) {
+      recurringItemMap.set(detail.recurringCost.item, []);
     }
-    recurringItemMap.get(rc.item)!.push(toRecurringCostDetail(rc));
+    recurringItemMap.get(detail.recurringCost.item)!.push(detail);
   });
   const recurringCostByItem: RecurringCostItemBreakdown[] = Array.from(
     recurringItemMap.entries(),
@@ -403,22 +411,19 @@ export const buildMonthlyReport = ({
     };
 
     monthlyBusiness.forEach((row) => {
-      getTeamEntry(row.matters.team).revenue += actualAmountOf(
-        "business_id",
+      getTeamEntry(row.matters.team).revenue += businessActualAmounts.get(
         row.id,
-        row.amount ?? 0,
-      );
+      )!;
     });
     monthlyCosts.forEach((row) => {
-      getTeamEntry(row.matters.team).matterCost += actualAmountOf(
-        "cost_id",
+      getTeamEntry(row.matters.team).matterCost += costActualAmounts.get(
         row.id,
-        row.price,
-      );
+      )!;
     });
-    activeRecurringCosts.forEach((rc) => {
-      getTeamEntry(rc.team ?? ORG_WIDE_TEAM_LABEL).recurringCost +=
-        actualAmountOf("recurring_cost_id", rc.id, rc.price);
+    activeRecurringCostDetails.forEach((detail) => {
+      getTeamEntry(
+        detail.recurringCost.team ?? ORG_WIDE_TEAM_LABEL,
+      ).recurringCost += detail.actualAmount;
     });
     // 経理追加収支は本表と同じく売上 / 案件費用へ算入する（チーム未指定は「全体共通」）
     monthlyExtraEntries.forEach((entry) => {

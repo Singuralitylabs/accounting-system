@@ -668,14 +668,6 @@ export type Database = {
         Args: { target_team: string }
         Returns: boolean
       }
-      can_view_pl_adjustment: {
-        Args: {
-          p_business_id: number
-          p_cost_id: number
-          p_recurring_cost_id: number
-        }
-        Returns: boolean
-      }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
       get_member_options: {
         Args: never
@@ -683,14 +675,6 @@ export type Database = {
           id: number
           name: string
         }[]
-      }
-      pl_adjustment_team: {
-        Args: {
-          p_business_id: number
-          p_cost_id: number
-          p_recurring_cost_id: number
-        }
-        Returns: string
       }
       validate_member_ids: {
         Args: { target_ids: number[] }
