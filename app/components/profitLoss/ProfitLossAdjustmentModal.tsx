@@ -112,6 +112,9 @@ const ProfitLossAdjustmentModal = ({
           value={actualAmount}
           thousandSeparator=","
           prefix="¥"
+          // DB は numeric(15,2) のため小数第2位までに制限する
+          decimalScale={2}
+          fixedDecimalScale
           // マイナス金額（減額調整）を許容するため min は設定しない
           onChange={(value) =>
             setActualAmount(typeof value === "number" ? value : "")

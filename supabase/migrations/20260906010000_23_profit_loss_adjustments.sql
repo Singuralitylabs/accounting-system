@@ -236,12 +236,19 @@ SET search_path = ''
 AS $$
 DECLARE
   v_source_amount numeric;
+  v_actual_amount numeric;
   v_adjustment_amount numeric;
   v_adjusted_by bigint;
 BEGIN
   IF num_nonnulls(p_business_id, p_cost_id, p_recurring_cost_id) <> 1 THEN
     RAISE EXCEPTION '調整対象の指定が不正です';
   END IF;
+
+  -- adjustment_amount / source_amount_snapshot は numeric(15,2) のため、差分計算前に
+  -- 実績額をここで丸める。丸めずに差分を取ると、画面の確認ダイアログ表示（実績額）と
+  -- INSERT/UPDATE で実際に保存される値（丸め後の差分）がずれ、CHECK 制約
+  -- （adjustment_amount <> 0）に想定外に抵触するケースが生まれる
+  v_actual_amount := round(p_actual_amount, 2);
 
   SELECT p.id INTO v_adjusted_by FROM public.profiles p WHERE p.user_id = auth.uid();
   IF v_adjusted_by IS NULL THEN
@@ -265,7 +272,7 @@ BEGIN
     RAISE EXCEPTION '対象データが見つかりません';
   END IF;
 
-  v_adjustment_amount := p_actual_amount - v_source_amount;
+  v_adjustment_amount := v_actual_amount - v_source_amount;
 
   -- 実績額が元データと同額（差分 0）になった場合は、既存の調整があれば削除する
   IF v_adjustment_amount = 0 THEN
@@ -321,7 +328,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.save_profit_loss_adjustment(bigint, bigint, bigint, date, numeric, text) IS
-  '実績額修正の原子的な保存。対象行を FOR UPDATE でロックし、元データ金額の取得・差分計算・upsert（0 差分なら削除）を単一トランザクションで行う。adjusted_by は auth.uid() から解決し、クライアントからは受け取らない。書き込みの可否は呼び出し元ロールに対する profit_loss_adjustments の RLS がそのまま適用される（SECURITY INVOKER）。詳細: docs/database.md 5.12';
+  '実績額修正の原子的な保存。対象行を FOR UPDATE でロックし、元データ金額の取得・差分計算・upsert（0 差分なら削除）を単一トランザクションで行う。p_actual_amount は adjustment_amount の列精度（numeric(15,2)）に合わせて round(…, 2) してから差分を計算する。adjusted_by は auth.uid() から解決し、クライアントからは受け取らない。書き込みの可否は呼び出し元ロールに対する profit_loss_adjustments の RLS がそのまま適用される（SECURITY INVOKER）。詳細: docs/database.md 5.12';
 
 REVOKE EXECUTE ON FUNCTION public.save_profit_loss_adjustment(bigint, bigint, bigint, date, numeric, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.save_profit_loss_adjustment(bigint, bigint, bigint, date, numeric, text) TO authenticated;

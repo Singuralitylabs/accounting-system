@@ -1261,6 +1261,8 @@ SECURITY DEFINER にはしない（既定の SECURITY INVOKER のまま）。対
 
 `adjusted_by` はクライアントから受け取らず、関数内で `auth.uid()` から解決する（PostgREST 経由でなりすまされることを防ぐ。上記 INSERT/UPDATE ポリシーの `WITH CHECK` と二重に担保する）。
 
+`p_actual_amount` は `adjustment_amount` / `source_amount_snapshot` の列精度（`numeric(15,2)`）に合わせて差分計算の直前に `round(…, 2)` する。画面側の `NumberInput`（`app/components/profitLoss/ProfitLossAdjustmentModal.tsx`）も `decimalScale={2}` で入力を小数第2位までに制限しており、両者を揃えることで「確認ダイアログの表示額」と「実際に保存される `adjustment_amount`」がずれる、または丸めにより差分が 0 になり `profit_loss_adjustments_amount_check` に想定外に抵触するケースを防ぐ。
+
 ```sql
 CREATE OR REPLACE FUNCTION public.save_profit_loss_adjustment(
   p_business_id bigint,
@@ -1276,6 +1278,7 @@ SET search_path = ''
 AS $$
 DECLARE
   v_source_amount numeric;
+  v_actual_amount numeric;
   v_adjustment_amount numeric;
   v_adjusted_by bigint;
 BEGIN
@@ -1283,6 +1286,11 @@ BEGIN
   IF num_nonnulls(p_business_id, p_cost_id, p_recurring_cost_id) <> 1 THEN
     RAISE EXCEPTION '調整対象の指定が不正です';
   END IF;
+
+  -- adjustment_amount / source_amount_snapshot は numeric(15,2) のため、差分計算前に
+  -- 実績額をここで丸める（丸めずに差分を取ると、確認ダイアログの表示額と実際に
+  -- 保存される差分がずれる場合がある）
+  v_actual_amount := round(p_actual_amount, 2);
 
   SELECT p.id INTO v_adjusted_by FROM public.profiles p WHERE p.user_id = auth.uid();
   IF v_adjusted_by IS NULL THEN
@@ -1303,7 +1311,7 @@ BEGIN
     RAISE EXCEPTION '対象データが見つかりません';
   END IF;
 
-  v_adjustment_amount := p_actual_amount - v_source_amount;
+  v_adjustment_amount := v_actual_amount - v_source_amount;
 
   -- 差分 0（実績額 = 元データ）なら既存の調整を削除する
   IF v_adjustment_amount = 0 THEN
