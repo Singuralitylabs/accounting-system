@@ -152,6 +152,23 @@ export const buildBudgetDeclarationStatusList = (
   return [...rows, ...orphanRows];
 };
 
+// 種別に連動した分類の選択肢を返す（収入 = category、支出 = item の既存マスタを流用）。
+// 分類がマスタから外れていても（無効化・改名。前月コピー・定期明細の取り込みで
+// 持ち込んだ場合を含む）選択肢に残し、見せかけ上クリアされたように見せない。
+// ただしマスタの値と紛れないよう、注入した選択肢のラベルだけ「（マスタ未登録）」と
+// 付記する（保存される値そのものは変えない）。BudgetDeclarationForm と
+// BudgetRecurringItemList（管理セクション）で共用する
+export const categoryOptionsFor = (
+  entryType: string,
+  category: string,
+  categoryList: readonly string[],
+  itemList: readonly string[],
+): (string | { value: string; label: string })[] => {
+  const master = entryType === "income" ? categoryList : itemList;
+  if (!category || master.includes(category)) return [...master];
+  return [{ value: category, label: `${category}（マスタ未登録）` }, ...master];
+};
+
 // 前月の明細を「新規行」に変換する（id・display_order を持たない。フォームの
 // 明細追加ボタンで作る行と同じ形にする）。並び順は取得側
 // （getPreviousBudgetDeclarationItems）が display_order 順に揃えて渡すため、
@@ -210,6 +227,12 @@ const getBudgetDeclarationErrorKind = (
 // 権限不足は再試行しても回復しないため、リトライ対象から外す。
 export const isForbiddenError = (error: unknown): boolean =>
   getBudgetDeclarationErrorKind(error) === "forbidden";
+
+// QueryProvider の既定は retry: 2。権限不足は再試行しても回復しないため打ち切る。
+// useBudgetDeclarationData.ts / useBudgetRecurringItemData.ts の両フックが使う
+// react-query の retry オプション（TQuery のエラー型を問わないよう Error を受ける）
+export const retryUnlessForbidden = (failureCount: number, error: Error) =>
+  !isForbiddenError(error) && failureCount < 2;
 
 // ヘッダ保存→明細差し替えの途中で失敗し、一部のみ反映された可能性があるケースかどうか。
 // ヘッダ保存自体の失敗・対象行なし・バリデーション不備・権限不足・重複エラーは

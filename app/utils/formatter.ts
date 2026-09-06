@@ -58,6 +58,12 @@ export const addMonths = (month: string, count: number): string => {
 export const toFirstOfMonth = (value: string): string =>
   `${value.slice(0, 7)}-01`;
 
+// toFirstOfMonth の null 許容版。任意項目の適用終了月（recurring_costs.end_month /
+// budget_recurring_items.end_month）のように、値が無い（継続中）場合は
+// そのまま null を返したい書き込み処理で使う
+export const toFirstOfMonthOrNull = (value: string | null): string | null =>
+  value ? toFirstOfMonth(value) : null;
+
 // JST 基準の当月キー（YYYY-MM）。サーバ（UTC）とブラウザ（JST）で結果を揃えるため、
 // ローカルタイムゾーンに依存せず UTC からの +9 時間で判定する。
 export const currentJstMonth = (now: Date = new Date()): string =>

@@ -1,6 +1,7 @@
 "use client";
 
 import { Alert, Badge, Button, Group, Table } from "@mantine/core";
+import Link from "next/link";
 import { Fragment, useState } from "react";
 import { BudgetDeclarationStatusType } from "@/app/types/types";
 import { useBudgetDeclarationList } from "@/app/hooks/useBudgetDeclarationData";
@@ -106,6 +107,16 @@ const BudgetDeclarationList = ({
           initialTargetDays={initialReminderTargetDays}
         />
       )}
+      <Group justify="flex-end" className="mb-2">
+        <Button
+          component={Link}
+          href="/budget-declarations/recurring"
+          size="xs"
+          variant="light"
+        >
+          定期明細を管理
+        </Button>
+      </Group>
       <div className="mb-4 max-w-xs">
         <CustomMonthPicker
           label="対象月"

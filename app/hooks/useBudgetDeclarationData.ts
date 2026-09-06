@@ -19,14 +19,10 @@ import {
 } from "../types/types";
 import {
   BudgetDeclarationError,
-  isForbiddenError,
   isPartialWriteFailureError,
+  retryUnlessForbidden,
 } from "../utils/budgetDeclaration";
 import { notifyError, notifySuccess, toErrorMessage } from "../utils/notify";
-
-// QueryProvider の既定は retry: 2。権限不足は再試行しても回復しないため打ち切る。
-const retryUnlessForbidden = (failureCount: number, error: Error) =>
-  !isForbiddenError(error) && failureCount < 2;
 
 // 対象月のチーム別申告状況一覧（month: "YYYY-MM"）
 export const useBudgetDeclarationList = (

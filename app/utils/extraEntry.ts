@@ -9,6 +9,13 @@ const ENTRY_TYPE_LABELS: Record<string, string> = {
 export const formatEntryType = (entryType: string): string =>
   ENTRY_TYPE_LABELS[entryType] ?? entryType;
 
+// 種別 Select の選択肢（income/expense）。事前収支申告の明細フォーム
+// （BudgetDeclarationForm）と定期明細管理セクション（BudgetRecurringItemList）で共用する
+export const ENTRY_TYPE_OPTIONS = [
+  { value: "income", label: formatEntryType("income") },
+  { value: "expense", label: formatEntryType("expense") },
+];
+
 // ===== 前月の経理追加収支コピー（損益計算書 月次タブ「前月の経理追加収支をコピー」用） =====
 // Supabase アクセス（app/utils/supabase/extraEntries.ts）から切り離しているのは、
 // 副作用なしでユニットテストできるようにするため（docs/testing.md「2.6」）。

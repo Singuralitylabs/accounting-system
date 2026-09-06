@@ -1,7 +1,7 @@
 "use server";
 
 import { User } from "@supabase/supabase-js";
-import { ProfilesType } from "../../types/types";
+import { AccessFailure, ProfilesType } from "../../types/types";
 import { isAllowedEmailDomain } from "../constants";
 import { getCachedProfileInfo, getCachedProfileInfoById } from "./requestCache";
 import { createServerSupabase } from "./clients";
@@ -71,6 +71,41 @@ export const validateMemberIds = async (targetIds: number[]) => {
   );
 
   return { existingIds, error };
+};
+
+// 保存前に manager_id が実在する profiles.id か確認する共通ヘルパ。
+// budgetDeclarations.ts / budgetRecurringItems.ts のどちらも、明細の書き込みが
+// 非トランザクション（既存行の全 DELETE → INSERT、または複数行の並列 INSERT/UPDATE）
+// のため、存在しない manager_id のまま進めると一部だけ失敗し、他の変更のみ
+// 反映された状態（partialWriteFailed）になりうる。DB 書き込みの前にここで弾く。
+// 問題なければ null、問題があれば呼び出し元にそのまま返せる AccessFailure を返す
+export const assertManagerIdsExist = async (
+  managerIds: number[],
+  subject: string,
+  // 「見つからない」場合の案内文の末尾（呼び出し元の画面遷移に合わせて変える。
+  // 例: "フォームを開き直して選び直してください。" / "画面を再読み込みして選び直してください。"）
+  notFoundHint: string,
+): Promise<AccessFailure | null> => {
+  if (managerIds.length === 0) return null;
+
+  const { existingIds: validIds, error } = await validateMemberIds(managerIds);
+  if (error) {
+    console.error(`${subject}の担当者確認に失敗しました:`, error);
+    return {
+      kind: "fetchFailed",
+      message: `${subject}の担当者確認に失敗しました。`,
+    };
+  }
+
+  const existingIds = new Set((validIds ?? []).map((row) => row.id));
+  if (managerIds.some((id) => !existingIds.has(id))) {
+    return {
+      kind: "validationFailed",
+      message: `選択された担当者が見つかりません。${notFoundHint}`,
+    };
+  }
+
+  return null;
 };
 
 export const insertUserInfo = async ({
