@@ -19,6 +19,7 @@ type Props = {
   initialReport: PLReportType | null;
   canEditRecurringCosts: boolean; // 定期費用マスタへの管理リンクを表示するか
   canEditExtraEntries: boolean; // 経理追加収支への管理リンクを表示するか
+  canEditAdjustments: boolean; // 損益調整（実績額修正）の操作を表示するか
 };
 
 // 月キー（YYYY-MM）から年度（7月始まり）を求める
@@ -33,6 +34,7 @@ const ProfitLossView = ({
   initialReport,
   canEditRecurringCosts,
   canEditExtraEntries,
+  canEditAdjustments,
 }: Props) => {
   const currentFiscalYear = monthToFiscalYear(initialMonth);
 
@@ -108,7 +110,10 @@ const ProfitLossView = ({
                   />
                 </Group>
               )}
-              <ProfitLossStatement report={report} />
+              <ProfitLossStatement
+                report={report}
+                canEditAdjustments={canEditAdjustments}
+              />
             </>
           )}
         </Tabs.Panel>

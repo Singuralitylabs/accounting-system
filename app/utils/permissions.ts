@@ -24,6 +24,11 @@ export const ROUTE_PERMISSIONS: Record<string, Role[]> = {
 // 損益計算書を閲覧できるロール（/profit-loss のルート保護と常に一致する）
 export const PL_ALLOWED_CLASSES = ROUTE_PERMISSIONS["/profit-loss"];
 
+// 損益調整（実績額修正）を書き込めるロール。/profit-loss 内の操作で専用ルートを
+// 持たないため ROUTE_PERMISSIONS ではなくここに直接定義する。
+// profit_loss_adjustments の RLS（INSERT/UPDATE/DELETE は accounting / admin のみ）と揃える
+export const PL_ADJUSTMENT_WRITE_CLASSES: Role[] = ["accounting", "admin"];
+
 export const hasClassAccess = (
   allowedClasses: readonly Role[],
   profileClass: string | null | undefined,

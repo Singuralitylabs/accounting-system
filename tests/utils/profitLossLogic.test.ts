@@ -9,19 +9,31 @@ import {
   monthDiff,
   reportFlags,
 } from "@/app/utils/profitLossLogic";
-import { ExtraEntryType, RecurringCostType } from "@/app/types/types";
+import {
+  ExtraEntryType,
+  ProfitLossAdjustmentType,
+  RecurringCostType,
+} from "@/app/types/types";
 
 // ===== フィクスチャ生成ヘルパー =====
+
+// business / costs の id は自動採番する（テストでは値そのものに意味は無く、
+// 一意であることのみが必要）
+let nextBusinessId = 1;
+let nextCostId = 1;
 
 const business = (
   amount: number | null,
   invoiceDate: string | null,
   category: string,
   team = "チームA",
+  matterId = 1,
 ): BusinessRow => ({
+  id: nextBusinessId++,
   amount,
   invoice_date: invoiceDate,
-  matters: { team, category },
+  matter_id: matterId,
+  matters: { id: matterId, title: `案件${matterId}`, team, category },
 });
 
 const cost = (
@@ -32,11 +44,29 @@ const cost = (
   matterId = 1,
   team = "チームA",
 ): CostRow => ({
+  id: nextCostId++,
   price,
   item,
   period,
   matter_id: matterId,
   matters: { id: matterId, title: `案件${matterId}`, team, category },
+});
+
+const adjustment = (
+  override: Partial<ProfitLossAdjustmentType> &
+    Pick<ProfitLossAdjustmentType, "id">,
+): ProfitLossAdjustmentType => ({
+  target_month: "2026-07-01",
+  business_id: null,
+  cost_id: null,
+  recurring_cost_id: null,
+  adjustment_amount: 1000,
+  source_amount_snapshot: 0,
+  reason: `調整理由${override.id}`,
+  adjusted_by: 1,
+  inserted_at: "2026-07-01T00:00:00+09:00",
+  updated_at: "2026-07-01T00:00:00+09:00",
+  ...override,
 });
 
 const recurringCost = (
@@ -82,6 +112,7 @@ const buildInput = (
   costRows: [],
   recurringCosts: [],
   extraEntries: [],
+  adjustments: [],
   isTeamLeader: false,
   includeTeamBreakdown: false,
   ...override,
@@ -417,7 +448,9 @@ describe("buildMonthlyReport: 管理費の費目別集計", () => {
       amount: 15000,
     });
     expect(
-      report.recurringCostByItem[1].details.map((detail) => detail.id),
+      report.recurringCostByItem[1].details.map(
+        (detail) => detail.recurringCost.id,
+      ),
     ).toEqual([1, 2]);
   });
 
@@ -473,7 +506,9 @@ describe("buildMonthlyReport: 管理費の費目別集計", () => {
       "システム料",
     ]);
     expect(report.recurringCostTotal).toBe(10000);
-    expect(report.orgWideRecurringCosts?.map((rc) => rc.id)).toEqual([2]);
+    expect(
+      report.orgWideRecurringCosts?.map((detail) => detail.recurringCost.id),
+    ).toEqual([2]);
   });
 });
 
@@ -756,7 +791,9 @@ describe("buildMonthlyReport: ロール別の表示スコープ", () => {
 
     // 参考表示側に全体共通の管理費・経理追加収支が入る
     expect(report.orgWideExtraEntries?.map((entry) => entry.id)).toEqual([1]);
-    expect(report.orgWideRecurringCosts?.map((rc) => rc.id)).toEqual([2]);
+    expect(
+      report.orgWideRecurringCosts?.map((detail) => detail.recurringCost.id),
+    ).toEqual([2]);
     expect(report.extraEntries.map((entry) => entry.id)).toEqual([2]);
 
     // 管理費は自チーム分のみ
@@ -816,19 +853,32 @@ describe("buildMonthlyReport: 分類別売上内訳・品目別費用内訳", ()
       }),
     );
 
-    expect(report.revenueByCategory).toEqual([
+    expect(
+      report.revenueByCategory.map((row) => ({
+        category: row.category,
+        amount: row.amount,
+      })),
+    ).toEqual([
       { category: "受託案件", amount: 300000 },
       { category: "会員費", amount: 170000 },
     ]);
     expect(report.revenueTotal).toBe(470000);
+
+    // 分類配下には案件（business 行）別の明細を実績額の降順で持つ（実績額修正の対象単位）
+    const memberFeeCategory = report.revenueByCategory.find(
+      (row) => row.category === "会員費",
+    );
+    expect(memberFeeCategory?.businesses.map((b) => b.actualAmount)).toEqual([
+      100000, 50000,
+    ]);
   });
 
-  it("同一品目・同一案件の費用をまとめ、経理追加収支の経費を分類名の品目行として合算する", () => {
+  it("品目別に案件費用行を保持し（cost_id 単位。同一案件でも合算しない）、経理追加収支の経費を分類名の品目行として合算する", () => {
     const report = buildMonthlyReport(
       buildInput({
         costRows: [
           cost(30000, "2026-07-01", "外注費", "受託案件", 1),
-          cost(20000, "2026-07-15", "外注費", "受託案件", 1), // 同一案件 → 1行にまとまる
+          cost(20000, "2026-07-15", "外注費", "受託案件", 1), // 同一案件・同一品目でも実績額修正は cost_id 単位のため個別の行として残る
           cost(80000, "2026-07-10", "外注費", "受託案件", 2),
           cost(10000, "2026-07-10", "備品購入", "イベント", 3),
         ],
@@ -849,9 +899,15 @@ describe("buildMonthlyReport: 分類別売上内訳・品目別費用内訳", ()
       (row) => row.item === "外注費",
     );
     expect(outsourcing?.amount).toBe(130000);
-    expect(outsourcing?.matters).toEqual([
-      { matterId: 2, matterTitle: "案件2", amount: 80000 },
-      { matterId: 1, matterTitle: "案件1", amount: 50000 },
+    expect(
+      outsourcing?.costs.map((c) => ({
+        matterId: c.matterId,
+        actualAmount: c.actualAmount,
+      })),
+    ).toEqual([
+      { matterId: 2, actualAmount: 80000 },
+      { matterId: 1, actualAmount: 30000 },
+      { matterId: 1, actualAmount: 20000 },
     ]);
     expect(outsourcing?.extraEntries).toEqual([]);
 
@@ -859,7 +915,7 @@ describe("buildMonthlyReport: 分類別売上内訳・品目別費用内訳", ()
       (row) => row.item === "備品購入",
     );
     expect(supplies?.amount).toBe(15000);
-    expect(supplies?.matters.map((matter) => matter.matterId)).toEqual([3]);
+    expect(supplies?.costs.map((c) => c.matterId)).toEqual([3]);
     expect(supplies?.extraEntries.map((entry) => entry.id)).toEqual([1]);
 
     // 品目別内訳の合計は案件費用合計と一致する
@@ -910,5 +966,197 @@ describe("buildMonthlyReport: 月未確定（日付未入力）", () => {
       }),
     );
     expect(report.undated).toEqual({ revenue: 0, matterCost: 0 });
+  });
+});
+
+// 損益調整（profit_loss_adjustments）: 元データ + 調整 = 実績（Issue #108）
+describe("buildMonthlyReport: 損益調整（実績額修正）", () => {
+  it("調整が無い場合は元データ金額のまま実績額になる", () => {
+    const report = buildMonthlyReport(
+      buildInput({
+        businessRows: [business(100000, "2026-07-01", "受託案件")],
+      }),
+    );
+    const detail = report.revenueByCategory[0].businesses[0];
+    expect(detail).toMatchObject({
+      sourceAmount: 100000,
+      adjustmentAmount: 0,
+      actualAmount: 100000,
+      sourceChanged: false,
+      adjustment: null,
+    });
+  });
+
+  it("案件の売上（business）の調整が実績額・分類別売上・売上合計に反映される", () => {
+    const row = business(100000, "2026-07-01", "受託案件");
+    const report = buildMonthlyReport(
+      buildInput({
+        businessRows: [row],
+        adjustments: [
+          adjustment({
+            id: 1,
+            business_id: row.id,
+            adjustment_amount: 20000,
+            source_amount_snapshot: 100000,
+          }),
+        ],
+      }),
+    );
+
+    const detail = report.revenueByCategory[0].businesses[0];
+    expect(detail.actualAmount).toBe(120000);
+    expect(detail.adjustment?.id).toBe(1);
+    expect(report.revenueByCategory[0].amount).toBe(120000);
+    expect(report.revenueTotal).toBe(120000);
+  });
+
+  it("案件費用（cost）の調整が実績額・品目別費用・案件費用合計に反映される", () => {
+    const row = cost(30000, "2026-07-01", "外注費", "受託案件");
+    const report = buildMonthlyReport(
+      buildInput({
+        costRows: [row],
+        adjustments: [
+          adjustment({
+            id: 1,
+            cost_id: row.id,
+            adjustment_amount: -5000,
+            source_amount_snapshot: 30000,
+          }),
+        ],
+      }),
+    );
+
+    const detail = report.matterCostByItem[0].costs[0];
+    expect(detail.actualAmount).toBe(25000);
+    expect(report.matterCostByItem[0].amount).toBe(25000);
+    expect(report.matterCostTotal).toBe(25000);
+  });
+
+  it("管理費（recurring_cost）の調整が実績額・費目別内訳・管理費合計に反映される", () => {
+    const rc = recurringCost({ id: 1, price: 10000 });
+    const report = buildMonthlyReport(
+      buildInput({
+        recurringCosts: [rc],
+        adjustments: [
+          adjustment({
+            id: 1,
+            recurring_cost_id: 1,
+            adjustment_amount: 3000,
+            source_amount_snapshot: 10000,
+          }),
+        ],
+      }),
+    );
+
+    const detail = report.recurringCostByItem[0].details[0];
+    expect(detail.actualAmount).toBe(13000);
+    expect(report.recurringCostTotal).toBe(13000);
+  });
+
+  it("対象月が異なる調整は適用されない", () => {
+    const row = business(100000, "2026-07-01", "受託案件");
+    const report = buildMonthlyReport(
+      buildInput({
+        businessRows: [row],
+        adjustments: [
+          adjustment({
+            id: 1,
+            business_id: row.id,
+            target_month: "2026-08-01", // 対象月が異なる（当月には適用しない）
+            adjustment_amount: 20000,
+            source_amount_snapshot: 100000,
+          }),
+        ],
+      }),
+    );
+
+    const detail = report.revenueByCategory[0].businesses[0];
+    expect(detail.adjustment).toBeNull();
+    expect(detail.actualAmount).toBe(100000);
+  });
+
+  it("調整保存後に元データが変更されると sourceChanged が true になり、実績額は現在の元データを基準に計算される", () => {
+    // 調整保存時点（source_amount_snapshot）は 100000 円だったが、
+    // その後元データ（business.amount）が 150000 円に変更された想定
+    const row = business(150000, "2026-07-01", "受託案件");
+    const report = buildMonthlyReport(
+      buildInput({
+        businessRows: [row],
+        adjustments: [
+          adjustment({
+            id: 1,
+            business_id: row.id,
+            adjustment_amount: 20000,
+            source_amount_snapshot: 100000,
+          }),
+        ],
+      }),
+    );
+
+    const detail = report.revenueByCategory[0].businesses[0];
+    expect(detail.sourceChanged).toBe(true);
+    // 調整の差分（+20000）は自動更新されないため、実績額 = 現在の元データ + 差分
+    expect(detail.actualAmount).toBe(170000);
+  });
+
+  it("対象行が当月に存在しない調整は orphanedAdjustments に含まれ、損益には反映されない（accounting / admin のみ）", () => {
+    // 案件の請求日が翌月へ変更される等で、調整の対象行（business_id=99）が当月の
+    // 集計対象（monthlyBusiness）から外れたケース。対象行自体は削除されていないため
+    // CASCADE では消えず、調整だけが「対象行が当月に存在しない」状態で残る
+    const report = buildMonthlyReport(
+      buildInput({
+        includeTeamBreakdown: true,
+        businessRows: [business(100000, "2026-08-01", "受託案件")], // 対象行は8月分として存在
+        adjustments: [
+          adjustment({
+            id: 42,
+            business_id: 99,
+            target_month: "2026-07-01",
+            adjustment_amount: 5000,
+            source_amount_snapshot: 100000,
+          }),
+        ],
+      }),
+    );
+
+    expect(report.orphanedAdjustments).toHaveLength(1);
+    expect(report.orphanedAdjustments?.[0]).toMatchObject({
+      targetType: "business",
+      adjustment: { id: 42 },
+    });
+    expect(report.revenueTotal).toBe(0);
+  });
+
+  it("cost / recurring_cost が対象の場合も対象種別が正しく判定される", () => {
+    const report = buildMonthlyReport(
+      buildInput({
+        includeTeamBreakdown: true,
+        adjustments: [
+          adjustment({ id: 1, cost_id: 99, target_month: "2026-07-01" }),
+          adjustment({
+            id: 2,
+            recurring_cost_id: 98,
+            target_month: "2026-07-01",
+          }),
+        ],
+      }),
+    );
+
+    expect(report.orphanedAdjustments?.map((o) => o.targetType).sort()).toEqual(
+      ["cost", "recurring_cost"],
+    );
+  });
+
+  it("includeTeamBreakdown が false（teamleader）では orphanedAdjustments を返さない", () => {
+    const report = buildMonthlyReport(
+      buildInput({
+        includeTeamBreakdown: false,
+        adjustments: [
+          adjustment({ id: 1, business_id: 99, target_month: "2026-07-01" }),
+        ],
+      }),
+    );
+
+    expect(report.orphanedAdjustments).toBeUndefined();
   });
 });

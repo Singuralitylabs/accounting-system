@@ -24,35 +24,48 @@ import { getAuthorizedViewer } from "./viewerAccess";
 const fetchReportSourceRows = async () => {
   const supabase = createServerSupabase();
 
-  const [businessResult, costResult, recurringResult, extraResult] =
-    await Promise.all([
-      supabase
-        .from("business")
-        .select("amount, invoice_date, matters!inner(team, category)"),
-      supabase
-        .from("costs")
-        .select(
-          "price, item, period, matter_id, matters!inner(id, title, team, category)",
-        ),
-      supabase
-        .from("recurring_costs")
-        .select("*")
-        .order("id", { ascending: true }),
-      supabase.from("extra_entries").select("*").order("id", { ascending: true }),
-    ]);
+  const [
+    businessResult,
+    costResult,
+    recurringResult,
+    extraResult,
+    adjustmentResult,
+  ] = await Promise.all([
+    supabase
+      .from("business")
+      .select(
+        "id, amount, invoice_date, matter_id, matters!inner(id, title, team, category)",
+      ),
+    supabase
+      .from("costs")
+      .select(
+        "id, price, item, period, matter_id, matters!inner(id, title, team, category)",
+      ),
+    supabase
+      .from("recurring_costs")
+      .select("*")
+      .order("id", { ascending: true }),
+    supabase.from("extra_entries").select("*").order("id", { ascending: true }),
+    supabase
+      .from("profit_loss_adjustments")
+      .select("*")
+      .order("id", { ascending: true }),
+  ]);
 
   if (
     businessResult.error ||
     costResult.error ||
     recurringResult.error ||
-    extraResult.error
+    extraResult.error ||
+    adjustmentResult.error
   ) {
     console.error(
       "損益レポートのデータ取得に失敗しました:",
       businessResult.error ??
         costResult.error ??
         recurringResult.error ??
-        extraResult.error,
+        extraResult.error ??
+        adjustmentResult.error,
     );
     return null;
   }
@@ -62,6 +75,7 @@ const fetchReportSourceRows = async () => {
     costRows: (costResult.data ?? []) as CostRow[],
     recurringCosts: recurringResult.data ?? [],
     extraEntries: extraResult.data ?? [],
+    adjustments: adjustmentResult.data ?? [],
   };
 };
 
@@ -89,6 +103,7 @@ export const getProfitLossReport = async (
     costRows: rows.costRows,
     recurringCosts: rows.recurringCosts,
     extraEntries: rows.extraEntries,
+    adjustments: rows.adjustments,
     ...reportFlags(profileInfo.class),
   });
 };
@@ -118,6 +133,7 @@ export const getAnnualTrend = async (
       costRows: rows.costRows,
       recurringCosts: rows.recurringCosts,
       extraEntries: rows.extraEntries,
+      adjustments: rows.adjustments,
       ...reportFlags(profileInfo.class),
     }),
   );
