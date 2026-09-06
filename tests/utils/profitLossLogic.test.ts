@@ -1216,6 +1216,11 @@ describe("buildMonthlyReport: 損益調整（実績額修正）", () => {
       matterCost: 25000, // 30000 - 5000
       recurringCost: 13000, // 10000 + 3000
     });
+    // チームが1つだけのため、本表の合計とも一致するはず（本表とチーム別内訳が
+    // 別の計算経路でズレていないことを担保する不変条件）
+    expect(teamA?.revenue).toBe(report.revenueTotal);
+    expect(teamA?.matterCost).toBe(report.matterCostTotal);
+    expect(teamA?.recurringCost).toBe(report.recurringCostTotal);
   });
 
   it("経理追加収支の収入は分類別売上内訳の extraEntries にも含まれる", () => {

@@ -51,24 +51,23 @@ const ProfitLossAdjustmentModal = ({
     onClose();
   };
 
-  // 開いた時点で既に調整が存在したか（実績額が元データと同額なら調整は無い）。
-  // 「実績額を修正」せずに保存を押した場合に、不要な確認・成功トーストを出さないために使う
+  // 開いた時点で既に調整が存在したか（実績額が元データと同額なら調整は無い）
   const hadExistingAdjustment = currentActualAmount !== sourceAmount;
+  // 元々調整が無く、実績額も変更していない場合は保存する対象が無い
+  // （ボタンを無効化し、無反応な保存操作や不要な確認・トーストを避ける）
+  const hasNothingToSave =
+    actualAmount === sourceAmount && !hadExistingAdjustment;
 
   const handleSave = async () => {
     if (actualAmount === "") {
       notifyError("実績額を入力してください。");
       return;
     }
+    if (hasNothingToSave) return;
 
     const willRevert = actualAmount === sourceAmount;
     if (!willRevert && reason.trim() === "") {
       notifyError("調整理由を入力してください。");
-      return;
-    }
-    // 元々調整が無く、実績額も変更していない場合は何もせず閉じる
-    if (willRevert && !hadExistingAdjustment) {
-      onClose();
       return;
     }
 
@@ -123,7 +122,12 @@ const ProfitLossAdjustmentModal = ({
           minRows={2}
           required={actualAmount !== sourceAmount}
         />
-        <Button onClick={handleSave} loading={saveMutation.isPending} fullWidth>
+        <Button
+          onClick={handleSave}
+          loading={saveMutation.isPending}
+          disabled={hasNothingToSave}
+          fullWidth
+        >
           保存
         </Button>
       </Stack>

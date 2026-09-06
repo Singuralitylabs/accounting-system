@@ -123,11 +123,13 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
   const [loadingMatterId, setLoadingMatterId] = useState<number | null>(null);
   const [adjustmentModal, setAdjustmentModal] =
     useState<AdjustmentModalState | null>(null);
-  // 削除中の対象行が当月に存在しない調整の id（複数行のボタンが同時にスピナーにならないよう
-  // deleteAdjustmentMutation.isPending だけでなくどの行かを個別に持つ）
-  const [deletingAdjustmentId, setDeletingAdjustmentId] = useState<
-    number | null
-  >(null);
+  // 削除中の対象行が当月に存在しない調整の id 集合（deleteAdjustmentMutation.isPending
+  // だけで判定すると全行のボタンが連動してスピナーになるため、行ごとに個別管理する。
+  // Set にしているのは、複数行を続けて削除したときに片方の完了で他方のスピナーが
+  // 消えてしまわないようにするため）
+  const [deletingAdjustmentIds, setDeletingAdjustmentIds] = useState<
+    Set<number>
+  >(new Set());
   const deleteAdjustmentMutation = useDeleteProfitLossAdjustment();
 
   const toggleRow = (key: string) => {
@@ -210,14 +212,18 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
     );
     if (!confirmed) return;
 
+    setDeletingAdjustmentIds((prev) => new Set(prev).add(adjustmentId));
     try {
-      setDeletingAdjustmentId(adjustmentId);
       await deleteAdjustmentMutation.mutateAsync(adjustmentId);
       notifySuccess("損益調整を削除しました。");
     } catch (error) {
       notifyError(toErrorMessage(error, "損益調整の削除に失敗しました。"));
     } finally {
-      setDeletingAdjustmentId(null);
+      setDeletingAdjustmentIds((prev) => {
+        const next = new Set(prev);
+        next.delete(adjustmentId);
+        return next;
+      });
     }
   };
 
@@ -679,7 +685,7 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
                       size="xs"
                       color="red"
                       variant="light"
-                      loading={deletingAdjustmentId === adjustment.id}
+                      loading={deletingAdjustmentIds.has(adjustment.id)}
                       onClick={() =>
                         handleDeleteOrphanedAdjustment(
                           adjustment.id,

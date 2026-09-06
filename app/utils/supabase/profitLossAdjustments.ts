@@ -180,7 +180,7 @@ export const saveProfitLossAdjustment = async (
     target_month: month,
     adjustment_amount: adjustmentAmount,
     source_amount_snapshot: source.sourceAmount,
-    reason,
+    reason: reason.trim(),
     adjusted_by: profileInfo.id,
   });
 

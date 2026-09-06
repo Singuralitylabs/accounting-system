@@ -1146,6 +1146,8 @@ REVOKE ALL ON TABLE budget_recurring_items FROM anon;
 > `pl_adjustment_team` は SECURITY DEFINER にしている。matters / costs / business の既存 RLS（チームリーダーは自チームの行のみ SELECT 可。5.2 〜 5.4）に判定を委ねると、他チームの対象行は「見えない」＝ NULL が返り、下の `can_view_pl_adjustment` が「対象不明 = 全体共通」として誤って表示を許可してしまう（`auth_user_class` / `auth_user_team` と同じ理由。migration 12 参照）。SECURITY DEFINER により、対象行の可視性に関わらず常に実際のチームを取得する。
 >
 > 両関数は `private` スキーマに置く。`auth_user_class` / `auth_user_team` / `can_access_team_budget` を `public` に置いて `authenticated` へ EXECUTE を許可しているのとは異なり、この2関数は「呼び出し側が渡した `business_id` / `cost_id` / `recurring_cost_id` が指す行のチーム（や、そこから導いた可視性）」を返す。`public` に置くと PostgREST の `/rest/v1/rpc/pl_adjustment_team` 経由でどのロールからも直接呼び出せてしまい、SECURITY DEFINER が business / costs の RLS（チームリーダーを自チームに絞る）を素通りして、他チームの `matters.team` を返す情報漏えい経路になる（id を総当たりされれば行の存在有無まで分かる）。`private` スキーマは `supabase/config.toml` の `[api].schemas` に含まれず PostgREST から直接ルーティングされないため、RLS ポリシーの `USING` 句からの内部呼び出しに限定できる。
+>
+> **本番運用上の注意**: `supabase/config.toml` はローカルスタックの設定であり、本番 Supabase プロジェクトで PostgREST に公開するスキーマは Supabase ダッシュボード（Project Settings > API > Exposed schemas）側の設定で決まる（マイグレーションからは変更できない）。既定値は `public, graphql_public` のみで `private` は含まれないため通常は安全だが、**本番のダッシュボードで Exposed schemas に `private` を追加しないこと**（追加すると `pl_adjustment_team` / `can_view_pl_adjustment` が RPC として直接呼び出し可能になり、上記の情報漏えい経路が復活する）。
 
 ```sql
 CREATE SCHEMA IF NOT EXISTS private;
