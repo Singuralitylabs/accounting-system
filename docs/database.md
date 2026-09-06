@@ -69,6 +69,8 @@
 | budget_declarations                  | 事前収支申告（チーム×対象月の見込み収支）のヘッダを管理するテーブル           |
 | budget_declaration_items             | 事前収支申告の明細（見込み収入・支出の内訳）を管理するテーブル                |
 | budget_declaration_reminder_settings | 事前収支申告の未申告 Slack リマインド対象日を管理する設定テーブル（1 行のみ） |
+| budget_recurring_items               | 事前収支申告の定期明細（毎月固定の収入・支出）マスタを管理するテーブル        |
+| profit_loss_adjustments              | 損益調整（案件・定期費用の実績額修正）を管理するテーブル                      |
 
 ## 3. テーブル詳細
 
@@ -378,6 +380,61 @@ CHECK (end_month IS NULL OR end_month >= start_month)
 - manager_id（FK 側の索引。budget_declaration_items.manager_id と同じ方針）
 
 金額改定の運用は recurring_costs と同じ（既存行の end_month を設定して打ち切り、新しい行を追加する。過去に展開済みの budget_declaration_items は遡って変わらない）。
+
+### 3.13 profit_loss_adjustments テーブル
+
+損益調整。損益計算書（/profit-loss）の売上・案件費用・管理費が実際の入金・支払額と一致しない場合に、経理担当者・管理者が対象月ごとの実績額へ修正できるようにするテーブル（Issue #108）。元データ（business / costs / recurring_costs）は書き換えず、対象行 × 対象月ごとの差分（`adjustment_amount`）だけを保持し、損益計算書では「元データ + 調整 = 実績」として表示・集計する。business / costs は案件ライフサイクル・差し戻し検知の対象であり経理が直接書き換えると担当者の見ている案件が変わってしまう、recurring_costs は適用期間で全月に反映されるため金額欄を直すと全月が変わってしまう、という理由から元データを直接編集する方式は採らない。
+
+| カラム名               | データ型                 | 制約                                                                      | 説明                                                                                                                                                                                                    |
+| ---------------------- | ------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| id                     | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                                 | 主キー                                                                                                                                                                                                  |
+| target_month           | date                     | NOT NULL, CHECK (月初日であること)                                        | 調整を効かせる対象月（月初日で格納。budget_declarations.target_month と同方式）                                                                                                                         |
+| business_id            | bigint                   | NULL, FOREIGN KEY (business.id) ON DELETE CASCADE                         | 調整対象（案件の売上）。business_id / cost_id / recurring_cost_id のうちちょうど1つが NOT NULL                                                                                                          |
+| cost_id                | bigint                   | NULL, FOREIGN KEY (costs.id) ON DELETE CASCADE                            | 調整対象（案件費用）                                                                                                                                                                                    |
+| recurring_cost_id      | bigint                   | NULL, FOREIGN KEY (recurring_costs.id) ON DELETE CASCADE                  | 調整対象（管理費）                                                                                                                                                                                      |
+| adjustment_amount      | numeric(15,2)            | NOT NULL, CHECK (adjustment_amount <> 0)                                  | 実績額と元データ金額の差分（実績額 − 保存時点の元データ金額）。マイナス可。0 は許可しない（実績額が元データと同額になった場合はレコード自体を削除する）                                                 |
+| source_amount_snapshot | numeric(15,2)            | NOT NULL                                                                  | 保存時点の元データ金額。元データ変更検知用（現在の元データ金額との比較にのみ使う。実績額の計算には現在の元データ金額 + adjustment_amount を使う）                                                       |
+| reason                 | text                     | NOT NULL, CHECK (空白のみを除いて空でないこと)                            | 調整理由                                                                                                                                                                                                |
+| adjusted_by            | bigint                   | NOT NULL, FOREIGN KEY (profiles.id)（参照アクション指定なし = NO ACTION） | 調整した経理担当者・管理者。budget_declarations.declared_by 等と同じ方針（担当者に設定された profiles を削除しようとするとこの FK でエラーになるため、先に adjusted_by を別のメンバーに付け替えること） |
+| inserted_at            | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 作成日時                                                                                                                                                                                                |
+| updated_at             | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 更新日時                                                                                                                                                                                                |
+
+CHECK 制約:
+
+```sql
+-- target_month は月初日以外を弾く（budget_declarations.target_month と同じ理由）
+CHECK (target_month = date_trunc('month', target_month)::date)
+-- 0 の調整は保存しない（実績額が元データと同額なら削除する運用のため）
+CHECK (adjustment_amount <> 0)
+-- ポリモーフィック参照にせず実 FK を3本張るため、対象は必ずちょうど1つに限定する
+-- （0個だと調整対象が無い、2個以上だと元データ変更検知がどの行を指すか決まらない）
+CHECK (num_nonnulls(business_id, cost_id, recurring_cost_id) = 1)
+-- 空文字の理由を保存させない（アプリ側でも必須入力にしているが、DB 側でも担保する）
+CHECK (btrim(reason) <> '')
+```
+
+UNIQUE 制約（部分インデックス。対象行 × 対象月は1件に限定する）:
+
+```sql
+-- 各インデックスの先頭列を FK 列にしているため、対象行削除時の CASCADE 検索・
+-- Supabase の unindexed_foreign_keys リンタの両方をこれで満たす（下記インデックス欄参照）
+CREATE UNIQUE INDEX ... ON profit_loss_adjustments (business_id, target_month) WHERE business_id IS NOT NULL;
+CREATE UNIQUE INDEX ... ON profit_loss_adjustments (cost_id, target_month) WHERE cost_id IS NOT NULL;
+CREATE UNIQUE INDEX ... ON profit_loss_adjustments (recurring_cost_id, target_month) WHERE recurring_cost_id IS NOT NULL;
+```
+
+インデックス:
+
+- (business_id, target_month) / (cost_id, target_month) / (recurring_cost_id, target_month)（上記の部分 UNIQUE インデックス。FK 列が先頭列のため、対象行削除時の CASCADE 検索・FK 側の索引を兼ねる）
+- adjusted_by（FK 側の索引。extra_entries.manager_id と同じ方針）
+- target_month 単独の索引は張らない（budget_declarations と同じ理由。損益計算書は業務データを全件取得し、月ごとの振り分けをアプリ側のメモリ上で行うため、target_month 単体の絞り込みクエリは発生しない）
+
+運用上の注意:
+
+- 実績額の入力は損益計算書（/profit-loss）の各明細行の「実績額を修正」操作から行う。入力は実績額のみで、保存は DB 関数 `public.save_profit_loss_adjustment`（[5.12](#512-profit_loss_adjustments-テーブル)）を1回呼ぶだけで完結する。対象行を `FOR UPDATE` でロックしたうえで `adjustment_amount = 実績額 − 元データ金額` を計算し、`source_amount_snapshot` に同じ元データ金額を保存する（`app/utils/supabase/profitLossAdjustments.ts`）。取得から書き込みまでを単一トランザクションで行うため、保存の途中で元データが変わる・複数人が同時に同じ対象へ保存するといった競合が起きない
+- 元データ変更の検知: 表示時に現在の元データ金額と `source_amount_snapshot` が異なる場合、画面に警告を表示する。本テーブルの値は自動では追従しない（経理が再確認して実績額を更新するか、調整自体を削除する）
+- 対象行が別の月に移動した場合（案件の請求日変更等）: 調整は `target_month` に留まるため、その月の集計対象に対象行が無ければ「対象行が当月に存在しません」として損益には反映せず、削除を促す警告を表示する（`app/utils/profitLossLogic.ts` の `orphanedAdjustments`）
+- 対象行そのものが削除された場合は ON DELETE CASCADE により調整も自動的に削除される
 
 ## 4. 列挙型
 
@@ -1080,6 +1137,235 @@ REVOKE ALL ON TABLE budget_recurring_items FROM anon;
 
 新規申告作成時の展開（`getActiveBudgetRecurringItems`）は、対象チーム・対象月が適用期間内の行を通常の SELECT で取得するだけであり、上記の RLS がそのまま適用される（チームリーダーは自チーム分のみ取得できる）。展開そのもの（`budget_declaration_items` への INSERT）は 5.9 の RLS に従う。
 
+### 5.12 profit_loss_adjustments テーブル
+
+> 書き込み（INSERT / UPDATE / DELETE）は経理担当者・管理者のみ。SELECT は経理担当者・管理者が全行、チームリーダーは対象行のチームが自チーム、または全体共通（recurring_costs.team IS NULL）の行のみ（recurring_costs / extra_entries と同じ方針）。public ロールはアクセスできない。
+>
+> 調整行自体には team 列が無く、対象（business → matters.team / costs → matters.team / recurring_costs.team）を辿って判定する必要があるため、`public.can_access_team_budget`（5.8）と同じ理由でヘルパー関数へ切り出している。
+>
+> `pl_adjustment_team` は SECURITY DEFINER にしている。matters / costs / business の既存 RLS（チームリーダーは自チームの行のみ SELECT 可。5.2 〜 5.4）に判定を委ねると、他チームの対象行は「見えない」＝ NULL が返り、下の `can_view_pl_adjustment` が「対象不明 = 全体共通」として誤って表示を許可してしまう（`auth_user_class` / `auth_user_team` と同じ理由。migration 12 参照）。SECURITY DEFINER により、対象行の可視性に関わらず常に実際のチームを取得する。
+>
+> 両関数は `private` スキーマに置く。`auth_user_class` / `auth_user_team` / `can_access_team_budget` を `public` に置いて `authenticated` へ EXECUTE を許可しているのとは異なり、この2関数は「呼び出し側が渡した `business_id` / `cost_id` / `recurring_cost_id` が指す行のチーム（や、そこから導いた可視性）」を返す。`public` に置くと PostgREST の `/rest/v1/rpc/pl_adjustment_team` 経由でどのロールからも直接呼び出せてしまい、SECURITY DEFINER が business / costs の RLS（チームリーダーを自チームに絞る）を素通りして、他チームの `matters.team` を返す情報漏えい経路になる（id を総当たりされれば行の存在有無まで分かる）。`private` スキーマは `supabase/config.toml` の `[api].schemas` に含まれず PostgREST から直接ルーティングされないため、RLS ポリシーの `USING` 句からの内部呼び出しに限定できる。
+>
+> **本番運用上の注意**: `supabase/config.toml` はローカルスタックの設定であり、本番 Supabase プロジェクトで PostgREST に公開するスキーマは Supabase ダッシュボード（Project Settings > API > Exposed schemas）側の設定で決まる（マイグレーションからは変更できない）。既定値は `public, graphql_public` のみで `private` は含まれないため通常は安全だが、**本番のダッシュボードで Exposed schemas に `private` を追加しないこと**（追加すると `pl_adjustment_team` / `can_view_pl_adjustment` が RPC として直接呼び出し可能になり、上記の情報漏えい経路が復活する）。
+
+```sql
+CREATE SCHEMA IF NOT EXISTS private;
+REVOKE ALL ON SCHEMA private FROM anon, authenticated, PUBLIC;
+GRANT USAGE ON SCHEMA private TO authenticated;
+
+CREATE OR REPLACE FUNCTION private.pl_adjustment_team(
+  p_business_id bigint,
+  p_cost_id bigint,
+  p_recurring_cost_id bigint
+)
+RETURNS text
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = ''
+AS $$
+  SELECT CASE
+    WHEN p_business_id IS NOT NULL THEN (
+      SELECT matters.team FROM public.business
+      JOIN public.matters ON matters.id = business.matter_id
+      WHERE business.id = p_business_id
+    )
+    WHEN p_cost_id IS NOT NULL THEN (
+      SELECT matters.team FROM public.costs
+      JOIN public.matters ON matters.id = costs.matter_id
+      WHERE costs.id = p_cost_id
+    )
+    ELSE (
+      SELECT recurring_costs.team FROM public.recurring_costs
+      WHERE recurring_costs.id = p_recurring_cost_id
+    )
+  END
+$$;
+
+CREATE OR REPLACE FUNCTION private.can_view_pl_adjustment(
+  p_business_id bigint,
+  p_cost_id bigint,
+  p_recurring_cost_id bigint
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path = ''
+AS $$
+  SELECT public.auth_user_class() IN ('admin', 'accounting')
+      OR (
+        public.auth_user_class() = 'teamleader'
+        AND public.auth_user_team() IS NOT NULL
+        AND (
+          private.pl_adjustment_team(p_business_id, p_cost_id, p_recurring_cost_id) IS NULL
+          OR private.pl_adjustment_team(p_business_id, p_cost_id, p_recurring_cost_id) = public.auth_user_team()
+        )
+      )
+$$;
+
+-- private スキーマは PostgREST に公開されないため、EXECUTE を authenticated に
+-- 許可しても直接の RPC 呼び出しはできない（RLS ポリシー内部からの呼び出しのみ）
+REVOKE EXECUTE ON FUNCTION private.pl_adjustment_team(bigint, bigint, bigint) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION private.pl_adjustment_team(bigint, bigint, bigint) TO authenticated;
+REVOKE EXECUTE ON FUNCTION private.can_view_pl_adjustment(bigint, bigint, bigint) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION private.can_view_pl_adjustment(bigint, bigint, bigint) TO authenticated;
+
+CREATE POLICY "profit_loss_adjustments_select_policy" ON profit_loss_adjustments
+    FOR SELECT TO authenticated
+    USING (private.can_view_pl_adjustment(business_id, cost_id, recurring_cost_id));
+
+-- 書き込みは経理担当者・管理者のみ（対象行のチームは問わない。extra_entries /
+-- recurring_costs と同じ方針で、チームリーダーには一切の書き込みを許可しない）。
+-- adjusted_by は PostgREST 経由では任意の profiles.id を指定できてしまうため、
+-- WITH CHECK で「adjusted_by が呼び出し本人の profiles.id と一致すること」も
+-- 併せて要求する（budget_declarations_insert_policy と同じ理由。あちらはチーム
+-- 協業のため UPDATE 側は縛っていないが、adjusted_by はアプリが常に呼び出し本人の
+-- id を送るため、UPDATE も含めて縛ってもアプリの動作を妨げない）
+CREATE POLICY "profit_loss_adjustments_insert_policy" ON profit_loss_adjustments
+    FOR INSERT TO authenticated
+    WITH CHECK (
+      public.auth_user_class() IN ('admin', 'accounting')
+      AND EXISTS (
+        SELECT 1 FROM profiles p
+        WHERE p.id = profit_loss_adjustments.adjusted_by
+        AND p.user_id = (select auth.uid())
+      )
+    );
+
+CREATE POLICY "profit_loss_adjustments_update_policy" ON profit_loss_adjustments
+    FOR UPDATE TO authenticated
+    USING (public.auth_user_class() IN ('admin', 'accounting'))
+    WITH CHECK (
+      public.auth_user_class() IN ('admin', 'accounting')
+      AND EXISTS (
+        SELECT 1 FROM profiles p
+        WHERE p.id = profit_loss_adjustments.adjusted_by
+        AND p.user_id = (select auth.uid())
+      )
+    );
+
+CREATE POLICY "profit_loss_adjustments_delete_policy" ON profit_loss_adjustments
+    FOR DELETE TO authenticated
+    USING (public.auth_user_class() IN ('admin', 'accounting'));
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE profit_loss_adjustments TO authenticated, service_role;
+REVOKE ALL ON TABLE profit_loss_adjustments FROM anon;
+```
+
+#### 実績額修正の原子的な保存（`save_profit_loss_adjustment`）
+
+`app/utils/supabase/profitLossAdjustments.ts` の保存処理は、この DB 関数を1回呼ぶだけで完結する。アプリ側で「元データ金額の取得 → 差分計算 → INSERT/UPDATE」を複数クエリに分けると、取得から書き込みまでの間に元データが変わる、または2人の経理担当者が同時に同じ対象へ保存する、といった競合の余地がある。本関数は対象行を `SELECT ... FOR UPDATE` でロックし、差分計算と `INSERT ... ON CONFLICT DO UPDATE`（部分 UNIQUE インデックスを一意性制約として使う upsert）を単一トランザクション（関数呼び出し1回）内で行うことでこれを解消する。
+
+SECURITY DEFINER にはしない（既定の SECURITY INVOKER のまま）。対象行（business / costs / recurring_costs）の SELECT・`profit_loss_adjustments` への書き込みはいずれも呼び出し元のロールで RLS がそのまま適用される。`pl_adjustment_team` / `can_view_pl_adjustment` とは異なり、対象データの SELECT 自体は経理担当者・管理者なら全行に許可されているため RLS 迂回の懸念はなく、`public` スキーマに置いて構わない。
+
+`adjusted_by` はクライアントから受け取らず、関数内で `auth.uid()` から解決する（PostgREST 経由でなりすまされることを防ぐ。上記 INSERT/UPDATE ポリシーの `WITH CHECK` と二重に担保する）。
+
+`p_actual_amount` は `adjustment_amount` / `source_amount_snapshot` の列精度（`numeric(15,2)`）に合わせて差分計算の直前に `round(…, 2)` する。画面側の `NumberInput`（`app/components/profitLoss/ProfitLossAdjustmentModal.tsx`）も `decimalScale={2}` で入力を小数第2位までに制限しており、両者を揃えることで「確認ダイアログの表示額」と「実際に保存される `adjustment_amount`」がずれる、または丸めにより差分が 0 になり `profit_loss_adjustments_amount_check` に想定外に抵触するケースを防ぐ。
+
+```sql
+CREATE OR REPLACE FUNCTION public.save_profit_loss_adjustment(
+  p_business_id bigint,
+  p_cost_id bigint,
+  p_recurring_cost_id bigint,
+  p_target_month date,
+  p_actual_amount numeric,
+  p_reason text
+)
+RETURNS TABLE (deleted boolean, source_amount numeric, adjustment_amount numeric)
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+DECLARE
+  v_source_amount numeric;
+  v_actual_amount numeric;
+  v_adjustment_amount numeric;
+  v_adjusted_by bigint;
+BEGIN
+  -- 対象は必ずちょうど1つ
+  IF num_nonnulls(p_business_id, p_cost_id, p_recurring_cost_id) <> 1 THEN
+    RAISE EXCEPTION '調整対象の指定が不正です';
+  END IF;
+
+  -- adjustment_amount / source_amount_snapshot は numeric(15,2) のため、差分計算前に
+  -- 実績額をここで丸める（丸めずに差分を取ると、確認ダイアログの表示額と実際に
+  -- 保存される差分がずれる場合がある）
+  v_actual_amount := round(p_actual_amount, 2);
+
+  SELECT p.id INTO v_adjusted_by FROM public.profiles p WHERE p.user_id = auth.uid();
+  IF v_adjusted_by IS NULL THEN
+    RAISE EXCEPTION 'プロフィールが見つかりません';
+  END IF;
+
+  -- 対象行をロックしたうえで元データ金額を取得する
+  IF p_business_id IS NOT NULL THEN
+    SELECT COALESCE(b.amount, 0) INTO v_source_amount
+    FROM public.business b WHERE b.id = p_business_id FOR UPDATE;
+  ELSIF p_cost_id IS NOT NULL THEN
+    SELECT c.price INTO v_source_amount FROM public.costs c WHERE c.id = p_cost_id FOR UPDATE;
+  ELSE
+    SELECT rc.price INTO v_source_amount
+    FROM public.recurring_costs rc WHERE rc.id = p_recurring_cost_id FOR UPDATE;
+  END IF;
+  IF v_source_amount IS NULL THEN
+    RAISE EXCEPTION '対象データが見つかりません';
+  END IF;
+
+  v_adjustment_amount := v_actual_amount - v_source_amount;
+
+  -- 差分 0（実績額 = 元データ）なら既存の調整を削除する
+  IF v_adjustment_amount = 0 THEN
+    DELETE FROM public.profit_loss_adjustments
+    WHERE target_month = p_target_month
+      AND business_id IS NOT DISTINCT FROM p_business_id
+      AND cost_id IS NOT DISTINCT FROM p_cost_id
+      AND recurring_cost_id IS NOT DISTINCT FROM p_recurring_cost_id;
+    RETURN QUERY SELECT true, v_source_amount, 0::numeric;
+    RETURN;
+  END IF;
+
+  -- 理由は必須（呼び出し側でも検証するが、直接の RPC 呼び出しに備える。
+  -- 判別できるよう固定のメッセージ文字列を使う）
+  IF btrim(p_reason) = '' THEN
+    RAISE EXCEPTION 'REASON_REQUIRED';
+  END IF;
+
+  -- 対象種別ごとに、対応する部分 UNIQUE インデックスを一意性制約として upsert する
+  -- （3種の対象で使う列が異なるため、1本の INSERT ... ON CONFLICT では書けない）
+  IF p_business_id IS NOT NULL THEN
+    INSERT INTO public.profit_loss_adjustments
+      (target_month, business_id, adjustment_amount, source_amount_snapshot, reason, adjusted_by)
+    VALUES (p_target_month, p_business_id, v_adjustment_amount, v_source_amount, btrim(p_reason), v_adjusted_by)
+    ON CONFLICT (business_id, target_month) WHERE business_id IS NOT NULL
+    DO UPDATE SET adjustment_amount = EXCLUDED.adjustment_amount,
+                  source_amount_snapshot = EXCLUDED.source_amount_snapshot,
+                  reason = EXCLUDED.reason, adjusted_by = EXCLUDED.adjusted_by;
+  ELSIF p_cost_id IS NOT NULL THEN
+    INSERT INTO public.profit_loss_adjustments
+      (target_month, cost_id, adjustment_amount, source_amount_snapshot, reason, adjusted_by)
+    VALUES (p_target_month, p_cost_id, v_adjustment_amount, v_source_amount, btrim(p_reason), v_adjusted_by)
+    ON CONFLICT (cost_id, target_month) WHERE cost_id IS NOT NULL
+    DO UPDATE SET adjustment_amount = EXCLUDED.adjustment_amount,
+                  source_amount_snapshot = EXCLUDED.source_amount_snapshot,
+                  reason = EXCLUDED.reason, adjusted_by = EXCLUDED.adjusted_by;
+  ELSE
+    INSERT INTO public.profit_loss_adjustments
+      (target_month, recurring_cost_id, adjustment_amount, source_amount_snapshot, reason, adjusted_by)
+    VALUES (p_target_month, p_recurring_cost_id, v_adjustment_amount, v_source_amount, btrim(p_reason), v_adjusted_by)
+    ON CONFLICT (recurring_cost_id, target_month) WHERE recurring_cost_id IS NOT NULL
+    DO UPDATE SET adjustment_amount = EXCLUDED.adjustment_amount,
+                  source_amount_snapshot = EXCLUDED.source_amount_snapshot,
+                  reason = EXCLUDED.reason, adjusted_by = EXCLUDED.adjusted_by;
+  END IF;
+
+  RETURN QUERY SELECT false, v_source_amount, v_adjustment_amount;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.save_profit_loss_adjustment(bigint, bigint, bigint, date, numeric, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.save_profit_loss_adjustment(bigint, bigint, bigint, date, numeric, text) TO authenticated;
+```
+
 ## 6. トリガー
 
 ### 6.1 updated_at 更新トリガー
@@ -1144,6 +1430,16 @@ CREATE TRIGGER update_budget_declaration_items_updated_at
 
 CREATE TRIGGER update_budget_declaration_reminder_settings_updated_at
     BEFORE UPDATE ON budget_declaration_reminder_settings
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_updated_at_column();
+
+CREATE TRIGGER update_budget_recurring_items_updated_at
+    BEFORE UPDATE ON budget_recurring_items
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_updated_at_column();
+
+CREATE TRIGGER update_profit_loss_adjustments_updated_at
+    BEFORE UPDATE ON profit_loss_adjustments
     FOR EACH ROW
     EXECUTE PROCEDURE update_updated_at_column();
 ```
@@ -1267,11 +1563,16 @@ erDiagram
     profiles ||--o{ extra_entries : "manages"
     profiles ||--o{ budget_declarations : "declares"
     profiles ||--o{ budget_declaration_items : "manages"
+    profiles ||--o{ budget_recurring_items : "manages"
+    profiles ||--o{ profit_loss_adjustments : "adjusts"
     budget_declarations ||--o{ budget_declaration_items : "contains"
     matters ||--o{ costs : "contains"
     matters ||--o{ business : "has"
     matters ||--o{ matters : "is parent of"
     select_option_types ||--o{ select_options : "has"
+    business ||--o{ profit_loss_adjustments : "adjusted by"
+    costs ||--o{ profit_loss_adjustments : "adjusted by"
+    recurring_costs ||--o{ profit_loss_adjustments : "adjusted by"
 
     profiles {
         bigint id PK
@@ -1406,6 +1707,35 @@ erDiagram
         numeric amount
         bigint manager_id FK
         integer display_order
+        timestamp inserted_at
+        timestamp updated_at
+    }
+
+    budget_recurring_items {
+        bigint id PK
+        text team
+        text entry_type
+        text category
+        text description
+        numeric amount
+        bigint manager_id FK
+        date start_month
+        date end_month
+        integer display_order
+        timestamp inserted_at
+        timestamp updated_at
+    }
+
+    profit_loss_adjustments {
+        bigint id PK
+        date target_month
+        bigint business_id FK
+        bigint cost_id FK
+        bigint recurring_cost_id FK
+        numeric adjustment_amount
+        numeric source_amount_snapshot
+        text reason
+        bigint adjusted_by FK
         timestamp inserted_at
         timestamp updated_at
     }

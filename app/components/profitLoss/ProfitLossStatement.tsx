@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  AdjustableAmount,
+  AdjustmentTarget,
   ExtraEntryType,
   MatterInfoWithUserNameType,
   PLReportType,
@@ -11,15 +13,42 @@ import { formatCurrency, formatMonthLabel } from "@/app/utils/formatter";
 import { formatEntryType } from "@/app/utils/extraEntry";
 import { formatPaymentCycle } from "@/app/utils/paymentCycle";
 import { ORG_WIDE_TEAM_LABEL } from "@/app/utils/constants";
-import { Alert, Button, Paper, SimpleGrid, Table, Text } from "@mantine/core";
+import {
+  Alert,
+  Badge,
+  Button,
+  Group,
+  Paper,
+  SimpleGrid,
+  Table,
+  Text,
+  Tooltip,
+} from "@mantine/core";
 import { Fragment, useState } from "react";
-import { FaChevronDown, FaChevronRight } from "react-icons/fa";
+import {
+  FaChevronDown,
+  FaChevronRight,
+  FaExclamationTriangle,
+} from "react-icons/fa";
 import { MatterCardDetail } from "../modal/MatterCardDetail";
 import ExtraEntrySection from "./ExtraEntrySection";
-import { notifyError } from "@/app/utils/notify";
+import ProfitLossAdjustmentModal from "./ProfitLossAdjustmentModal";
+import { notifyError, notifySuccess, toErrorMessage } from "@/app/utils/notify";
+import { confirmAction } from "@/app/utils/confirmAction";
+import { useDeleteProfitLossAdjustment } from "@/app/hooks/useProfitLossAdjustments";
 
 type Props = {
   report: PLReportType;
+  canEditAdjustments: boolean; // 実績額修正の操作を表示するか（accounting / admin）
+};
+
+// 「実績額を修正」モーダルに渡す対象の情報
+type AdjustmentModalState = {
+  target: AdjustmentTarget;
+  label: string;
+  sourceAmount: number;
+  currentActualAmount: number;
+  currentReason: string;
 };
 
 // 経理追加収支の金額1件分の表示行（全体共通（参考）セクション用）。
@@ -73,18 +102,35 @@ const formatRecurringCostNote = (
   return parts.length > 0 ? `（${parts.join(" / ")}）` : "";
 };
 
+// 対象種別の日本語表示（「対象行が当月に存在しません」の一覧用）
+const targetTypeLabel = {
+  business: "売上",
+  cost: "案件費用",
+  recurring_cost: "管理費",
+} as const;
+
 // 損益の符号に応じた文字色（0 は黒字扱い）
 const amountColor = (value: number) =>
   value < 0 ? "text-red-600" : "text-green-700";
 
-const ProfitLossStatement = ({ report }: Props) => {
-  // 案件費用の品目行・管理費の費目行の展開状態。
-  // 同名の品目が両方に存在しうるため、キーには種別のプレフィックスを付ける。
+const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
+  // 案件費用の品目行・管理費の費目行・売上の分類行の展開状態。
+  // 種別が異なっても同名になりうるため、キーには種別のプレフィックスを付ける。
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [selectedMatter, setSelectedMatter] =
     useState<MatterInfoWithUserNameType | null>(null);
   const [isModalOpened, setIsModalOpened] = useState(false);
   const [loadingMatterId, setLoadingMatterId] = useState<number | null>(null);
+  const [adjustmentModal, setAdjustmentModal] =
+    useState<AdjustmentModalState | null>(null);
+  // 削除中の対象行が当月に存在しない調整の id 集合（deleteAdjustmentMutation.isPending
+  // だけで判定すると全行のボタンが連動してスピナーになるため、行ごとに個別管理する。
+  // Set にしているのは、複数行を続けて削除したときに片方の完了で他方のスピナーが
+  // 消えてしまわないようにするため）
+  const [deletingAdjustmentIds, setDeletingAdjustmentIds] = useState<
+    Set<number>
+  >(new Set());
+  const deleteAdjustmentMutation = useDeleteProfitLossAdjustment();
 
   const toggleRow = (key: string) => {
     setExpandedRows((prev) => {
@@ -98,7 +144,7 @@ const ProfitLossStatement = ({ report }: Props) => {
     });
   };
 
-  // 展開可能な見出し行（案件費用の品目 / 管理費の費目）に共通で付ける属性。
+  // 展開可能な見出し行（売上の分類 / 案件費用の品目 / 管理費の費目）に共通で付ける属性。
   // 行全体をクリックできる利便性は残す。キーボード・支援技術向けの操作点は
   // セル内の実ボタン（expandToggle）が担う（<tr> に role="button" を付けると
   // 行としてのセマンティクスが壊れるため、行側には role / tabIndex を付けない）。
@@ -142,6 +188,93 @@ const ProfitLossStatement = ({ report }: Props) => {
       setLoadingMatterId(null);
     }
   };
+
+  const openAdjustmentModal = (
+    target: AdjustmentTarget,
+    label: string,
+    detail: AdjustableAmount,
+  ) => {
+    setAdjustmentModal({
+      target,
+      label,
+      sourceAmount: detail.sourceAmount,
+      currentActualAmount: detail.actualAmount,
+      currentReason: detail.adjustment?.reason ?? "",
+    });
+  };
+
+  const handleDeleteOrphanedAdjustment = async (
+    adjustmentId: number,
+    label: string,
+  ) => {
+    const confirmed = await confirmAction(
+      `${label}の損益調整（対象行が当月に存在しません）を削除しますか？`,
+    );
+    if (!confirmed) return;
+
+    setDeletingAdjustmentIds((prev) => new Set(prev).add(adjustmentId));
+    try {
+      await deleteAdjustmentMutation.mutateAsync(adjustmentId);
+      notifySuccess("損益調整を削除しました。");
+    } catch (error) {
+      notifyError(toErrorMessage(error, "損益調整の削除に失敗しました。"));
+    } finally {
+      setDeletingAdjustmentIds((prev) => {
+        const next = new Set(prev);
+        next.delete(adjustmentId);
+        return next;
+      });
+    }
+  };
+
+  // 明細行の「元データ / 調整」2列（3列目の「実績」は呼び出し側で強調表示が異なるため個別に描く）
+  const sourceAndAdjustmentCells = (detail: AdjustableAmount) => (
+    <>
+      <Table.Td className="text-right text-gray-500">
+        {formatCurrency(detail.sourceAmount)}
+      </Table.Td>
+      <Table.Td className="text-right text-gray-500">
+        {detail.adjustmentAmount === 0
+          ? "-"
+          : formatCurrency(detail.adjustmentAmount)}
+      </Table.Td>
+    </>
+  );
+
+  // 調整あり・元データ変更検知のバッジ・警告（明細行の「実績」セル内に付ける）。
+  // 調整ありバッジは調整理由をツールチップで表示する（チームリーダーは調整理由を
+  // 閲覧できるが編集操作は表示されない、という仕様のため）。
+  // トリガーは native button にして、キーボード操作（Tab でフォーカス）でも
+  // 支援技術でも内容が伝わるようにする（Mantine の Tooltip はホバー/フォーカスで
+  // 開くが、非対話要素の span のままだとフォーカスできず aria-label も無かった）
+  const adjustmentIndicators = (detail: AdjustableAmount) => (
+    <>
+      {detail.adjustment && (
+        <Tooltip label={`調整理由: ${detail.adjustment.reason}`}>
+          <button
+            type="button"
+            className="ml-2 align-middle focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+            aria-label={`調整理由: ${detail.adjustment.reason}`}
+          >
+            <Badge size="xs" color="blue" variant="light">
+              調整あり
+            </Badge>
+          </button>
+        </Tooltip>
+      )}
+      {detail.sourceChanged && (
+        <Tooltip label="調整の保存後に元データの金額が変更されています。実績額をご確認ください。">
+          <button
+            type="button"
+            className="ml-1 inline-flex text-amber-600 align-middle focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+            aria-label="警告: 調整の保存後に元データの金額が変更されています。実績額をご確認ください。"
+          >
+            <FaExclamationTriangle size="0.75rem" />
+          </button>
+        </Tooltip>
+      )}
+    </>
+  );
 
   const hasUndated =
     report.undated.revenue > 0 || report.undated.matterCost > 0;
@@ -192,34 +325,125 @@ const ProfitLossStatement = ({ report }: Props) => {
           <Table.Thead>
             <Table.Tr>
               <Table.Th>{formatMonthLabel(report.month)} 損益計算書</Table.Th>
-              <Table.Th className="text-right w-44">金額</Table.Th>
-              <Table.Th className="w-24" />
+              <Table.Th className="text-right w-32">元データ</Table.Th>
+              <Table.Th className="text-right w-32">調整</Table.Th>
+              <Table.Th className="text-right w-32">実績</Table.Th>
+              <Table.Th className="w-40" />
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
             {/* 売上合計 */}
             <Table.Tr className="bg-slate-50">
               <Table.Td className="font-bold">売上合計</Table.Td>
+              <Table.Td />
+              <Table.Td />
               <Table.Td className="text-right font-bold">
                 {formatCurrency(report.revenueTotal)}
               </Table.Td>
               <Table.Td />
             </Table.Tr>
-            {report.revenueByCategory.map((breakdown) => (
-              <Table.Tr key={`revenue-${breakdown.category}`}>
-                <Table.Td className="pl-8 text-gray-700">
-                  {breakdown.category}
-                </Table.Td>
-                <Table.Td className="text-right">
-                  {formatCurrency(breakdown.amount)}
-                </Table.Td>
-                <Table.Td />
-              </Table.Tr>
-            ))}
+            {report.revenueByCategory.map((breakdown) => {
+              const rowKey = `revenue:${breakdown.category}`;
+              const isExpanded = expandedRows.has(rowKey);
+              return (
+                <Fragment key={rowKey}>
+                  <Table.Tr {...expandableRowProps(rowKey)}>
+                    <Table.Td className="pl-8 text-gray-700">
+                      {expandToggle(rowKey, isExpanded, breakdown.category)}
+                    </Table.Td>
+                    <Table.Td />
+                    <Table.Td />
+                    <Table.Td className="text-right">
+                      {formatCurrency(breakdown.amount)}
+                    </Table.Td>
+                    <Table.Td />
+                  </Table.Tr>
+                  {isExpanded && (
+                    <>
+                      {breakdown.businesses.map((business) => (
+                        <Table.Tr
+                          key={`${rowKey}-business-${business.businessId}`}
+                          className="bg-gray-50"
+                        >
+                          <Table.Td className="pl-16 text-gray-600">
+                            {business.matterTitle}
+                            <span className="text-xs text-gray-500 ml-2">
+                              （{business.businessName}）
+                            </span>
+                          </Table.Td>
+                          {sourceAndAdjustmentCells(business)}
+                          <Table.Td className="text-right text-gray-600">
+                            {formatCurrency(business.actualAmount)}
+                            {adjustmentIndicators(business)}
+                          </Table.Td>
+                          <Table.Td>
+                            <Group gap="xs" justify="center" wrap="nowrap">
+                              <Button
+                                size="xs"
+                                variant="light"
+                                loading={loadingMatterId === business.matterId}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleShowMatter(business.matterId);
+                                }}
+                              >
+                                案件を表示
+                              </Button>
+                              {canEditAdjustments && (
+                                <Button
+                                  size="xs"
+                                  variant="subtle"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    openAdjustmentModal(
+                                      {
+                                        targetType: "business",
+                                        businessId: business.businessId,
+                                      },
+                                      `${business.matterTitle}の売上（${business.businessName}）`,
+                                      business,
+                                    );
+                                  }}
+                                >
+                                  実績額を修正
+                                </Button>
+                              )}
+                            </Group>
+                          </Table.Td>
+                        </Table.Tr>
+                      ))}
+                      {/* 経理追加収支の収入明細行（案件に紐づかないため「案件を表示」ボタンなし。
+                          本 Issue の調整対象外のため元データ/調整は表示しない） */}
+                      {breakdown.extraEntries.map((entry) => (
+                        <Table.Tr
+                          key={`${rowKey}-extra-${entry.id}`}
+                          className="bg-gray-50"
+                        >
+                          <Table.Td className="pl-16 text-gray-600">
+                            {entry.description}
+                            <span className="text-xs text-gray-500 ml-2">
+                              （経理追加）
+                            </span>
+                          </Table.Td>
+                          <Table.Td />
+                          <Table.Td />
+                          <Table.Td className="text-right text-gray-600">
+                            {formatCurrency(entry.billing_amount)}
+                          </Table.Td>
+                          <Table.Td />
+                        </Table.Tr>
+                      ))}
+                    </>
+                  )}
+                </Fragment>
+              );
+            })}
 
             {/* 案件費用合計 */}
             <Table.Tr className="bg-slate-50">
               <Table.Td className="font-bold">案件費用合計</Table.Td>
+              <Table.Td />
+              <Table.Td />
               <Table.Td className="text-right font-bold">
                 {formatCurrency(report.matterCostTotal)}
               </Table.Td>
@@ -234,6 +458,8 @@ const ProfitLossStatement = ({ report }: Props) => {
                     <Table.Td className="pl-8 text-gray-700">
                       {expandToggle(rowKey, isExpanded, breakdown.item)}
                     </Table.Td>
+                    <Table.Td />
+                    <Table.Td />
                     <Table.Td className="text-right">
                       {formatCurrency(breakdown.amount)}
                     </Table.Td>
@@ -241,33 +467,60 @@ const ProfitLossStatement = ({ report }: Props) => {
                   </Table.Tr>
                   {isExpanded && (
                     <>
-                      {breakdown.matters.map((matter) => (
+                      {breakdown.costs.map((cost) => (
                         <Table.Tr
-                          key={`${rowKey}-matter-${matter.matterId}`}
+                          key={`${rowKey}-cost-${cost.costId}`}
                           className="bg-gray-50"
                         >
                           <Table.Td className="pl-16 text-gray-600">
-                            {matter.matterTitle}
+                            {cost.matterTitle}
+                            <span className="text-xs text-gray-500 ml-2">
+                              （{cost.costName}）
+                            </span>
                           </Table.Td>
+                          {sourceAndAdjustmentCells(cost)}
                           <Table.Td className="text-right text-gray-600">
-                            {formatCurrency(matter.amount)}
+                            {formatCurrency(cost.actualAmount)}
+                            {adjustmentIndicators(cost)}
                           </Table.Td>
-                          <Table.Td className="text-center">
-                            <Button
-                              size="xs"
-                              variant="light"
-                              loading={loadingMatterId === matter.matterId}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleShowMatter(matter.matterId);
-                              }}
-                            >
-                              案件を表示
-                            </Button>
+                          <Table.Td>
+                            <Group gap="xs" justify="center" wrap="nowrap">
+                              <Button
+                                size="xs"
+                                variant="light"
+                                loading={loadingMatterId === cost.matterId}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleShowMatter(cost.matterId);
+                                }}
+                              >
+                                案件を表示
+                              </Button>
+                              {canEditAdjustments && (
+                                <Button
+                                  size="xs"
+                                  variant="subtle"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    openAdjustmentModal(
+                                      {
+                                        targetType: "cost",
+                                        costId: cost.costId,
+                                      },
+                                      `${cost.matterTitle}の案件費用（${cost.costName} / ${breakdown.item}）`,
+                                      cost,
+                                    );
+                                  }}
+                                >
+                                  実績額を修正
+                                </Button>
+                              )}
+                            </Group>
                           </Table.Td>
                         </Table.Tr>
                       ))}
-                      {/* 経理追加収支の経費明細行（案件に紐づかないため「案件を表示」ボタンなし） */}
+                      {/* 経理追加収支の経費明細行（案件に紐づかないため「案件を表示」ボタンなし。
+                          本 Issue の調整対象外のため元データ/調整は表示しない） */}
                       {breakdown.extraEntries.map((entry) => (
                         <Table.Tr
                           key={`${rowKey}-extra-${entry.id}`}
@@ -279,6 +532,8 @@ const ProfitLossStatement = ({ report }: Props) => {
                               （経理追加）
                             </span>
                           </Table.Td>
+                          <Table.Td />
+                          <Table.Td />
                           <Table.Td className="text-right text-gray-600">
                             {formatCurrency(entry.expense_amount)}
                           </Table.Td>
@@ -294,6 +549,8 @@ const ProfitLossStatement = ({ report }: Props) => {
             {/* 売上総利益（粗利）: 分類別に 売上 − 案件費用 を集計 */}
             <Table.Tr className="bg-slate-50 border-t-2 border-gray-300">
               <Table.Td className="font-bold">売上総利益（粗利）</Table.Td>
+              <Table.Td />
+              <Table.Td />
               <Table.Td
                 className={`text-right font-bold ${amountColor(
                   report.grossProfitTotal,
@@ -312,6 +569,8 @@ const ProfitLossStatement = ({ report }: Props) => {
                     {formatCurrency(breakdown.cost)}）
                   </span>
                 </Table.Td>
+                <Table.Td />
+                <Table.Td />
                 <Table.Td
                   className={`text-right ${amountColor(breakdown.grossProfit)}`}
                 >
@@ -324,6 +583,8 @@ const ProfitLossStatement = ({ report }: Props) => {
             {/* 管理費合計（費目別内訳。展開で定期費用の明細を表示） */}
             <Table.Tr className="bg-slate-50">
               <Table.Td className="font-bold">管理費合計</Table.Td>
+              <Table.Td />
+              <Table.Td />
               <Table.Td className="text-right font-bold">
                 {formatCurrency(report.recurringCostTotal)}
               </Table.Td>
@@ -338,30 +599,54 @@ const ProfitLossStatement = ({ report }: Props) => {
                     <Table.Td className="pl-8 text-gray-700">
                       {expandToggle(rowKey, isExpanded, breakdown.item)}
                     </Table.Td>
+                    <Table.Td />
+                    <Table.Td />
                     <Table.Td className="text-right">
                       {formatCurrency(breakdown.amount)}
                     </Table.Td>
                     <Table.Td />
                   </Table.Tr>
                   {isExpanded &&
-                    breakdown.details.map((recurringCost) => (
+                    breakdown.details.map((detail) => (
                       <Table.Tr
-                        key={`${rowKey}-detail-${recurringCost.id}`}
+                        key={`${rowKey}-detail-${detail.recurringCost.id}`}
                         className="bg-gray-50"
                       >
                         <Table.Td className="pl-16 text-gray-600">
-                          {recurringCost.name}
+                          {detail.recurringCost.name}
                           <span className="text-xs text-gray-500 ml-2">
-                            {formatRecurringCostNote(recurringCost, {
+                            {formatRecurringCostNote(detail.recurringCost, {
                               includeItem: false,
                               includeTeam: true,
                             })}
                           </span>
                         </Table.Td>
+                        {sourceAndAdjustmentCells(detail)}
                         <Table.Td className="text-right text-gray-600">
-                          {formatCurrency(recurringCost.price)}
+                          {formatCurrency(detail.actualAmount)}
+                          {adjustmentIndicators(detail)}
                         </Table.Td>
-                        <Table.Td />
+                        <Table.Td className="text-center">
+                          {canEditAdjustments && (
+                            <Button
+                              size="xs"
+                              variant="subtle"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openAdjustmentModal(
+                                  {
+                                    targetType: "recurring_cost",
+                                    recurringCostId: detail.recurringCost.id,
+                                  },
+                                  detail.recurringCost.name,
+                                  detail,
+                                );
+                              }}
+                            >
+                              実績額を修正
+                            </Button>
+                          )}
+                        </Table.Td>
                       </Table.Tr>
                     ))}
                 </Fragment>
@@ -371,6 +656,8 @@ const ProfitLossStatement = ({ report }: Props) => {
             {/* 経常利益 = 粗利合計 − 管理費合計 */}
             <Table.Tr className="bg-slate-100 border-t-2 border-gray-400">
               <Table.Td className="font-bold text-lg">経常利益</Table.Td>
+              <Table.Td />
+              <Table.Td />
               <Table.Td
                 className={`text-right font-bold text-lg ${amountColor(
                   report.ordinaryProfit,
@@ -383,6 +670,57 @@ const ProfitLossStatement = ({ report }: Props) => {
           </Table.Tbody>
         </Table>
       </Paper>
+
+      {/* 対象行が当月に存在しない損益調整（案件の日付変更等）。削除を促す */}
+      {report.orphanedAdjustments && report.orphanedAdjustments.length > 0 && (
+        <Alert
+          color="orange"
+          title="対象行が当月に存在しない損益調整があります"
+          className="mb-6"
+        >
+          <Text size="sm" className="mb-2">
+            案件の日付変更などにより、対象行が当月の集計から外れています。損益には反映されていません。内容を確認して削除してください。
+          </Text>
+          <Table verticalSpacing="xs">
+            <Table.Tbody>
+              {report.orphanedAdjustments.map(
+                ({ adjustment, targetType, label }) => (
+                  <Table.Tr key={`orphan-${adjustment.id}`}>
+                    <Table.Td>
+                      <Badge
+                        size="sm"
+                        color="orange"
+                        variant="light"
+                        className="mr-2"
+                      >
+                        {targetTypeLabel[targetType]}
+                      </Badge>
+                      {label}
+                      <span className="text-xs text-gray-500 ml-2">
+                        （{adjustment.reason} / 調整額{" "}
+                        {formatCurrency(adjustment.adjustment_amount)}）
+                      </span>
+                    </Table.Td>
+                    <Table.Td className="text-right w-32">
+                      <Button
+                        size="xs"
+                        color="red"
+                        variant="light"
+                        loading={deletingAdjustmentIds.has(adjustment.id)}
+                        onClick={() =>
+                          handleDeleteOrphanedAdjustment(adjustment.id, label)
+                        }
+                      >
+                        削除
+                      </Button>
+                    </Table.Td>
+                  </Table.Tr>
+                ),
+              )}
+            </Table.Tbody>
+          </Table>
+        </Alert>
+      )}
 
       {/* 経理追加収支: 明細一覧（管理リンクはページ上部の AccountingMasterActions） */}
       <ExtraEntrySection extraEntries={report.extraEntries} />
@@ -401,19 +739,20 @@ const ProfitLossStatement = ({ report }: Props) => {
           </Text>
           <Table verticalSpacing="xs">
             <Table.Tbody>
-              {report.orgWideRecurringCosts?.map((recurringCost) => (
-                <Table.Tr key={`orgwide-${recurringCost.id}`}>
+              {report.orgWideRecurringCosts?.map((detail) => (
+                <Table.Tr key={`orgwide-${detail.recurringCost.id}`}>
                   <Table.Td className="text-gray-700">
-                    {recurringCost.name}
+                    {detail.recurringCost.name}
                     <span className="text-xs text-gray-500 ml-2">
-                      {formatRecurringCostNote(recurringCost, {
+                      {formatRecurringCostNote(detail.recurringCost, {
                         includeItem: true,
                         includeTeam: false,
                       })}
                     </span>
                   </Table.Td>
                   <Table.Td className="text-right w-44">
-                    {formatCurrency(recurringCost.price)}
+                    {formatCurrency(detail.actualAmount)}
+                    {adjustmentIndicators(detail)}
                   </Table.Td>
                 </Table.Tr>
               ))}
@@ -501,6 +840,20 @@ const ProfitLossStatement = ({ report }: Props) => {
           matterInfo={selectedMatter}
           opened={isModalOpened}
           setOpened={setIsModalOpened}
+        />
+      )}
+
+      {/* 実績額修正モーダル（accounting / admin のみ開ける） */}
+      {adjustmentModal && (
+        <ProfitLossAdjustmentModal
+          opened
+          onClose={() => setAdjustmentModal(null)}
+          target={adjustmentModal.target}
+          targetMonth={report.month}
+          label={adjustmentModal.label}
+          sourceAmount={adjustmentModal.sourceAmount}
+          currentActualAmount={adjustmentModal.currentActualAmount}
+          currentReason={adjustmentModal.currentReason}
         />
       )}
     </div>

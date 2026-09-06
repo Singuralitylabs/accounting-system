@@ -473,6 +473,77 @@ export type Database = {
         }
         Relationships: []
       }
+      profit_loss_adjustments: {
+        Row: {
+          adjusted_by: number
+          adjustment_amount: number
+          business_id: number | null
+          cost_id: number | null
+          id: number
+          inserted_at: string
+          reason: string
+          recurring_cost_id: number | null
+          source_amount_snapshot: number
+          target_month: string
+          updated_at: string
+        }
+        Insert: {
+          adjusted_by: number
+          adjustment_amount: number
+          business_id?: number | null
+          cost_id?: number | null
+          id?: never
+          inserted_at?: string
+          reason: string
+          recurring_cost_id?: number | null
+          source_amount_snapshot: number
+          target_month: string
+          updated_at?: string
+        }
+        Update: {
+          adjusted_by?: number
+          adjustment_amount?: number
+          business_id?: number | null
+          cost_id?: number | null
+          id?: never
+          inserted_at?: string
+          reason?: string
+          recurring_cost_id?: number | null
+          source_amount_snapshot?: number
+          target_month?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profit_loss_adjustments_adjusted_by_fkey"
+            columns: ["adjusted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profit_loss_adjustments_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "business"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profit_loss_adjustments_cost_id_fkey"
+            columns: ["cost_id"]
+            isOneToOne: false
+            referencedRelation: "costs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profit_loss_adjustments_recurring_cost_id_fkey"
+            columns: ["recurring_cost_id"]
+            isOneToOne: false
+            referencedRelation: "recurring_costs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       recurring_costs: {
         Row: {
           comment: string | null
@@ -603,6 +674,21 @@ export type Database = {
         Returns: {
           id: number
           name: string
+        }[]
+      }
+      save_profit_loss_adjustment: {
+        Args: {
+          p_business_id: number | null
+          p_cost_id: number | null
+          p_recurring_cost_id: number | null
+          p_target_month: string
+          p_actual_amount: number
+          p_reason: string
+        }
+        Returns: {
+          deleted: boolean
+          source_amount: number
+          adjustment_amount: number
         }[]
       }
       validate_member_ids: {

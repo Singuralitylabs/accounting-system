@@ -71,21 +71,75 @@ export type ExtraEntryInListType = {
   isRemoved?: boolean;
 } & ExtraEntryType;
 
-// 分類別売上内訳（matters.category ごと）
-export type CategoryBreakdown = { category: string; amount: number };
+// ===== 損益調整（profit_loss_adjustments）関連 =====
+// 案件（business / costs）・定期費用マスタ（recurring_costs）の元データは変えず、
+// 対象月ごとの実績額修正を別テーブルで管理する（Issue #108）。
+// 損益計算書は「元データ + adjustment_amount = 実績」として表示・集計する。
 
-// 案件別費用明細（「案件を表示」ボタン用に案件 ID・案件名を保持）
-export type MatterCostDetail = {
-  matterId: number;
-  matterTitle: string;
-  amount: number;
+type ProfitLossAdjustmentsTable =
+  Database["public"]["Tables"]["profit_loss_adjustments"];
+export type ProfitLossAdjustmentType = ProfitLossAdjustmentsTable["Row"];
+export type ProfitLossAdjustmentInsertType =
+  ProfitLossAdjustmentsTable["Insert"];
+
+// 調整対象の種別（profit_loss_adjustments の business_id / cost_id / recurring_cost_id
+// のうちどちらが NOT NULL かに対応する）
+export type AdjustmentTargetType = "business" | "cost" | "recurring_cost";
+
+// 実績額修正の入力・保存に使う対象の指定（3種のうちちょうど1つの id を持つ）
+export type AdjustmentTarget =
+  | { targetType: "business"; businessId: number }
+  | { targetType: "cost"; costId: number }
+  | { targetType: "recurring_cost"; recurringCostId: number };
+
+// 明細行に共通の「元データ / 調整 / 実績」の3値。sourceChanged は調整保存後に
+// 元データが変わったか（source_amount_snapshot との比較）を表す
+export type AdjustableAmount = {
+  sourceAmount: number; // 元データの現在の金額（business.amount / costs.price / recurring_costs.price）
+  adjustmentAmount: number; // 調整の差分（調整が無ければ 0）
+  actualAmount: number; // 実績額 = sourceAmount + adjustmentAmount
+  sourceChanged: boolean; // 調整保存後に元データが変更されたか（画面に警告を出す）
+  adjustment: ProfitLossAdjustmentType | null; // 調整レコード（無ければ null）
 };
 
-// 品目別費用内訳（展開時の案件別明細＋経理追加収支の経費明細を含む）
+// 対象月に存在するが、対応する調整が「対象行が当月に存在しない」状態（案件の日付
+// 変更等で対象行が別の月に移動した）になっている調整。削除を促す表示に使う
+export type OrphanedAdjustmentType = {
+  adjustment: ProfitLossAdjustmentType;
+  targetType: AdjustmentTargetType;
+  label: string; // 対象行を識別する表示名（案件名 - 取引先/支払先名、または定期費用名）
+};
+
+// 分類別売上内訳（matters.category ごと。案件別（business 行別）の実績額修正対象の明細＋
+// 経理追加収支の収入明細を含む。合計 amount は businesses と extraEntries の両方を含む）
+export type CategoryBreakdown = {
+  category: string;
+  amount: number;
+  businesses: BusinessDetail[];
+  extraEntries: ExtraEntryType[]; // 経理追加収支の収入（「経理追加」表示の明細行）
+};
+
+// 案件の売上明細（1 business 行 = 1 行。実績額修正の対象単位）
+export type BusinessDetail = AdjustableAmount & {
+  businessId: number;
+  businessName: string; // 取引先名（同一案件に複数の business 行がある場合の識別用）
+  matterId: number;
+  matterTitle: string;
+};
+
+// 案件費用の明細（1 costs 行 = 1 行。実績額修正の対象単位）
+export type CostDetail = AdjustableAmount & {
+  costId: number;
+  costName: string; // 支払先名（同一案件・同一品目に複数の costs 行がある場合の識別用）
+  matterId: number;
+  matterTitle: string;
+};
+
+// 品目別費用内訳（展開時の案件費用明細＋経理追加収支の経費明細を含む）
 export type ItemBreakdown = {
   item: string;
   amount: number;
-  matters: MatterCostDetail[];
+  costs: CostDetail[];
   extraEntries: ExtraEntryType[]; // 経理追加収支の経費（「経理追加」表示の明細行）
 };
 
@@ -97,11 +151,16 @@ export type GrossProfitBreakdown = {
   grossProfit: number;
 };
 
+// 定期費用の明細（1 recurring_costs 行 = 1 行。実績額修正の対象単位）
+export type RecurringCostDetail = AdjustableAmount & {
+  recurringCost: RecurringCostType;
+};
+
 // 費目別管理費内訳（recurring_costs.item ごと。展開時に定期費用の明細を表示）
 export type RecurringCostItemBreakdown = {
   item: string;
   amount: number;
-  details: RecurringCostType[];
+  details: RecurringCostDetail[];
 };
 
 // チーム別内訳（accounting / admin のみ。全体共通の管理費は team = "全体共通"）
@@ -124,12 +183,15 @@ export type PLReportType = {
   grossProfitByCategory: GrossProfitBreakdown[]; // 分類別粗利内訳（合計は grossProfitTotal と一致）
   recurringCostTotal: number; // 管理費合計（teamleader は自チーム分のみ算入）
   recurringCostByItem: RecurringCostItemBreakdown[]; // 費目別管理費内訳（定期費用の明細を含む）
-  orgWideRecurringCosts?: RecurringCostType[]; // teamleader 向け「全体共通（参考）」（損益に算入しない）
+  orgWideRecurringCosts?: RecurringCostDetail[]; // teamleader 向け「全体共通（参考）」（損益に算入しない）
   extraEntries: ExtraEntryType[]; // 経理追加収支明細（teamleader は自チーム分のみ。損益に算入済み）
   orgWideExtraEntries?: ExtraEntryType[]; // teamleader 向け「全体共通（参考）」（損益に算入しない）
   ordinaryProfit: number; // 経常利益 = 粗利合計 − 管理費合計（= 売上 − 案件費用 − 管理費）
   byTeam?: TeamBreakdown[]; // チーム別内訳（accounting / admin のみ）
   undated: { revenue: number; matterCost: number }; // 月未確定（日付未入力。経理追加収支の日付未入力分を含む）
+  // 対象月に調整はあるが対象行が当月に存在しない（案件の日付変更等）ため、
+  // 損益に反映されず削除待ちの調整（accounting / admin のみ。includeTeamBreakdown と同じロール判定）
+  orphanedAdjustments?: OrphanedAdjustmentType[];
 };
 
 export type AnnualTrendType = {
