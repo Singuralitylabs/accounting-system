@@ -142,6 +142,10 @@ describe("BudgetRecurringItemList", () => {
         isRemoved: false,
       }),
     ]);
+    // 成功通知はミューテーションの onSuccess 側のみが出す。
+    // ここ（コンポーネント側）で重ねて notifySuccess を呼ぶと保存成功時に
+    // 通知が二重に表示されてしまう
+    expect(notifySuccess).not.toHaveBeenCalled();
   });
 
   it("保存の確認をキャンセルすると保存処理を呼ばない", async () => {

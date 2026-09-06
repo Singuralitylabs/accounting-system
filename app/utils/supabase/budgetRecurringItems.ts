@@ -146,8 +146,16 @@ export const bulkSaveBudgetRecurringItems = async (
     };
   }
 
-  const newRows = rows.filter((row) => row.isNew && !row.isRemoved);
-  const updateRows = rows.filter((row) => !row.isNew && !row.isRemoved);
+  // display_order はステージング編集中の並び（rows の配列順）から採番し直す。
+  // handleAddRow はクライアント側で常に display_order: 0 のまま新規行を追加する
+  // ため、渡された値をそのまま使うと新規行が「先頭」扱いになり、team で絞って
+  // display_order 順に取得する getActiveBudgetRecurringItems / 一覧取得で並びが
+  // 崩れる（saveBudgetDeclaration が明細差し替え時に index で採番し直すのと同じ理由）
+  const activeRows = rows
+    .filter((row) => !row.isRemoved)
+    .map((row, index) => ({ ...row, display_order: index }));
+  const newRows = activeRows.filter((row) => row.isNew);
+  const updateRows = activeRows.filter((row) => !row.isNew);
   const deleteRows = rows.filter((row) => row.isRemoved && !row.isNew);
 
   // saveBudgetDeclaration と同じ理由: 保存前に manager_id が実在する profiles.id か

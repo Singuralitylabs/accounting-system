@@ -29,7 +29,7 @@ import {
 } from "@/app/utils/budgetRecurringItemValidation";
 import { confirmAction } from "@/app/utils/confirmAction";
 import { formatEntryType } from "@/app/utils/extraEntry";
-import { notifyError, notifySuccess } from "@/app/utils/notify";
+import { notifyError } from "@/app/utils/notify";
 import { CustomMonthPicker } from "../CustomMonthPicker";
 
 const ENTRY_TYPE_OPTIONS = [
@@ -133,7 +133,7 @@ const BudgetRecurringItemList = ({
     try {
       await saveMutation.mutateAsync(rows);
       setIsDirty(false); // 保存成功後は再取得結果との同期を再開する
-      notifySuccess("定期明細を更新しました。");
+      // 成功通知はミューテーションの onSuccess 側で行う（ここで重ねて出さない）
     } catch {
       // 通知はミューテーションの onError 側で行う
     }
