@@ -178,7 +178,14 @@ const BudgetRecurringItemList = ({
                 <Table.Td>
                   <Select
                     value={row.team || null}
-                    data={teamList}
+                    // チームマスタから外れた（無効化・改名された）チームの既存行でも
+                    // 選択肢に無い値のまま表示が空欄になるのを防ぐ（保存される値自体は
+                    // 変えない。BudgetDeclarationForm の teamOptions と同方針）
+                    data={
+                      row.team && !teamList.includes(row.team)
+                        ? [row.team, ...teamList]
+                        : teamList
+                    }
                     disabled={!canEditAllTeams}
                     allowDeselect={false}
                     placeholder="チームを選択"

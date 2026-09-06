@@ -89,6 +89,7 @@ describe("BudgetDeclarationForm", () => {
     useActiveBudgetRecurringItems.mockReturnValue({
       data: [],
       isFetching: false,
+      isError: false,
     });
     saveMutation.isPending = false;
     deleteMutation.isPending = false;
@@ -1152,6 +1153,56 @@ describe("BudgetDeclarationForm", () => {
           ],
         }),
       );
+    });
+
+    it("新規作成時、定期明細の取得中は保存できない（自動投入前の作成防止）", () => {
+      useActiveBudgetRecurringItems.mockReturnValue({
+        data: undefined,
+        isFetching: true,
+        isError: false,
+      });
+
+      renderWithMantine(
+        <BudgetDeclarationForm
+          opened
+          onClose={vi.fn()}
+          targetMonth="2026-10"
+          team="開発チーム"
+          declarationId={null}
+          teamLocked
+          memberList={testMemberList}
+        />,
+      );
+
+      expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
+      expect(saveMutation.mutateAsync).not.toHaveBeenCalled();
+    });
+
+    it("新規作成時、定期明細の取得に失敗した場合は保存できず案内を表示する", () => {
+      useActiveBudgetRecurringItems.mockReturnValue({
+        data: undefined,
+        isFetching: false,
+        isError: true,
+      });
+
+      renderWithMantine(
+        <BudgetDeclarationForm
+          opened
+          onClose={vi.fn()}
+          targetMonth="2026-10"
+          team="開発チーム"
+          declarationId={null}
+          teamLocked
+          memberList={testMemberList}
+        />,
+      );
+
+      expect(
+        screen.getByText("定期明細の確認に失敗しました"),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
     });
   });
 });

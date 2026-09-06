@@ -104,15 +104,6 @@ const BudgetDeclarationForm = ({
   const saveMutation = useSaveBudgetDeclaration();
   const deleteMutation = useDeleteBudgetDeclaration();
   const isSaving = saveMutation.isPending || deleteMutation.isPending;
-  // 編集時は既存明細の取得が完了する（detail を受け取る）まで保存を止める。
-  // 取得失敗・未完了のまま保存すると、ローカルの items（空のまま）で
-  // 明細差し替えが走り、既存明細を消してしまう。
-  // isDetailFetching も見るのは、他画面で既にキャッシュされた古い detail が
-  // 即座に返りつつ裏で最新化中（refetchOnMount: "always"）の間に、古い内容の
-  // まま保存できてしまうと他編集者の変更を消しかねないため
-  // （populate effect も同じ理由で isDetailFetching の完了を待つ）
-  const saveDisabled =
-    isSaving || (isEditMode && (!detail || isDetailFetching));
 
   const form = useForm<HeaderFormValues>({
     initialValues: { team, comment: "" },
@@ -148,11 +139,30 @@ const BudgetDeclarationForm = ({
   const {
     data: activeRecurringItems,
     isFetching: isActiveRecurringItemsFetching,
+    isError: isActiveRecurringItemsError,
   } = useActiveBudgetRecurringItems(
     opened && !isEditMode,
     targetMonth,
     form.values.team,
   );
+
+  // 編集時は既存明細の取得が完了する（detail を受け取る）まで保存を止める。
+  // 取得失敗・未完了のまま保存すると、ローカルの items（空のまま）で
+  // 明細差し替えが走り、既存明細を消してしまう。
+  // isDetailFetching も見るのは、他画面で既にキャッシュされた古い detail が
+  // 即座に返りつつ裏で最新化中（refetchOnMount: "always"）の間に、古い内容の
+  // まま保存できてしまうと他編集者の変更を消しかねないため
+  // （populate effect も同じ理由で isDetailFetching の完了を待つ）。
+  // 新規作成時は、対象月が適用期間内の定期明細の取得が終わる（自動投入が
+  // 済む）まで保存を止める。取得中に保存できてしまうと、投入されるはずの
+  // 定期明細が無いまま申告が作成され、受け入れ基準（自動投入されていること）
+  // が満たせない。取得失敗時も同様に止める（成功と誤認して定期明細なしで
+  // 作成されるのを防ぐ。エラー時の案内は下記の Alert 参照）
+  const saveDisabled =
+    isSaving ||
+    (isEditMode
+      ? !detail || isDetailFetching
+      : isActiveRecurringItemsFetching || isActiveRecurringItemsError);
 
   const [items, setItems] = useState<ItemRow[]>([]);
   const nextKeyRef = useRef(0);
@@ -354,7 +364,10 @@ const BudgetDeclarationForm = ({
       <div className="relative">
         <LoadingOverlay
           visible={
-            isSaving || (isEditMode && (isDetailLoading || isDetailFetching))
+            isSaving ||
+            (isEditMode
+              ? isDetailLoading || isDetailFetching
+              : isActiveRecurringItemsFetching)
           }
         />
 
@@ -367,6 +380,16 @@ const BudgetDeclarationForm = ({
         {isEditMode && !isDetailLoading && !isDetailError && !detail && (
           <Alert color="gray" title="申告が見つかりません" className="mb-4">
             既に削除されている可能性があります。一覧を閉じて再読み込みしてください。
+          </Alert>
+        )}
+
+        {!isEditMode && isActiveRecurringItemsError && (
+          <Alert
+            color="red"
+            title="定期明細の確認に失敗しました"
+            className="mb-4"
+          >
+            対象月が適用期間内の定期明細を自動投入できないため、保存を停止しています。時間をおいてもう一度お試しください。
           </Alert>
         )}
 

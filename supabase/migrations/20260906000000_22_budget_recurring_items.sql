@@ -5,7 +5,7 @@
 -- たびに明細として自動展開される（実体は budget_declaration_items としてコピーされ、
 -- 保存後は通常の申告明細と同じく個別に編集・削除できる。recurring_costs が損益計算書
 -- 集計時に計算で算入するのとは異なり、本テーブル自体は集計に使わない）。
--- 詳細設計: docs/database.md 3.11 / 5.8, Issue #109
+-- 詳細設計: docs/database.md 3.12 / 5.11, Issue #109
 
 CREATE TABLE budget_recurring_items (
   id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

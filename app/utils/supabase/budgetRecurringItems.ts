@@ -173,6 +173,52 @@ export const bulkSaveBudgetRecurringItems = async (
   }
 
   const supabase = createServerSupabase();
+
+  // ステージング編集は「削除されていない既存行」全件を updateRows として送ってくる
+  // （どの行を実際に編集したかを区別しない、RecurringCostList と同方式）。しかし
+  // 全チームを見られるロール（経理・管理者）は同じ画面で他チームの行も一緒に
+  // 編集するため、触っていない行までそのまま UPDATE すると、保存の直前に他の
+  // 利用者がその行へ加えた変更を無条件に上書きしてしまう（lost update）。
+  // 現在の DB の値と比較し、実際に内容が変わった行だけを UPDATE 対象にすることで、
+  // 触っていない行への影響を無くす（同じ行を同時に編集した場合の競合検知
+  // （updated_at 等によるバージョンチェック）まではここでは行わない）
+  let rowsToUpdate = updateRows;
+  if (updateRows.length > 0) {
+    const { data: currentRows, error: currentError } = await supabase
+      .from("budget_recurring_items")
+      .select(
+        "id, team, entry_type, category, description, amount, manager_id, start_month, end_month, display_order",
+      )
+      .in(
+        "id",
+        updateRows.map((row) => row.id),
+      );
+
+    if (currentError) {
+      console.error(`${SUBJECT}の更新前確認に失敗しました:`, currentError);
+      return {
+        error: {
+          kind: "fetchFailed",
+          message: `${SUBJECT}の更新前確認に失敗しました。`,
+        },
+      };
+    }
+
+    const currentById = new Map(
+      (currentRows ?? []).map((row) => [row.id, row]),
+    );
+    rowsToUpdate = updateRows.filter((row) => {
+      const current = currentById.get(row.id);
+      // 保存直前に他の利用者が削除した行は、そのまま UPDATE を試みても
+      // 0 行ヒットで無害（RLS 越しでも同様）。念のため対象に残しておく
+      if (!current) return true;
+      const desired = toDbRow(row);
+      return (Object.keys(desired) as (keyof typeof desired)[]).some(
+        (key) => desired[key] !== current[key],
+      );
+    });
+  }
+
   const operations = [];
 
   if (newRows.length > 0) {
@@ -181,9 +227,9 @@ export const bulkSaveBudgetRecurringItems = async (
     );
   }
 
-  if (updateRows.length > 0) {
+  if (rowsToUpdate.length > 0) {
     operations.push(
-      ...updateRows.map((row) =>
+      ...rowsToUpdate.map((row) =>
         supabase
           .from("budget_recurring_items")
           .update(toDbRow(row))

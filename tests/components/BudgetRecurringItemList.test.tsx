@@ -165,4 +165,26 @@ describe("BudgetRecurringItemList", () => {
     // 新規行のチーム Select は disabled ではない
     expect(teamInputs[teamInputs.length - 1]).not.toBeDisabled();
   });
+
+  it("チームマスタから外れた既存行のチームも空欄にならず表示される", () => {
+    const orphanRow: BudgetRecurringItemType = {
+      ...existingRow,
+      id: 2,
+      team: "旧チーム",
+    };
+    useBudgetRecurringItemList.mockReturnValue({ data: [orphanRow] });
+
+    renderList({
+      initialData: [orphanRow],
+      canEditAllTeams: true,
+      ownTeam: null,
+    });
+
+    // teamList（マスタ）に無い値でも、Select の表示値としてそのまま見える
+    // （保存される値自体も変わらない）。空欄のままだと「担当チームが
+    // クリアされた」と誤認させてしまう。Mantine の Select は 1 行につき
+    // 複数要素が同じ表示値を持ちうるため getAllByDisplayValue で確認する
+    // （チームリーダー無効化のテストと同方針）
+    expect(screen.getAllByDisplayValue("旧チーム").length).toBeGreaterThan(0);
+  });
 });
