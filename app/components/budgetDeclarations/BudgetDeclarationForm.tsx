@@ -38,14 +38,9 @@ import {
   getBudgetDeclarationValidationMessage,
   validateBudgetDeclarationPayload,
 } from "@/app/utils/budgetDeclarationValidation";
-import { formatEntryType } from "@/app/utils/extraEntry";
+import { ENTRY_TYPE_OPTIONS } from "@/app/utils/extraEntry";
 import { formatCurrency, formatMonthLabel } from "@/app/utils/formatter";
 import { notifyError } from "@/app/utils/notify";
-
-const ENTRY_TYPE_OPTIONS = [
-  { value: "income", label: formatEntryType("income") },
-  { value: "expense", label: formatEntryType("expense") },
-];
 
 // fromRecurring は定期明細から自動展開された行かを表す表示用フラグ（バッジ表示のみに使う。
 // 保存時は他の項目と同様に通常の明細として送信するため、送信ペイロード組み立て時には含めない）

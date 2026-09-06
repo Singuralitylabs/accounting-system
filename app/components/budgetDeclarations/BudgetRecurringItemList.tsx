@@ -28,14 +28,9 @@ import {
   validateBudgetRecurringItemList,
 } from "@/app/utils/budgetRecurringItemValidation";
 import { confirmAction } from "@/app/utils/confirmAction";
-import { formatEntryType } from "@/app/utils/extraEntry";
+import { ENTRY_TYPE_OPTIONS } from "@/app/utils/extraEntry";
 import { notifyError } from "@/app/utils/notify";
 import { CustomMonthPicker } from "../CustomMonthPicker";
-
-const ENTRY_TYPE_OPTIONS = [
-  { value: "income", label: formatEntryType("income") },
-  { value: "expense", label: formatEntryType("expense") },
-];
 
 type Props = {
   initialData: BudgetRecurringItemType[];

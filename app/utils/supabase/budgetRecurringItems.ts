@@ -14,16 +14,12 @@ import {
   getBudgetRecurringItemValidationMessage,
   validateBudgetRecurringItemList,
 } from "../budgetRecurringItemValidation";
-import { toFirstOfMonth } from "../formatter";
+import { toFirstOfMonth, toFirstOfMonthOrNull } from "../formatter";
 import { createServerSupabase } from "./clients";
-import { validateMemberIds } from "./profiles";
+import { assertManagerIdsExist } from "./profiles";
 import { getAuthorizedViewer } from "./viewerAccess";
 
 const SUBJECT = "事前収支申告の定期明細";
-
-// 月初日（YYYY-MM-01）の date 文字列に正規化する（null はそのまま。recurring_costs.ts と同方針）
-const toFirstOfMonthOrNull = (dateStr: string | null): string | null =>
-  dateStr ? toFirstOfMonth(dateStr) : null;
 
 // 定期明細の管理セクション用の一覧取得。可視範囲は RLS が担保する
 // （経理・管理者は全チーム、チームリーダーは自チームのみ。budget_declarations と同じ判定）
@@ -158,10 +154,8 @@ export const bulkSaveBudgetRecurringItems = async (
   const updateRows = activeRows.filter((row) => !row.isNew);
   const deleteRows = rows.filter((row) => row.isRemoved && !row.isNew);
 
-  // saveBudgetDeclaration と同じ理由: 保存前に manager_id が実在する profiles.id か
-  // 確認する。INSERT/UPDATE/DELETE は非トランザクションで並列実行するため、
-  // 存在しない manager_id のまま進めると一部だけ失敗し、他の変更のみ反映された
-  // 状態になりうる
+  // INSERT/UPDATE/DELETE は非トランザクションで並列実行するため、存在しない
+  // manager_id のまま進めると一部だけ失敗し、他の変更のみ反映された状態になりうる
   const managerIds = Array.from(
     new Set(
       [...newRows, ...updateRows]
@@ -169,28 +163,13 @@ export const bulkSaveBudgetRecurringItems = async (
         .filter((id): id is number => id !== null),
     ),
   );
-  if (managerIds.length > 0) {
-    const { existingIds: validIds, error: validateError } =
-      await validateMemberIds(managerIds);
-    if (validateError) {
-      console.error(`${SUBJECT}の担当者確認に失敗しました:`, validateError);
-      return {
-        error: {
-          kind: "fetchFailed",
-          message: `${SUBJECT}の担当者確認に失敗しました。`,
-        },
-      };
-    }
-    const existingIds = new Set((validIds ?? []).map((row) => row.id));
-    if (managerIds.some((id) => !existingIds.has(id))) {
-      return {
-        error: {
-          kind: "validationFailed",
-          message:
-            "選択された担当者が見つかりません。画面を再読み込みして選び直してください。",
-        },
-      };
-    }
+  const managerIdError = await assertManagerIdsExist(
+    managerIds,
+    SUBJECT,
+    "画面を再読み込みして選び直してください。",
+  );
+  if (managerIdError) {
+    return { error: managerIdError };
   }
 
   const supabase = createServerSupabase();

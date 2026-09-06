@@ -6,7 +6,10 @@
 // budgetDeclarationValidation.ts の定数・判定を再利用し、二重定義を避ける。
 
 import { BudgetRecurringItemInListType } from "../types/types";
-import { MAX_ITEM_AMOUNT } from "./budgetDeclarationValidation";
+import {
+  MAX_ITEM_AMOUNT,
+  validateBudgetDeclarationItem,
+} from "./budgetDeclarationValidation";
 
 export { MAX_ITEM_AMOUNT };
 
@@ -28,41 +31,25 @@ export const BUDGET_RECURRING_ITEM_VALIDATION_MESSAGES: Record<
   period: "適用終了月が適用開始月より前になっています。",
 };
 
-// budget_recurring_items.entry_type の CHECK 制約と同じ値域
-// （budget_declaration_items と同じ income/expense）
-const VALID_ENTRY_TYPES = new Set(["income", "expense"]);
-
-// 明細 1 行の妥当性。"ok" 以外は理由を返し、呼び出し側でメッセージを出し分ける
+// 明細 1 行の妥当性。"ok" 以外は理由を返し、呼び出し側でメッセージを出し分ける。
+// entry_type / category / description の必須チェックと amount / manager_id の
+// 値域チェックは budget_declaration_items と共通のため
+// budgetDeclarationValidation.ts の validateBudgetDeclarationItem に委譲し、
+// 二重定義（値域を変えたときの片側直し忘れ）を避ける。team・start_month の
+// 必須チェックと適用期間（period）のチェックだけをここに残す
 export const validateBudgetRecurringItem = (
   row: BudgetRecurringItemInListType,
 ): "ok" | BudgetRecurringItemValidationReason => {
-  const entryType = row.entry_type.trim();
-  if (
-    !row.team.trim() ||
-    !entryType ||
-    !VALID_ENTRY_TYPES.has(entryType) ||
-    !row.category.trim() ||
-    !row.description.trim() ||
-    !row.start_month
-  ) {
+  if (!row.team.trim() || !row.start_month) {
     return "required";
   }
-  // DB の CHECK (amount > 0) と同じ基準。NaN も弾く
-  if (!(row.amount > 0)) {
-    return "amount";
-  }
-  // DB の numeric(15,2) 上限と同じ基準（budget_declaration_items と共通）
-  if (row.amount > MAX_ITEM_AMOUNT) {
-    return "amount_overflow";
-  }
-  // manager_id は任意項目（null 許容）。budgetDeclarationValidation と同じ理由
-  // （bulkSaveBudgetRecurringItems の書き込みは非トランザクションのため、
-  // 不正な値のまま INSERT/UPDATE すると一部のみ反映された状態になりうる）
-  if (row.manager_id !== null) {
-    if (!Number.isSafeInteger(row.manager_id) || row.manager_id <= 0) {
-      return "manager_id";
-    }
-  }
+
+  const commonResult = validateBudgetDeclarationItem(row);
+  if (commonResult === "required") return "required";
+  if (commonResult === "amount") return "amount";
+  if (commonResult === "overflow") return "amount_overflow";
+  if (commonResult === "manager_id") return "manager_id";
+
   // 月初日どうしの比較のため文字列の先頭7文字（YYYY-MM）の辞書順比較でよい
   if (
     row.end_month &&

@@ -374,8 +374,7 @@ CHECK (end_month IS NULL OR end_month >= start_month)
 
 インデックス:
 
-- team
-- (team, start_month, end_month)（新規申告作成時に「対象月を適用期間に含む」行を team で絞って探すクエリを支える複合インデックス）
+- (team, start_month, end_month)（新規申告作成時に「対象月を適用期間に含む」行を team で絞って探すクエリを支える複合インデックス。team 単体の絞り込みもこの索引が先頭列として使えるため、team 単独の索引は別途張らない）
 - manager_id（FK 側の索引。budget_declaration_items.manager_id と同じ方針）
 
 金額改定の運用は recurring_costs と同じ（既存行の end_month を設定して打ち切り、新しい行を追加する。過去に展開済みの budget_declaration_items は遡って変わらない）。

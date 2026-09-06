@@ -33,9 +33,11 @@ CREATE TABLE budget_recurring_items (
 COMMENT ON TABLE budget_recurring_items IS '事前収支申告の定期明細マスタ。毎月固定で発生する収入・支出を登録し、対象月が適用期間（start_month〜end_month、両方月初日で格納。end_month は NULL = 継続中）内であれば新規申告の作成時に budget_declaration_items として展開する。展開後は通常の明細と同じく個別に編集・削除でき、本テーブル自体は変更されない（recurring_costs と異なり集計には使わない）。金額改定は recurring_costs と同じ運用（既存行の end_month を設定して打ち切り、新行を追加）を想定する';
 COMMENT ON COLUMN budget_recurring_items.manager_id IS '明細の担当者。budget_declaration_items.manager_id と同じく任意選択・NO ACTION（担当者に設定されたメンバーの profiles を削除しようとすると FK エラーになる）';
 
-CREATE INDEX IF NOT EXISTS idx_budget_recurring_items_team ON budget_recurring_items (team);
 -- 新規申告作成時に「対象月 (start_month, end_month) を含む」行を team で絞って
--- 探すクエリを支える複合インデックス（start_month <= 対象月 AND (end_month IS NULL OR end_month >= 対象月)）
+-- 探すクエリを支える複合インデックス（start_month <= 対象月 AND (end_month IS NULL OR end_month >= 対象月)）。
+-- team 単独の索引は別途張らない。team 単体の絞り込み（getBudgetRecurringItemList
+-- の一覧取得はこの列で絞らないが、RLS の can_access_team_budget 経由の等価条件も
+-- 含め）は、この複合インデックスが team を先頭列に持つため、そのまま使える
 CREATE INDEX IF NOT EXISTS idx_budget_recurring_items_team_period
   ON budget_recurring_items (team, start_month, end_month);
 -- FK 側の索引（budget_declaration_items.manager_id と同じ方針）

@@ -11,15 +11,10 @@ import {
 } from "../types/types";
 import {
   BudgetDeclarationError,
-  isForbiddenError,
   isPartialWriteFailureError,
+  retryUnlessForbidden,
 } from "../utils/budgetDeclaration";
 import { notifyError, notifySuccess, toErrorMessage } from "../utils/notify";
-
-// QueryProvider の既定は retry: 2。権限不足は再試行しても回復しないため打ち切る
-// （app/hooks/useBudgetDeclarationData.ts と同方針）。
-const retryUnlessForbidden = (failureCount: number, error: Error) =>
-  !isForbiddenError(error) && failureCount < 2;
 
 // 定期明細の一覧（管理セクション用。可視範囲は RLS が担保する）
 export const useBudgetRecurringItemList = (
