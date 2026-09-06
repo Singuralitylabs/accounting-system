@@ -2,6 +2,7 @@
 
 import {
   Alert,
+  Badge,
   Button,
   Group,
   LoadingOverlay,
@@ -25,9 +26,11 @@ import {
   usePreviousBudgetDeclarationItems,
   useSaveBudgetDeclaration,
 } from "@/app/hooks/useBudgetDeclarationData";
+import { useActiveBudgetRecurringItems } from "@/app/hooks/useBudgetRecurringItemData";
 import { BudgetDeclarationItemInput } from "@/app/types/types";
 import { confirmAction } from "@/app/utils/confirmAction";
 import {
+  categoryOptionsFor,
   previousItemsToFormRows,
   summarizeBudgetItems,
 } from "@/app/utils/budgetDeclaration";
@@ -44,7 +47,12 @@ const ENTRY_TYPE_OPTIONS = [
   { value: "expense", label: formatEntryType("expense") },
 ];
 
-type ItemRow = BudgetDeclarationItemInput & { key: number };
+// fromRecurring は定期明細から自動展開された行かを表す表示用フラグ（バッジ表示のみに使う。
+// 保存時は他の項目と同様に通常の明細として送信するため、送信ペイロード組み立て時には含めない）
+type ItemRow = BudgetDeclarationItemInput & {
+  key: number;
+  fromRecurring?: boolean;
+};
 
 const emptyItem = (key: number): ItemRow => ({
   key,
@@ -139,12 +147,28 @@ const BudgetDeclarationForm = ({
         ? "前月の明細がありません。"
         : null;
 
+  // 対象月が適用期間内の定期明細（新規作成時のみ、対象チームの分を自動投入する）。
+  // previousItems と同じ理由で新規作成時のみ有効化し、チーム切り替えのたび
+  // 対象チームを切り替えて再取得する
+  const {
+    data: activeRecurringItems,
+    isFetching: isActiveRecurringItemsFetching,
+  } = useActiveBudgetRecurringItems(
+    opened && !isEditMode,
+    targetMonth,
+    form.values.team,
+  );
+
   const [items, setItems] = useState<ItemRow[]>([]);
   const nextKeyRef = useRef(0);
   // detail から items/comment を反映済みの declarationId。編集中に detail が
   // 再取得（保存成功時の invalidate・ウィンドウ再フォーカス等）されても、
   // 同じ申告を反映済みなら上書きしない（入力中の内容を消さないため）
   const populatedForIdRef = useRef<number | null>(null);
+  // 定期明細を自動投入済みのチーム。同じチームでの再レンダーでは再投入しない
+  // （投入後に利用者がその行を削除しても、無関係な再レンダーで復活させないため）。
+  // モーダルを開き直す・チームを変更するたびに null / 新チームへリセットする
+  const recurringPopulatedForTeamRef = useRef<string | null>(null);
 
   // モーダルを開くたび（対象行の切り替え含む）に初期値へ戻す。
   // 編集時は明細取得を待って反映する（既存データを空で上書きしないため）
@@ -154,8 +178,35 @@ const BudgetDeclarationForm = ({
     nextKeyRef.current = 0;
     setItems([]);
     populatedForIdRef.current = null;
+    recurringPopulatedForTeamRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [opened, declarationId, team]);
+
+  // 新規作成時のみ、対象月が適用期間内の定期明細を明細行として自動投入する
+  // （案 A: 申告作成時に展開する。既存申告の編集時は展開しない＝二重計上防止）。
+  // isActiveRecurringItemsFetching の完了を待つのは populate effect（detail 用）と
+  // 同じ理由（取得完了前の空配列で「対象なし」と誤判定しないため）
+  useEffect(() => {
+    if (!opened || isEditMode) return;
+    if (isActiveRecurringItemsFetching) return;
+    if (recurringPopulatedForTeamRef.current === form.values.team) return;
+    recurringPopulatedForTeamRef.current = form.values.team;
+    if (!activeRecurringItems?.length) return;
+
+    const rows = previousItemsToFormRows(activeRecurringItems).map((item) => ({
+      ...item,
+      key: nextKeyRef.current++,
+      fromRecurring: true,
+    }));
+    setItems((prev) => [...prev, ...rows]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    opened,
+    isEditMode,
+    activeRecurringItems,
+    isActiveRecurringItemsFetching,
+    form.values.team,
+  ]);
 
   useEffect(() => {
     if (!opened || !isEditMode || !detail) return;
@@ -182,18 +233,6 @@ const BudgetDeclarationForm = ({
   }, [opened, isEditMode, detail, declarationId, isDetailFetching]);
 
   const teamOptions = teamList.includes(team) ? teamList : [team, ...teamList];
-  // 分類がマスタから外れていても（無効化・改名。前月コピーで持ち込んだ場合を含む）
-  // 選択肢に残し、見せかけ上クリアされたように見せない（teamOptions と同方針）。
-  // ただしマスタの値と紛れないよう、注入した選択肢のラベルだけ「（マスタ未登録）」
-  // と付記する（保存される値そのものは変えない）
-  const categoryOptionsFor = (entryType: string, category: string) => {
-    const master = entryType === "income" ? categoryList : itemList;
-    if (!category || master.includes(category)) return master;
-    return [
-      { value: category, label: `${category}（マスタ未登録）` },
-      ...master,
-    ];
-  };
 
   const handleAddItem = () => {
     setItems((prev) => [...prev, emptyItem(nextKeyRef.current++)]);
@@ -386,6 +425,7 @@ const BudgetDeclarationForm = ({
           <Table verticalSpacing="sm" className="whitespace-nowrap">
             <Table.Thead>
               <Table.Tr>
+                <Table.Th className="w-10" />
                 <Table.Th className="min-w-28">種別</Table.Th>
                 <Table.Th className="min-w-36">分類</Table.Th>
                 <Table.Th className="min-w-44">内容</Table.Th>
@@ -397,6 +437,15 @@ const BudgetDeclarationForm = ({
             <Table.Tbody>
               {items.map((item) => (
                 <Table.Tr key={item.key}>
+                  <Table.Td>
+                    {item.fromRecurring && (
+                      <Tooltip label="定期明細から自動で追加された行です">
+                        <Badge size="sm" color="blue" variant="light">
+                          定期
+                        </Badge>
+                      </Tooltip>
+                    )}
+                  </Table.Td>
                   <Table.Td>
                     <Select
                       data={ENTRY_TYPE_OPTIONS}
@@ -413,7 +462,12 @@ const BudgetDeclarationForm = ({
                   </Table.Td>
                   <Table.Td>
                     <Select
-                      data={categoryOptionsFor(item.entry_type, item.category)}
+                      data={categoryOptionsFor(
+                        item.entry_type,
+                        item.category,
+                        categoryList,
+                        itemList,
+                      )}
                       value={item.category || null}
                       placeholder="分類を選択"
                       onChange={(value) =>

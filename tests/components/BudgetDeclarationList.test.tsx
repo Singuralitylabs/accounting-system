@@ -38,6 +38,14 @@ vi.mock("@/app/hooks/useBudgetDeclarationData", () => ({
   useDeleteBudgetDeclaration: () => deleteMutation,
 }));
 
+// BudgetDeclarationForm が定期明細の自動投入に使う Server Action。
+// "use server" 経由で profiles.ts の requestCache（React cache()）まで
+// 芋づる式に読み込まれ、テスト環境では初期化に失敗するためモックする
+// （budgetDeclarationReminderSettings と同じ理由）
+vi.mock("@/app/hooks/useBudgetRecurringItemData", () => ({
+  useActiveBudgetRecurringItems: () => ({ data: [], isFetching: false }),
+}));
+
 // BudgetDeclarationReminderSettings が直接 import する Server Action。
 // "use server" 経由で profiles.ts の requestCache（React cache()）まで
 // 芋づる式に読み込まれ、テスト環境では初期化に失敗するためモックする

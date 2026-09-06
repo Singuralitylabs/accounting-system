@@ -255,3 +255,32 @@ export type BudgetDeclarationReminderSettingsResult =
 export type BudgetDeclarationReminderSettingsSaveResult = {
   error?: AccessFailure;
 };
+
+// ===== 事前収支申告の定期明細（budget_recurring_items）関連 =====
+
+type BudgetRecurringItemsTable =
+  Database["public"]["Tables"]["budget_recurring_items"];
+export type BudgetRecurringItemType = BudgetRecurringItemsTable["Row"];
+
+// 定期明細管理セクション（RecurringCostList と同方式のステージング編集）の行。
+// isNew/isRemoved はローカル編集状態のみで保持し、保存時にサーバへは送らない
+export type BudgetRecurringItemInListType = BudgetRecurringItemType & {
+  isNew: boolean;
+  isRemoved: boolean;
+};
+
+export type BudgetRecurringItemListResult =
+  | { items: BudgetRecurringItemType[]; error?: undefined }
+  | { items?: undefined; error: AccessFailure };
+
+export type BudgetRecurringItemSaveResult = { error?: AccessFailure };
+
+// 新規申告フォームを開いたときに初期投入する、対象月が適用期間内の定期明細。
+// 前月コピー用の BudgetDeclarationPreviousItem と全く同じ形（種別・分類・内容・
+// 金額・担当者 + id・display_order）のため型を再利用し、フォーム側の変換関数
+// （previousItemsToFormRows）もそのまま共用する
+export type ActiveBudgetRecurringItemsResult =
+  // 該当が無いのは「継続中の定期明細が無い」という正常な結果のため、
+  // 前月コピーの items: null（前月申告そのものが無い）とは区別して常に配列を返す
+  | { items: BudgetDeclarationPreviousItem[]; error?: undefined }
+  | { items?: undefined; error: AccessFailure };

@@ -6,6 +6,7 @@ import {
   BudgetDeclarationWithItems,
   buildBudgetDeclarationStatusList,
   canWriteBudgetTeam,
+  categoryOptionsFor,
   defaultTargetMonth,
   isForbiddenError,
   isPartialWriteFailureError,
@@ -438,5 +439,45 @@ describe("previousItemsToFormRows", () => {
 
   it("明細 0 件なら空配列を返す", () => {
     expect(previousItemsToFormRows([])).toEqual([]);
+  });
+});
+
+describe("categoryOptionsFor", () => {
+  const categoryList = ["セミナー", "受託案件"];
+  const itemList = ["外注費", "ツール利用料"];
+
+  it("収入は category マスタ、支出は item マスタを返す", () => {
+    expect(categoryOptionsFor("income", "", categoryList, itemList)).toEqual(
+      categoryList,
+    );
+    expect(categoryOptionsFor("expense", "", categoryList, itemList)).toEqual(
+      itemList,
+    );
+  });
+
+  it("値がマスタに含まれる場合はマスタをそのまま返す", () => {
+    expect(
+      categoryOptionsFor("income", "セミナー", categoryList, itemList),
+    ).toEqual(categoryList);
+  });
+
+  it("値がマスタに無い場合は「（マスタ未登録）」付きの選択肢を先頭に追加する", () => {
+    expect(
+      categoryOptionsFor("expense", "旧品目", categoryList, itemList),
+    ).toEqual([
+      { value: "旧品目", label: "旧品目（マスタ未登録）" },
+      ...itemList,
+    ]);
+  });
+
+  it("返り値はマスタ配列と独立している（呼び出し元の変更が波及しない）", () => {
+    const result = categoryOptionsFor(
+      "income",
+      "",
+      categoryList,
+      itemList,
+    ) as string[];
+    result.push("追加分");
+    expect(categoryList).toEqual(["セミナー", "受託案件"]);
   });
 });

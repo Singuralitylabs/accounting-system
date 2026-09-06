@@ -343,6 +343,43 @@ CHECK (1 <= ALL(target_days) AND 31 >= ALL(target_days))
 
 編集: `/budget-declarations`（事前収支申告画面）の「リマインド設定」セクションから admin / accounting が編集できる（Issue #97）。`app/utils/supabase/budgetDeclarationReminderSettings.ts` の `getBudgetDeclarationReminderSettings()` / `updateBudgetDeclarationReminderTargetDays()`（いずれも Server Action）を使い、`createServerSupabase()`（anon キー + RLS）経由で `getAuthorizedViewer(["admin", "accounting"], ...)` による多層防御を行う（service role クライアントは使わない）。保存対象は `id = 1` の既存行への UPDATE のみ（RLS 上 INSERT / DELETE は不可）。保存前に `app/utils/budgetDeclarationReminder.ts` の `normalizeBudgetDeclarationReminderTargetDays`（範囲チェック / 重複排除 / 昇順ソート）で正規化する。teamleader / public にはセクション自体を描画せず、Server Action 側でも `getAuthorizedViewer` により拒否する。
 
+### 3.12 budget_recurring_items テーブル
+
+事前収支申告の定期明細マスタ。毎月固定で発生する収入・支出（例: 保守契約の月額収入、固定の外注費・ツール利用料）を登録し、対象月が適用期間内であれば新規の事前収支申告を作成したときに `budget_declaration_items` として展開する（Issue #109）。`recurring_costs`（損益計算書の集計時に計算で算入する）と異なり、本テーブル自体は集計に使わない。展開後の行は通常の申告明細と同じく個別に編集・削除でき、本テーブルの内容は変更されない。
+
+| カラム名      | データ型                 | 制約                                                                  | 説明                                                                                                                                                                                                                      |
+| ------------- | ------------------------ | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| id            | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                             | 主キー                                                                                                                                                                                                                    |
+| team          | text                     | NOT NULL                                                              | 対象チーム（select_options の team と同じ値域。budget_declarations と同じ運用上の注意が当てはまる）                                                                                                                       |
+| entry_type    | text                     | NOT NULL, CHECK (entry_type IN ('income', 'expense'))                 | 種別（income = 収入 / expense = 支出。budget_declaration_items と同じ値域）                                                                                                                                               |
+| category      | text                     | NOT NULL                                                              | 分類（収入時は案件分類 category、支出時は品目 item マスタの値域を想定。budget_declaration_items と同じ）                                                                                                                  |
+| description   | text                     | NOT NULL                                                              | 内容（例: ○○保守契約、外注費）                                                                                                                                                                                            |
+| amount        | numeric(15,2)            | NOT NULL, CHECK (amount > 0)                                          | 毎月の金額（円・税別。正の値のみ）                                                                                                                                                                                        |
+| manager_id    | bigint                   | NULL, FOREIGN KEY (profiles.id)（参照アクション指定なし = NO ACTION） | 明細の担当者。budget_declaration_items.manager_id と同じ方針（任意選択・NULL 許容。担当者に設定された profiles を削除するとこの FK でエラーになるため、先に manager_id を別のメンバーに付け替えるか NULL に解除すること） |
+| start_month   | date                     | NOT NULL, CHECK (月初日であること)                                    | 適用開始月（月初日で格納。recurring_costs.start_month / budget_declarations.target_month と同方式）                                                                                                                       |
+| end_month     | date                     | NULL, CHECK (月初日であること), CHECK (start_month 以降であること)    | 適用終了月（その月を含む。NULL = 継続中。recurring_costs.end_month と同方式）                                                                                                                                             |
+| display_order | integer                  | NOT NULL, DEFAULT 0                                                   | 表示順。新規申告への展開時、この順で `budget_declaration_items.display_order` に引き継がれる                                                                                                                              |
+| inserted_at   | timestamp with time zone | NOT NULL, DEFAULT now()                                               | 作成日時                                                                                                                                                                                                                  |
+| updated_at    | timestamp with time zone | NOT NULL, DEFAULT now()                                               | 更新日時                                                                                                                                                                                                                  |
+
+CHECK 制約（適用期間の正規化・整合性）:
+
+```sql
+-- start_month / end_month とも月初日以外を弾く（budget_declarations.target_month と同じ理由）
+CHECK (start_month = date_trunc('month', start_month)::date)
+CHECK (end_month IS NULL OR end_month = date_trunc('month', end_month)::date)
+-- 適用終了月が適用開始月より前という矛盾した期間を作れないようにする
+CHECK (end_month IS NULL OR end_month >= start_month)
+```
+
+インデックス:
+
+- team
+- (team, start_month, end_month)（新規申告作成時に「対象月を適用期間に含む」行を team で絞って探すクエリを支える複合インデックス）
+- manager_id（FK 側の索引。budget_declaration_items.manager_id と同じ方針）
+
+金額改定の運用は recurring_costs と同じ（既存行の end_month を設定して打ち切り、新しい行を追加する。過去に展開済みの budget_declaration_items は遡って変わらない）。
+
 ## 4. 列挙型
 
 ### 4.1 information_category
@@ -1026,6 +1063,23 @@ REVOKE INSERT, DELETE ON TABLE budget_declaration_reminder_settings FROM authent
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE budget_declaration_reminder_settings TO service_role;
 REVOKE ALL ON TABLE budget_declaration_reminder_settings FROM anon;
 ```
+
+### 5.11 budget_recurring_items テーブル
+
+> budget_declarations と同じ判定（`public.can_access_team_budget`。[5.8](#58-budget_declarations-テーブル) 参照）を再利用する。経理担当者・管理者は全行、チームリーダーは自チームの行のみ SELECT / INSERT / UPDATE / DELETE でき、public ロールはアクセスできない。budget_declaration_items（5.9）と同じく 4 コマンドの条件が完全に同一のため `FOR ALL` 1 本にまとめている。declared_by のような「本人以外への付け替え」を制約する項目が無いため、budget_declarations のような INSERT 専用ポリシーの分離は不要。
+
+```sql
+-- SELECT / INSERT / UPDATE / DELETE すべて、team が 5.8 の条件を満たす行のみ
+CREATE POLICY "budget_recurring_items_all_policy" ON budget_recurring_items
+    FOR ALL TO authenticated
+    USING (public.can_access_team_budget(budget_recurring_items.team))
+    WITH CHECK (public.can_access_team_budget(budget_recurring_items.team));
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE budget_recurring_items TO authenticated, service_role;
+REVOKE ALL ON TABLE budget_recurring_items FROM anon;
+```
+
+新規申告作成時の展開（`getActiveBudgetRecurringItems`）は、対象チーム・対象月が適用期間内の行を通常の SELECT で取得するだけであり、上記の RLS がそのまま適用される（チームリーダーは自チーム分のみ取得できる）。展開そのもの（`budget_declaration_items` への INSERT）は 5.9 の RLS に従う。
 
 ## 6. トリガー
 

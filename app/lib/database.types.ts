@@ -144,6 +144,59 @@ export type Database = {
           },
         ]
       }
+      budget_recurring_items: {
+        Row: {
+          amount: number
+          category: string
+          description: string
+          display_order: number
+          end_month: string | null
+          entry_type: string
+          id: number
+          inserted_at: string
+          manager_id: number | null
+          start_month: string
+          team: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          category: string
+          description: string
+          display_order?: number
+          end_month?: string | null
+          entry_type: string
+          id?: never
+          inserted_at?: string
+          manager_id?: number | null
+          start_month: string
+          team: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          category?: string
+          description?: string
+          display_order?: number
+          end_month?: string | null
+          entry_type?: string
+          id?: never
+          inserted_at?: string
+          manager_id?: number | null
+          start_month?: string
+          team?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "budget_recurring_items_manager_id_fkey"
+            columns: ["manager_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       business: {
         Row: {
           amount: number | null

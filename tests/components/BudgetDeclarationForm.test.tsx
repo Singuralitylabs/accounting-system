@@ -10,6 +10,7 @@ import { renderWithMantine } from "../testUtils/renderWithMantine";
 const {
   useBudgetDeclarationDetail,
   usePreviousBudgetDeclarationItems,
+  useActiveBudgetRecurringItems,
   saveMutation,
   deleteMutation,
   confirmAction,
@@ -17,6 +18,7 @@ const {
 } = vi.hoisted(() => ({
   useBudgetDeclarationDetail: vi.fn(),
   usePreviousBudgetDeclarationItems: vi.fn(),
+  useActiveBudgetRecurringItems: vi.fn(),
   saveMutation: {
     mutateAsync: vi.fn().mockResolvedValue({}),
     isPending: false,
@@ -34,6 +36,10 @@ vi.mock("@/app/hooks/useBudgetDeclarationData", () => ({
   usePreviousBudgetDeclarationItems,
   useSaveBudgetDeclaration: () => saveMutation,
   useDeleteBudgetDeclaration: () => deleteMutation,
+}));
+
+vi.mock("@/app/hooks/useBudgetRecurringItemData", () => ({
+  useActiveBudgetRecurringItems,
 }));
 
 vi.mock("@/app/utils/confirmAction", () => ({ confirmAction }));
@@ -79,6 +85,10 @@ describe("BudgetDeclarationForm", () => {
       data: null,
       isLoading: false,
       isError: false,
+    });
+    useActiveBudgetRecurringItems.mockReturnValue({
+      data: [],
+      isFetching: false,
     });
     saveMutation.isPending = false;
     deleteMutation.isPending = false;
@@ -966,6 +976,182 @@ describe("BudgetDeclarationForm", () => {
       await vi.waitFor(() => expect(confirmAction).toHaveBeenCalled());
       expect(screen.getByDisplayValue("外注A")).toBeInTheDocument();
       expect(teamInput).toHaveValue("開発チーム");
+    });
+  });
+
+  describe("定期明細の自動投入", () => {
+    it("新規作成時、対象月が適用期間内の定期明細（担当者含む）が明細行として自動で入る（バッジ表示）", () => {
+      useActiveBudgetRecurringItems.mockReturnValue({
+        data: [
+          {
+            id: 1,
+            entry_type: "expense",
+            category: "外注費",
+            description: "○○保守契約",
+            amount: 100000,
+            manager_id: 1,
+            display_order: 0,
+          },
+        ],
+        isFetching: false,
+      });
+
+      renderWithMantine(
+        <BudgetDeclarationForm
+          opened
+          onClose={vi.fn()}
+          targetMonth="2026-10"
+          team="開発チーム"
+          declarationId={null}
+          teamLocked
+          memberList={testMemberList}
+        />,
+      );
+
+      expect(screen.getByDisplayValue("○○保守契約")).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("担当者を選択")).toHaveValue(
+        "山田太郎",
+      );
+      expect(screen.getByText("定期")).toBeInTheDocument();
+    });
+
+    it("取得完了前（isFetching）は投入せず、完了後に投入する", () => {
+      useActiveBudgetRecurringItems.mockReturnValue({
+        data: undefined,
+        isFetching: true,
+      });
+
+      const { rerender } = renderWithMantine(
+        <BudgetDeclarationForm
+          opened
+          onClose={vi.fn()}
+          targetMonth="2026-10"
+          team="開発チーム"
+          declarationId={null}
+          teamLocked
+          memberList={testMemberList}
+        />,
+      );
+
+      expect(
+        screen.getByText("明細が登録されていません。"),
+      ).toBeInTheDocument();
+
+      useActiveBudgetRecurringItems.mockReturnValue({
+        data: [
+          {
+            id: 1,
+            entry_type: "income",
+            category: "セミナー",
+            description: "○○受託案件",
+            amount: 500000,
+            manager_id: null,
+            display_order: 0,
+          },
+        ],
+        isFetching: false,
+      });
+      rerender(
+        <BudgetDeclarationForm
+          opened
+          onClose={vi.fn()}
+          targetMonth="2026-10"
+          team="開発チーム"
+          declarationId={null}
+          teamLocked
+          memberList={testMemberList}
+        />,
+      );
+
+      expect(screen.getByDisplayValue("○○受託案件")).toBeInTheDocument();
+    });
+
+    it("既存申告の編集時には自動投入しない（二重計上防止）", () => {
+      useBudgetDeclarationDetail.mockReturnValue({
+        data: { comment: "", items: [] },
+        isLoading: false,
+        isError: false,
+      });
+      useActiveBudgetRecurringItems.mockReturnValue({
+        data: [
+          {
+            id: 1,
+            entry_type: "income",
+            category: "セミナー",
+            description: "○○受託案件",
+            amount: 500000,
+            manager_id: null,
+            display_order: 0,
+          },
+        ],
+        isFetching: false,
+      });
+
+      renderWithMantine(
+        <BudgetDeclarationForm
+          opened
+          onClose={vi.fn()}
+          targetMonth="2026-10"
+          team="開発チーム"
+          declarationId={7}
+          teamLocked={false}
+          memberList={testMemberList}
+        />,
+      );
+
+      expect(
+        screen.getByText("明細が登録されていません。"),
+      ).toBeInTheDocument();
+      expect(screen.queryByDisplayValue("○○受託案件")).not.toBeInTheDocument();
+    });
+
+    it("保存ペイロードには定期明細由来かどうかのフラグを含めない", async () => {
+      useActiveBudgetRecurringItems.mockReturnValue({
+        data: [
+          {
+            id: 1,
+            entry_type: "expense",
+            category: "外注費",
+            description: "○○保守契約",
+            amount: 100000,
+            manager_id: null,
+            display_order: 0,
+          },
+        ],
+        isFetching: false,
+      });
+      confirmAction.mockResolvedValue(true);
+
+      renderWithMantine(
+        <BudgetDeclarationForm
+          opened
+          onClose={vi.fn()}
+          targetMonth="2026-10"
+          team="開発チーム"
+          declarationId={null}
+          teamLocked
+          memberList={testMemberList}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
+      await vi.waitFor(() =>
+        expect(saveMutation.mutateAsync).toHaveBeenCalled(),
+      );
+
+      expect(saveMutation.mutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          items: [
+            {
+              entry_type: "expense",
+              category: "外注費",
+              description: "○○保守契約",
+              amount: 100000,
+              manager_id: null,
+            },
+          ],
+        }),
+      );
     });
   });
 });
