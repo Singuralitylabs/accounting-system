@@ -79,14 +79,17 @@ const ProfitLossAdjustmentModal = ({
     if (!confirmed) return;
 
     try {
-      await saveMutation.mutateAsync({
+      // 実際に削除されたか保存されたかはサーバ側（元データの再取得を伴う差分計算）の
+      // 結果で判断する。willRevert は保存前の見込み（画面表示時点の古い sourceAmount
+      // に基づく）でしかなく、その間に元データが変わっていると一致しない場合がある
+      const { deleted } = await saveMutation.mutateAsync({
         target,
         targetMonth,
         actualAmount,
         reason: reason.trim(),
       });
       notifySuccess(
-        willRevert ? "実績額修正を削除しました。" : "実績額を保存しました。",
+        deleted ? "実績額修正を削除しました。" : "実績額を保存しました。",
       );
       onClose();
     } catch (error) {

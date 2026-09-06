@@ -431,7 +431,7 @@ CREATE UNIQUE INDEX ... ON profit_loss_adjustments (recurring_cost_id, target_mo
 
 運用上の注意:
 
-- 実績額の入力は損益計算書（/profit-loss）の各明細行の「実績額を修正」操作から行う。入力は実績額のみで、保存時にシステムが `adjustment_amount = 実績額 − 保存直前に取得し直した元データ金額` を計算し、`source_amount_snapshot` に同じ元データ金額を保存する（`app/utils/supabase/profitLossAdjustments.ts`）
+- 実績額の入力は損益計算書（/profit-loss）の各明細行の「実績額を修正」操作から行う。入力は実績額のみで、保存は DB 関数 `public.save_profit_loss_adjustment`（[5.12](#512-profit_loss_adjustments-テーブル)）を1回呼ぶだけで完結する。対象行を `FOR UPDATE` でロックしたうえで `adjustment_amount = 実績額 − 元データ金額` を計算し、`source_amount_snapshot` に同じ元データ金額を保存する（`app/utils/supabase/profitLossAdjustments.ts`）。取得から書き込みまでを単一トランザクションで行うため、保存の途中で元データが変わる・複数人が同時に同じ対象へ保存するといった競合が起きない
 - 元データ変更の検知: 表示時に現在の元データ金額と `source_amount_snapshot` が異なる場合、画面に警告を表示する。本テーブルの値は自動では追従しない（経理が再確認して実績額を更新するか、調整自体を削除する）
 - 対象行が別の月に移動した場合（案件の請求日変更等）: 調整は `target_month` に留まるため、その月の集計対象に対象行が無ければ「対象行が当月に存在しません」として損益には反映せず、削除を促す警告を表示する（`app/utils/profitLossLogic.ts` の `orphanedAdjustments`）
 - 対象行そのものが削除された場合は ON DELETE CASCADE により調整も自動的に削除される
@@ -1216,15 +1216,34 @@ CREATE POLICY "profit_loss_adjustments_select_policy" ON profit_loss_adjustments
     USING (private.can_view_pl_adjustment(business_id, cost_id, recurring_cost_id));
 
 -- 書き込みは経理担当者・管理者のみ（対象行のチームは問わない。extra_entries /
--- recurring_costs と同じ方針で、チームリーダーには一切の書き込みを許可しない）
+-- recurring_costs と同じ方針で、チームリーダーには一切の書き込みを許可しない）。
+-- adjusted_by は PostgREST 経由では任意の profiles.id を指定できてしまうため、
+-- WITH CHECK で「adjusted_by が呼び出し本人の profiles.id と一致すること」も
+-- 併せて要求する（budget_declarations_insert_policy と同じ理由。あちらはチーム
+-- 協業のため UPDATE 側は縛っていないが、adjusted_by はアプリが常に呼び出し本人の
+-- id を送るため、UPDATE も含めて縛ってもアプリの動作を妨げない）
 CREATE POLICY "profit_loss_adjustments_insert_policy" ON profit_loss_adjustments
     FOR INSERT TO authenticated
-    WITH CHECK (public.auth_user_class() IN ('admin', 'accounting'));
+    WITH CHECK (
+      public.auth_user_class() IN ('admin', 'accounting')
+      AND EXISTS (
+        SELECT 1 FROM profiles p
+        WHERE p.id = profit_loss_adjustments.adjusted_by
+        AND p.user_id = (select auth.uid())
+      )
+    );
 
 CREATE POLICY "profit_loss_adjustments_update_policy" ON profit_loss_adjustments
     FOR UPDATE TO authenticated
     USING (public.auth_user_class() IN ('admin', 'accounting'))
-    WITH CHECK (public.auth_user_class() IN ('admin', 'accounting'));
+    WITH CHECK (
+      public.auth_user_class() IN ('admin', 'accounting')
+      AND EXISTS (
+        SELECT 1 FROM profiles p
+        WHERE p.id = profit_loss_adjustments.adjusted_by
+        AND p.user_id = (select auth.uid())
+      )
+    );
 
 CREATE POLICY "profit_loss_adjustments_delete_policy" ON profit_loss_adjustments
     FOR DELETE TO authenticated
@@ -1232,6 +1251,111 @@ CREATE POLICY "profit_loss_adjustments_delete_policy" ON profit_loss_adjustments
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE profit_loss_adjustments TO authenticated, service_role;
 REVOKE ALL ON TABLE profit_loss_adjustments FROM anon;
+```
+
+#### 実績額修正の原子的な保存（`save_profit_loss_adjustment`）
+
+`app/utils/supabase/profitLossAdjustments.ts` の保存処理は、この DB 関数を1回呼ぶだけで完結する。アプリ側で「元データ金額の取得 → 差分計算 → INSERT/UPDATE」を複数クエリに分けると、取得から書き込みまでの間に元データが変わる、または2人の経理担当者が同時に同じ対象へ保存する、といった競合の余地がある。本関数は対象行を `SELECT ... FOR UPDATE` でロックし、差分計算と `INSERT ... ON CONFLICT DO UPDATE`（部分 UNIQUE インデックスを一意性制約として使う upsert）を単一トランザクション（関数呼び出し1回）内で行うことでこれを解消する。
+
+SECURITY DEFINER にはしない（既定の SECURITY INVOKER のまま）。対象行（business / costs / recurring_costs）の SELECT・`profit_loss_adjustments` への書き込みはいずれも呼び出し元のロールで RLS がそのまま適用される。`pl_adjustment_team` / `can_view_pl_adjustment` とは異なり、対象データの SELECT 自体は経理担当者・管理者なら全行に許可されているため RLS 迂回の懸念はなく、`public` スキーマに置いて構わない。
+
+`adjusted_by` はクライアントから受け取らず、関数内で `auth.uid()` から解決する（PostgREST 経由でなりすまされることを防ぐ。上記 INSERT/UPDATE ポリシーの `WITH CHECK` と二重に担保する）。
+
+```sql
+CREATE OR REPLACE FUNCTION public.save_profit_loss_adjustment(
+  p_business_id bigint,
+  p_cost_id bigint,
+  p_recurring_cost_id bigint,
+  p_target_month date,
+  p_actual_amount numeric,
+  p_reason text
+)
+RETURNS TABLE (deleted boolean, source_amount numeric, adjustment_amount numeric)
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+DECLARE
+  v_source_amount numeric;
+  v_adjustment_amount numeric;
+  v_adjusted_by bigint;
+BEGIN
+  -- 対象は必ずちょうど1つ
+  IF num_nonnulls(p_business_id, p_cost_id, p_recurring_cost_id) <> 1 THEN
+    RAISE EXCEPTION '調整対象の指定が不正です';
+  END IF;
+
+  SELECT p.id INTO v_adjusted_by FROM public.profiles p WHERE p.user_id = auth.uid();
+  IF v_adjusted_by IS NULL THEN
+    RAISE EXCEPTION 'プロフィールが見つかりません';
+  END IF;
+
+  -- 対象行をロックしたうえで元データ金額を取得する
+  IF p_business_id IS NOT NULL THEN
+    SELECT COALESCE(b.amount, 0) INTO v_source_amount
+    FROM public.business b WHERE b.id = p_business_id FOR UPDATE;
+  ELSIF p_cost_id IS NOT NULL THEN
+    SELECT c.price INTO v_source_amount FROM public.costs c WHERE c.id = p_cost_id FOR UPDATE;
+  ELSE
+    SELECT rc.price INTO v_source_amount
+    FROM public.recurring_costs rc WHERE rc.id = p_recurring_cost_id FOR UPDATE;
+  END IF;
+  IF v_source_amount IS NULL THEN
+    RAISE EXCEPTION '対象データが見つかりません';
+  END IF;
+
+  v_adjustment_amount := p_actual_amount - v_source_amount;
+
+  -- 差分 0（実績額 = 元データ）なら既存の調整を削除する
+  IF v_adjustment_amount = 0 THEN
+    DELETE FROM public.profit_loss_adjustments
+    WHERE target_month = p_target_month
+      AND business_id IS NOT DISTINCT FROM p_business_id
+      AND cost_id IS NOT DISTINCT FROM p_cost_id
+      AND recurring_cost_id IS NOT DISTINCT FROM p_recurring_cost_id;
+    RETURN QUERY SELECT true, v_source_amount, 0::numeric;
+    RETURN;
+  END IF;
+
+  -- 理由は必須（呼び出し側でも検証するが、直接の RPC 呼び出しに備える。
+  -- 判別できるよう固定のメッセージ文字列を使う）
+  IF btrim(p_reason) = '' THEN
+    RAISE EXCEPTION 'REASON_REQUIRED';
+  END IF;
+
+  -- 対象種別ごとに、対応する部分 UNIQUE インデックスを一意性制約として upsert する
+  -- （3種の対象で使う列が異なるため、1本の INSERT ... ON CONFLICT では書けない）
+  IF p_business_id IS NOT NULL THEN
+    INSERT INTO public.profit_loss_adjustments
+      (target_month, business_id, adjustment_amount, source_amount_snapshot, reason, adjusted_by)
+    VALUES (p_target_month, p_business_id, v_adjustment_amount, v_source_amount, btrim(p_reason), v_adjusted_by)
+    ON CONFLICT (business_id, target_month) WHERE business_id IS NOT NULL
+    DO UPDATE SET adjustment_amount = EXCLUDED.adjustment_amount,
+                  source_amount_snapshot = EXCLUDED.source_amount_snapshot,
+                  reason = EXCLUDED.reason, adjusted_by = EXCLUDED.adjusted_by;
+  ELSIF p_cost_id IS NOT NULL THEN
+    INSERT INTO public.profit_loss_adjustments
+      (target_month, cost_id, adjustment_amount, source_amount_snapshot, reason, adjusted_by)
+    VALUES (p_target_month, p_cost_id, v_adjustment_amount, v_source_amount, btrim(p_reason), v_adjusted_by)
+    ON CONFLICT (cost_id, target_month) WHERE cost_id IS NOT NULL
+    DO UPDATE SET adjustment_amount = EXCLUDED.adjustment_amount,
+                  source_amount_snapshot = EXCLUDED.source_amount_snapshot,
+                  reason = EXCLUDED.reason, adjusted_by = EXCLUDED.adjusted_by;
+  ELSE
+    INSERT INTO public.profit_loss_adjustments
+      (target_month, recurring_cost_id, adjustment_amount, source_amount_snapshot, reason, adjusted_by)
+    VALUES (p_target_month, p_recurring_cost_id, v_adjustment_amount, v_source_amount, btrim(p_reason), v_adjusted_by)
+    ON CONFLICT (recurring_cost_id, target_month) WHERE recurring_cost_id IS NOT NULL
+    DO UPDATE SET adjustment_amount = EXCLUDED.adjustment_amount,
+                  source_amount_snapshot = EXCLUDED.source_amount_snapshot,
+                  reason = EXCLUDED.reason, adjusted_by = EXCLUDED.adjusted_by;
+  END IF;
+
+  RETURN QUERY SELECT false, v_source_amount, v_adjustment_amount;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.save_profit_loss_adjustment(bigint, bigint, bigint, date, numeric, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.save_profit_loss_adjustment(bigint, bigint, bigint, date, numeric, text) TO authenticated;
 ```
 
 ## 6. トリガー

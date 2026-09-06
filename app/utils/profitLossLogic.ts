@@ -5,7 +5,6 @@
 
 import {
   AdjustableAmount,
-  AdjustmentTargetType,
   BusinessDetail,
   CategoryBreakdown,
   CostDetail,
@@ -26,6 +25,7 @@ import { hasClassAccess } from "./permissions";
 // 集計対象の行（RLS により権限に応じた行のみ取得される）
 export type BusinessRow = {
   id: number;
+  name: string; // 取引先名。同一案件に複数の business 行がある場合の識別に使う
   amount: number | null;
   invoice_date: string | null;
   matter_id: number;
@@ -34,6 +34,7 @@ export type BusinessRow = {
 
 export type CostRow = {
   id: number;
+  name: string; // 支払先名。同一案件・同一品目に複数の costs 行がある場合の識別に使う
   price: number;
   item: string;
   period: string | null;
@@ -99,20 +100,40 @@ export type MonthlyReportInput = {
   adjustments: ProfitLossAdjustmentType[];
   isTeamLeader: boolean;
   includeTeamBreakdown: boolean; // チーム別内訳を含めるか（accounting / admin）
+  // 対象行が当月に存在しない調整（orphanedAdjustments）を計算するか。
+  // 年間推移（12ヶ月分を一括計算）は表示に使わないため false を渡し、
+  // 12ヶ月分の無駄な計算を避ける（月次タブの単月表示でのみ true）
+  includeOrphanedAdjustments: boolean;
 };
 
-// 対象月・対象行に対する調整（profit_loss_adjustments）を検索する。
-// 呼び出し側の対象月フィルタと取り違えないよう、比較は必ずここで行う
-const findAdjustment = (
+type AdjustmentKey = "business_id" | "cost_id" | "recurring_cost_id";
+
+// adjustments 配列から「対象列 + id + 対象月」で引ける索引を作る。
+// 明細行数 × 調整件数の総当たりだと調整が積み上がるほど遅くなるため、
+// buildMonthlyReport の呼び出しごとに一度だけ Map 化して O(1) 参照にする
+const buildAdjustmentIndex = (
   adjustments: ProfitLossAdjustmentType[],
   month: string,
-  key: "business_id" | "cost_id" | "recurring_cost_id",
+): Map<string, ProfitLossAdjustmentType> => {
+  const index = new Map<string, ProfitLossAdjustmentType>();
+  adjustments.forEach((adjustment) => {
+    if (toMonthKey(adjustment.target_month) !== month) return;
+    const key: AdjustmentKey =
+      adjustment.business_id !== null
+        ? "business_id"
+        : adjustment.cost_id !== null
+          ? "cost_id"
+          : "recurring_cost_id";
+    index.set(`${key}:${adjustment[key]}`, adjustment);
+  });
+  return index;
+};
+
+const findAdjustment = (
+  index: Map<string, ProfitLossAdjustmentType>,
+  key: AdjustmentKey,
   id: number,
-): ProfitLossAdjustmentType | undefined =>
-  adjustments.find(
-    (adjustment) =>
-      adjustment[key] === id && toMonthKey(adjustment.target_month) === month,
-  );
+): ProfitLossAdjustmentType | undefined => index.get(`${key}:${id}`);
 
 // 元データの金額と調整から「元データ / 調整 / 実績」の3値を組み立てる。
 // 実績額は常に「現在の元データ金額 + 調整の差分」で計算する（調整保存後に元データが
@@ -143,7 +164,12 @@ export const buildMonthlyReport = ({
   adjustments,
   isTeamLeader,
   includeTeamBreakdown,
+  includeOrphanedAdjustments,
 }: MonthlyReportInput): PLReportType => {
+  // 対象月分の調整を1度だけ索引化する（findAdjustment の呼び出しごとに
+  // 全件走査しない）
+  const adjustmentIndex = buildAdjustmentIndex(adjustments, month);
+
   // ===== 経理追加収支 =====
   // 計上月は entry_date の属する月（NULL は月未確定として別枠集計）
   const monthlyExtraEntries = extraEntries.filter(
@@ -191,16 +217,12 @@ export const buildMonthlyReport = ({
   // （findAdjustment の再計算を避け、本表とチーム別内訳の実績額がズレないようにする）
   const businessActualAmounts = new Map<number, number>();
   monthlyBusiness.forEach((row) => {
-    const adjustment = findAdjustment(
-      adjustments,
-      month,
-      "business_id",
-      row.id,
-    );
+    const adjustment = findAdjustment(adjustmentIndex, "business_id", row.id);
     const adjustable = toAdjustable(row.amount ?? 0, adjustment);
     const detail: BusinessDetail = {
       ...adjustable,
       businessId: row.id,
+      businessName: row.name,
       matterId: row.matter_id,
       matterTitle: row.matters.title,
     };
@@ -244,11 +266,12 @@ export const buildMonthlyReport = ({
   // チーム別内訳（後段）でも同じ実績額を使うため、cost_id をキーに保持しておく
   const costActualAmounts = new Map<number, number>();
   monthlyCosts.forEach((row) => {
-    const adjustment = findAdjustment(adjustments, month, "cost_id", row.id);
+    const adjustment = findAdjustment(adjustmentIndex, "cost_id", row.id);
     const adjustable = toAdjustable(row.price, adjustment);
     const detail: CostDetail = {
       ...adjustable,
       costId: row.id,
+      costName: row.name,
       matterId: row.matter_id,
       matterTitle: row.matters.title,
     };
@@ -333,8 +356,7 @@ export const buildMonthlyReport = ({
   const activeRecurringCostDetails: RecurringCostDetail[] =
     activeRecurringCosts.map((rc) => {
       const adjustment = findAdjustment(
-        adjustments,
-        month,
+        adjustmentIndex,
         "recurring_cost_id",
         rc.id,
       );
@@ -446,14 +468,21 @@ export const buildMonthlyReport = ({
   // ===== 対象行が当月に存在しない調整（案件の日付変更等で対象行が別の月に移動した） =====
   // CASCADE により対象行そのものが削除された調整は存在しなくなるため、ここに現れるのは
   // 「対象行は存在するが、当月の集計対象からは外れた」ケースのみ。削除を促す表示に使うため、
-  // 実績額修正の操作を持つロール（includeTeamBreakdown = accounting / admin）にのみ含める
+  // 実績額修正の操作を持つロール（includeTeamBreakdown = accounting / admin）にのみ含める。
+  // 年間推移（includeOrphanedAdjustments=false）では表示に使わないため計算しない
   let orphanedAdjustments: OrphanedAdjustmentType[] | undefined;
-  if (includeTeamBreakdown) {
+  if (includeTeamBreakdown && includeOrphanedAdjustments) {
     const monthlyBusinessIds = new Set(monthlyBusiness.map((row) => row.id));
     const monthlyCostIds = new Set(monthlyCosts.map((row) => row.id));
     const activeRecurringCostIds = new Set(
       activeRecurringCosts.map((rc) => rc.id),
     );
+
+    // 対象行を特定できるラベルを組み立てる。対象行自体は月に関わらず全件
+    // （businessRows / costRows / recurringCosts。month でフィルタする前）から探す
+    const businessById = new Map(businessRows.map((row) => [row.id, row]));
+    const costById = new Map(costRows.map((row) => [row.id, row]));
+    const recurringCostById = new Map(recurringCosts.map((rc) => [rc.id, rc]));
 
     orphanedAdjustments = adjustments
       .filter((adjustment) => toMonthKey(adjustment.target_month) === month)
@@ -467,13 +496,32 @@ export const buildMonthlyReport = ({
         return !activeRecurringCostIds.has(adjustment.recurring_cost_id!);
       })
       .map((adjustment) => {
-        const targetType: AdjustmentTargetType =
-          adjustment.business_id !== null
-            ? "business"
-            : adjustment.cost_id !== null
-              ? "cost"
-              : "recurring_cost";
-        return { adjustment, targetType };
+        if (adjustment.business_id !== null) {
+          const row = businessById.get(adjustment.business_id);
+          return {
+            adjustment,
+            targetType: "business" as const,
+            label: row
+              ? `${row.matters.title} - ${row.name}`
+              : `売上（ID: ${adjustment.business_id}）`,
+          };
+        }
+        if (adjustment.cost_id !== null) {
+          const row = costById.get(adjustment.cost_id);
+          return {
+            adjustment,
+            targetType: "cost" as const,
+            label: row
+              ? `${row.matters.title} - ${row.name}（${row.item}）`
+              : `案件費用（ID: ${adjustment.cost_id}）`,
+          };
+        }
+        const rc = recurringCostById.get(adjustment.recurring_cost_id!);
+        return {
+          adjustment,
+          targetType: "recurring_cost" as const,
+          label: rc ? rc.name : `管理費（ID: ${adjustment.recurring_cost_id}）`,
+        };
       });
   }
 

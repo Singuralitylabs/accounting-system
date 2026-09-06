@@ -21,15 +21,16 @@ export const useSaveProfitLossAdjustment = () => {
       actualAmount: number;
       reason: string;
     }) => {
-      const { error } = await saveProfitLossAdjustment(
+      const result = await saveProfitLossAdjustment(
         target,
         targetMonth,
         actualAmount,
         reason,
       );
-      if (error) {
-        throw new Error(error.message);
+      if (result.error) {
+        throw new Error(result.error.message);
       }
+      return { deleted: result.deleted };
     },
     onSuccess: () => {
       // 損益調整は損益レポート（月次・年間推移）にのみ影響する

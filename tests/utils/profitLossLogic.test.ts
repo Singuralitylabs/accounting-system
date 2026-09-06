@@ -33,13 +33,17 @@ const business = (
   category: string,
   team = "チームA",
   matterId = 1,
-): BusinessRow => ({
-  id: nextBusinessId++,
-  amount,
-  invoice_date: invoiceDate,
-  matter_id: matterId,
-  matters: { id: matterId, title: `案件${matterId}`, team, category },
-});
+): BusinessRow => {
+  const id = nextBusinessId++;
+  return {
+    id,
+    name: `取引先${id}`,
+    amount,
+    invoice_date: invoiceDate,
+    matter_id: matterId,
+    matters: { id: matterId, title: `案件${matterId}`, team, category },
+  };
+};
 
 const cost = (
   price: number,
@@ -48,14 +52,18 @@ const cost = (
   category: string,
   matterId = 1,
   team = "チームA",
-): CostRow => ({
-  id: nextCostId++,
-  price,
-  item,
-  period,
-  matter_id: matterId,
-  matters: { id: matterId, title: `案件${matterId}`, team, category },
-});
+): CostRow => {
+  const id = nextCostId++;
+  return {
+    id,
+    name: `支払先${id}`,
+    price,
+    item,
+    period,
+    matter_id: matterId,
+    matters: { id: matterId, title: `案件${matterId}`, team, category },
+  };
+};
 
 const adjustment = (
   override: Partial<ProfitLossAdjustmentType> &
@@ -120,6 +128,7 @@ const buildInput = (
   adjustments: [],
   isTeamLeader: false,
   includeTeamBreakdown: false,
+  includeOrphanedAdjustments: true,
   ...override,
 });
 
@@ -977,9 +986,10 @@ describe("buildMonthlyReport: 月未確定（日付未入力）", () => {
 // 損益調整（profit_loss_adjustments）: 元データ + 調整 = 実績（Issue #108）
 describe("buildMonthlyReport: 損益調整（実績額修正）", () => {
   it("調整が無い場合は元データ金額のまま実績額になる", () => {
+    const row = business(100000, "2026-07-01", "受託案件");
     const report = buildMonthlyReport(
       buildInput({
-        businessRows: [business(100000, "2026-07-01", "受託案件")],
+        businessRows: [row],
       }),
     );
     const detail = report.revenueByCategory[0].businesses[0];
@@ -989,7 +999,29 @@ describe("buildMonthlyReport: 損益調整（実績額修正）", () => {
       actualAmount: 100000,
       sourceChanged: false,
       adjustment: null,
+      businessName: row.name,
     });
+  });
+
+  it("同一案件に複数の business / cost 行があっても取引先名・支払先名で識別できる", () => {
+    const row1 = business(100000, "2026-07-01", "受託案件", "チームA", 1);
+    const row2 = business(50000, "2026-07-01", "受託案件", "チームA", 1);
+    const costRow1 = cost(30000, "2026-07-01", "外注費", "受託案件", 1);
+    const costRow2 = cost(20000, "2026-07-01", "外注費", "受託案件", 1);
+
+    const report = buildMonthlyReport(
+      buildInput({
+        businessRows: [row1, row2],
+        costRows: [costRow1, costRow2],
+      }),
+    );
+
+    expect(
+      report.revenueByCategory[0].businesses.map((b) => b.businessName),
+    ).toEqual(expect.arrayContaining([row1.name, row2.name]));
+    expect(report.matterCostByItem[0].costs.map((c) => c.costName)).toEqual(
+      expect.arrayContaining([costRow1.name, costRow2.name]),
+    );
   });
 
   it("案件の売上（business）の調整が実績額・分類別売上・売上合計に反映される", () => {
@@ -1163,6 +1195,48 @@ describe("buildMonthlyReport: 損益調整（実績額修正）", () => {
     );
 
     expect(report.orphanedAdjustments).toBeUndefined();
+  });
+
+  it("includeOrphanedAdjustments が false（年間推移）では orphanedAdjustments を返さない", () => {
+    const report = buildMonthlyReport(
+      buildInput({
+        includeTeamBreakdown: true,
+        includeOrphanedAdjustments: false,
+        businessRows: [business(100000, "2026-08-01", "受託案件")],
+        adjustments: [
+          adjustment({
+            id: 42,
+            business_id: 99,
+            target_month: "2026-07-01",
+          }),
+        ],
+      }),
+    );
+
+    expect(report.orphanedAdjustments).toBeUndefined();
+  });
+
+  it("orphanedAdjustments は対象行を特定できるラベル（案件名 - 取引先/支払先名）を持つ", () => {
+    // 対象行（business_id）自体は月をまたいで存在するが、対象月（7月）の集計対象からは
+    // 外れているケース。ラベル解決は month でフィルタする前の全件から行う
+    const businessRow = business(100000, "2026-08-01", "受託案件");
+    const report = buildMonthlyReport(
+      buildInput({
+        includeTeamBreakdown: true,
+        businessRows: [businessRow],
+        adjustments: [
+          adjustment({
+            id: 42,
+            business_id: businessRow.id,
+            target_month: "2026-07-01",
+          }),
+        ],
+      }),
+    );
+
+    expect(report.orphanedAdjustments?.[0].label).toBe(
+      `${businessRow.matters.title} - ${businessRow.name}`,
+    );
   });
 
   it("チーム別内訳にも調整後の実績額が反映される（本表と同じ実績額を使う）", () => {

@@ -107,6 +107,7 @@ export type AdjustableAmount = {
 export type OrphanedAdjustmentType = {
   adjustment: ProfitLossAdjustmentType;
   targetType: AdjustmentTargetType;
+  label: string; // 対象行を識別する表示名（案件名 - 取引先/支払先名、または定期費用名）
 };
 
 // 分類別売上内訳（matters.category ごと。案件別（business 行別）の実績額修正対象の明細＋
@@ -121,6 +122,7 @@ export type CategoryBreakdown = {
 // 案件の売上明細（1 business 行 = 1 行。実績額修正の対象単位）
 export type BusinessDetail = AdjustableAmount & {
   businessId: number;
+  businessName: string; // 取引先名（同一案件に複数の business 行がある場合の識別用）
   matterId: number;
   matterTitle: string;
 };
@@ -128,6 +130,7 @@ export type BusinessDetail = AdjustableAmount & {
 // 案件費用の明細（1 costs 行 = 1 行。実績額修正の対象単位）
 export type CostDetail = AdjustableAmount & {
   costId: number;
+  costName: string; // 支払先名（同一案件・同一品目に複数の costs 行がある場合の識別用）
   matterId: number;
   matterTitle: string;
 };

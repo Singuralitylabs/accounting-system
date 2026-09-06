@@ -1,112 +1,24 @@
 "use server";
 
-import {
-  AccessFailure,
-  AdjustmentTarget,
-  ProfitLossAdjustmentInsertType,
-} from "../../types/types";
+import { AccessFailure, AdjustmentTarget } from "../../types/types";
 import { PL_ADJUSTMENT_WRITE_CLASSES } from "../permissions";
 import { toFirstOfMonth } from "../formatter";
 import { createServerSupabase } from "./clients";
 import { getAuthorizedViewer } from "./viewerAccess";
 
-type SupabaseClient = ReturnType<typeof createServerSupabase>;
+export type SaveProfitLossAdjustmentResult =
+  | { deleted: boolean; error?: undefined }
+  | { deleted?: undefined; error: AccessFailure };
 
-// 対象行の現在の元データ金額と、profit_loss_adjustments 側の対象列を返す。
-// 保存直前に取得し直すことで、クライアントが持つ古い金額に依存しない
-// （元データが調整の保存前後で変わっていても、常に「今の」元データ金額を基準にする）
-const fetchSourceAmount = async (
-  supabase: SupabaseClient,
-  target: AdjustmentTarget,
-): Promise<{
-  sourceAmount: number;
-  idColumn: "business_id" | "cost_id" | "recurring_cost_id";
-  targetId: number;
-} | null> => {
-  switch (target.targetType) {
-    case "business": {
-      const { data } = await supabase
-        .from("business")
-        .select("amount")
-        .eq("id", target.businessId)
-        .maybeSingle();
-      if (!data) return null;
-      return {
-        sourceAmount: data.amount ?? 0,
-        idColumn: "business_id",
-        targetId: target.businessId,
-      };
-    }
-    case "cost": {
-      const { data } = await supabase
-        .from("costs")
-        .select("price")
-        .eq("id", target.costId)
-        .maybeSingle();
-      if (!data) return null;
-      return {
-        sourceAmount: data.price,
-        idColumn: "cost_id",
-        targetId: target.costId,
-      };
-    }
-    case "recurring_cost": {
-      const { data } = await supabase
-        .from("recurring_costs")
-        .select("price")
-        .eq("id", target.recurringCostId)
-        .maybeSingle();
-      if (!data) return null;
-      return {
-        sourceAmount: data.price,
-        idColumn: "recurring_cost_id",
-        targetId: target.recurringCostId,
-      };
-    }
-  }
-};
-
-const buildInsertRow = (
-  target: AdjustmentTarget,
-  common: Pick<
-    ProfitLossAdjustmentInsertType,
-    | "target_month"
-    | "adjustment_amount"
-    | "source_amount_snapshot"
-    | "reason"
-    | "adjusted_by"
-  >,
-): ProfitLossAdjustmentInsertType => {
-  switch (target.targetType) {
-    case "business":
-      return {
-        ...common,
-        business_id: target.businessId,
-        cost_id: null,
-        recurring_cost_id: null,
-      };
-    case "cost":
-      return {
-        ...common,
-        business_id: null,
-        cost_id: target.costId,
-        recurring_cost_id: null,
-      };
-    case "recurring_cost":
-      return {
-        ...common,
-        business_id: null,
-        cost_id: null,
-        recurring_cost_id: target.recurringCostId,
-      };
-  }
-};
-
-export type SaveProfitLossAdjustmentResult = { error?: AccessFailure };
-
-// 実績額修正の保存（1件ずつ即時保存）。書き込み権限（accounting / admin のみ）は
-// RLS でも担保される。実績額が元データと同額（差分 0）になった場合は、既存の調整が
-// あれば削除する（0 の差分は保存しない。profit_loss_adjustments_amount_check 参照）
+// 実績額修正の保存（1件ずつ即時保存）。元データ金額の取得・差分計算・保存を
+// DB 関数（public.save_profit_loss_adjustment）内の単一トランザクションで
+// 原子的に行う。対象行を FOR UPDATE でロックしたうえで計算するため、保存の
+// 途中で元データが変わる・複数人が同時に同じ対象へ保存するといった競合が
+// 起きない（アプリ側で「取得 → 差分計算 → 書き込み」を複数クエリに分けると、
+// その間に別の変更が挟まる余地が生まれる）。
+// adjusted_by は関数内で auth.uid() から解決され、クライアントからは渡さない
+// （なりすまし防止。RLS の WITH CHECK でも二重に担保される）。
+// 書き込み権限（accounting / admin のみ）は RLS でも担保される。
 export const saveProfitLossAdjustment = async (
   target: AdjustmentTarget,
   targetMonth: string, // "YYYY-MM"
@@ -122,105 +34,43 @@ export const saveProfitLossAdjustment = async (
   }
 
   const supabase = createServerSupabase();
-  const source = await fetchSourceAmount(supabase, target);
-  if (!source) {
-    console.error("損益調整の対象データが見つかりません:", target);
-    return {
-      error: { kind: "fetchFailed", message: "対象データの取得に失敗しました。" },
-    };
-  }
+  const { data, error: rpcError } = await supabase
+    .rpc("save_profit_loss_adjustment", {
+      p_business_id: target.targetType === "business" ? target.businessId : null,
+      p_cost_id: target.targetType === "cost" ? target.costId : null,
+      p_recurring_cost_id:
+        target.targetType === "recurring_cost" ? target.recurringCostId : null,
+      p_target_month: toFirstOfMonth(targetMonth),
+      p_actual_amount: actualAmount,
+      p_reason: reason.trim(),
+    })
+    .single();
 
-  const month = toFirstOfMonth(targetMonth);
-  const adjustmentAmount = actualAmount - source.sourceAmount;
-
-  // 理由は必須（実績額を元データと同額に戻す＝調整を削除する場合は不要）。
-  // クライアント側（ProfitLossAdjustmentModal）でも検証するが、Server Action は
-  // 直接呼び出せるためサーバ側でも担保する
-  if (adjustmentAmount !== 0 && reason.trim() === "") {
-    return {
-      error: {
-        kind: "validationFailed",
-        message: "調整理由を入力してください。",
-      },
-    };
-  }
-
-  const { data: existing, error: existingError } = await supabase
-    .from("profit_loss_adjustments")
-    .select("id")
-    .eq("target_month", month)
-    .eq(source.idColumn, source.targetId)
-    .maybeSingle();
-
-  if (existingError) {
-    console.error("損益調整の既存レコード確認に失敗しました:", existingError);
-    return {
-      error: { kind: "fetchFailed", message: "損益調整の確認に失敗しました。" },
-    };
-  }
-
-  if (adjustmentAmount === 0) {
-    if (!existing) {
-      return {};
-    }
-    const { error: deleteError } = await supabase
-      .from("profit_loss_adjustments")
-      .delete()
-      .eq("id", existing.id);
-    if (deleteError) {
-      console.error("損益調整の削除に失敗しました:", deleteError);
-      return {
-        error: { kind: "fetchFailed", message: "損益調整の削除に失敗しました。" },
-      };
-    }
-    return {};
-  }
-
-  const row = buildInsertRow(target, {
-    target_month: month,
-    adjustment_amount: adjustmentAmount,
-    source_amount_snapshot: source.sourceAmount,
-    reason: reason.trim(),
-    adjusted_by: profileInfo.id,
-  });
-
-  const { error: writeError } = existing
-    ? await supabase
-        .from("profit_loss_adjustments")
-        .update(row)
-        .eq("id", existing.id)
-    : await supabase.from("profit_loss_adjustments").insert(row);
-
-  if (writeError) {
-    // 既存レコードの確認から INSERT までの間に、他の経理担当者が同じ対象月・対象行へ
-    // 調整を保存した場合、部分 UNIQUE インデックス違反（23505）になる。ここまでの
-    // check-then-insert には同時実行時の競合の余地があるため、区別できるメッセージにする
-    if (writeError.code === "23505") {
-      console.error(
-        "損益調整の保存が他の更新と競合しました:",
-        writeError,
-      );
+  if (rpcError) {
+    // DB 関数内の RAISE EXCEPTION 'REASON_REQUIRED'（実績額が元データと異なるのに
+    // 理由が空の場合）を判別できるようにする。クライアント側でも同じ検証を行うため
+    // 通常はここに到達しないが、直接の呼び出しに備える
+    if (rpcError.message.includes("REASON_REQUIRED")) {
       return {
         error: {
-          kind: "duplicate",
-          message:
-            "他の担当者が同じ対象を更新しました。画面を再読み込みしてもう一度お試しください。",
+          kind: "validationFailed",
+          message: "調整理由を入力してください。",
         },
       };
     }
-    console.error("損益調整の保存に失敗しました:", writeError);
+    console.error("損益調整の保存に失敗しました:", rpcError);
     return {
       error: { kind: "fetchFailed", message: "損益調整の保存に失敗しました。" },
     };
   }
 
-  return {};
+  return { deleted: data?.deleted ?? false };
 };
 
 export type DeleteProfitLossAdjustmentResult = { error?: AccessFailure };
 
-// 調整の削除（実績額を元データと同額に戻す操作、および「対象行が当月に存在しない」
-// 調整の削除の両方で使う）
+// 調整の削除（実績額を元データと同額に戻す操作は saveProfitLossAdjustment が
+// 内部で行うため、こちらは「対象行が当月に存在しない」調整の削除専用）
 export const deleteProfitLossAdjustment = async (
   adjustmentId: number,
 ): Promise<DeleteProfitLossAdjustmentResult> => {

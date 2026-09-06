@@ -676,6 +676,21 @@ export type Database = {
           name: string
         }[]
       }
+      save_profit_loss_adjustment: {
+        Args: {
+          p_business_id: number | null
+          p_cost_id: number | null
+          p_recurring_cost_id: number | null
+          p_target_month: string
+          p_actual_amount: number
+          p_reason: string
+        }
+        Returns: {
+          deleted: boolean
+          source_amount: number
+          adjustment_amount: number
+        }[]
+      }
       validate_member_ids: {
         Args: { target_ids: number[] }
         Returns: {

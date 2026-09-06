@@ -34,12 +34,12 @@ const fetchReportSourceRows = async () => {
     supabase
       .from("business")
       .select(
-        "id, amount, invoice_date, matter_id, matters!inner(id, title, team, category)",
+        "id, name, amount, invoice_date, matter_id, matters!inner(id, title, team, category)",
       ),
     supabase
       .from("costs")
       .select(
-        "id, price, item, period, matter_id, matters!inner(id, title, team, category)",
+        "id, name, price, item, period, matter_id, matters!inner(id, title, team, category)",
       ),
     supabase
       .from("recurring_costs")
@@ -104,6 +104,7 @@ export const getProfitLossReport = async (
     recurringCosts: rows.recurringCosts,
     extraEntries: rows.extraEntries,
     adjustments: rows.adjustments,
+    includeOrphanedAdjustments: true,
     ...reportFlags(profileInfo.class),
   });
 };
@@ -134,6 +135,9 @@ export const getAnnualTrend = async (
       recurringCosts: rows.recurringCosts,
       extraEntries: rows.extraEntries,
       adjustments: rows.adjustments,
+      // 年間推移は orphanedAdjustments を表示に使わないため 12ヶ月分の
+      // 無駄な計算を避ける（AnnualTrendTable は参照しない）
+      includeOrphanedAdjustments: false,
       ...reportFlags(profileInfo.class),
     }),
   );

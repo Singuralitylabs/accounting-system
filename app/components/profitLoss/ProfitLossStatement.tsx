@@ -243,21 +243,34 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
 
   // 調整あり・元データ変更検知のバッジ・警告（明細行の「実績」セル内に付ける）。
   // 調整ありバッジは調整理由をツールチップで表示する（チームリーダーは調整理由を
-  // 閲覧できるが編集操作は表示されない、という仕様のため）
+  // 閲覧できるが編集操作は表示されない、という仕様のため）。
+  // トリガーは native button にして、キーボード操作（Tab でフォーカス）でも
+  // 支援技術でも内容が伝わるようにする（Mantine の Tooltip はホバー/フォーカスで
+  // 開くが、非対話要素の span のままだとフォーカスできず aria-label も無かった）
   const adjustmentIndicators = (detail: AdjustableAmount) => (
     <>
       {detail.adjustment && (
         <Tooltip label={`調整理由: ${detail.adjustment.reason}`}>
-          <Badge size="xs" color="blue" variant="light" className="ml-2">
-            調整あり
-          </Badge>
+          <button
+            type="button"
+            className="ml-2 align-middle focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+            aria-label={`調整理由: ${detail.adjustment.reason}`}
+          >
+            <Badge size="xs" color="blue" variant="light">
+              調整あり
+            </Badge>
+          </button>
         </Tooltip>
       )}
       {detail.sourceChanged && (
         <Tooltip label="調整の保存後に元データの金額が変更されています。実績額をご確認ください。">
-          <span className="ml-1 inline-flex text-amber-600 align-middle">
+          <button
+            type="button"
+            className="ml-1 inline-flex text-amber-600 align-middle focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+            aria-label="警告: 調整の保存後に元データの金額が変更されています。実績額をご確認ください。"
+          >
             <FaExclamationTriangle size="0.75rem" />
-          </span>
+          </button>
         </Tooltip>
       )}
     </>
@@ -354,6 +367,9 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
                         >
                           <Table.Td className="pl-16 text-gray-600">
                             {business.matterTitle}
+                            <span className="text-xs text-gray-500 ml-2">
+                              （{business.businessName}）
+                            </span>
                           </Table.Td>
                           {sourceAndAdjustmentCells(business)}
                           <Table.Td className="text-right text-gray-600">
@@ -384,7 +400,7 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
                                         targetType: "business",
                                         businessId: business.businessId,
                                       },
-                                      `${business.matterTitle}の売上`,
+                                      `${business.matterTitle}の売上（${business.businessName}）`,
                                       business,
                                     );
                                   }}
@@ -458,6 +474,9 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
                         >
                           <Table.Td className="pl-16 text-gray-600">
                             {cost.matterTitle}
+                            <span className="text-xs text-gray-500 ml-2">
+                              （{cost.costName}）
+                            </span>
                           </Table.Td>
                           {sourceAndAdjustmentCells(cost)}
                           <Table.Td className="text-right text-gray-600">
@@ -488,7 +507,7 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
                                         targetType: "cost",
                                         costId: cost.costId,
                                       },
-                                      `${cost.matterTitle}の案件費用（${breakdown.item}）`,
+                                      `${cost.matterTitle}の案件費用（${cost.costName} / ${breakdown.item}）`,
                                       cost,
                                     );
                                   }}
@@ -664,40 +683,40 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
           </Text>
           <Table verticalSpacing="xs">
             <Table.Tbody>
-              {report.orphanedAdjustments.map(({ adjustment, targetType }) => (
-                <Table.Tr key={`orphan-${adjustment.id}`}>
-                  <Table.Td>
-                    <Badge
-                      size="sm"
-                      color="orange"
-                      variant="light"
-                      className="mr-2"
-                    >
-                      {targetTypeLabel[targetType]}
-                    </Badge>
-                    {adjustment.reason}
-                    <span className="text-xs text-gray-500 ml-2">
-                      （調整額 {formatCurrency(adjustment.adjustment_amount)}）
-                    </span>
-                  </Table.Td>
-                  <Table.Td className="text-right w-32">
-                    <Button
-                      size="xs"
-                      color="red"
-                      variant="light"
-                      loading={deletingAdjustmentIds.has(adjustment.id)}
-                      onClick={() =>
-                        handleDeleteOrphanedAdjustment(
-                          adjustment.id,
-                          targetTypeLabel[targetType],
-                        )
-                      }
-                    >
-                      削除
-                    </Button>
-                  </Table.Td>
-                </Table.Tr>
-              ))}
+              {report.orphanedAdjustments.map(
+                ({ adjustment, targetType, label }) => (
+                  <Table.Tr key={`orphan-${adjustment.id}`}>
+                    <Table.Td>
+                      <Badge
+                        size="sm"
+                        color="orange"
+                        variant="light"
+                        className="mr-2"
+                      >
+                        {targetTypeLabel[targetType]}
+                      </Badge>
+                      {label}
+                      <span className="text-xs text-gray-500 ml-2">
+                        （{adjustment.reason} / 調整額{" "}
+                        {formatCurrency(adjustment.adjustment_amount)}）
+                      </span>
+                    </Table.Td>
+                    <Table.Td className="text-right w-32">
+                      <Button
+                        size="xs"
+                        color="red"
+                        variant="light"
+                        loading={deletingAdjustmentIds.has(adjustment.id)}
+                        onClick={() =>
+                          handleDeleteOrphanedAdjustment(adjustment.id, label)
+                        }
+                      >
+                        削除
+                      </Button>
+                    </Table.Td>
+                  </Table.Tr>
+                ),
+              )}
             </Table.Tbody>
           </Table>
         </Alert>
