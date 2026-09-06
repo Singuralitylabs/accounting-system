@@ -9,7 +9,6 @@ import {
   canWriteBudgetTeam,
   defaultTargetMonth,
   isForbiddenError,
-  isPartialWriteFailureError,
   summarizeBudgetItems,
   totalBudgetSummary,
   visibleBudgetTeams,
@@ -346,48 +345,5 @@ describe("BudgetDeclarationError / isForbiddenError", () => {
     expect(isForbiddenError(null)).toBe(false);
     // Error でないただのオブジェクトも対象外
     expect(isForbiddenError({ kind: "forbidden" })).toBe(false);
-  });
-});
-
-describe("isPartialWriteFailureError", () => {
-  it("明細差し替えの途中で失敗した場合（partialWriteFailed）は一部反映の可能性があると判定する", () => {
-    expect(
-      isPartialWriteFailureError(
-        new BudgetDeclarationError({
-          kind: "partialWriteFailed",
-          message: "事前収支申告の明細登録に失敗しました。",
-        }),
-      ),
-    ).toBe(true);
-  });
-
-  it("何も書き込まれていない失敗（fetchFailed・forbidden・validationFailed・duplicate）は対象外", () => {
-    // fetchFailed はヘッダ保存自体の失敗・対象行なしにも使われ、
-    // その場合は何も書き込まれていないため対象外にする
-    expect(
-      isPartialWriteFailureError(
-        new BudgetDeclarationError({ kind: "fetchFailed", message: "" }),
-      ),
-    ).toBe(false);
-    expect(
-      isPartialWriteFailureError(
-        new BudgetDeclarationError({ kind: "forbidden", message: "" }),
-      ),
-    ).toBe(false);
-    expect(
-      isPartialWriteFailureError(
-        new BudgetDeclarationError({ kind: "validationFailed", message: "" }),
-      ),
-    ).toBe(false);
-    expect(
-      isPartialWriteFailureError(
-        new BudgetDeclarationError({ kind: "duplicate", message: "" }),
-      ),
-    ).toBe(false);
-  });
-
-  it("無関係なエラーは対象外", () => {
-    expect(isPartialWriteFailureError(new Error("network"))).toBe(false);
-    expect(isPartialWriteFailureError(null)).toBe(false);
   });
 });

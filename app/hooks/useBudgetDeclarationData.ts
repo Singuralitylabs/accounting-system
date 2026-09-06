@@ -18,7 +18,6 @@ import {
 import {
   BudgetDeclarationError,
   isForbiddenError,
-  isPartialWriteFailureError,
 } from "../utils/budgetDeclaration";
 import { notifyError, notifySuccess, toErrorMessage } from "../utils/notify";
 
@@ -109,36 +108,13 @@ export const useSaveBudgetDeclaration = () => {
           : `${variables.team}の事前収支申告を更新しました。`,
       );
     },
-    onError: (error, variables) => {
+    onError: (error) => {
       console.error("事前収支申告の保存エラー:", error);
-      // ヘッダ保存 → 明細差し替え（全削除→全登録）は複数ステップの非トランザクション
-      // 処理のため、失敗時点までの変更（ヘッダの新規作成・更新、明細の削除等）が
-      // 既に DB に反映されている可能性がある。無効化しないと、失敗直後にモーダルを
-      // 閉じても一覧・明細のキャッシュが保存前の状態のまま残り、実際の DB と食い違う
-      // （新規作成の部分失敗ではヘッダだけ残り「未申告」表示のまま再作成を試みて
-      // 一意制約違反を繰り返すループにもなる）
-      queryClient.invalidateQueries({
-        queryKey: ["budgetDeclarations", "list"],
-      });
-      // 編集時（declarationId が既知）は対象の明細キャッシュも無効化する。
-      // 特に明細差し替えの途中で失敗した場合、既存明細が削除済みで
-      // ヘッダだけ残っていることがあるため、再度開いたときに実状態を反映させる
-      if (variables.declarationId !== null) {
-        queryClient.invalidateQueries({
-          queryKey: ["budgetDeclarations", "detail", variables.declarationId],
-        });
-      }
-      const message = toErrorMessage(
-        error,
-        "事前収支申告の保存に失敗しました。",
-      );
-      // partialWriteFailed（明細差し替えの途中で失敗）のときだけ、途中まで
-      // 反映されている可能性がある旨を案内する（RecurringCostList の一括保存と同方針）
-      notifyError(
-        isPartialWriteFailureError(error)
-          ? `${message}\n一部のみ反映されている可能性があるため、画面を再読み込みして内容を確認してください。`
-          : message,
-      );
+      // ヘッダの作成/更新・明細の差し替えは DB 関数（save_budget_declaration、
+      // migration 21）内の単一トランザクションで行われるため、失敗時は保存前の
+      // 状態に完全にロールバックされる（一部だけ反映された状態にはならない）。
+      // そのためキャッシュの無効化は不要
+      notifyError(toErrorMessage(error, "事前収支申告の保存に失敗しました。"));
     },
   });
 };

@@ -172,6 +172,15 @@ export const getBudgetDeclarationDetail = async (
 // costs.ts のような isNew/isRemoved diff にしないのは、申告の明細は保存のたびに
 // フォーム側の配列が最終形そのものであり、差分を追跡する状態を別途持つ必要が
 // ないため（複雑さに見合わない）。
+//
+// ヘッダの作成/更新・明細の全削除・全登録は DB 関数（public.save_budget_declaration、
+// migration 21）内の単一トランザクションで原子的に行う。以前は各ステップを独立した
+// PostgREST 呼び出し（ヘッダ UPDATE → 明細 DELETE → 明細 INSERT）にしていたため、
+// 既存明細を全削除した後の INSERT が失敗すると明細が 1 件も無い状態でコミット済みの
+// まま確定し、利用者の入力内容が失われる不具合があった（Issue #103）。declared_by は
+// 関数内で auth.uid() から解決され、クライアントからは渡さない
+// （PostgREST 経由でなりすまされることを防ぐ。budget_declarations_insert_policy の
+// WITH CHECK と二重に担保する）
 export const saveBudgetDeclaration = async (
   input: BudgetDeclarationSaveInput,
 ): Promise<BudgetDeclarationSaveResult> => {
@@ -209,55 +218,33 @@ export const saveBudgetDeclaration = async (
   const supabase = createServerSupabase();
   const targetMonth = toFirstOfMonth(input.targetMonth);
 
-  const isCreate = input.declarationId === null;
-  let declarationId = input.declarationId;
+  const { data, error: rpcError } = await supabase
+    .rpc("save_budget_declaration", {
+      p_declaration_id: input.declarationId,
+      p_target_month: targetMonth,
+      p_team: input.team,
+      p_comment: input.comment,
+      p_items: input.items.map((item) => ({
+        // entry_type は DB の CHECK（income/expense）対象のため特に重要
+        // （前後空白付きの値のまま INSERT すると CHECK 違反で失敗する）
+        entry_type: item.entry_type.trim(),
+        category: item.category.trim(),
+        description: item.description.trim(),
+        amount: item.amount,
+      })),
+    })
+    .single();
 
-  if (declarationId === null) {
-    const { data, error } = await supabase
-      .from("budget_declarations")
-      .insert({
-        target_month: targetMonth,
-        team: input.team,
-        declared_by: profileInfo.id,
-        comment: input.comment,
-      })
-      .select("id")
-      .single();
-
-    if (error) {
-      console.error(`${SUBJECT}の作成に失敗しました:`, error);
-      if (isDuplicateDeclarationError(error)) {
-        return {
-          error: { kind: "duplicate", message: DUPLICATE_DECLARATION_MESSAGE },
-        };
-      }
+  if (rpcError) {
+    console.error(`${SUBJECT}の保存に失敗しました:`, rpcError);
+    if (isDuplicateDeclarationError(rpcError)) {
       return {
-        error: { kind: "fetchFailed", message: `${SUBJECT}の作成に失敗しました。` },
+        error: { kind: "duplicate", message: DUPLICATE_DECLARATION_MESSAGE },
       };
     }
-
-    declarationId = data.id;
-  } else {
-    // team・target_month でも絞る。フォームでは両方とも編集不可（対象月は表示専用、
-    // チームは編集時に常に固定）だが、渡された id が別の申告を指していた場合に
-    // 誤って別チーム・別月の申告を書き換えないための整合性チェック
-    // （RLS がチーム単位のアクセス制御自体は担保する）
-    const { data, error } = await supabase
-      .from("budget_declarations")
-      .update({ declared_by: profileInfo.id, comment: input.comment })
-      .eq("id", declarationId)
-      .eq("team", input.team)
-      .eq("target_month", targetMonth)
-      .select("id");
-
-    if (error) {
-      console.error(`${SUBJECT}の更新に失敗しました:`, error);
-      return {
-        error: { kind: "fetchFailed", message: `${SUBJECT}の更新に失敗しました。` },
-      };
-    }
-    // RLS で 0 行 / 削除済みでも PostgREST は error なしで [] を返す
-    if (!data || data.length !== 1) {
+    // DB 関数内の RAISE EXCEPTION 'DECLARATION_NOT_FOUND'（更新対象の
+    // id・team・target_month が一致する行が無い場合）を判別できるようにする
+    if (rpcError.message.includes("DECLARATION_NOT_FOUND")) {
       return {
         error: {
           kind: "fetchFailed",
@@ -265,61 +252,12 @@ export const saveBudgetDeclaration = async (
         },
       };
     }
+    return {
+      error: { kind: "fetchFailed", message: `${SUBJECT}の保存に失敗しました。` },
+    };
   }
 
-  // 明細差し替え: 既存明細を全削除してから入力内容を挿入する。
-  // 新規作成では既存明細が存在しないため削除は不要（無駄な DB 往復を避ける）
-  if (!isCreate) {
-    const { error: deleteError } = await supabase
-      .from("budget_declaration_items")
-      .delete()
-      .eq("declaration_id", declarationId);
-
-    if (deleteError) {
-      console.error(`${SUBJECT}の明細更新に失敗しました:`, deleteError);
-      // ヘッダ（declared_by・コメント）は直前の UPDATE で既に保存済みのため、
-      // 呼び出し側に再読み込みを促すため partialWriteFailed にする
-      return {
-        error: {
-          kind: "partialWriteFailed",
-          message: `${SUBJECT}の明細更新に失敗しました。`,
-        },
-      };
-    }
-  }
-
-  if (input.items.length > 0) {
-    const { error: insertError } = await supabase
-      .from("budget_declaration_items")
-      .insert(
-        input.items.map((item, index) => ({
-          declaration_id: declarationId,
-          // validateBudgetDeclarationItem は trim() 後の空白のみを弾くが、
-          // 前後の空白そのものは除去しないため、保存時に正規化する。
-          // entry_type は DB の CHECK（income/expense）対象のため特に重要
-          // （前後空白付きの値のまま INSERT すると CHECK 違反で失敗する）
-          entry_type: item.entry_type.trim(),
-          category: item.category.trim(),
-          description: item.description.trim(),
-          amount: item.amount,
-          display_order: index,
-        })),
-      );
-
-    if (insertError) {
-      console.error(`${SUBJECT}の明細登録に失敗しました:`, insertError);
-      // ヘッダは既に保存済み（新規作成なら本行、編集なら直前の UPDATE）で、
-      // 明細だけが未反映のまま残る。呼び出し側に再読み込みを促すため区別する
-      return {
-        error: {
-          kind: "partialWriteFailed",
-          message: `${SUBJECT}の明細登録に失敗しました。`,
-        },
-      };
-    }
-  }
-
-  return { id: declarationId };
+  return { id: data.id };
 };
 
 // 申告の削除（明細は ON DELETE CASCADE で同時に削除される）

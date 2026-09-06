@@ -527,6 +527,18 @@ export type Database = {
         Returns: boolean
       }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
+      save_budget_declaration: {
+        Args: {
+          p_declaration_id: number | null
+          p_target_month: string
+          p_team: string
+          p_comment: string | null
+          p_items: Json
+        }
+        Returns: {
+          id: number
+        }[]
+      }
     }
     Enums: {
       information_category: "basic_info" | "business_info" | "cost_info"

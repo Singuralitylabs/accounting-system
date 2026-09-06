@@ -959,6 +959,84 @@ CREATE POLICY "budget_declaration_items_all_policy" ON budget_declaration_items
     );
 ```
 
+#### 申告の原子的な保存（`save_budget_declaration`）
+
+`app/utils/supabase/budgetDeclarations.ts` の `saveBudgetDeclaration()` は、この DB 関数を1回呼ぶだけで完結する。以前はヘッダの UPDATE・既存明細の全 DELETE・新しい明細の INSERT をそれぞれ独立した PostgREST 呼び出しにしていたため、既存明細を全削除した後の INSERT が失敗すると、明細が1件も無い状態でコミット済みのまま確定してしまい、削除済みの明細を復元できず利用者の入力内容が失われる不具合があった（Issue #103）。本関数はヘッダの作成/更新・明細の全削除・全登録を単一トランザクション（関数呼び出し1回）内で行うことで、途中で失敗した場合に保存前の状態へ完全にロールバックされるようにする。
+
+明細は「差し替え」方式（既存を全削除 → 入力内容を全 INSERT）のままにしている。`costs` テーブルのような `isNew`/`isRemoved` diff にしないのは、申告の明細は保存のたびにフォーム側の配列が最終形そのものであり、差分を追跡する状態を別途持つ必要がないため。
+
+`SECURITY INVOKER` を明示している（既定と同じだが、RLS をバイパスしないことを意図的に示すため明記する）。`budget_declarations` / `budget_declaration_items` への書き込みはいずれも呼び出し元のロールで [5.8](#58-budget_declarations-テーブル) / 本節の RLS がそのまま適用されるため、経理担当者・管理者・自チームのチームリーダー以外は書き込みポリシーで拒否される。
+
+`declared_by` はクライアントから受け取らず、関数内で `auth.uid()` から解決する（PostgREST 経由で任意の `profiles.id` を渡してなりすまされることを防ぐ。`budget_declarations_insert_policy` の `WITH CHECK` と二重に担保する）。
+
+```sql
+CREATE OR REPLACE FUNCTION public.save_budget_declaration(
+  p_declaration_id bigint,
+  p_target_month date,
+  p_team text,
+  p_comment text,
+  p_items jsonb
+)
+RETURNS TABLE (id bigint)
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = ''
+AS $$
+DECLARE
+  v_declaration_id bigint;
+  v_declared_by bigint;
+BEGIN
+  SELECT p.id INTO v_declared_by FROM public.profiles p WHERE p.user_id = auth.uid();
+  IF v_declared_by IS NULL THEN
+    RAISE EXCEPTION 'プロフィールが見つかりません';
+  END IF;
+
+  IF p_declaration_id IS NULL THEN
+    INSERT INTO public.budget_declarations (target_month, team, declared_by, comment)
+    VALUES (p_target_month, p_team, v_declared_by, p_comment)
+    RETURNING budget_declarations.id INTO v_declaration_id;
+  ELSE
+    -- team・target_month でも絞る。渡された id が別の申告を指していた場合に
+    -- 誤って別チーム・別月の申告を書き換えないための整合性チェック
+    UPDATE public.budget_declarations
+    SET declared_by = v_declared_by, comment = p_comment
+    WHERE budget_declarations.id = p_declaration_id
+      AND budget_declarations.team = p_team
+      AND budget_declarations.target_month = p_target_month
+    RETURNING budget_declarations.id INTO v_declaration_id;
+
+    -- RLS で 0 行 / 既に削除済みでもエラーにはならないため、呼び出し側が
+    -- 判別できるよう固定文言で例外にする
+    IF v_declaration_id IS NULL THEN
+      RAISE EXCEPTION 'DECLARATION_NOT_FOUND';
+    END IF;
+  END IF;
+
+  -- 明細差し替え: 既存明細を全削除してから入力内容を挿入する。新規作成では
+  -- 既存明細が存在しないため 0 行 DELETE になるだけで無害
+  DELETE FROM public.budget_declaration_items
+  WHERE declaration_id = v_declaration_id;
+
+  -- p_items が空配列なら 0 行 INSERT になるだけで無害
+  INSERT INTO public.budget_declaration_items
+    (declaration_id, entry_type, category, description, amount, display_order)
+  SELECT
+    v_declaration_id,
+    btrim(item ->> 'entry_type'),
+    btrim(item ->> 'category'),
+    btrim(item ->> 'description'),
+    (item ->> 'amount')::numeric,
+    ordinality - 1
+  FROM jsonb_array_elements(p_items) WITH ORDINALITY AS t(item, ordinality);
+
+  RETURN QUERY SELECT v_declaration_id;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.save_budget_declaration(bigint, date, text, text, jsonb) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.save_budget_declaration(bigint, date, text, text, jsonb) TO authenticated;
+```
+
 ### 5.10 budget_declaration_reminder_settings テーブル
 
 > 運用上の設定値であり一般ユーザーは関与しないため、`admin` / `accounting` のみ SELECT / UPDATE できる（budget_declarations の `can_access_team_budget` と同じロール区分。[5.8](#58-budget_declarations-テーブル) 参照）。cron ルートは `SUPABASE_SERVICE_ROLE_KEY` を用いた service role クライアント（`createServiceRoleSupabase`）で読むため RLS の対象外。

@@ -198,9 +198,3 @@ const getBudgetDeclarationErrorKind = (
 // 権限不足は再試行しても回復しないため、リトライ対象から外す。
 export const isForbiddenError = (error: unknown): boolean =>
   getBudgetDeclarationErrorKind(error) === "forbidden";
-
-// ヘッダ保存→明細差し替えの途中で失敗し、一部のみ反映された可能性があるケースかどうか。
-// ヘッダ保存自体の失敗・対象行なし・バリデーション不備・権限不足・重複エラーは
-// 何も書き込まれていないため対象外（fetchFailed 全般ではなく partialWriteFailed のみを見る）
-export const isPartialWriteFailureError = (error: unknown): boolean =>
-  getBudgetDeclarationErrorKind(error) === "partialWriteFailed";

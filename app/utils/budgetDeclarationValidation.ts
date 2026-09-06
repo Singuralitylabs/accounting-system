@@ -22,16 +22,17 @@ export type BudgetDeclarationValidationResult =
   | { ok: false; reason: BudgetDeclarationValidationReason };
 
 // budget_declaration_items.entry_type の CHECK 制約（income/expense）と同じ値域。
-// フォームの Select は必ずこの 2 値しか出さないが、明細差し替えは非トランザクション
-// のため、万一これ以外の値が渡ると既存明細の削除後に INSERT が失敗し
-// partialWriteFailed（一部反映）になる。保存前にここで弾く
+// フォームの Select は必ずこの 2 値しか出さないが、万一これ以外の値が渡ると
+// save_budget_declaration（migration 21）内の INSERT が CHECK 違反で失敗する。
+// 保存はアトミック（単一トランザクション）なので失敗しても既存データが失われる
+// ことはないが、分かりにくい DB エラーになるのを避けるため保存前にここで弾く
 const VALID_ENTRY_TYPES = new Set(["income", "expense"]);
 
 // budget_declaration_items.amount は numeric(15,2)（13 桁 + 小数点以下 2 桁）。
 // これを超える金額は DB の INSERT が 22003（numeric field overflow）で失敗する。
-// 明細差し替えは非トランザクションのため、保存前にここで弾かないと、
-// 既存明細の削除は完了した後に INSERT だけが失敗し、明細が消失した状態が残る
-// （app/utils/supabase/budgetDeclarations.ts の saveBudgetDeclaration 参照）。
+// 保存は save_budget_declaration（migration 21）内の単一トランザクションのため
+// 失敗しても既存データが失われることはないが、分かりにくい DB エラーになるのを
+// 避けるため保存前にここで弾く
 export const MAX_ITEM_AMOUNT = 10 ** 13 - 1; // 9,999,999,999,999
 
 export const BUDGET_DECLARATION_VALIDATION_MESSAGES: Record<
