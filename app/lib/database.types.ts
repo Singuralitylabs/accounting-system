@@ -676,6 +676,22 @@ export type Database = {
           name: string
         }[]
       }
+      // p_declaration_id / p_comment は SQL 側で DEFAULT NULL を付けているため
+      // 省略可能（supabase gen types は DEFAULT の有無だけを見て `?:` を付け、
+      // `| null` は付与しない）。呼び出し側は null の代わりに undefined
+      // （キー省略）を渡す（app/utils/supabase/budgetDeclarations.ts 参照）
+      save_budget_declaration: {
+        Args: {
+          p_target_month: string
+          p_team: string
+          p_items: Json
+          p_declaration_id?: number
+          p_comment?: string
+        }
+        Returns: {
+          id: number
+        }[]
+      }
       save_profit_loss_adjustment: {
         Args: {
           p_business_id: number | null

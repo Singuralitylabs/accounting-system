@@ -74,10 +74,13 @@ export const validateMemberIds = async (targetIds: number[]) => {
 };
 
 // 保存前に manager_id が実在する profiles.id か確認する共通ヘルパ。
-// budgetDeclarations.ts / budgetRecurringItems.ts のどちらも、明細の書き込みが
-// 非トランザクション（既存行の全 DELETE → INSERT、または複数行の並列 INSERT/UPDATE）
-// のため、存在しない manager_id のまま進めると一部だけ失敗し、他の変更のみ
-// 反映された状態（partialWriteFailed）になりうる。DB 書き込みの前にここで弾く。
+// 存在しない manager_id のまま書き込みへ進めると FK 違反（23503）という
+// 分かりにくいエラーで失敗するため、DB 書き込みの前にここで弾いてわかりやすい
+// エラーメッセージを返す。budgetRecurringItems.ts（明細の書き込みが非トランザクション
+// = 複数行の並列 INSERT/UPDATE）では存在しない manager_id により一部だけ反映された
+// 状態（partialWriteFailed）を防ぐ役割も兼ねるが、budgetDeclarations.ts の保存は
+// save_budget_declaration（migration 24）内の単一トランザクションで原子的に行われる
+// ため、このチェックを経ずに FK 違反が起きても保存前の状態に完全にロールバックされる。
 // 問題なければ null、問題があれば呼び出し元にそのまま返せる AccessFailure を返す
 export const assertManagerIdsExist = async (
   managerIds: number[],

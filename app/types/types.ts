@@ -244,10 +244,10 @@ export type BudgetDeclarationDetailType = {
 // 画面にも「時間をおいて再読み込み」という誤った案内が出る。
 // duplicate は (target_month, team) の一意制約違反（既に他の誰かが申告済み）、
 // validationFailed は保存前のクライアント側バリデーション不備を表す。
-// partialWriteFailed は複数ステップの書き込み（ヘッダ保存→明細差し替え）の
-// 途中で失敗し、直前までの変更が反映済みの可能性がある場合に限って使う
-// （例: 明細の全削除は成功したが再登録が失敗した）。ヘッダ保存自体の失敗や
-// 対象行が見つからない場合は何も書き込まれていないため fetchFailed のままにする。
+// partialWriteFailed は複数ステップの書き込みの途中で失敗し、直前までの変更が
+// 反映済みの可能性がある場合に限って使う（budgetRecurringItems.ts の一括更新等。
+// budget_declarations の保存は save_budget_declaration（migration 24）内の
+// 単一トランザクションのためこの状態にならず、このキーを返さない）。
 // Server Action の戻り値に載せるため、Error インスタンスではなくプレーンな
 // オブジェクトにする（React Flight は Error をシリアライズしない）。
 export type AccessFailureKind =

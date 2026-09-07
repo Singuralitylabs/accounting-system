@@ -669,7 +669,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
   - 明細の種別・分類・内容のいずれかが未入力
   - 明細の金額が0以下
   - 明細 0 件（コメントのみ）は許容する
-- 保存は確認ダイアログを経てから実行する。作成・更新とも「ヘッダの upsert（作成は INSERT、編集は UPDATE）+ 明細の差し替え（既存明細を全削除して入力内容を登録し直す）」という単一の Server Action（`saveBudgetDeclaration`）で行う
+- 保存は確認ダイアログを経てから実行する。Server Action（`saveBudgetDeclaration`）は DB 関数 `save_budget_declaration`（`docs/database.md` 5.9）を1回呼ぶだけで完結し、「ヘッダの作成/更新（作成は INSERT、編集は UPDATE）+ 明細の差し替え（既存明細を全削除して入力内容を登録し直す）」を単一トランザクションで行う（途中で失敗した場合は保存前の状態に完全にロールバックされる）
   - 新規作成が `(target_month, team)` の一意制約に違反した場合（既に他の担当者が作成済み）は、その旨を案内して保存を中止する（一覧から編集するよう促す）
 - 削除は編集フォームからのみ行える。確認ダイアログの上で `deleteBudgetDeclaration` を呼び、ヘッダを削除する（明細は `ON DELETE CASCADE` で同時に削除される）
 - 期限（毎月20日）を過ぎても作成・編集・削除は常に可能（DB / UI ではロックしない。仕様どおり）

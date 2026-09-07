@@ -26,6 +26,7 @@ import {
 } from "../budgetDeclarationValidation";
 import { toFirstOfMonth } from "../formatter";
 import { createServerSupabase } from "./clients";
+import { FOREIGN_KEY_VIOLATION, NO_DATA_FOUND } from "./errorCodes";
 import { assertManagerIdsExist } from "./profiles";
 import { getSelectOptions } from "./selectOptions";
 import { getAuthorizedViewer } from "./viewerAccess";
@@ -278,15 +279,15 @@ export const saveBudgetDeclaration = async (
   // manager_id は保存前の型チェック（validateBudgetDeclarationPayload）だけでは
   // 「実在する profiles.id か」までは検証できない。フォームを開いた後にそのメンバーの
   // profiles が削除された場合、型は正しいまま存在しない id が送られてきうる。
-  // 明細差し替えは非トランザクション（既存明細を全 DELETE → INSERT）のため、
-  // 存在確認せずに進めると DELETE 成功後の INSERT が FK 違反（23503）で失敗し、
-  // 既存明細が消えたまま partialWriteFailed になる。ヘッダ更新の前に確認して弾く。
-  // profiles への直接 SELECT は RLS で teamleader が自チームに絞られ、他チームの
-  // 担当者を誤って「存在しない」と判定してしまうため、assertManagerIdsExist()
-  // 経由（内部で validateMemberIds() = migration 21 の validate_member_ids を呼ぶ）
-  // で確認する。get_member_options() で全メンバーを取得して照合することもできるが、
-  // 保存のたびに全メンバー分の行を転送するのは無駄なため、渡された id 集合だけを
-  // DB 側で照合する
+  // save_budget_declaration はアトミック（後述）なので存在しない manager_id を
+  // 渡してもデータが失われることは無くなったが、DB の FK 違反（23503）という分かりにくい
+  // エラーで保存全体が失敗するのを避けるため、保存前にここで確認してわかりやすい
+  // エラーメッセージを返す。profiles への直接 SELECT は RLS で teamleader が自チーム
+  // に絞られ、他チームの担当者を誤って「存在しない」と判定してしまうため、
+  // assertManagerIdsExist() 経由（内部で validateMemberIds() = migration 21 の
+  // validate_member_ids を呼ぶ）で確認する。get_member_options() で全メンバーを
+  // 取得して照合することもできるが、保存のたびに全メンバー分の行を転送するのは
+  // 無駄なため、渡された id 集合だけを DB 側で照合する
   const managerIds = Array.from(
     new Set(
       input.items
@@ -303,55 +304,47 @@ export const saveBudgetDeclaration = async (
     return { error: managerIdError };
   }
 
-  const isCreate = input.declarationId === null;
-  let declarationId = input.declarationId;
+  // ヘッダの作成/更新・明細の全削除・全登録を DB 関数（public.save_budget_declaration、
+  // migration 24）内の単一トランザクションで原子的に行う。以前は各ステップを
+  // 独立した PostgREST 呼び出し（ヘッダ UPDATE → 明細 DELETE → 明細 INSERT）にして
+  // いたため、既存明細を全削除した後の INSERT が失敗すると明細が 1 件も無い状態で
+  // コミット済みのまま確定し、利用者の入力内容が失われる不具合があった（Issue #103）。
+  // declared_by は関数内で auth.uid() から解決され、クライアントからは渡さない
+  // （PostgREST 経由でなりすまされることを防ぐ）
+  const { data, error: rpcError } = await supabase
+    .rpc("save_budget_declaration", {
+      // p_declaration_id / p_comment は SQL 側で DEFAULT NULL のため、生成される
+      // Args 型は `?: T`（`| null` は付かない）。null ではなく undefined
+      // （キー省略）を渡すことで、そのまま DEFAULT NULL が適用される
+      // （database.types.ts 参照）
+      p_declaration_id: input.declarationId ?? undefined,
+      p_target_month: targetMonth,
+      p_team: input.team,
+      p_comment: input.comment ?? undefined,
+      p_items: input.items.map((item) => ({
+        // entry_type は DB の CHECK（income/expense）対象のため特に重要
+        // （前後空白付きの値のまま INSERT すると CHECK 違反で失敗する）
+        entry_type: item.entry_type.trim(),
+        category: item.category.trim(),
+        description: item.description.trim(),
+        amount: item.amount,
+        manager_id: item.manager_id,
+      })),
+    })
+    .single();
 
-  if (declarationId === null) {
-    const { data, error } = await supabase
-      .from("budget_declarations")
-      .insert({
-        target_month: targetMonth,
-        team: input.team,
-        declared_by: profileInfo.id,
-        comment: input.comment,
-      })
-      .select("id")
-      .single();
-
-    if (error) {
-      console.error(`${SUBJECT}の作成に失敗しました:`, error);
-      if (isDuplicateDeclarationError(error)) {
-        return {
-          error: { kind: "duplicate", message: DUPLICATE_DECLARATION_MESSAGE },
-        };
-      }
+  if (rpcError) {
+    console.error(`${SUBJECT}の保存に失敗しました:`, rpcError);
+    if (isDuplicateDeclarationError(rpcError)) {
       return {
-        error: { kind: "fetchFailed", message: `${SUBJECT}の作成に失敗しました。` },
+        error: { kind: "duplicate", message: DUPLICATE_DECLARATION_MESSAGE },
       };
     }
-
-    declarationId = data.id;
-  } else {
-    // team・target_month でも絞る。フォームでは両方とも編集不可（対象月は表示専用、
-    // チームは編集時に常に固定）だが、渡された id が別の申告を指していた場合に
-    // 誤って別チーム・別月の申告を書き換えないための整合性チェック
-    // （RLS がチーム単位のアクセス制御自体は担保する）
-    const { data, error } = await supabase
-      .from("budget_declarations")
-      .update({ declared_by: profileInfo.id, comment: input.comment })
-      .eq("id", declarationId)
-      .eq("team", input.team)
-      .eq("target_month", targetMonth)
-      .select("id");
-
-    if (error) {
-      console.error(`${SUBJECT}の更新に失敗しました:`, error);
-      return {
-        error: { kind: "fetchFailed", message: `${SUBJECT}の更新に失敗しました。` },
-      };
-    }
-    // RLS で 0 行 / 削除済みでも PostgREST は error なしで [] を返す
-    if (!data || data.length !== 1) {
+    // DB 関数内の RAISE EXCEPTION 'DECLARATION_NOT_FOUND' USING ERRCODE = 'P0002'
+    // （更新対象の id・team・target_month が一致する行が無い場合）を判別できる
+    // ようにする。isDuplicateDeclarationError と同じく error.code（SQLSTATE）で
+    // 判定し、メッセージ文字列には依存しない
+    if (rpcError.code === NO_DATA_FOUND) {
       return {
         error: {
           kind: "fetchFailed",
@@ -359,62 +352,31 @@ export const saveBudgetDeclaration = async (
         },
       };
     }
-  }
-
-  // 明細差し替え: 既存明細を全削除してから入力内容を挿入する。
-  // 新規作成では既存明細が存在しないため削除は不要（無駄な DB 往復を避ける）
-  if (!isCreate) {
-    const { error: deleteError } = await supabase
-      .from("budget_declaration_items")
-      .delete()
-      .eq("declaration_id", declarationId);
-
-    if (deleteError) {
-      console.error(`${SUBJECT}の明細更新に失敗しました:`, deleteError);
-      // ヘッダ（declared_by・コメント）は直前の UPDATE で既に保存済みのため、
-      // 呼び出し側に再読み込みを促すため partialWriteFailed にする
+    // assertManagerIdsExist の確認後〜保存実行までの間（TOCTOU）に担当者の
+    // profiles が削除された場合、明細 INSERT が FK 違反（23503）になる。
+    // 通常は事前確認で弾かれるためここに到達しないが、到達した場合も
+    // assertManagerIdsExist と同じ案内文を返す
+    if (rpcError.code === FOREIGN_KEY_VIOLATION) {
       return {
         error: {
-          kind: "partialWriteFailed",
-          message: `${SUBJECT}の明細更新に失敗しました。`,
+          kind: "validationFailed",
+          message:
+            "選択された担当者が見つかりません。フォームを開き直して選び直してください。",
         },
       };
     }
+    return {
+      error: {
+        kind: "fetchFailed",
+        message:
+          input.declarationId === null
+            ? `${SUBJECT}の作成に失敗しました。`
+            : `${SUBJECT}の更新に失敗しました。`,
+      },
+    };
   }
 
-  if (input.items.length > 0) {
-    const { error: insertError } = await supabase
-      .from("budget_declaration_items")
-      .insert(
-        input.items.map((item, index) => ({
-          declaration_id: declarationId,
-          // validateBudgetDeclarationItem は trim() 後の空白のみを弾くが、
-          // 前後の空白そのものは除去しないため、保存時に正規化する。
-          // entry_type は DB の CHECK（income/expense）対象のため特に重要
-          // （前後空白付きの値のまま INSERT すると CHECK 違反で失敗する）
-          entry_type: item.entry_type.trim(),
-          category: item.category.trim(),
-          description: item.description.trim(),
-          amount: item.amount,
-          manager_id: item.manager_id,
-          display_order: index,
-        })),
-      );
-
-    if (insertError) {
-      console.error(`${SUBJECT}の明細登録に失敗しました:`, insertError);
-      // ヘッダは既に保存済み（新規作成なら本行、編集なら直前の UPDATE）で、
-      // 明細だけが未反映のまま残る。呼び出し側に再読み込みを促すため区別する
-      return {
-        error: {
-          kind: "partialWriteFailed",
-          message: `${SUBJECT}の明細登録に失敗しました。`,
-        },
-      };
-    }
-  }
-
-  return { id: declarationId };
+  return { id: data.id };
 };
 
 // 申告の削除（明細は ON DELETE CASCADE で同時に削除される）

@@ -235,7 +235,9 @@ export const retryUnlessForbidden = (failureCount: number, error: Error) =>
   !isForbiddenError(error) && failureCount < 2;
 
 // ヘッダ保存→明細差し替えの途中で失敗し、一部のみ反映された可能性があるケースかどうか。
-// ヘッダ保存自体の失敗・対象行なし・バリデーション不備・権限不足・重複エラーは
-// 何も書き込まれていないため対象外（fetchFailed 全般ではなく partialWriteFailed のみを見る）
+// budget_recurring_items（budgetRecurringItems.ts）は明細の書き込みが非トランザクション
+// （複数行の並列 INSERT/UPDATE/DELETE）のため、この判定が今も必要。budget_declarations
+// の保存（saveBudgetDeclaration）は save_budget_declaration（migration 24）内の単一
+// トランザクションで行われるため、partialWriteFailed を返すことはない
 export const isPartialWriteFailureError = (error: unknown): boolean =>
   getBudgetDeclarationErrorKind(error) === "partialWriteFailed";
