@@ -21,6 +21,13 @@
 -- declared_by はクライアントから受け取らず、関数内で auth.uid() から解決する
 -- （PostgREST 経由で任意の profiles.id を渡してなりすまされることを防ぐ。
 -- budget_declarations_insert_policy の WITH CHECK と二重に担保する）。
+--
+-- manager_id（migration 21）が実在しない profiles.id を指す場合、明細 INSERT が
+-- FK 違反（23503）で失敗するが、トランザクション全体がロールバックされるため
+-- ヘッダ・既存明細は保存前の状態のまま残る。アプリ側は保存前に
+-- assertManagerIdsExist（app/utils/supabase/profiles.ts）で存在確認しわかりやすい
+-- エラーメッセージを返すため通常はここに到達しないが、到達しても本関数の
+-- アトミック性によりデータが失われることはない。
 CREATE OR REPLACE FUNCTION public.save_budget_declaration(
   p_declaration_id bigint,
   p_target_month date,
@@ -73,9 +80,10 @@ BEGIN
   DELETE FROM public.budget_declaration_items
   WHERE declaration_id = v_declaration_id;
 
-  -- p_items が空配列なら 0 行 INSERT になるだけで無害
+  -- p_items が空配列なら 0 行 INSERT になるだけで無害。manager_id（migration 21）は
+  -- 任意入力のため item に無い/JSON null の場合は NULL のまま INSERT する
   INSERT INTO public.budget_declaration_items
-    (declaration_id, entry_type, category, description, amount, display_order)
+    (declaration_id, entry_type, category, description, amount, manager_id, display_order)
   SELECT
     v_declaration_id,
     -- entry_type は DB の CHECK（income/expense）対象のため、前後空白付きの値の
@@ -84,6 +92,7 @@ BEGIN
     btrim(item ->> 'category'),
     btrim(item ->> 'description'),
     (item ->> 'amount')::numeric,
+    (item ->> 'manager_id')::bigint,
     ordinality - 1
   FROM jsonb_array_elements(p_items) WITH ORDINALITY AS t(item, ordinality);
 
@@ -92,7 +101,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.save_budget_declaration(bigint, date, text, text, jsonb) IS
-  '事前収支申告の作成・編集（ヘッダ + 明細差し替え）を単一トランザクションで行う。p_declaration_id が null なら新規作成、それ以外なら既存ヘッダの更新（team・target_month も一致する場合のみ）。明細は既存を全削除してから p_items（entry_type/category/description/amount を持つオブジェクトの配列）を全登録する。declared_by は auth.uid() から解決しクライアントからは受け取らない。書き込みの可否は呼び出し元ロールに対する budget_declarations / budget_declaration_items の RLS がそのまま適用される（SECURITY INVOKER）。詳細: docs/database.md, Issue #103';
+  '事前収支申告の作成・編集（ヘッダ + 明細差し替え）を単一トランザクションで行う。p_declaration_id が null なら新規作成、それ以外なら既存ヘッダの更新（team・target_month も一致する場合のみ）。明細は既存を全削除してから p_items（entry_type/category/description/amount/manager_id を持つオブジェクトの配列）を全登録する。declared_by は auth.uid() から解決しクライアントからは受け取らない。書き込みの可否は呼び出し元ロールに対する budget_declarations / budget_declaration_items の RLS がそのまま適用される（SECURITY INVOKER）。詳細: docs/database.md, Issue #103';
 
 REVOKE EXECUTE ON FUNCTION public.save_budget_declaration(bigint, date, text, text, jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.save_budget_declaration(bigint, date, text, text, jsonb) TO authenticated;

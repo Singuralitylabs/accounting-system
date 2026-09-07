@@ -33,4 +33,7 @@ if (typeof window !== "undefined") {
   window.ResizeObserver = ResizeObserverMock;
 
   window.scrollTo = vi.fn();
+
+  // Mantine Combobox（Select 等）がオプションのフォーカス管理で呼ぶが、jsdom は未実装
+  window.HTMLElement.prototype.scrollIntoView = vi.fn();
 }

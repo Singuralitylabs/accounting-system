@@ -1,7 +1,11 @@
 import { getProfitLossReport } from "@/app/utils/supabase/profitLossReport";
 import { currentJstMonth } from "@/app/utils/formatter";
 import { getCachedProfileInfo } from "@/app/utils/supabase/requestCache";
-import { hasClassAccess, ROUTE_PERMISSIONS } from "@/app/utils/permissions";
+import {
+  hasClassAccess,
+  PL_ADJUSTMENT_WRITE_CLASSES,
+  ROUTE_PERMISSIONS,
+} from "@/app/utils/permissions";
 import ProfitLossView from "../profitLoss/ProfitLossView";
 
 const DynamicProfitLoss = async () => {
@@ -23,6 +27,12 @@ const DynamicProfitLoss = async () => {
     ROUTE_PERMISSIONS["/extra-entries"],
     profileClass,
   );
+  // 損益調整（実績額修正）の操作を表示するか。専用ルートを持たないため
+  // PL_ADJUSTMENT_WRITE_CLASSES を直接見る（RLS の accounting/admin 判定と揃える）
+  const canEditAdjustments = hasClassAccess(
+    PL_ADJUSTMENT_WRITE_CLASSES,
+    profileClass,
+  );
 
   return (
     <main>
@@ -31,6 +41,7 @@ const DynamicProfitLoss = async () => {
         initialReport={initialReport}
         canEditRecurringCosts={canEditRecurringCosts}
         canEditExtraEntries={canEditExtraEntries}
+        canEditAdjustments={canEditAdjustments}
       />
     </main>
   );

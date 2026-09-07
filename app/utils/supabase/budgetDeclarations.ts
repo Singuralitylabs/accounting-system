@@ -4,12 +4,14 @@ import {
   BudgetDeclarationDeleteResult,
   BudgetDeclarationDetailResult,
   BudgetDeclarationListResult,
+  BudgetDeclarationPreviousItemsResult,
   BudgetDeclarationSaveInput,
   BudgetDeclarationSaveResult,
 } from "../../types/types";
 import {
   BUDGET_DECLARATION_ALLOWED_CLASSES,
   BudgetDeclarationWithItems,
+  addMonths,
   buildBudgetDeclarationStatusList,
   canViewAllBudgetTeams,
   canWriteBudgetTeam,
@@ -25,6 +27,7 @@ import {
 import { toFirstOfMonth } from "../formatter";
 import { createServerSupabase } from "./clients";
 import { NO_DATA_FOUND } from "./errorCodes";
+import { assertManagerIdsExist } from "./profiles";
 import { getSelectOptions } from "./selectOptions";
 import { getAuthorizedViewer } from "./viewerAccess";
 
@@ -137,9 +140,14 @@ export const getBudgetDeclarationDetail = async (
 
   const supabase = createServerSupabase();
 
+  // manager_id の profiles も declared_by と同じく inner join にしない。
+  // 担当者の profiles が RLS で読めない場合に明細行ごと消えてしまうのを避けるため
+  // （読めないときは managerName だけ null になる）
   const { data, error } = await supabase
     .from("budget_declarations")
-    .select("comment, budget_declaration_items (*)")
+    .select(
+      "comment, budget_declaration_items (*, profiles!budget_declaration_items_manager_id_fkey (name))",
+    )
     .eq("id", declarationId)
     // 主キー検索なので最大 1 行。0 行（RLS で見えない場合を含む）を
     // error にしないため single() ではなく maybeSingle() を使う
@@ -160,10 +168,68 @@ export const getBudgetDeclarationDetail = async (
     detail: {
       comment: data.comment,
       // display_order → id の順で安定させる（DB 側の並びに依存しない）
-      items: [...(data.budget_declaration_items ?? [])].sort(
-        (a, b) => a.display_order - b.display_order || a.id - b.id,
-      ),
+      items: [...(data.budget_declaration_items ?? [])]
+        .sort((a, b) => a.display_order - b.display_order || a.id - b.id)
+        .map(({ profiles, ...item }) => ({
+          ...item,
+          managerName: profiles?.name ?? null,
+        })),
     },
+  };
+};
+
+// 対象月の前月・同チームの申告明細を取得する（フォームの「前月の明細をコピー」用）。
+// 前月に申告そのものが無い場合は items: null を返す（コピーボタンの活性判定に使う。
+// 申告はあるが明細が 0 件の場合と区別するため、明細取得失敗時とは別に null にする）。
+// チームリーダーは自チームの前月申告しか読めない（他チームは RLS で 0 行になり、
+// null 扱いになる。「他チームの申告はコピーできない」という完了条件はこれで満たす）
+export const getPreviousBudgetDeclarationItems = async (
+  targetMonth: string,
+  team: string,
+): Promise<BudgetDeclarationPreviousItemsResult> => {
+  const { error: accessError } = await getAuthorizedViewer(
+    BUDGET_DECLARATION_ALLOWED_CLASSES,
+    SUBJECT,
+  );
+  if (accessError) {
+    return { error: accessError };
+  }
+
+  const supabase = createServerSupabase();
+  const previousMonth = toFirstOfMonth(addMonths(targetMonth, -1));
+
+  const { data, error } = await supabase
+    .from("budget_declarations")
+    .select(
+      "budget_declaration_items (id, entry_type, category, description, amount, manager_id, display_order)",
+    )
+    .eq("target_month", previousMonth)
+    .eq("team", team)
+    // 主キー検索ではないが (target_month, team) は UNIQUE 制約対象。
+    // 0 行（前月未申告 / RLS で見えない）を error にしないため maybeSingle()
+    .maybeSingle();
+
+  if (error) {
+    console.error("前月の事前収支申告明細の取得に失敗しました:", error);
+    return {
+      error: {
+        kind: "fetchFailed",
+        message: `前月の${SUBJECT}の取得に失敗しました。`,
+      },
+    };
+  }
+
+  if (!data) {
+    return { items: null };
+  }
+
+  return {
+    // display_order → id の順で安定させる。getBudgetDeclarationDetail と
+    // 同じ並び順にする（並べ替えはここで一度だけ行い、
+    // previousItemsToFormRows 側では再ソートしない）
+    items: [...(data.budget_declaration_items ?? [])].sort(
+      (a, b) => a.display_order - b.display_order || a.id - b.id,
+    ),
   };
 };
 
@@ -173,15 +239,6 @@ export const getBudgetDeclarationDetail = async (
 // costs.ts のような isNew/isRemoved diff にしないのは、申告の明細は保存のたびに
 // フォーム側の配列が最終形そのものであり、差分を追跡する状態を別途持つ必要が
 // ないため（複雑さに見合わない）。
-//
-// ヘッダの作成/更新・明細の全削除・全登録は DB 関数（public.save_budget_declaration、
-// migration 21）内の単一トランザクションで原子的に行う。以前は各ステップを独立した
-// PostgREST 呼び出し（ヘッダ UPDATE → 明細 DELETE → 明細 INSERT）にしていたため、
-// 既存明細を全削除した後の INSERT が失敗すると明細が 1 件も無い状態でコミット済みの
-// まま確定し、利用者の入力内容が失われる不具合があった（Issue #103）。declared_by は
-// 関数内で auth.uid() から解決され、クライアントからは渡さない
-// （PostgREST 経由でなりすまされることを防ぐ。budget_declarations_insert_policy の
-// WITH CHECK と二重に担保する）
 export const saveBudgetDeclaration = async (
   input: BudgetDeclarationSaveInput,
 ): Promise<BudgetDeclarationSaveResult> => {
@@ -219,16 +276,48 @@ export const saveBudgetDeclaration = async (
   const supabase = createServerSupabase();
   const targetMonth = toFirstOfMonth(input.targetMonth);
 
+  // manager_id は保存前の型チェック（validateBudgetDeclarationPayload）だけでは
+  // 「実在する profiles.id か」までは検証できない。フォームを開いた後にそのメンバーの
+  // profiles が削除された場合、型は正しいまま存在しない id が送られてきうる。
+  // save_budget_declaration はアトミック（後述）なので存在しない manager_id を
+  // 渡してもデータが失われることは無くなったが、DB の FK 違反（23503）という分かりにくい
+  // エラーで保存全体が失敗するのを避けるため、保存前にここで確認してわかりやすい
+  // エラーメッセージを返す。profiles への直接 SELECT は RLS で teamleader が自チーム
+  // に絞られ、他チームの担当者を誤って「存在しない」と判定してしまうため、
+  // assertManagerIdsExist() 経由（内部で validateMemberIds() = migration 21 の
+  // validate_member_ids を呼ぶ）で確認する。get_member_options() で全メンバーを
+  // 取得して照合することもできるが、保存のたびに全メンバー分の行を転送するのは
+  // 無駄なため、渡された id 集合だけを DB 側で照合する
+  const managerIds = Array.from(
+    new Set(
+      input.items
+        .map((item) => item.manager_id)
+        .filter((id): id is number => id !== null),
+    ),
+  );
+  const managerIdError = await assertManagerIdsExist(
+    managerIds,
+    SUBJECT,
+    "フォームを開き直して選び直してください。",
+  );
+  if (managerIdError) {
+    return { error: managerIdError };
+  }
+
+  // ヘッダの作成/更新・明細の全削除・全登録を DB 関数（public.save_budget_declaration、
+  // migration 24）内の単一トランザクションで原子的に行う。以前は各ステップを
+  // 独立した PostgREST 呼び出し（ヘッダ UPDATE → 明細 DELETE → 明細 INSERT）にして
+  // いたため、既存明細を全削除した後の INSERT が失敗すると明細が 1 件も無い状態で
+  // コミット済みのまま確定し、利用者の入力内容が失われる不具合があった（Issue #103）。
+  // declared_by は関数内で auth.uid() から解決され、クライアントからは渡さない
+  // （PostgREST 経由でなりすまされることを防ぐ。budget_declarations_insert_policy
+  // の WITH CHECK と二重に担保する）
   const { data, error: rpcError } = await supabase
     .rpc("save_budget_declaration", {
-      // Postgres 関数の引数は NULL 許容性を型として持たないため、生成される
-      // Args 型に `| null` が付かない（database.types.ts 参照）。
-      // p_declaration_id（新規作成時）・p_comment（コメント未入力時）は実際には
-      // null を渡すため、ここでキャストする
-      p_declaration_id: input.declarationId as number,
+      p_declaration_id: input.declarationId,
       p_target_month: targetMonth,
       p_team: input.team,
-      p_comment: input.comment as string,
+      p_comment: input.comment,
       p_items: input.items.map((item) => ({
         // entry_type は DB の CHECK（income/expense）対象のため特に重要
         // （前後空白付きの値のまま INSERT すると CHECK 違反で失敗する）
@@ -236,6 +325,7 @@ export const saveBudgetDeclaration = async (
         category: item.category.trim(),
         description: item.description.trim(),
         amount: item.amount,
+        manager_id: item.manager_id,
       })),
     })
     .single();

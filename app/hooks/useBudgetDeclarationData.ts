@@ -8,22 +8,20 @@ import {
   deleteBudgetDeclaration,
   getBudgetDeclarationDetail,
   getBudgetDeclarationList,
+  getPreviousBudgetDeclarationItems,
   saveBudgetDeclaration,
 } from "../utils/supabase/budgetDeclarations";
 import {
   BudgetDeclarationDetailType,
+  BudgetDeclarationPreviousItem,
   BudgetDeclarationSaveInput,
   BudgetDeclarationStatusType,
 } from "../types/types";
 import {
   BudgetDeclarationError,
-  isForbiddenError,
+  retryUnlessForbidden,
 } from "../utils/budgetDeclaration";
 import { notifyError, notifySuccess, toErrorMessage } from "../utils/notify";
-
-// QueryProvider の既定は retry: 2。権限不足は再試行しても回復しないため打ち切る。
-const retryUnlessForbidden = (failureCount: number, error: Error) =>
-  !isForbiddenError(error) && failureCount < 2;
 
 // 対象月のチーム別申告状況一覧（month: "YYYY-MM"）
 export const useBudgetDeclarationList = (
@@ -72,7 +70,46 @@ export const useBudgetDeclarationDetail = (declarationId: number | null) => {
       return detail;
     },
     enabled: declarationId !== null,
-    staleTime: 2 * 60 * 1000, // 2分（明細パネルの再表示での不要な再取得を抑える目的）
+    // refetchOnMount: "always" のため、マウント時（明細パネルを閉じて再度開く
+    // 場合を含む）の再取得可否にはこの staleTime は影響しない（常に再取得する）。
+    // 編集フォーム用の lost update 対策（直近の担当者更新を古いまま保存しない）は
+    // refetchOnMount 側で担保している。staleTime は reconnect 時の自動再取得
+    // （refetchOnReconnect。既定で有効）など、マウント以外のタイミングでの
+    // stale 判定に使われる
+    staleTime: 2 * 60 * 1000,
+    refetchOnMount: "always",
+    retry: retryUnlessForbidden,
+  });
+};
+
+// 対象月の前月・同チームの申告明細（フォームの「前月の明細をコピー」ボタン用）。
+// items: null は前月に申告が無いことを示し、呼び出し側でボタンを無効化する判定に使う。
+// フォームを開いている間だけ有効化する想定（enabled は呼び出し側が渡す）。
+// useBudgetDeclarationDetail と同じ理由で refetchOnMount: "always" にする。
+// このクエリは保存・削除ミューテーションが invalidate/remove しないため、
+// QueryProvider既定の refetchOnMount: false のままだと、他の月・チームの
+// 申告を保存・削除した後にフォームを開き直しても gcTime（10分）内は
+// 古いキャッシュ（前月申告なし判定や、削除済み・編集前の明細）がそのまま
+// 使われてしまう
+export const usePreviousBudgetDeclarationItems = (
+  enabled: boolean,
+  targetMonth: string,
+  team: string,
+) => {
+  return useQuery<BudgetDeclarationPreviousItem[] | null>({
+    queryKey: ["budgetDeclarations", "previousItems", targetMonth, team],
+    queryFn: async () => {
+      const { items, error } = await getPreviousBudgetDeclarationItems(
+        targetMonth,
+        team,
+      );
+      if (error) {
+        throw new BudgetDeclarationError(error);
+      }
+      return items;
+    },
+    enabled: enabled && !!targetMonth && !!team,
+    staleTime: 2 * 60 * 1000,
     refetchOnMount: "always",
     retry: retryUnlessForbidden,
   });
@@ -111,7 +148,7 @@ export const useSaveBudgetDeclaration = () => {
     onError: (error) => {
       console.error("事前収支申告の保存エラー:", error);
       // ヘッダの作成/更新・明細の差し替えは DB 関数（save_budget_declaration、
-      // migration 21）内の単一トランザクションで行われるため、失敗時は保存前の
+      // migration 24）内の単一トランザクションで行われるため、失敗時は保存前の
       // 状態に完全にロールバックされる（一部だけ反映された状態にはならない）。
       // そのためキャッシュの無効化は不要
       notifyError(toErrorMessage(error, "事前収支申告の保存に失敗しました。"));

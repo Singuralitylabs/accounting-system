@@ -1,6 +1,9 @@
 import { getBudgetDeclarationList } from "@/app/utils/supabase/budgetDeclarations";
 import { getBudgetDeclarationReminderSettings } from "@/app/utils/supabase/budgetDeclarationReminderSettings";
-import { getProfileInfo } from "@/app/utils/supabase/profiles";
+import {
+  getMemberOptions,
+  getProfileInfo,
+} from "@/app/utils/supabase/profiles";
 import {
   canViewAllBudgetTeams,
   defaultTargetMonth,
@@ -13,10 +16,27 @@ const DynamicBudgetDeclarations = async () => {
   const initialMonth = defaultTargetMonth();
   // getProfileInfo は React cache() 経由で dedupe されるため、
   // getBudgetDeclarationList 内で既に呼ばれていても DB 往復は増えない
-  const [{ rows }, { profileInfo, error: profileError }] = await Promise.all([
+  const [
+    { rows },
+    { profileInfo, error: profileError },
+    { memberOptions, error: memberOptionsError },
+  ] = await Promise.all([
     getBudgetDeclarationList(initialMonth),
     getProfileInfo(),
+    getMemberOptions(),
   ]);
+
+  // 担当者選択肢は補助的な入力項目のため、取得に失敗しても一覧自体は表示する。
+  // ただしフォーム側の担当者 Select は disabled にする（memberListError 参照）。
+  // memberList が空のまま表示すると、既存明細の manager_id が選択肢に無いため
+  // Select が空欄に描画され、値は保持されているにもかかわらず「担当者が
+  // クリアされた」と利用者に誤認させてしまう
+  if (memberOptionsError) {
+    console.error(
+      "事前収支申告の担当者選択肢の取得に失敗しました:",
+      memberOptionsError,
+    );
+  }
 
   // 取得失敗時は canEditAllTeams が false（チーム固定）側にフォールバックする。
   // 経理・管理者が対象でも、失敗の原因を追えるようログだけは残す
@@ -55,6 +75,11 @@ const DynamicBudgetDeclarations = async () => {
       canEditAllTeams={canViewAllBudgetTeams(profileInfo?.class)}
       canManageReminderSettings={canManageReminderSettings}
       initialReminderTargetDays={reminderSettings?.targetDays ?? null}
+      memberList={(memberOptions ?? []).map((member) => ({
+        value: String(member.id),
+        label: member.name,
+      }))}
+      memberListError={!!memberOptionsError}
     />
   );
 };

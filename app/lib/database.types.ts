@@ -44,6 +44,7 @@ export type Database = {
           entry_type: string
           id: number
           inserted_at: string
+          manager_id: number | null
           updated_at: string
         }
         Insert: {
@@ -55,6 +56,7 @@ export type Database = {
           entry_type: string
           id?: never
           inserted_at?: string
+          manager_id?: number | null
           updated_at?: string
         }
         Update: {
@@ -66,13 +68,22 @@ export type Database = {
           entry_type?: string
           id?: never
           inserted_at?: string
+          manager_id?: number | null
           updated_at?: string
         }
         Relationships: [
           {
             foreignKeyName: "budget_declaration_items_declaration_id_fkey"
             columns: ["declaration_id"]
+            isOneToOne: false
             referencedRelation: "budget_declarations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "budget_declaration_items_manager_id_fkey"
+            columns: ["manager_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -127,6 +138,60 @@ export type Database = {
           {
             foreignKeyName: "budget_declarations_declared_by_fkey"
             columns: ["declared_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      budget_recurring_items: {
+        Row: {
+          amount: number
+          category: string
+          description: string
+          display_order: number
+          end_month: string | null
+          entry_type: string
+          id: number
+          inserted_at: string
+          manager_id: number | null
+          start_month: string
+          team: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          category: string
+          description: string
+          display_order?: number
+          end_month?: string | null
+          entry_type: string
+          id?: never
+          inserted_at?: string
+          manager_id?: number | null
+          start_month: string
+          team: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          category?: string
+          description?: string
+          display_order?: number
+          end_month?: string | null
+          entry_type?: string
+          id?: never
+          inserted_at?: string
+          manager_id?: number | null
+          start_month?: string
+          team?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "budget_recurring_items_manager_id_fkey"
+            columns: ["manager_id"]
+            isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
@@ -170,6 +235,7 @@ export type Database = {
           {
             foreignKeyName: "business_matter_id_fkey"
             columns: ["matter_id"]
+            isOneToOne: false
             referencedRelation: "matters"
             referencedColumns: ["id"]
           },
@@ -225,6 +291,7 @@ export type Database = {
           {
             foreignKeyName: "costs_matter_id_fkey"
             columns: ["matter_id"]
+            isOneToOne: false
             referencedRelation: "matters"
             referencedColumns: ["id"]
           },
@@ -283,6 +350,7 @@ export type Database = {
           {
             foreignKeyName: "extra_entries_manager_id_fkey"
             columns: ["manager_id"]
+            isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
@@ -356,12 +424,14 @@ export type Database = {
           {
             foreignKeyName: "matters_parent_matter_id_fkey"
             columns: ["parent_matter_id"]
+            isOneToOne: false
             referencedRelation: "matters"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "matters_user_id_fkey"
             columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
@@ -402,6 +472,77 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      profit_loss_adjustments: {
+        Row: {
+          adjusted_by: number
+          adjustment_amount: number
+          business_id: number | null
+          cost_id: number | null
+          id: number
+          inserted_at: string
+          reason: string
+          recurring_cost_id: number | null
+          source_amount_snapshot: number
+          target_month: string
+          updated_at: string
+        }
+        Insert: {
+          adjusted_by: number
+          adjustment_amount: number
+          business_id?: number | null
+          cost_id?: number | null
+          id?: never
+          inserted_at?: string
+          reason: string
+          recurring_cost_id?: number | null
+          source_amount_snapshot: number
+          target_month: string
+          updated_at?: string
+        }
+        Update: {
+          adjusted_by?: number
+          adjustment_amount?: number
+          business_id?: number | null
+          cost_id?: number | null
+          id?: never
+          inserted_at?: string
+          reason?: string
+          recurring_cost_id?: number | null
+          source_amount_snapshot?: number
+          target_month?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profit_loss_adjustments_adjusted_by_fkey"
+            columns: ["adjusted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profit_loss_adjustments_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "business"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profit_loss_adjustments_cost_id_fkey"
+            columns: ["cost_id"]
+            isOneToOne: false
+            referencedRelation: "costs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profit_loss_adjustments_recurring_cost_id_fkey"
+            columns: ["recurring_cost_id"]
+            isOneToOne: false
+            referencedRelation: "recurring_costs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       recurring_costs: {
         Row: {
@@ -510,6 +651,7 @@ export type Database = {
           {
             foreignKeyName: "select_options_type_id_fkey"
             columns: ["type_id"]
+            isOneToOne: false
             referencedRelation: "select_option_types"
             referencedColumns: ["id"]
           },
@@ -527,19 +669,42 @@ export type Database = {
         Returns: boolean
       }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
-      // Postgres 関数の引数は Postgres 上で NULL 許容性を型として持たないため、
-      // supabase gen types は Args に `| null` を付与しない（DEFAULT 有無で
-      // フィールドを省略可能にするだけ）。p_declaration_id / p_comment は
-      // 実際には呼び出し側から null を渡すが、生成される型に忠実にするため
-      // ここでは付けない（呼び出し側で `as` によりキャストする）
+      get_member_options: {
+        Args: never
+        Returns: {
+          id: number
+          name: string
+        }[]
+      }
       save_budget_declaration: {
         Args: {
-          p_declaration_id: number
+          p_declaration_id: number | null
           p_target_month: string
           p_team: string
-          p_comment: string
+          p_comment: string | null
           p_items: Json
         }
+        Returns: {
+          id: number
+        }[]
+      }
+      save_profit_loss_adjustment: {
+        Args: {
+          p_business_id: number | null
+          p_cost_id: number | null
+          p_recurring_cost_id: number | null
+          p_target_month: string
+          p_actual_amount: number
+          p_reason: string
+        }
+        Returns: {
+          deleted: boolean
+          source_amount: number
+          adjustment_amount: number
+        }[]
+      }
+      validate_member_ids: {
+        Args: { target_ids: number[] }
         Returns: {
           id: number
         }[]
@@ -562,12 +727,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends (DefaultSchemaTableNameOrOptions extends {
+  TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never) = never,
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -589,12 +754,13 @@ export type Tables<
 
 export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
-    keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
-  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never) = never,
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -613,12 +779,13 @@ export type TablesInsert<
 
 export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
-    keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
-  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never) = never,
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -637,12 +804,13 @@ export type TablesUpdate<
 
 export type Enums<
   DefaultSchemaEnumNameOrOptions extends
-    keyof DefaultSchema["Enums"] | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never) = never,
+    : never = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -655,11 +823,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never) = never,
+    : never = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

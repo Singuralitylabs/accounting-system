@@ -5,19 +5,21 @@ import {
   useAnnualTrend,
   useProfitLossReport,
 } from "@/app/hooks/useProfitLossData";
-import { Alert, Select, Tabs } from "@mantine/core";
+import { Alert, Group, Select, Tabs } from "@mantine/core";
 import { useState } from "react";
 import { CustomMonthPicker } from "../CustomMonthPicker";
 import { LoadingSpinner } from "../LoadingSpinner";
 import ProfitLossStatement from "./ProfitLossStatement";
 import AnnualTrendTable from "./AnnualTrendTable";
 import AccountingMasterActions from "./AccountingMasterActions";
+import CopyPreviousExtraEntriesButton from "./CopyPreviousExtraEntriesButton";
 
 type Props = {
   initialMonth: string; // "YYYY-MM"
   initialReport: PLReportType | null;
   canEditRecurringCosts: boolean; // 定期費用マスタへの管理リンクを表示するか
   canEditExtraEntries: boolean; // 経理追加収支への管理リンクを表示するか
+  canEditAdjustments: boolean; // 損益調整（実績額修正）の操作を表示するか
 };
 
 // 月キー（YYYY-MM）から年度（7月始まり）を求める
@@ -32,6 +34,7 @@ const ProfitLossView = ({
   initialReport,
   canEditRecurringCosts,
   canEditExtraEntries,
+  canEditAdjustments,
 }: Props) => {
   const currentFiscalYear = monthToFiscalYear(initialMonth);
 
@@ -98,7 +101,20 @@ const ProfitLossView = ({
               対象月を変えるか、時間をおいて再読み込みしてください。
             </Alert>
           ) : (
-            <ProfitLossStatement report={report} />
+            <>
+              {canEditExtraEntries && (
+                <Group justify="flex-end" className="mb-4">
+                  <CopyPreviousExtraEntriesButton
+                    month={month}
+                    hasExistingEntries={report.extraEntries.length > 0}
+                  />
+                </Group>
+              )}
+              <ProfitLossStatement
+                report={report}
+                canEditAdjustments={canEditAdjustments}
+              />
+            </>
           )}
         </Tabs.Panel>
 
