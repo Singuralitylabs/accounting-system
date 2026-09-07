@@ -59,9 +59,12 @@ BEGIN
     RETURNING budget_declarations.id INTO v_declaration_id;
 
     -- RLS で 0 行 / 既に削除済みでもエラーにはならず単に対象行が無いだけになるため、
-    -- 呼び出し側が判別できるよう固定文言で例外にする
+    -- 呼び出し側が判別できるよう例外にする。ERRCODE には plpgsql 組み込みの
+    -- no_data_found（P0002）を使う。isDuplicateDeclarationError と同じく
+    -- error.code で判別できるようにするため、メッセージ文字列ではなく
+    -- SQLSTATE を判定に使う（app/utils/supabase/budgetDeclarations.ts 参照）
     IF v_declaration_id IS NULL THEN
-      RAISE EXCEPTION 'DECLARATION_NOT_FOUND';
+      RAISE EXCEPTION 'DECLARATION_NOT_FOUND' USING ERRCODE = 'P0002';
     END IF;
   END IF;
 

@@ -527,12 +527,17 @@ export type Database = {
         Returns: boolean
       }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
+      // Postgres 関数の引数は Postgres 上で NULL 許容性を型として持たないため、
+      // supabase gen types は Args に `| null` を付与しない（DEFAULT 有無で
+      // フィールドを省略可能にするだけ）。p_declaration_id / p_comment は
+      // 実際には呼び出し側から null を渡すが、生成される型に忠実にするため
+      // ここでは付けない（呼び出し側で `as` によりキャストする）
       save_budget_declaration: {
         Args: {
-          p_declaration_id: number | null
+          p_declaration_id: number
           p_target_month: string
           p_team: string
-          p_comment: string | null
+          p_comment: string
           p_items: Json
         }
         Returns: {

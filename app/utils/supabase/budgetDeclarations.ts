@@ -24,6 +24,7 @@ import {
 } from "../budgetDeclarationValidation";
 import { toFirstOfMonth } from "../formatter";
 import { createServerSupabase } from "./clients";
+import { NO_DATA_FOUND } from "./errorCodes";
 import { getSelectOptions } from "./selectOptions";
 import { getAuthorizedViewer } from "./viewerAccess";
 
@@ -220,10 +221,14 @@ export const saveBudgetDeclaration = async (
 
   const { data, error: rpcError } = await supabase
     .rpc("save_budget_declaration", {
-      p_declaration_id: input.declarationId,
+      // Postgres 関数の引数は NULL 許容性を型として持たないため、生成される
+      // Args 型に `| null` が付かない（database.types.ts 参照）。
+      // p_declaration_id（新規作成時）・p_comment（コメント未入力時）は実際には
+      // null を渡すため、ここでキャストする
+      p_declaration_id: input.declarationId as number,
       p_target_month: targetMonth,
       p_team: input.team,
-      p_comment: input.comment,
+      p_comment: input.comment as string,
       p_items: input.items.map((item) => ({
         // entry_type は DB の CHECK（income/expense）対象のため特に重要
         // （前後空白付きの値のまま INSERT すると CHECK 違反で失敗する）
@@ -242,9 +247,11 @@ export const saveBudgetDeclaration = async (
         error: { kind: "duplicate", message: DUPLICATE_DECLARATION_MESSAGE },
       };
     }
-    // DB 関数内の RAISE EXCEPTION 'DECLARATION_NOT_FOUND'（更新対象の
-    // id・team・target_month が一致する行が無い場合）を判別できるようにする
-    if (rpcError.message.includes("DECLARATION_NOT_FOUND")) {
+    // DB 関数内の RAISE EXCEPTION 'DECLARATION_NOT_FOUND' USING ERRCODE = 'P0002'
+    // （更新対象の id・team・target_month が一致する行が無い場合）を判別できる
+    // ようにする。isDuplicateDeclarationError と同じく error.code（SQLSTATE）で
+    // 判定し、メッセージ文字列には依存しない
+    if (rpcError.code === NO_DATA_FOUND) {
       return {
         error: {
           kind: "fetchFailed",
@@ -253,7 +260,13 @@ export const saveBudgetDeclaration = async (
       };
     }
     return {
-      error: { kind: "fetchFailed", message: `${SUBJECT}の保存に失敗しました。` },
+      error: {
+        kind: "fetchFailed",
+        message:
+          input.declarationId === null
+            ? `${SUBJECT}の作成に失敗しました。`
+            : `${SUBJECT}の更新に失敗しました。`,
+      },
     };
   }
 

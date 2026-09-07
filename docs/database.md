@@ -1006,9 +1006,10 @@ BEGIN
     RETURNING budget_declarations.id INTO v_declaration_id;
 
     -- RLS で 0 行 / 既に削除済みでもエラーにはならないため、呼び出し側が
-    -- 判別できるよう固定文言で例外にする
+    -- 判別できるよう例外にする。ERRCODE には plpgsql 組み込みの no_data_found
+    -- （P0002）を使い、メッセージ文字列ではなく SQLSTATE で判別できるようにする
     IF v_declaration_id IS NULL THEN
-      RAISE EXCEPTION 'DECLARATION_NOT_FOUND';
+      RAISE EXCEPTION 'DECLARATION_NOT_FOUND' USING ERRCODE = 'P0002';
     END IF;
   END IF;
 
@@ -1032,6 +1033,9 @@ BEGIN
   RETURN QUERY SELECT v_declaration_id;
 END;
 $$;
+
+COMMENT ON FUNCTION public.save_budget_declaration(bigint, date, text, text, jsonb) IS
+  '事前収支申告の作成・編集（ヘッダ + 明細差し替え）を単一トランザクションで行う。p_declaration_id が null なら新規作成、それ以外なら既存ヘッダの更新（team・target_month も一致する場合のみ）。明細は既存を全削除してから p_items（entry_type/category/description/amount を持つオブジェクトの配列）を全登録する。declared_by は auth.uid() から解決しクライアントからは受け取らない。書き込みの可否は呼び出し元ロールに対する budget_declarations / budget_declaration_items の RLS がそのまま適用される（SECURITY INVOKER）。詳細: docs/database.md, Issue #103';
 
 REVOKE EXECUTE ON FUNCTION public.save_budget_declaration(bigint, date, text, text, jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.save_budget_declaration(bigint, date, text, text, jsonb) TO authenticated;
