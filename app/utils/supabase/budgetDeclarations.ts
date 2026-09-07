@@ -26,7 +26,7 @@ import {
 } from "../budgetDeclarationValidation";
 import { toFirstOfMonth } from "../formatter";
 import { createServerSupabase } from "./clients";
-import { NO_DATA_FOUND } from "./errorCodes";
+import { FOREIGN_KEY_VIOLATION, NO_DATA_FOUND } from "./errorCodes";
 import { assertManagerIdsExist } from "./profiles";
 import { getSelectOptions } from "./selectOptions";
 import { getAuthorizedViewer } from "./viewerAccess";
@@ -310,14 +310,17 @@ export const saveBudgetDeclaration = async (
   // いたため、既存明細を全削除した後の INSERT が失敗すると明細が 1 件も無い状態で
   // コミット済みのまま確定し、利用者の入力内容が失われる不具合があった（Issue #103）。
   // declared_by は関数内で auth.uid() から解決され、クライアントからは渡さない
-  // （PostgREST 経由でなりすまされることを防ぐ。budget_declarations_insert_policy
-  // の WITH CHECK と二重に担保する）
+  // （PostgREST 経由でなりすまされることを防ぐ）
   const { data, error: rpcError } = await supabase
     .rpc("save_budget_declaration", {
-      p_declaration_id: input.declarationId,
+      // p_declaration_id / p_comment は SQL 側で DEFAULT NULL のため、生成される
+      // Args 型は `?: T`（`| null` は付かない）。null ではなく undefined
+      // （キー省略）を渡すことで、そのまま DEFAULT NULL が適用される
+      // （database.types.ts 参照）
+      p_declaration_id: input.declarationId ?? undefined,
       p_target_month: targetMonth,
       p_team: input.team,
-      p_comment: input.comment,
+      p_comment: input.comment ?? undefined,
       p_items: input.items.map((item) => ({
         // entry_type は DB の CHECK（income/expense）対象のため特に重要
         // （前後空白付きの値のまま INSERT すると CHECK 違反で失敗する）
@@ -346,6 +349,19 @@ export const saveBudgetDeclaration = async (
         error: {
           kind: "fetchFailed",
           message: `${SUBJECT}の更新対象が見つかりませんでした。既に削除されているか、編集する権限がありません。`,
+        },
+      };
+    }
+    // assertManagerIdsExist の確認後〜保存実行までの間（TOCTOU）に担当者の
+    // profiles が削除された場合、明細 INSERT が FK 違反（23503）になる。
+    // 通常は事前確認で弾かれるためここに到達しないが、到達した場合も
+    // assertManagerIdsExist と同じ案内文を返す
+    if (rpcError.code === FOREIGN_KEY_VIOLATION) {
+      return {
+        error: {
+          kind: "validationFailed",
+          message:
+            "選択された担当者が見つかりません。フォームを開き直して選び直してください。",
         },
       };
     }

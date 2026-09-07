@@ -145,12 +145,26 @@ export const useSaveBudgetDeclaration = () => {
           : `${variables.team}の事前収支申告を更新しました。`,
       );
     },
-    onError: (error) => {
+    onError: (error, variables) => {
       console.error("事前収支申告の保存エラー:", error);
       // ヘッダの作成/更新・明細の差し替えは DB 関数（save_budget_declaration、
-      // migration 24）内の単一トランザクションで行われるため、失敗時は保存前の
-      // 状態に完全にロールバックされる（一部だけ反映された状態にはならない）。
-      // そのためキャッシュの無効化は不要
+      // migration 24）内の単一トランザクションで行われるため、失敗しても
+      // 「一部だけ反映された状態」にはならない。ただし DB 自体が変わらなくても、
+      // 手元のキャッシュ（staleTime 2分、QueryProvider は refetchOnMount: false）が
+      // 他の担当者の変更で既に実 DB とずれているケースは残る。例えば「未申告」の
+      // まま作成フォームを開いている間に他の担当者が同じ対象月・チームを作成すると
+      // duplicate（23505）になり、対象行が削除された後に編集を保存しようとすると
+      // 対象なし（P0002）になる。いずれも一覧・明細のキャッシュを無効化しないと
+      // 古い表示のまま「一覧から編集してください」の案内どおりに操作できない
+      // ループになるため、失敗時は無条件に無効化する（コストは再取得 1 回のみ）
+      queryClient.invalidateQueries({
+        queryKey: ["budgetDeclarations", "list"],
+      });
+      if (variables.declarationId !== null) {
+        queryClient.invalidateQueries({
+          queryKey: ["budgetDeclarations", "detail", variables.declarationId],
+        });
+      }
       notifyError(toErrorMessage(error, "事前収支申告の保存に失敗しました。"));
     },
   });

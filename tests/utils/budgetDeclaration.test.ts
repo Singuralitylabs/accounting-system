@@ -328,12 +328,15 @@ describe("BudgetDeclarationError / isForbiddenError", () => {
 });
 
 describe("isPartialWriteFailureError", () => {
-  it("明細差し替えの途中で失敗した場合（partialWriteFailed）は一部反映の可能性があると判定する", () => {
+  // budget_declarations の保存（saveBudgetDeclaration）は save_budget_declaration
+  // （migration 24）内の単一トランザクションで行われるため partialWriteFailed を
+  // 返さない。現在この kind を返しうるのは budgetRecurringItems.ts の一括更新のみ
+  it("複数行の一括更新が途中で失敗した場合（partialWriteFailed）は一部反映の可能性があると判定する", () => {
     expect(
       isPartialWriteFailureError(
         new BudgetDeclarationError({
           kind: "partialWriteFailed",
-          message: "事前収支申告の明細登録に失敗しました。",
+          message: "定期明細の更新に失敗しました。",
         }),
       ),
     ).toBe(true);

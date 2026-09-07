@@ -13,3 +13,6 @@ export const UNIQUE_VIOLATION = "23505";
 // save_budget_declaration（migration 24）が更新対象の行を見つけられなかった
 // 場合に RAISE EXCEPTION ... USING ERRCODE = 'P0002' で明示的に使う
 export const NO_DATA_FOUND = "P0002";
+
+// Postgres の外部キー制約違反（FOREIGN KEY constraint violation）の SQLSTATE コード
+export const FOREIGN_KEY_VIOLATION = "23503";

@@ -551,7 +551,7 @@ GRANT EXECUTE ON FUNCTION public.get_member_options() TO authenticated;
 
 #### 担当者保存前検証用の関数（validate_member_ids）
 
-事前収支申告の保存（明細差し替え）は非トランザクション（既存明細を全 DELETE → INSERT）のため、フォーム表示後に担当者の `profiles` が削除される等で存在しない `manager_id` が保存されようとすると、DELETE 成功後の INSERT が FK 違反（23503）で失敗し、既存明細が消えたまま保存が中断する。保存前に渡された `manager_id` が実在するか確認する必要がある。
+事前収支申告の保存（ヘッダ + 明細差し替え）は `save_budget_declaration`（[5.9](#59-budget_declaration_items-テーブル)）内の単一トランザクションで行うため、フォーム表示後に担当者の `profiles` が削除される等で存在しない `manager_id` が保存されようとしても、DB 側の FK 違反（23503）でトランザクション全体がロールバックされ、明細が消えることはない。ただし FK 違反という分かりにくいエラーで保存全体が失敗するのを避けるため、保存前に渡された `manager_id` が実在するか確認してわかりやすいエラーメッセージを返す。
 
 `get_member_options()` で全メンバーを取得して JS 側で照合することもできるが、保存のたびに全メンバー分の行を転送するのは無駄（メンバー数が増えるほど悪化する）。渡された id 集合だけを DB 側で照合し、実在する id のみを返す。ロール制限は `get_member_options()` と同じ（teamleader / accounting / admin のみ。それ以外は 0 行）。
 
@@ -1104,17 +1104,19 @@ CREATE POLICY "budget_declaration_items_all_policy" ON budget_declaration_items
 
 `SECURITY INVOKER` を明示している（既定と同じだが、RLS をバイパスしないことを意図的に示すため明記する）。`budget_declarations` / `budget_declaration_items` への書き込みはいずれも呼び出し元のロールで [5.8](#58-budget_declarations-テーブル) / 本節の RLS がそのまま適用されるため、経理担当者・管理者・自チームのチームリーダー以外は書き込みポリシーで拒否される。
 
-`declared_by` はクライアントから受け取らず、関数内で `auth.uid()` から解決する（PostgREST 経由で任意の `profiles.id` を渡してなりすまされることを防ぐ。`budget_declarations_insert_policy` の `WITH CHECK` と二重に担保する）。
+`declared_by` はクライアントから受け取らず、関数内で `auth.uid()` から解決する（PostgREST 経由で任意の `profiles.id` を渡してなりすまされることを防ぐ）。INSERT 経路は `budget_declarations_insert_policy` の `WITH CHECK` でも「`declared_by` = 自分自身」を二重に担保するが、UPDATE 経路（`budget_declarations_update_policy`）は `declared_by` を検査しないため（[declared_by の扱い](#declared_by-の扱いdb-が保証する範囲)参照）、そちらは本関数内でのみなりすましを防いでいる。
 
 `manager_id`（[3.10](#310-budget_declaration_items-テーブル)）が実在しない `profiles.id` を指す場合、明細 INSERT が FK 違反（23503）で失敗するが、トランザクション全体がロールバックされるためヘッダ・既存明細は保存前の状態のまま残る。アプリ側は保存前に `assertManagerIdsExist()`（`app/utils/supabase/profiles.ts`）で存在確認しわかりやすいエラーメッセージを返すため通常はここに到達しないが、到達しても本関数のアトミック性によりデータが失われることはない。
 
+`p_declaration_id` / `p_comment` に `DEFAULT NULL` を付けている。Postgres 関数の引数は NULL 許容性を型として持たないため、`supabase gen types` は Args を「DEFAULT の有無」でしか区別しない（DEFAULT が無いと必須キー、あれば省略可能なオプションキーになるが、いずれも `| null` は付与しない）。DEFAULT を付けることで生成される型が `p_declaration_id?: number` / `p_comment?: string` になり、呼び出し側は null の代わりに `undefined`（キー省略）を渡せばよくなる（`app/utils/supabase/budgetDeclarations.ts` の `?? undefined` 参照）。PostgREST は常に名前付き引数で呼び出すため呼び出し側の引数の並びには影響しないが、SQL の `CREATE FUNCTION` 構文上 `DEFAULT` 付き引数は `DEFAULT` 無し引数より後ろに置く必要があるため、`p_declaration_id` / `p_comment` を末尾にしている。
+
 ```sql
 CREATE OR REPLACE FUNCTION public.save_budget_declaration(
-  p_declaration_id bigint,
   p_target_month date,
   p_team text,
-  p_comment text,
-  p_items jsonb
+  p_items jsonb,
+  p_declaration_id bigint DEFAULT NULL,
+  p_comment text DEFAULT NULL
 )
 RETURNS TABLE (id bigint)
 LANGUAGE plpgsql
@@ -1153,12 +1155,12 @@ BEGIN
   END IF;
 
   -- 明細差し替え: 既存明細を全削除してから入力内容を挿入する。新規作成では
-  -- 既存明細が存在しないため 0 行 DELETE になるだけで無害。manager_id は
-  -- 任意入力のため item に無い/JSON null の場合は NULL のまま INSERT する
+  -- 既存明細が存在しないため 0 行 DELETE になるだけで無害
   DELETE FROM public.budget_declaration_items
   WHERE declaration_id = v_declaration_id;
 
-  -- p_items が空配列なら 0 行 INSERT になるだけで無害
+  -- p_items が空配列なら 0 行 INSERT になるだけで無害。manager_id は
+  -- 任意入力のため item に無い/JSON null の場合は NULL のまま INSERT する
   INSERT INTO public.budget_declaration_items
     (declaration_id, entry_type, category, description, amount, manager_id, display_order)
   SELECT
@@ -1175,11 +1177,11 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION public.save_budget_declaration(bigint, date, text, text, jsonb) IS
+COMMENT ON FUNCTION public.save_budget_declaration(date, text, jsonb, bigint, text) IS
   '事前収支申告の作成・編集（ヘッダ + 明細差し替え）を単一トランザクションで行う。p_declaration_id が null なら新規作成、それ以外なら既存ヘッダの更新（team・target_month も一致する場合のみ）。明細は既存を全削除してから p_items（entry_type/category/description/amount/manager_id を持つオブジェクトの配列）を全登録する。declared_by は auth.uid() から解決しクライアントからは受け取らない。書き込みの可否は呼び出し元ロールに対する budget_declarations / budget_declaration_items の RLS がそのまま適用される（SECURITY INVOKER）。詳細: docs/database.md, Issue #103';
 
-REVOKE EXECUTE ON FUNCTION public.save_budget_declaration(bigint, date, text, text, jsonb) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.save_budget_declaration(bigint, date, text, text, jsonb) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.save_budget_declaration(date, text, jsonb, bigint, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.save_budget_declaration(date, text, jsonb, bigint, text) TO authenticated;
 ```
 
 ### 5.10 budget_declaration_reminder_settings テーブル
