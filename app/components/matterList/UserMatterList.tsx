@@ -1,6 +1,6 @@
 "use client";
 
-import { SimpleGrid, Table } from "@mantine/core";
+import { Button, SimpleGrid, Table } from "@mantine/core";
 import dynamic from "next/dynamic";
 import { useCallback, useMemo, useState } from "react";
 import { MatterType } from "../../types/types";
@@ -75,6 +75,32 @@ export function UserMatterList({
       is_fixed: false,
       inserted_at: new Date().toISOString(),
       accounting_memo: "",
+    });
+    setOpened(true);
+  }, []);
+
+  const handleCreateCard = useCallback(() => {
+    setIsNew(true);
+    setMatterInfo({
+      id: 0,
+      title: "",
+      category: "",
+      team: "",
+      start_date: null,
+      description: "",
+      is_fixed: false,
+      has_updates: false,
+      total_amount: null,
+      business_count: null,
+      total_cost: null,
+      cost_count: null,
+      user_id: 1,
+      inserted_at: "",
+      updated_at: "",
+      is_completed: false,
+      accounting_memo: null,
+      unchecked_cost_count: 0,
+      parent_matter_id: null,
     });
     setOpened(true);
   }, []);
@@ -155,10 +181,13 @@ export function UserMatterList({
 
   return (
     <div>
-      <DisplayMenu
-        switchDisplay={switchDisplay}
-        onSwitchDisplay={setSwitchDisplay}
-      />
+      <div className="flex items-center justify-between px-8 pt-4">
+        <Button onClick={handleCreateCard}>+ 新規作成</Button>
+        <DisplayMenu
+          switchDisplay={switchDisplay}
+          onSwitchDisplay={setSwitchDisplay}
+        />
+      </div>
       {showCards ? (
         <div className="py-4 px-8">
           <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">

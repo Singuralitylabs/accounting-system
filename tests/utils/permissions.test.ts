@@ -70,14 +70,12 @@ describe("ROUTE_PERMISSIONS による各保護ルートの認可", () => {
 });
 
 describe("AUTH_ONLY_ROUTES / isAuthOnlyPath", () => {
-  it("ログイン必須ルートは /, /new, /matters である", () => {
-    expect(AUTH_ONLY_ROUTES).toEqual(["/", "/new", "/matters"]);
+  it("ログイン必須ルートは /, /matters である", () => {
+    expect(AUTH_ONLY_ROUTES).toEqual(["/", "/matters"]);
   });
 
   it.each([
     ["/", true],
-    ["/new", true],
-    ["/new/confirm", true],
     ["/matters", true],
     ["/matters/1", true],
     ["/login", false],
@@ -85,7 +83,7 @@ describe("AUTH_ONLY_ROUTES / isAuthOnlyPath", () => {
     ["/team", false],
     ["/matter", false],
     ["/mattersome", false],
-    ["/newest", false],
+    ["/new", false],
   ])("%s はログイン必須判定が %s", (pathname, expected) => {
     expect(isAuthOnlyPath(pathname)).toBe(expected);
   });

@@ -270,7 +270,7 @@ export function UserMatterDetail({
     <Modal
       opened={opened}
       onClose={closeModal}
-      title={matterInfo.title}
+      title={isNew && !matterInfo.title ? "新規案件の作成" : matterInfo.title}
       size="100%"
     >
       <form

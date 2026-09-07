@@ -104,6 +104,38 @@ describe("MatterCardDetail", () => {
     expect(screen.queryByText("収支サマリー")).not.toBeInTheDocument();
   });
 
+  it("variant=user は新規作成時にタイトルとバッジ「新規作成」を出す", () => {
+    renderWithMantine(
+      <MatterCardDetail
+        variant="user"
+        matterInfo={{ ...sampleMatter, title: "" }}
+        teamList={["開発"]}
+        categoryList={["セミナー"]}
+        itemList={["会場"]}
+        certificateList={["請求書"]}
+        opened
+        setOpened={vi.fn()}
+        isNew={true}
+        setIsNew={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("新規案件の作成")).toBeInTheDocument();
+    expect(screen.getByText("新規作成")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "下書き作成" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "経理申請" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "更新" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "削除" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("variant=accounting は経理メモと保存を出し、追加・更新は出さない", () => {
     renderWithMantine(
       <MatterCardDetail

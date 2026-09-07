@@ -123,7 +123,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 #### 4.3.1 概要
 
-- 新規案件作成画面 (/new)
+- 新規案件作成モーダル（/matters の「+ 新規作成」から開く。URL なし）
 
 ### 4.4 案件詳細表示・編集 (F004)
 
@@ -228,8 +228,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 #### 4.7.3 画面
 
-- 案件詳細モーダル
-- 新規案件作成画面
+- 案件詳細モーダル（新規作成時も同一モーダル）
 
 ### 4.8 経理申請後の案件編集 (F008)
 
@@ -728,7 +727,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 | S001    | ログイン画面                     | /login                                               | 全ユーザー                         |
 | S013    | トップページ                     | /                                                    | 全ユーザー                         |
 | S002    | 案件一覧画面（タブ: 自分の案件） | /matters                                             | 全ユーザー                         |
-| S003    | 新規案件作成画面                 | /new                                                 | 全ユーザー                         |
+| S003    | 新規案件作成モーダル             | -                                                    | 全ユーザー                         |
 | S004    | 案件詳細モーダル                 | -                                                    | 全ユーザー                         |
 | S005    | 案件一覧画面（タブ: チーム案件） | /matters/team（旧 /team はリダイレクト）             | チームリーダー・管理者             |
 | S006    | 案件一覧画面（タブ: 経理用一覧） | /matters/accounting（旧 /accounting はリダイレクト） | 経理担当者・管理者                 |
@@ -757,7 +756,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 - サブルート方式のタブで自分の案件（/matters）・チーム案件（/matters/team、S005）・経理用一覧（/matters/accounting、S006）を切り替える。タブの表示可否は `ROUTE_PERMISSIONS` によるロール判定（表示するタブが自分の案件のみのロールはタブ自体を表示しない）
 - 構成要素
   - ページタイトル「案件カード」
-  - 新規作成ボタン（/new への導線）
+  - 新規作成ボタン（新規作成モーダルを開く）
   - 表示形式切替ボタン（カード/テーブル）
   - 案件未申請警告メッセージ（未申請案件がある場合）
   - 案件カード（カード表示時）
@@ -781,11 +780,12 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
     - コスト数
     - 操作ボタン（開く、メニュー）
 
-#### 5.3.3 新規案件作成画面 (S003)
+#### 5.3.3 新規案件作成モーダル (S003)
 
-- URL: /new
+- URL なし。/matters の「+ 新規作成」ボタン、または既存案件の「コピー」から開く（案件詳細モーダル（S004）と同一コンポーネントの isNew 表示）
 - 構成要素
-  - ページタイトル「新規案件の作成」
+  - モーダルタイトル「新規案件の作成」
+  - バッジ「新規作成」
   - 基本情報フォーム
     - 案件名
     - 分類
@@ -807,7 +807,8 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
     - 通知方法
     - 源泉徴収チェックボックス
     - コスト追加ボタン
-  - 下書き/経理申請ボタン
+  - 下書き作成/経理申請ボタン
+  - 作成後はモーダルが閉じ、一覧（/matters）に即時反映される
 
 #### 5.3.4 案件詳細モーダル (S004)
 
@@ -1163,7 +1164,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 - Supabase Auth を使用した Google OAuth 認証
 - 未来技術推進協会のドメイン(`future-tech-association.org`)のみログイン可能
 - ミドルウェアによる保護されたルートの制御
-  - /, /new, /matters: 認証済みユーザーのみアクセス可能
+  - /, /matters: 認証済みユーザーのみアクセス可能
   - /matters/team: チームリーダー・管理者のみアクセス可能
   - /matters/accounting: 経理担当者・管理者のみアクセス可能
   - /team, /accounting: 旧 URL。ロール保護は /matters/team, /matters/accounting と同じ（新 URL へのリダイレクト前に判定する）
