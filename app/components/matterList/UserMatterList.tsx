@@ -11,6 +11,7 @@ import {
   confirmAction,
   DELETE_MATTER_CONFIRM_MESSAGE,
 } from "../../utils/confirmAction";
+import { createEmptyMatter } from "../../utils/matterValidation";
 import { useListDisplayMode } from "../../hooks/useListDisplayMode";
 import TableInfo from "../TableInfo";
 import ThreedotsMenu from "../buttons/threedots-menu";
@@ -81,27 +82,7 @@ export function UserMatterList({
 
   const handleCreateCard = useCallback(() => {
     setIsNew(true);
-    setMatterInfo({
-      id: 0,
-      title: "",
-      category: "",
-      team: "",
-      start_date: null,
-      description: "",
-      is_fixed: false,
-      has_updates: false,
-      total_amount: null,
-      business_count: null,
-      total_cost: null,
-      cost_count: null,
-      user_id: 1,
-      inserted_at: "",
-      updated_at: "",
-      is_completed: false,
-      accounting_memo: null,
-      unchecked_cost_count: 0,
-      parent_matter_id: null,
-    });
+    setMatterInfo(createEmptyMatter());
     setOpened(true);
   }, []);
 
@@ -175,10 +156,6 @@ export function UserMatterList({
     [matterList, handleOpenCard, handleCopyCard, handleDeleteCard],
   );
 
-  if (!Array.isArray(matterList)) {
-    return null;
-  }
-
   return (
     <div>
       <div className="flex items-center justify-between px-8 pt-4">
@@ -188,29 +165,30 @@ export function UserMatterList({
           onSwitchDisplay={setSwitchDisplay}
         />
       </div>
-      {showCards ? (
-        <div className="py-4 px-8">
-          <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
-            {matterList?.map((matter) => (
-              <MatterCard
-                key={matter.id}
-                variant="user"
-                matter={matter}
-                onOpen={handleOpenCard}
-                onCopy={handleCopyCard}
-                onDelete={handleDeleteCard}
-              />
-            ))}
-          </SimpleGrid>
-        </div>
-      ) : (
-        <div className="overflow-auto h-[calc(100vh-200px)]">
-          <Table stickyHeader>
-            <Table.Thead className="bg-white">{tableHeads}</Table.Thead>
-            <Table.Tbody>{tableInfoList}</Table.Tbody>
-          </Table>
-        </div>
-      )}
+      {Array.isArray(matterList) &&
+        (showCards ? (
+          <div className="py-4 px-8">
+            <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
+              {matterList.map((matter) => (
+                <MatterCard
+                  key={matter.id}
+                  variant="user"
+                  matter={matter}
+                  onOpen={handleOpenCard}
+                  onCopy={handleCopyCard}
+                  onDelete={handleDeleteCard}
+                />
+              ))}
+            </SimpleGrid>
+          </div>
+        ) : (
+          <div className="overflow-auto h-[calc(100vh-200px)]">
+            <Table stickyHeader>
+              <Table.Thead className="bg-white">{tableHeads}</Table.Thead>
+              <Table.Tbody>{tableInfoList}</Table.Tbody>
+            </Table>
+          </div>
+        ))}
       {opened && matterInfo && (
         <MatterCardDetail
           variant="user"
