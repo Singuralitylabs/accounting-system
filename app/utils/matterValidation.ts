@@ -1,5 +1,30 @@
 import type { BusinessType, CostType, MatterType } from "../types/types";
 
+// 新規作成モーダルの初期表示・送信ペイロード組み立ての両方で使う空の案件データ。
+// id / is_completed / has_updates / user_id / inserted_at / updated_at /
+// parent_matter_id はサーバ側で上書きされるダミー値のため、ここ 1 箇所にまとめる。
+export const createEmptyMatter = (): MatterType => ({
+  id: 0,
+  title: "",
+  category: "",
+  team: "",
+  start_date: null,
+  description: "",
+  is_fixed: false,
+  is_completed: false,
+  has_updates: false,
+  user_id: 1,
+  accounting_memo: null,
+  total_amount: null,
+  total_cost: null,
+  cost_count: null,
+  business_count: null,
+  unchecked_cost_count: 0,
+  parent_matter_id: null,
+  inserted_at: "",
+  updated_at: "",
+});
+
 export type MatterRequiredFields = Pick<
   MatterType,
   "title" | "category" | "team" | "start_date"

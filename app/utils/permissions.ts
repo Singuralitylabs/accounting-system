@@ -43,7 +43,7 @@ export const matchesRoute = (pathname: string, route: string) =>
 // matchesRoute の引数は (pathname, route)。`matchesRoute("/matters", "/")` は
 // `"/matters" === "/"` でも `"/matters".startsWith("//")` でもないので false。
 // そのため AUTH_ONLY_ROUTES の "/" はトップページだけにマッチする。
-export const AUTH_ONLY_ROUTES = ["/", "/new", "/matters"] as const;
+export const AUTH_ONLY_ROUTES = ["/", "/matters"] as const;
 
 export const isAuthOnlyPath = (pathname: string) =>
   AUTH_ONLY_ROUTES.some((route) => matchesRoute(pathname, route));

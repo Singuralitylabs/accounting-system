@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { MatterList } from "@/app/components/MatterList";
 import { MatterType } from "@/app/types/types";
@@ -31,7 +31,14 @@ const sampleMatter: MatterType = {
 vi.mock("@/app/hooks/useMatterData", () => ({
   useUserMatterList: () => ({ data: [sampleMatter] }),
   useAllMatterList: () => ({ data: [] }),
-  useDeleteMatter: () => ({ mutateAsync: vi.fn() }),
+  useMatterDetail: () => ({
+    data: { costs: [], businesses: [] },
+    isLoading: false,
+    error: null,
+  }),
+  useCreateMatter: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateMatter: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useDeleteMatter: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useSlackNotification: () => ({ mutateAsync: vi.fn() }),
   useCheckCompleted: () => ({ mutateAsync: vi.fn() }),
 }));
@@ -56,6 +63,21 @@ describe("MatterList", () => {
       screen.queryByRole("button", { name: "担当者に連絡" }),
     ).not.toBeInTheDocument();
     expect(screen.queryByText(/閲覧のみ可能/)).not.toBeInTheDocument();
+  });
+
+  it("variant=user は新規作成ボタン押下で新規作成モーダルが開く", async () => {
+    renderWithMantine(<MatterList variant="user" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "+ 新規作成" }));
+
+    expect(await screen.findByText("新規案件の作成")).toBeInTheDocument();
+    expect(screen.getByText("新規作成")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "下書き作成" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "経理申請" }),
+    ).toBeInTheDocument();
   });
 
   it("variant=accounting は確認完了と担当者連絡を出し、開くは出さない", () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { SimpleGrid, Table } from "@mantine/core";
+import { Button, SimpleGrid, Table } from "@mantine/core";
 import dynamic from "next/dynamic";
 import { useCallback, useMemo, useState } from "react";
 import { MatterType } from "../../types/types";
@@ -11,6 +11,7 @@ import {
   confirmAction,
   DELETE_MATTER_CONFIRM_MESSAGE,
 } from "../../utils/confirmAction";
+import { createEmptyMatter } from "../../utils/matterValidation";
 import { useListDisplayMode } from "../../hooks/useListDisplayMode";
 import TableInfo from "../TableInfo";
 import ThreedotsMenu from "../buttons/threedots-menu";
@@ -76,6 +77,12 @@ export function UserMatterList({
       inserted_at: new Date().toISOString(),
       accounting_memo: "",
     });
+    setOpened(true);
+  }, []);
+
+  const handleCreateCard = useCallback(() => {
+    setIsNew(true);
+    setMatterInfo(createEmptyMatter());
     setOpened(true);
   }, []);
 
@@ -149,39 +156,39 @@ export function UserMatterList({
     [matterList, handleOpenCard, handleCopyCard, handleDeleteCard],
   );
 
-  if (!Array.isArray(matterList)) {
-    return null;
-  }
-
   return (
     <div>
-      <DisplayMenu
-        switchDisplay={switchDisplay}
-        onSwitchDisplay={setSwitchDisplay}
-      />
-      {showCards ? (
-        <div className="py-4 px-8">
-          <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
-            {matterList?.map((matter) => (
-              <MatterCard
-                key={matter.id}
-                variant="user"
-                matter={matter}
-                onOpen={handleOpenCard}
-                onCopy={handleCopyCard}
-                onDelete={handleDeleteCard}
-              />
-            ))}
-          </SimpleGrid>
-        </div>
-      ) : (
-        <div className="overflow-auto h-[calc(100vh-200px)]">
-          <Table stickyHeader>
-            <Table.Thead className="bg-white">{tableHeads}</Table.Thead>
-            <Table.Tbody>{tableInfoList}</Table.Tbody>
-          </Table>
-        </div>
-      )}
+      <div className="flex flex-col items-end gap-2 px-8 pt-4">
+        <Button onClick={handleCreateCard}>+ 新規作成</Button>
+        <DisplayMenu
+          switchDisplay={switchDisplay}
+          onSwitchDisplay={setSwitchDisplay}
+        />
+      </div>
+      {Array.isArray(matterList) &&
+        (showCards ? (
+          <div className="py-4 px-8">
+            <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
+              {matterList.map((matter) => (
+                <MatterCard
+                  key={matter.id}
+                  variant="user"
+                  matter={matter}
+                  onOpen={handleOpenCard}
+                  onCopy={handleCopyCard}
+                  onDelete={handleDeleteCard}
+                />
+              ))}
+            </SimpleGrid>
+          </div>
+        ) : (
+          <div className="overflow-auto h-[calc(100vh-200px)]">
+            <Table stickyHeader>
+              <Table.Thead className="bg-white">{tableHeads}</Table.Thead>
+              <Table.Tbody>{tableInfoList}</Table.Tbody>
+            </Table>
+          </div>
+        ))}
       {opened && matterInfo && (
         <MatterCardDetail
           variant="user"

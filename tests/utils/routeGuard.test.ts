@@ -104,9 +104,12 @@ describe("classifyPath（public / protected / restricted）", () => {
 
   it("ロール制限なしのログイン必須", () => {
     expect(classifyPath("/")).toEqual({ kind: "auth_only" });
-    expect(classifyPath("/new")).toEqual({ kind: "auth_only" });
     expect(classifyPath("/matters")).toEqual({ kind: "auth_only" });
     expect(classifyPath("/matters/1")).toEqual({ kind: "auth_only" });
+  });
+
+  it("/new は廃止済みのため保護対象外（未定義ルートとして open）", () => {
+    expect(classifyPath("/new")).toEqual({ kind: "open" });
   });
 
   it("ロール制限ルートと許可ロール", () => {
