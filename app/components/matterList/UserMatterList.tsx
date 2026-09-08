@@ -158,7 +158,7 @@ export function UserMatterList({
 
   return (
     <div>
-      <div className="flex items-center justify-between px-8 pt-4">
+      <div className="flex items-center justify-end gap-4 px-8 pt-4">
         <Button onClick={handleCreateCard}>+ 新規作成</Button>
         <DisplayMenu
           switchDisplay={switchDisplay}
