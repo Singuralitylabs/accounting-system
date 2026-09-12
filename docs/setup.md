@@ -293,6 +293,8 @@ supabase link --project-ref [your-project-id]
 supabase db push
 ```
 
+アプリが新しい RPC / テーブルを参照するリリースより **先に**（または同時に）対応マイグレーションを適用すること。未適用のままアプリだけ先行すると、PostgREST は `PGRST202`（schema cache に関数が無い）を返す。例: `main` の `get_member_options()`（migration 21）は、本番 `release` に載せる前に `supabase db push` が必要。
+
 #### 4. データの移行
 
 ```bash
