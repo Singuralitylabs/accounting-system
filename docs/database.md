@@ -1161,6 +1161,7 @@ GRANT SELECT (user_id, class) ON TABLE public.profiles TO supabase_auth_admin;
 - `class` を変更しても、対象ユーザーのトークンがリフレッシュ（既定で最大約 1 時間）または再ログインするまで JWT に反映されない。制限ルートの `middleware.ts` によるゲーティングはこの遅延を許容する仕様とし、即時反映が必要な用途では別途対応すること。
 - `middleware.ts` は `user_class` クレームが有効な文字列でない場合（クレームキー自体が無い / 値が明示的に `null` / 空文字 / 文字列以外）は `profiles` への DB クエリにフォールバックする（フェイルセーフ）。`app/auth/callback/route.ts` はトークン発行（フック実行）の**後**に profiles 行を作成するため、新規ユーザーの初回トークンは必ず `user_class: null` になる。この場合もフォールバックすることで、直後の管理者によるロール付与を最大約 1 時間待たずに反映できる。
 - `middleware.ts` は `getUser()`（Supabase Auth サーバでの署名検証を伴う）で認証済みかどうかを判定したうえで、同じアクセストークンから `user_class` クレームを読む。`getSession()` はローカル Cookie を読むだけで署名検証を行わないため、認証の可否判定には使わない。`getUser()` が Supabase Auth 側の一時的障害を返した場合は、ログイン中ユーザーを一律 `/login` に飛ばさず 503 を返す（一時的障害と不正トークンを区別する）。判定は「`AuthRetryableFetchError`（fetch 自体の失敗と 502/503/504）**または** ステータス 5xx の `AuthApiError`」で行う。auth-js が `AuthRetryableFetchError` にするのは 502/503/504 のみで 500 は `AuthApiError` になるため、後者を含めないと Auth の 500 で全ユーザーが強制ログアウトされる。偽造・期限切れトークンは 401/403 になるためこの判定には混入しない。
+- PostgREST の `PGRST303`（`JWT issued at future`）は、アプリが JWT を発行しているためではなく、GoTrue が付けた `iat` を PostgREST が別ホストの時計で検証したときに起きる。`getUser()` は通るが直後の REST（選択肢マスタなど）が 401 になる、という形で観測される。クライアント側では `app/utils/supabase/postgrestFetch.ts` が **同じトークン** を短い待ちのあと再送する（refresh すると新しい `iat` で再現するため）。時計ずれが 30 秒超で継続する場合は Supabase 側の NTP / サポート対応が必要。
 
 ## 8. ER 図
 

@@ -5,6 +5,7 @@ import { hasClassAccess } from "./app/utils/permissions";
 import { readClassClaim } from "./app/utils/authClaims";
 import type { Database } from "./app/lib/database.types";
 import { classifyPath, isTransientAuthError } from "./app/utils/routeGuard";
+import { createPostgrestFetch } from "./app/utils/supabase/postgrestFetch";
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -37,6 +38,7 @@ export async function middleware(req: NextRequest) {
           );
         },
       },
+      global: { fetch: createPostgrestFetch() },
     },
   );
 
