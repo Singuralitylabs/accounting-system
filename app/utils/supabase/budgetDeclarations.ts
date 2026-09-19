@@ -336,11 +336,13 @@ export const saveBudgetDeclaration = async (
     },
   );
   if (!categoryValidation.ok && categoryValidation.reason === "item_category") {
+    // optionsAtom はフルページロード時にしかハイドレートされないため、
+    // モーダルの開き直しでは古いマスタのまま変わらない。画面全体の再読み込みを案内する
     return {
       error: {
         kind: "validationFailed",
         message:
-          "選択された分類がマスタに登録されていません。フォームを開き直して選び直してください。",
+          "選択された分類がマスタに登録されていません。画面を再読み込みして選び直してください。",
       },
     };
   }

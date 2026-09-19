@@ -271,7 +271,7 @@ describe("saveBudgetDeclaration", () => {
       error: {
         kind: "validationFailed",
         message:
-          "選択された分類がマスタに登録されていません。フォームを開き直して選び直してください。",
+          "選択された分類がマスタに登録されていません。画面を再読み込みして選び直してください。",
       },
     });
     expect(rpc).not.toHaveBeenCalled();
@@ -289,7 +289,7 @@ describe("saveBudgetDeclaration", () => {
       error: {
         kind: "validationFailed",
         message:
-          "選択された分類がマスタに登録されていません。フォームを開き直して選び直してください。",
+          "選択された分類がマスタに登録されていません。画面を再読み込みして選び直してください。",
       },
     });
     expect(rpc).not.toHaveBeenCalled();
