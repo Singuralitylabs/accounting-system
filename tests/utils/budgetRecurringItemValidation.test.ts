@@ -109,6 +109,28 @@ describe("validateBudgetRecurringItem", () => {
       ),
     ).toBe("ok");
   });
+
+  it("マスタ指定なしでは分類のマスタ照合を行わない", () => {
+    expect(validateBudgetRecurringItem(baseRow({ category: "旧分類" }))).toBe(
+      "ok",
+    );
+  });
+
+  it("マスタに無い分類は category エラーにする（Issue #116）", () => {
+    const masters = {
+      categoryList: ["セミナー"],
+      itemList: ["外注費"],
+    };
+    expect(
+      validateBudgetRecurringItem(baseRow({ category: "セミナー" }), masters),
+    ).toBe("ok");
+    expect(
+      validateBudgetRecurringItem(baseRow({ category: "旧分類" }), masters),
+    ).toBe("category");
+    expect(getBudgetRecurringItemValidationMessage("category")).toMatch(
+      /マスタ/,
+    );
+  });
 });
 
 describe("validateBudgetRecurringItemList", () => {
@@ -151,6 +173,9 @@ describe("getBudgetRecurringItemValidationMessage", () => {
     );
     expect(getBudgetRecurringItemValidationMessage("period")).toContain(
       "適用終了月",
+    );
+    expect(getBudgetRecurringItemValidationMessage("category")).toContain(
+      "マスタ",
     );
   });
 });

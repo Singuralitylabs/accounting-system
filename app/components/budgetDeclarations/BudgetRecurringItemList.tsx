@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Alert,
   Button,
   LoadingOverlay,
   NumberInput,
@@ -22,7 +23,10 @@ import {
   BudgetRecurringItemInListType,
   BudgetRecurringItemType,
 } from "@/app/types/types";
-import { categoryOptionsFor } from "@/app/utils/budgetDeclaration";
+import {
+  categoryOptionsFor,
+  isCategoryUnregistered,
+} from "@/app/utils/budgetDeclaration";
 import {
   getBudgetRecurringItemValidationMessage,
   validateBudgetRecurringItemList,
@@ -116,7 +120,10 @@ const BudgetRecurringItemList = ({
   };
 
   const handleSave = async () => {
-    const validation = validateBudgetRecurringItemList(rows);
+    const validation = validateBudgetRecurringItemList(rows, {
+      categoryList,
+      itemList,
+    });
     if (validation !== "ok") {
       notifyError(getBudgetRecurringItemValidationMessage(validation));
       return;
@@ -135,6 +142,14 @@ const BudgetRecurringItemList = ({
   };
 
   const visibleRows = rows.filter((row) => !row.isRemoved);
+  const unregisteredCategoryCount = visibleRows.filter((row) =>
+    isCategoryUnregistered(
+      row.entry_type,
+      row.category,
+      categoryList,
+      itemList,
+    ),
+  ).length;
 
   return (
     <div className="px-4 pb-8 max-w-6xl mx-auto relative">
@@ -157,6 +172,12 @@ const BudgetRecurringItemList = ({
           保存
         </Button>
       </div>
+      {unregisteredCategoryCount > 0 && (
+        <Alert color="yellow" title="分類の見直しが必要です" className="mb-4">
+          マスタに登録されていない分類が{unregisteredCategoryCount}
+          件あります。分類を選び直してください（保存できません）。
+        </Alert>
+      )}
       <div className="overflow-x-auto border border-gray-300 rounded bg-slate-50 p-4">
         <Table verticalSpacing="sm" className="whitespace-nowrap">
           <Table.Thead>
@@ -218,6 +239,16 @@ const BudgetRecurringItemList = ({
                     )}
                     value={row.category || null}
                     placeholder="分類を選択"
+                    error={
+                      isCategoryUnregistered(
+                        row.entry_type,
+                        row.category,
+                        categoryList,
+                        itemList,
+                      )
+                        ? "マスタ未登録のため選び直してください"
+                        : undefined
+                    }
                     onChange={(value) =>
                       handleUpdateRow(row.id, { category: value ?? "" })
                     }

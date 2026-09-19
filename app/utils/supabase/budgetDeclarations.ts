@@ -29,6 +29,7 @@ import { createServerSupabase } from "./clients";
 import { FOREIGN_KEY_VIOLATION, NO_DATA_FOUND } from "./errorCodes";
 import { assertManagerIdsExist } from "./profiles";
 import { getSelectOptions } from "./selectOptions";
+import { getActiveSelectOptionsByType } from "./selectOptionsCache";
 import { getAuthorizedViewer } from "./viewerAccess";
 
 const SUBJECT = "事前収支申告";
@@ -302,6 +303,48 @@ export const saveBudgetDeclaration = async (
   );
   if (managerIdError) {
     return { error: managerIdError };
+  }
+
+  // 分類がマスタ（収入 = category、支出 = item）に存在するか保存前に照合する。
+  // クライアントの Select は編集可能なため、注入表示（categoryOptionsFor）の
+  // 「（マスタ未登録）」ラベルだけでは選び直し保存を防げない。前月コピーで
+  // 無効化された分類が翌月以降も引き継がれ続ける経路（Issue #116）を塞ぐため、
+  // manager_id の validateMemberIds と同じ方式で DB マスタと照合する。
+  // クライアントの categoryList / itemList は渡さず、サーバ側で最新の有効値
+  // （getActiveSelectOptionsByType）を引き直す（フォームを開いた後のマスタ変更を反映するため）
+  const { optionsByType: categoryOptionsByType, error: categoryMasterError } =
+    await getActiveSelectOptionsByType(["category", "item"]);
+  if (categoryMasterError) {
+    console.error(`${SUBJECT}の分類マスタ確認に失敗しました:`, categoryMasterError);
+    return {
+      error: {
+        kind: "fetchFailed",
+        message: `${SUBJECT}の分類確認に失敗しました。`,
+      },
+    };
+  }
+  const categoryValidation = validateBudgetDeclarationPayload(
+    { targetMonth: input.targetMonth, team: input.team },
+    input.items,
+    {
+      categoryList: (categoryOptionsByType.category ?? []).map(
+        (option) => option.value,
+      ),
+      itemList: (categoryOptionsByType.item ?? []).map(
+        (option) => option.value,
+      ),
+    },
+  );
+  if (!categoryValidation.ok && categoryValidation.reason === "item_category") {
+    // optionsAtom はフルページロード時にしかハイドレートされないため、
+    // モーダルの開き直しでは古いマスタのまま変わらない。画面全体の再読み込みを案内する
+    return {
+      error: {
+        kind: "validationFailed",
+        message:
+          "選択された分類がマスタに登録されていません。画面を再読み込みして選び直してください。",
+      },
+    };
   }
 
   // ヘッダの作成/更新・明細の全削除・全登録を DB 関数（public.save_budget_declaration、

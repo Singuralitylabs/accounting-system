@@ -128,6 +128,54 @@ describe("validateBudgetDeclarationItem", () => {
       "manager_id",
     );
   });
+
+  it("マスタ指定なしでは分類のマスタ照合を行わない（既存呼び出しの互換維持）", () => {
+    expect(
+      validateBudgetDeclarationItem(validItem({ category: "旧分類" })),
+    ).toBe("ok");
+  });
+
+  it("マスタに無い分類は category エラーにする（Issue #116）", () => {
+    const masters = {
+      categoryList: ["セミナー"],
+      itemList: ["外注費"],
+    };
+    expect(
+      validateBudgetDeclarationItem(
+        validItem({ category: "セミナー" }),
+        masters,
+      ),
+    ).toBe("ok");
+    expect(
+      validateBudgetDeclarationItem(validItem({ category: "旧分類" }), masters),
+    ).toBe("category");
+    // 種別違いのマスタ混同も弾く（収入行に支出マスタの値）
+    expect(
+      validateBudgetDeclarationItem(
+        validItem({ entry_type: "expense", category: "セミナー" }),
+        masters,
+      ),
+    ).toBe("category");
+    expect(
+      validateBudgetDeclarationItem(
+        validItem({ entry_type: "expense", category: "外注費" }),
+        masters,
+      ),
+    ).toBe("ok");
+  });
+
+  it("分類の前後空白は trim して照合する（保存時と同じ基準）", () => {
+    const masters = {
+      categoryList: ["セミナー"],
+      itemList: ["外注費"],
+    };
+    expect(
+      validateBudgetDeclarationItem(
+        validItem({ category: " セミナー " }),
+        masters,
+      ),
+    ).toBe("ok");
+  });
 });
 
 describe("validateBudgetDeclarationPayload", () => {
@@ -174,6 +222,22 @@ describe("validateBudgetDeclarationPayload", () => {
     expect(result).toEqual({ ok: false, reason: "item_manager_id" });
   });
 
+  it("明細の分類がマスタに無いと item_category", () => {
+    const masters = {
+      categoryList: ["セミナー"],
+      itemList: ["外注費"],
+    };
+    const result = validateBudgetDeclarationPayload(
+      header,
+      [validItem({ category: "旧分類" })],
+      masters,
+    );
+    expect(result).toEqual({ ok: false, reason: "item_category" });
+    expect(getBudgetDeclarationValidationMessage("item_category")).toMatch(
+      /マスタ/,
+    );
+  });
+
   it("すべての明細が妥当なら ok", () => {
     const result = validateBudgetDeclarationPayload(header, [
       validItem(),
@@ -190,6 +254,8 @@ describe("getBudgetDeclarationValidationMessage", () => {
       "item_required",
       "item_amount",
       "item_amount_overflow",
+      "item_manager_id",
+      "item_category",
     ];
     for (const reason of reasons) {
       expect(getBudgetDeclarationValidationMessage(reason)).toMatch(/./);

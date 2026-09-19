@@ -17,6 +17,7 @@ import {
 import { toFirstOfMonth, toFirstOfMonthOrNull } from "../formatter";
 import { createServerSupabase } from "./clients";
 import { assertManagerIdsExist } from "./profiles";
+import { getActiveSelectOptionsByType } from "./selectOptionsCache";
 import { getAuthorizedViewer } from "./viewerAccess";
 
 const SUBJECT = "事前収支申告の定期明細";
@@ -170,6 +171,37 @@ export const bulkSaveBudgetRecurringItems = async (
   );
   if (managerIdError) {
     return { error: managerIdError };
+  }
+
+  // 分類がマスタ（収入 = category、支出 = item）に存在するか保存前に照合する
+  // （saveBudgetDeclaration と同方針。Issue #116）。定期明細は申告作成時に
+  // 明細として展開されるため、ここで無効値を許すと翌月以降の申告へ自動で
+  // 広がる。クライアントのマスタは使わずサーバ側で最新の有効値を引き直す
+  const { optionsByType: categoryOptionsByType, error: categoryMasterError } =
+    await getActiveSelectOptionsByType(["category", "item"]);
+  if (categoryMasterError) {
+    console.error(`${SUBJECT}の分類マスタ確認に失敗しました:`, categoryMasterError);
+    return {
+      error: {
+        kind: "fetchFailed",
+        message: `${SUBJECT}の分類確認に失敗しました。`,
+      },
+    };
+  }
+  const categoryValidation = validateBudgetRecurringItemList(rows, {
+    categoryList: (categoryOptionsByType.category ?? []).map(
+      (option) => option.value,
+    ),
+    itemList: (categoryOptionsByType.item ?? []).map((option) => option.value),
+  });
+  if (categoryValidation === "category") {
+    return {
+      error: {
+        kind: "validationFailed",
+        message:
+          "選択された分類がマスタに登録されていません。画面を再読み込みして選び直してください。",
+      },
+    };
   }
 
   const supabase = createServerSupabase();

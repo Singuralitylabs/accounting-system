@@ -77,6 +77,30 @@ const testMemberList = [
   { value: "2", label: "鈴木花子" },
 ];
 
+// 保存まで行うテストは分類マスタが必要（Issue #116 のマスタ照合により、
+// 空マスタのままだと「セミナー」「外注費」も未登録扱いで保存が止まる）。
+// マスタ付きの store でラップして描画するヘルパー
+const renderFormWithMasters = (
+  props: React.ComponentProps<typeof BudgetDeclarationForm>,
+  masters: { categoryList: string[]; itemList: string[] } = {
+    categoryList: ["セミナー", "受託案件"],
+    itemList: ["外注費", "ツール利用料"],
+  },
+) => {
+  const store = createStore();
+  store.set(optionsAtom, {
+    teamList: ["開発チーム", "経理チーム"],
+    categoryList: masters.categoryList,
+    itemList: masters.itemList,
+    certificateList: [],
+  });
+  return renderWithMantine(
+    <Provider store={store}>
+      <BudgetDeclarationForm {...props} />
+    </Provider>,
+  );
+};
+
 describe("BudgetDeclarationForm", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -321,17 +345,15 @@ describe("BudgetDeclarationForm", () => {
     confirmAction.mockResolvedValue(true);
     const onClose = vi.fn();
 
-    renderWithMantine(
-      <BudgetDeclarationForm
-        opened
-        onClose={onClose}
-        targetMonth="2026-10"
-        team="開発チーム"
-        declarationId={7}
-        teamLocked={false}
-        memberList={testMemberList}
-      />,
-    );
+    renderFormWithMasters({
+      opened: true,
+      onClose,
+      targetMonth: "2026-10",
+      team: "開発チーム",
+      declarationId: 7,
+      teamLocked: false,
+      memberList: testMemberList,
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await vi.waitFor(() => expect(saveMutation.mutateAsync).toHaveBeenCalled());
@@ -519,17 +541,15 @@ describe("BudgetDeclarationForm", () => {
     });
     confirmAction.mockResolvedValue(true);
 
-    renderWithMantine(
-      <BudgetDeclarationForm
-        opened
-        onClose={vi.fn()}
-        targetMonth="2026-10"
-        team="開発チーム"
-        declarationId={7}
-        teamLocked={false}
-        memberList={testMemberList}
-      />,
-    );
+    renderFormWithMasters({
+      opened: true,
+      onClose: vi.fn(),
+      targetMonth: "2026-10",
+      team: "開発チーム",
+      declarationId: 7,
+      teamLocked: false,
+      memberList: testMemberList,
+    });
 
     // 担当者を選択する
     const managerInput = screen.getByPlaceholderText("担当者を選択");
@@ -1123,17 +1143,15 @@ describe("BudgetDeclarationForm", () => {
       });
       confirmAction.mockResolvedValue(true);
 
-      renderWithMantine(
-        <BudgetDeclarationForm
-          opened
-          onClose={vi.fn()}
-          targetMonth="2026-10"
-          team="開発チーム"
-          declarationId={null}
-          teamLocked
-          memberList={testMemberList}
-        />,
-      );
+      renderFormWithMasters({
+        opened: true,
+        onClose: vi.fn(),
+        targetMonth: "2026-10",
+        team: "開発チーム",
+        declarationId: null,
+        teamLocked: true,
+        memberList: testMemberList,
+      });
 
       fireEvent.click(screen.getByRole("button", { name: "保存" }));
       await vi.waitFor(() =>
@@ -1203,6 +1221,93 @@ describe("BudgetDeclarationForm", () => {
         screen.getByText("定期明細の確認に失敗しました"),
       ).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+    });
+  });
+
+  describe("マスタ未登録の分類（Issue #116）", () => {
+    it("マスタに無い分類の既存明細は警告を表示し、空欄に見せない", () => {
+      useBudgetDeclarationDetail.mockReturnValue({
+        data: {
+          comment: "",
+          items: [
+            {
+              id: 1,
+              declaration_id: 7,
+              entry_type: "expense",
+              category: "旧品目",
+              description: "既存の明細",
+              amount: 300000,
+              manager_id: null,
+              display_order: 0,
+              inserted_at: "",
+              updated_at: "",
+            },
+          ],
+        },
+        isLoading: false,
+        isError: false,
+      });
+
+      renderFormWithMasters({
+        opened: true,
+        onClose: vi.fn(),
+        targetMonth: "2026-10",
+        team: "開発チーム",
+        declarationId: 7,
+        teamLocked: false,
+        memberList: testMemberList,
+      });
+
+      expect(screen.getByText("分類の見直しが必要です")).toBeInTheDocument();
+      expect(
+        screen.getByText("マスタ未登録のため選び直してください"),
+      ).toBeInTheDocument();
+      // 値は保持され、選択肢には「（マスタ未登録）」付きで表示される
+      expect(
+        screen.getByDisplayValue("旧品目（マスタ未登録）"),
+      ).toBeInTheDocument();
+    });
+
+    it("マスタ未登録の分類があるまま保存すると案内を出し、保存処理を呼ばない", () => {
+      useBudgetDeclarationDetail.mockReturnValue({
+        data: {
+          comment: "",
+          items: [
+            {
+              id: 1,
+              declaration_id: 7,
+              entry_type: "income",
+              category: "旧分類",
+              description: "既存の明細",
+              amount: 300000,
+              manager_id: null,
+              display_order: 0,
+              inserted_at: "",
+              updated_at: "",
+            },
+          ],
+        },
+        isLoading: false,
+        isError: false,
+      });
+
+      renderFormWithMasters({
+        opened: true,
+        onClose: vi.fn(),
+        targetMonth: "2026-10",
+        team: "開発チーム",
+        declarationId: 7,
+        teamLocked: false,
+        memberList: testMemberList,
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+      expect(notifyError).toHaveBeenCalledWith(
+        "明細の分類がマスタに登録されていません。選び直してください。",
+      );
+      expect(saveMutation.mutateAsync).not.toHaveBeenCalled();
+      expect(confirmAction).not.toHaveBeenCalled();
     });
   });
 });

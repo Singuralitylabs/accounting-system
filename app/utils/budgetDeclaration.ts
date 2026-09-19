@@ -152,21 +152,46 @@ export const buildBudgetDeclarationStatusList = (
   return [...rows, ...orphanRows];
 };
 
+// 分類がマスタに登録されている値か（種別に連動。収入 = category、支出 = item）。
+// 空文字は「未入力」であり「未登録」とは区別する（未入力は required 側の責務）。
+// 前後の空白は保存時に trim されるため、照合前に trim する
+// （validateBudgetDeclarationItem / Server Action 側と同一基準）。
+export const isCategoryUnregistered = (
+  entryType: string,
+  category: string,
+  categoryList: readonly string[],
+  itemList: readonly string[],
+): boolean => {
+  const trimmedCategory = category.trim();
+  if (!trimmedCategory) return false;
+  const trimmedEntryType = entryType.trim();
+  if (trimmedEntryType !== "income" && trimmedEntryType !== "expense") {
+    return false;
+  }
+  const master = trimmedEntryType === "income" ? categoryList : itemList;
+  return !master.includes(trimmedCategory);
+};
+
 // 種別に連動した分類の選択肢を返す（収入 = category、支出 = item の既存マスタを流用）。
 // 分類がマスタから外れていても（無効化・改名。前月コピー・定期明細の取り込みで
 // 持ち込んだ場合を含む）選択肢に残し、見せかけ上クリアされたように見せない。
 // ただしマスタの値と紛れないよう、注入した選択肢のラベルだけ「（マスタ未登録）」と
-// 付記する（保存される値そのものは変えない）。BudgetDeclarationForm と
+// 付記する（保存される値そのものは変えない）。注入した選択肢は disabled にし、
+// 一度有効な値に変えた後に「選び直して」無効値を復活させられないようにする
+// （現在値としての表示は維持される）。BudgetDeclarationForm と
 // BudgetRecurringItemList（管理セクション）で共用する
 export const categoryOptionsFor = (
   entryType: string,
   category: string,
   categoryList: readonly string[],
   itemList: readonly string[],
-): (string | { value: string; label: string })[] => {
+): (string | { value: string; label: string; disabled: boolean })[] => {
   const master = entryType === "income" ? categoryList : itemList;
   if (!category || master.includes(category)) return [...master];
-  return [{ value: category, label: `${category}（マスタ未登録）` }, ...master];
+  return [
+    { value: category, label: `${category}（マスタ未登録）`, disabled: true },
+    ...master,
+  ];
 };
 
 // 前月の明細を「新規行」に変換する（id・display_order を持たない。フォームの
