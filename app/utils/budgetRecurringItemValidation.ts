@@ -7,6 +7,7 @@
 
 import { BudgetRecurringItemInListType } from "../types/types";
 import {
+  BudgetDeclarationCategoryMaster,
   MAX_ITEM_AMOUNT,
   validateBudgetDeclarationItem,
 } from "./budgetDeclarationValidation";
@@ -18,7 +19,8 @@ export type BudgetRecurringItemValidationReason =
   | "amount"
   | "amount_overflow"
   | "manager_id"
-  | "period";
+  | "period"
+  | "category";
 
 export const BUDGET_RECURRING_ITEM_VALIDATION_MESSAGES: Record<
   BudgetRecurringItemValidationReason,
@@ -29,6 +31,7 @@ export const BUDGET_RECURRING_ITEM_VALIDATION_MESSAGES: Record<
   amount_overflow: `金額が大きすぎます（上限: ¥${MAX_ITEM_AMOUNT.toLocaleString("ja-JP")}）。`,
   manager_id: "担当者の指定が不正です。",
   period: "適用終了月が適用開始月より前になっています。",
+  category: "分類がマスタに登録されていない行があります。選び直してください。",
 };
 
 // 明細 1 行の妥当性。"ok" 以外は理由を返し、呼び出し側でメッセージを出し分ける。
@@ -39,16 +42,18 @@ export const BUDGET_RECURRING_ITEM_VALIDATION_MESSAGES: Record<
 // 必須チェックと適用期間（period）のチェックだけをここに残す
 export const validateBudgetRecurringItem = (
   row: BudgetRecurringItemInListType,
+  masters?: BudgetDeclarationCategoryMaster,
 ): "ok" | BudgetRecurringItemValidationReason => {
   if (!row.team.trim() || !row.start_month) {
     return "required";
   }
 
-  const commonResult = validateBudgetDeclarationItem(row);
+  const commonResult = validateBudgetDeclarationItem(row, masters);
   if (commonResult === "required") return "required";
   if (commonResult === "amount") return "amount";
   if (commonResult === "overflow") return "amount_overflow";
   if (commonResult === "manager_id") return "manager_id";
+  if (commonResult === "category") return "category";
 
   // 月初日どうしの比較のため文字列の先頭7文字（YYYY-MM）の辞書順比較でよい
   if (
@@ -63,10 +68,11 @@ export const validateBudgetRecurringItem = (
 // 削除予定でない行すべてを検証する。最初に見つかった不備の理由を返す
 export const validateBudgetRecurringItemList = (
   rows: readonly BudgetRecurringItemInListType[],
+  masters?: BudgetDeclarationCategoryMaster,
 ): "ok" | BudgetRecurringItemValidationReason => {
   for (const row of rows) {
     if (row.isRemoved) continue;
-    const result = validateBudgetRecurringItem(row);
+    const result = validateBudgetRecurringItem(row, masters);
     if (result !== "ok") return result;
   }
   return "ok";

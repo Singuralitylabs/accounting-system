@@ -1,11 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { createServerSupabase, getAuthorizedViewer, assertManagerIdsExist } =
-  vi.hoisted(() => ({
-    createServerSupabase: vi.fn(),
-    getAuthorizedViewer: vi.fn(),
-    assertManagerIdsExist: vi.fn(),
-  }));
+const {
+  createServerSupabase,
+  getAuthorizedViewer,
+  assertManagerIdsExist,
+  getActiveSelectOptionsByType,
+} = vi.hoisted(() => ({
+  createServerSupabase: vi.fn(),
+  getAuthorizedViewer: vi.fn(),
+  assertManagerIdsExist: vi.fn(),
+  getActiveSelectOptionsByType: vi.fn(),
+}));
 
 vi.mock("@/app/utils/supabase/clients", () => ({ createServerSupabase }));
 vi.mock("@/app/utils/supabase/viewerAccess", () => ({ getAuthorizedViewer }));
@@ -15,6 +20,9 @@ vi.mock("@/app/utils/supabase/profiles", () => ({ assertManagerIdsExist }));
 // メモ化。Next.js のビルド下でのみ機能し、素の Vitest/Node 環境では未対応）を
 // モジュール評価時に呼ぶため、実体を読み込ませないようモックする
 vi.mock("@/app/utils/supabase/selectOptions", () => ({ getSelectOptions: vi.fn() }));
+vi.mock("@/app/utils/supabase/selectOptionsCache", () => ({
+  getActiveSelectOptionsByType,
+}));
 
 import { saveBudgetDeclaration } from "@/app/utils/supabase/budgetDeclarations";
 import { DUPLICATE_DECLARATION_MESSAGE } from "@/app/utils/budgetDeclarationValidation";
@@ -51,6 +59,14 @@ describe("saveBudgetDeclaration", () => {
     });
     assertManagerIdsExist.mockReset();
     assertManagerIdsExist.mockResolvedValue(null);
+    getActiveSelectOptionsByType.mockReset();
+    getActiveSelectOptionsByType.mockResolvedValue({
+      optionsByType: {
+        category: [{ value: "セミナー" }],
+        item: [{ value: "外注費" }],
+      },
+      error: null,
+    });
   });
 
   it("save_budget_declaration RPC を1回呼ぶだけで完結し、成功時は id を返す", async () => {
@@ -238,6 +254,59 @@ describe("saveBudgetDeclaration", () => {
       error: {
         kind: "forbidden",
         message: "Aチームの事前収支申告を編集する権限がありません。",
+      },
+    });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("マスタに無い分類は RPC を呼ばず validationFailed を返す（Issue #116）", async () => {
+    single.mockResolvedValue({ data: { id: 7 }, error: null });
+
+    const result = await saveBudgetDeclaration({
+      ...baseInput,
+      items: [{ ...baseInput.items[0], category: "旧分類" }],
+    });
+
+    expect(result).toEqual({
+      error: {
+        kind: "validationFailed",
+        message:
+          "選択された分類がマスタに登録されていません。フォームを開き直して選び直してください。",
+      },
+    });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("種別違いのマスタ混同（収入行に支出マスタの値）も validationFailed を返す", async () => {
+    const result = await saveBudgetDeclaration({
+      ...baseInput,
+      items: [
+        { ...baseInput.items[0], entry_type: "expense", category: "セミナー" },
+      ],
+    });
+
+    expect(result).toEqual({
+      error: {
+        kind: "validationFailed",
+        message:
+          "選択された分類がマスタに登録されていません。フォームを開き直して選び直してください。",
+      },
+    });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("分類マスタの取得に失敗したら fetchFailed を返し RPC を呼ばない", async () => {
+    getActiveSelectOptionsByType.mockResolvedValue({
+      optionsByType: {},
+      error: new Error("master fetch failed"),
+    });
+
+    const result = await saveBudgetDeclaration(baseInput);
+
+    expect(result).toEqual({
+      error: {
+        kind: "fetchFailed",
+        message: "事前収支申告の分類確認に失敗しました。",
       },
     });
     expect(rpc).not.toHaveBeenCalled();

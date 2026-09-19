@@ -5,10 +5,18 @@
 
 import { BudgetDeclarationItemInput } from "../types/types";
 import { UNIQUE_VIOLATION } from "./supabase/errorCodes";
+import { isCategoryUnregistered } from "./budgetDeclaration";
 
 export type BudgetDeclarationHeaderInput = {
   targetMonth: string;
   team: string;
+};
+
+// 分類マスタ（収入 = category、支出 = item）。クライアントの optionsAtom、
+// サーバの getActiveSelectOptionsByType のいずれからでも渡せる
+export type BudgetDeclarationCategoryMaster = {
+  categoryList: readonly string[];
+  itemList: readonly string[];
 };
 
 export type BudgetDeclarationValidationReason =
@@ -16,7 +24,8 @@ export type BudgetDeclarationValidationReason =
   | "item_required"
   | "item_amount"
   | "item_amount_overflow"
-  | "item_manager_id";
+  | "item_manager_id"
+  | "item_category";
 
 export type BudgetDeclarationValidationResult =
   | { ok: true }
@@ -45,6 +54,8 @@ export const BUDGET_DECLARATION_VALIDATION_MESSAGES: Record<
   item_amount: "明細の金額は0より大きい値を入力してください。",
   item_amount_overflow: `明細の金額が大きすぎます（上限: ¥${MAX_ITEM_AMOUNT.toLocaleString("ja-JP")}）。`,
   item_manager_id: "明細の担当者の指定が不正です。",
+  item_category:
+    "明細の分類がマスタに登録されていません。選び直してください。",
 };
 
 export const hasBudgetDeclarationRequiredHeader = (
@@ -54,7 +65,8 @@ export const hasBudgetDeclarationRequiredHeader = (
 // 明細 1 行の妥当性。"ok" 以外は理由を返し、呼び出し側でメッセージを出し分ける
 export const validateBudgetDeclarationItem = (
   item: BudgetDeclarationItemInput,
-): "ok" | "required" | "amount" | "overflow" | "manager_id" => {
+  masters?: BudgetDeclarationCategoryMaster,
+): "ok" | "required" | "amount" | "overflow" | "manager_id" | "category" => {
   // trim() で空白のみの入力（例: 内容に半角スペースのみ）も未入力扱いにする
   const entryType = item.entry_type.trim();
   if (!entryType || !item.category.trim() || !item.description.trim()) {
@@ -85,6 +97,21 @@ export const validateBudgetDeclarationItem = (
   if (item.manager_id !== null && item.manager_id <= 0) {
     return "manager_id";
   }
+  // 分類がマスタ（収入 = category、支出 = item）に無い場合は保存させない。
+  // 管理者が無効化・改名した値を、前月コピーや直接の選び直しで使い続けられる
+  // 穴（Issue #116）を塞ぐ。masters 未指定時は従来どおり照合しない
+  // （既存呼び出しの互換維持・サーバ側は DB マスタで照合するため）
+  if (
+    masters &&
+    isCategoryUnregistered(
+      item.entry_type,
+      item.category,
+      masters.categoryList,
+      masters.itemList,
+    )
+  ) {
+    return "category";
+  }
   return "ok";
 };
 
@@ -93,13 +120,14 @@ export const validateBudgetDeclarationItem = (
 export const validateBudgetDeclarationPayload = (
   header: BudgetDeclarationHeaderInput,
   items: readonly BudgetDeclarationItemInput[],
+  masters?: BudgetDeclarationCategoryMaster,
 ): BudgetDeclarationValidationResult => {
   if (!hasBudgetDeclarationRequiredHeader(header)) {
     return { ok: false, reason: "header_required" };
   }
 
   for (const item of items) {
-    const result = validateBudgetDeclarationItem(item);
+    const result = validateBudgetDeclarationItem(item, masters);
     if (result === "required") {
       return { ok: false, reason: "item_required" };
     }
@@ -111,6 +139,9 @@ export const validateBudgetDeclarationPayload = (
     }
     if (result === "manager_id") {
       return { ok: false, reason: "item_manager_id" };
+    }
+    if (result === "category") {
+      return { ok: false, reason: "item_category" };
     }
   }
 

@@ -31,6 +31,7 @@ import { BudgetDeclarationItemInput } from "@/app/types/types";
 import { confirmAction } from "@/app/utils/confirmAction";
 import {
   categoryOptionsFor,
+  isCategoryUnregistered,
   previousItemsToFormRows,
   summarizeBudgetItems,
 } from "@/app/utils/budgetDeclaration";
@@ -300,6 +301,7 @@ const BudgetDeclarationForm = ({
     const validation = validateBudgetDeclarationPayload(
       { targetMonth, team: currentTeam },
       items,
+      { categoryList, itemList },
     );
     if (!validation.ok) {
       notifyError(getBudgetDeclarationValidationMessage(validation.reason));
@@ -353,6 +355,16 @@ const BudgetDeclarationForm = ({
   };
 
   const summary = summarizeBudgetItems(items);
+  // マスタから外れた（無効化・改名された）分類を持つ行数。前月コピー・定期明細の
+  // 自動展開で持ち込まれた場合を含み、保存時は選び直しが必要になる
+  const unregisteredCategoryCount = items.filter((item) =>
+    isCategoryUnregistered(
+      item.entry_type,
+      item.category,
+      categoryList,
+      itemList,
+    ),
+  ).length;
 
   return (
     <Modal
@@ -390,6 +402,16 @@ const BudgetDeclarationForm = ({
             className="mb-4"
           >
             対象月が適用期間内の定期明細を自動投入できないため、保存を停止しています。時間をおいてもう一度お試しください。
+          </Alert>
+        )}
+
+        {unregisteredCategoryCount > 0 && (
+          <Alert
+            color="yellow"
+            title="分類の見直しが必要です"
+            className="mb-4"
+          >
+            マスタに登録されていない分類が{unregisteredCategoryCount}件あります。分類を選び直してください（保存できません）。
           </Alert>
         )}
 
@@ -488,6 +510,16 @@ const BudgetDeclarationForm = ({
                       )}
                       value={item.category || null}
                       placeholder="分類を選択"
+                      error={
+                        isCategoryUnregistered(
+                          item.entry_type,
+                          item.category,
+                          categoryList,
+                          itemList,
+                        )
+                          ? "マスタ未登録のため選び直してください"
+                          : undefined
+                      }
                       onChange={(value) =>
                         handleUpdateItem(item.key, { category: value ?? "" })
                       }

@@ -187,4 +187,27 @@ describe("BudgetRecurringItemList", () => {
     // （チームリーダー無効化のテストと同方針）
     expect(screen.getAllByDisplayValue("旧チーム").length).toBeGreaterThan(0);
   });
+
+  it("マスタに無い分類の既存行は警告を表示し、保存を止める（Issue #116）", () => {
+    const orphanRow: BudgetRecurringItemType = {
+      ...existingRow,
+      id: 2,
+      category: "旧品目",
+    };
+    useBudgetRecurringItemList.mockReturnValue({ data: [orphanRow] });
+
+    renderList({ initialData: [orphanRow] });
+
+    expect(screen.getByText("分類の見直しが必要です")).toBeInTheDocument();
+    expect(
+      screen.getByText("マスタ未登録のため選び直してください"),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    expect(notifyError).toHaveBeenCalledWith(
+      "分類がマスタに登録されていない行があります。選び直してください。",
+    );
+    expect(saveMutation.mutateAsync).not.toHaveBeenCalled();
+    expect(confirmAction).not.toHaveBeenCalled();
+  });
 });
