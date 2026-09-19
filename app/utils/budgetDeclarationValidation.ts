@@ -54,8 +54,7 @@ export const BUDGET_DECLARATION_VALIDATION_MESSAGES: Record<
   item_amount: "明細の金額は0より大きい値を入力してください。",
   item_amount_overflow: `明細の金額が大きすぎます（上限: ¥${MAX_ITEM_AMOUNT.toLocaleString("ja-JP")}）。`,
   item_manager_id: "明細の担当者の指定が不正です。",
-  item_category:
-    "明細の分類がマスタに登録されていません。選び直してください。",
+  item_category: "明細の分類がマスタに登録されていません。選び直してください。",
 };
 
 export const hasBudgetDeclarationRequiredHeader = (

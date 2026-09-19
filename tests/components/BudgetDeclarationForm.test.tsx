@@ -1263,7 +1263,9 @@ describe("BudgetDeclarationForm", () => {
         screen.getByText("マスタ未登録のため選び直してください"),
       ).toBeInTheDocument();
       // 値は保持され、選択肢には「（マスタ未登録）」付きで表示される
-      expect(screen.getByDisplayValue("旧品目（マスタ未登録）")).toBeInTheDocument();
+      expect(
+        screen.getByDisplayValue("旧品目（マスタ未登録）"),
+      ).toBeInTheDocument();
     });
 
     it("マスタ未登録の分類があるまま保存すると案内を出し、保存処理を呼ばない", () => {

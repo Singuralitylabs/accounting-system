@@ -127,9 +127,9 @@ describe("validateBudgetRecurringItem", () => {
     expect(
       validateBudgetRecurringItem(baseRow({ category: "旧分類" }), masters),
     ).toBe("category");
-    expect(
-      getBudgetRecurringItemValidationMessage("category"),
-    ).toMatch(/マスタ/);
+    expect(getBudgetRecurringItemValidationMessage("category")).toMatch(
+      /マスタ/,
+    );
   });
 });
 

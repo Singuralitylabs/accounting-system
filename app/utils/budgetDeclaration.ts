@@ -168,8 +168,7 @@ export const isCategoryUnregistered = (
   if (trimmedEntryType !== "income" && trimmedEntryType !== "expense") {
     return false;
   }
-  const master =
-    trimmedEntryType === "income" ? categoryList : itemList;
+  const master = trimmedEntryType === "income" ? categoryList : itemList;
   return !master.includes(trimmedCategory);
 };
 

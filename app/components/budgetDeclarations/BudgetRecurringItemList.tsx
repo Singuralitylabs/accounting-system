@@ -23,7 +23,10 @@ import {
   BudgetRecurringItemInListType,
   BudgetRecurringItemType,
 } from "@/app/types/types";
-import { categoryOptionsFor, isCategoryUnregistered } from "@/app/utils/budgetDeclaration";
+import {
+  categoryOptionsFor,
+  isCategoryUnregistered,
+} from "@/app/utils/budgetDeclaration";
 import {
   getBudgetRecurringItemValidationMessage,
   validateBudgetRecurringItemList,
@@ -170,12 +173,9 @@ const BudgetRecurringItemList = ({
         </Button>
       </div>
       {unregisteredCategoryCount > 0 && (
-        <Alert
-          color="yellow"
-          title="分類の見直しが必要です"
-          className="mb-4"
-        >
-          マスタに登録されていない分類が{unregisteredCategoryCount}件あります。分類を選び直してください（保存できません）。
+        <Alert color="yellow" title="分類の見直しが必要です" className="mb-4">
+          マスタに登録されていない分類が{unregisteredCategoryCount}
+          件あります。分類を選び直してください（保存できません）。
         </Alert>
       )}
       <div className="overflow-x-auto border border-gray-300 rounded bg-slate-50 p-4">

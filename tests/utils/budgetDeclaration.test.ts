@@ -487,9 +487,9 @@ describe("categoryOptionsFor", () => {
       disabled: true,
     });
     // 空の分類（新規行）では注入されない＝ドロップダウンから無効値を選べない
-    expect(
-      categoryOptionsFor("income", "", categoryList, itemList),
-    ).toEqual(categoryList);
+    expect(categoryOptionsFor("income", "", categoryList, itemList)).toEqual(
+      categoryList,
+    );
   });
 
   it("返り値はマスタ配列と独立している（呼び出し元の変更が波及しない）", () => {
@@ -544,12 +544,7 @@ describe("isCategoryUnregistered", () => {
 
   it("前後の空白は保存時と同じく trim して照合する", () => {
     expect(
-      isCategoryUnregistered(
-        "income",
-        " セミナー ",
-        categoryList,
-        itemList,
-      ),
+      isCategoryUnregistered("income", " セミナー ", categoryList, itemList),
     ).toBe(false);
     expect(
       isCategoryUnregistered("income", " 旧分類 ", categoryList, itemList),

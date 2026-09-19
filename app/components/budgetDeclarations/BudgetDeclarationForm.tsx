@@ -406,12 +406,9 @@ const BudgetDeclarationForm = ({
         )}
 
         {unregisteredCategoryCount > 0 && (
-          <Alert
-            color="yellow"
-            title="分類の見直しが必要です"
-            className="mb-4"
-          >
-            マスタに登録されていない分類が{unregisteredCategoryCount}件あります。分類を選び直してください（保存できません）。
+          <Alert color="yellow" title="分類の見直しが必要です" className="mb-4">
+            マスタに登録されていない分類が{unregisteredCategoryCount}
+            件あります。分類を選び直してください（保存できません）。
           </Alert>
         )}
 

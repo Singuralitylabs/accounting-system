@@ -141,7 +141,10 @@ describe("validateBudgetDeclarationItem", () => {
       itemList: ["外注費"],
     };
     expect(
-      validateBudgetDeclarationItem(validItem({ category: "セミナー" }), masters),
+      validateBudgetDeclarationItem(
+        validItem({ category: "セミナー" }),
+        masters,
+      ),
     ).toBe("ok");
     expect(
       validateBudgetDeclarationItem(validItem({ category: "旧分類" }), masters),
