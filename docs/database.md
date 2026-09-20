@@ -807,7 +807,7 @@ CREATE POLICY "business_delete_policy" ON business
 > 管理者向け書き込みポリシーは `FOR ALL` ではなく `INSERT/UPDATE/DELETE` を個別に定義する。`FOR ALL` だと SELECT も対象となり、参照用ポリシーと重複して Supabase Linter `multiple_permissive_policies` が発火するため。
 
 ```sql
--- 全認証ユーザーが参照可能
+-- 全ロール（anon 含む）が参照可能。TO 句が無いため未ログインでも読める（Supabase keep-alive が anon key で参照する。docs/setup.md 参照）
 CREATE POLICY "Users can view select option types" ON select_option_types
     FOR SELECT USING (true);
 

@@ -14,8 +14,8 @@ on:
     - cron: "0 21 * * *"
   workflow_dispatch:
 
-permissions:
-  contents: read
+# checkout も行わないため GITHUB_TOKEN に権限は一切与えない
+permissions: {}
 
 jobs:
   keepalive:
@@ -34,6 +34,9 @@ jobs:
             url_secret: KEEPALIVE_SUPABASE_URL_PROD
             anon_key_secret: KEEPALIVE_SUPABASE_ANON_KEY_PROD
     env:
+      TARGET: ${{ matrix.target }}
+      URL_SECRET_NAME: ${{ matrix.url_secret }}
+      ANON_KEY_SECRET_NAME: ${{ matrix.anon_key_secret }}
       SUPABASE_URL: ${{ secrets[matrix.url_secret] }}
       SUPABASE_ANON_KEY: ${{ secrets[matrix.anon_key_secret] }}
     steps:
@@ -43,9 +46,16 @@ jobs:
           set -euo pipefail
 
           if [ -z "${SUPABASE_URL}" ] || [ -z "${SUPABASE_ANON_KEY}" ]; then
-            echo "::error::GitHub Secrets ${{ matrix.url_secret }} / ${{ matrix.anon_key_secret }} が未設定です（docs/setup.md 参照）"
+            echo "::error::GitHub Secrets ${URL_SECRET_NAME} / ${ANON_KEY_SECRET_NAME} が未設定です（docs/setup.md 参照）"
             exit 1
           fi
+
+          # Secrets はログ上で自動マスクされるが、curl のエラーメッセージ
+          # （例: Could not resolve host: <project-ref>.supabase.co）にはスキーム抜きのホスト名が出るため、
+          # ホスト名単体もマスク対象に追加する（Actions ログは公開リポジトリでは誰でも閲覧できる）
+          host="${SUPABASE_URL#*://}"
+          host="${host%%/*}"
+          echo "::add-mask::${host}"
 
           # 末尾のスラッシュを除去してからパスを連結する
           endpoint="${SUPABASE_URL%/}/rest/v1/select_options?select=id&limit=1"
@@ -58,16 +68,16 @@ jobs:
                 --header "apikey: ${SUPABASE_ANON_KEY}" \
                 --header "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
                 "${endpoint}")"; then
-            echo "::error::[${{ matrix.target }}] Supabase への接続に失敗しました（DNS 失敗 / タイムアウト等。プロジェクトが Pause していないか確認してください）"
+            echo "::error::[${TARGET}] Supabase への接続に失敗しました（DNS 失敗 / タイムアウト等。プロジェクトが Pause していないか確認してください）"
             exit 1
           fi
 
           case "${status}" in
             2*)
-              echo "[${{ matrix.target }}] OK: HTTP ${status}"
+              echo "[${TARGET}] OK: HTTP ${status}"
               ;;
             *)
-              echo "::error::[${{ matrix.target }}] 想定外のレスポンス: HTTP ${status}（URL / anon key / RLS 設定を確認してください）"
+              echo "::error::[${TARGET}] 想定外のレスポンス: HTTP ${status}（URL / anon key / RLS 設定を確認してください）"
               exit 1
               ;;
           esac

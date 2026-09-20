@@ -455,14 +455,14 @@ Supabase 無料プランのプロジェクトは **1 週間アクセスが無い
 
 1. GitHub の **Actions > Supabase Keep-Alive > Run workflow** で `main` を選んで実行する（`workflow_dispatch`）。
 2. `keep-alive (dev)` / `keep-alive (prod)` の両ジョブが成功し、ログに `OK: HTTP 200` が出ていることを確認する。
-3. 以降は Actions の実行履歴（`schedule` イベント）で毎日成功していることを確認できる。失敗時は GitHub の通知設定（Actions の失敗通知）で気付ける。
+3. 以降は Actions の実行履歴（`schedule` イベント）で毎日成功していることを確認できる。失敗時は GitHub の Actions 失敗通知で気付けるが、`schedule` 起動の実行者は **ワークフローファイルの cron を最後に変更したユーザー** になるため、通知もその 1 人にしか届かない。複数人で監視したい場合は失敗時に Slack へ通知する step を追加するなどの対応を検討する。
 
 すでに Pause してしまっている場合は、先に Supabase ダッシュボードで対象プロジェクトを **Restore** してから実行する（Pause 中は DNS が消えているためワークフローは接続失敗で fail する）。
 
 ### 注意事項
 
 - `schedule` トリガーはデフォルトブランチ（`main`）上のワークフロー定義でのみ動く。ブランチ上で編集しても main にマージされるまで自動実行には反映されない。
-- 公開リポジトリの場合、60 日間リポジトリに活動が無いと GitHub が schedule ワークフローを自動的に無効化する。Actions 画面で無効化されていないか定期的に確認すること。
+- 本リポジトリは公開リポジトリのため、60 日間リポジトリに活動（コミット等）が無いと GitHub が schedule ワークフローを自動的に無効化する。利用頻度が低い期間はまさに Supabase が Pause する状況でもあるので、Actions 画面で無効化されていないか定期的に確認すること（無効化された場合は **Enable workflow** で再開する）。
 - GitHub Actions の `schedule` は負荷状況により数分〜数十分遅延することがあるが、keep-alive の目的（週 1 回以上のアクセス）には影響しない。
 
 ### 停止手順
