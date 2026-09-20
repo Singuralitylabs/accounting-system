@@ -11,7 +11,8 @@
 5. [サンプルデータ投入](#サンプルデータ投入)
 6. [データ移行（ローカル ↔ クラウド）](#データ移行)
 7. [開発コマンド一覧](#開発コマンド一覧)
-8. [トラブルシューティング](#トラブルシューティング)
+8. [Supabase keep-alive（自動 Pause 対策）](#supabase-keep-alive自動-pause-対策)
+9. [トラブルシューティング](#トラブルシューティング)
 
 ---
 
@@ -399,6 +400,8 @@ pg_dump postgresql://postgres:postgres@127.0.0.1:54322/postgres > backup.sql
 ```
 accounting-system/
 ├── .env.local                 # 環境変数（ローカル用。gitignore。手順 4 で新規作成）
+├── .github/
+│   └── workflows/            # GitHub Actions（CI と Supabase keep-alive）
 ├── supabase/
 │   ├── .gitignore            # Supabase用gitignore
 │   ├── config.toml           # Supabase設定
@@ -409,6 +412,63 @@ accounting-system/
     ├── database.md              # データベース設計書
     └── testing.md               # テスト設計書
 ```
+
+---
+
+## Supabase keep-alive（自動 Pause 対策）
+
+### 背景
+
+Supabase 無料プランのプロジェクトは **1 週間アクセスが無いと自動で Pause** され、`<project-ref>.supabase.co` の DNS レコードも消える。Pause 中は Vercel 上の middleware が `getaddrinfo ENOTFOUND <project-ref>.supabase.co` で Supabase Auth に到達できず、全ページが `504 MIDDLEWARE_INVOCATION_TIMEOUT` になる（Issue #125）。Pro プランへは移行しないため、定期的に DB へリクエストを送って Pause を防ぐ。
+
+### 仕組み
+
+- `.github/workflows/supabase-keepalive.yml`（GitHub Actions、`schedule: cron`）が **毎日 06:00 JST（21:00 UTC）** に自動実行される。
+- 開発用・本番用の 2 プロジェクトを matrix（`dev` / `prod`）で並列に処理し、それぞれの REST エンドポイントに anon key で軽い SELECT を送る。
+
+  ```
+  GET {SUPABASE_URL}/rest/v1/select_options?select=id&limit=1
+  apikey: <anon key>
+  Authorization: Bearer <anon key>
+  ```
+
+  `select_options` は RLS で anon（未ログイン）にも SELECT を許可しているテーブル（[`docs/database.md` 5.5](./database.md#55-select_option_types-テーブルselect_options-テーブル)）で、PostgREST 経由で DB に届くため Supabase 側のアクティビティとして扱われる。Auth API の `/auth/v1/health` だけでは DB アクティビティとして数えられない可能性があるため使わない。
+
+- レスポンスが 2xx 以外、または接続自体に失敗した場合（DNS 失敗 / タイムアウト）はジョブを **fail** にする。片方のプロジェクトが失敗してももう片方には必ずリクエストを送る（`fail-fast: false`）。
+- Vercel Cron（`vercel.json`）を使わない理由: Vercel Cron は production デプロイでしか動かないため、main のプレビュー環境が向いている開発用 Supabase を叩けない。また Hobby プランは cron 2 本・1 日 1 回までの制限があり、既存の `/api/cron/budget-declaration-reminder` で 1 本使っている。
+
+### 必要な GitHub Secrets
+
+リポジトリの **Settings > Secrets and variables > Actions > Repository secrets** に以下の 4 つを登録する。未設定のままだと該当ジョブは「Secrets が未設定」のエラーで fail する。
+
+| Secret 名                          | 値                                                                               |
+| ---------------------------------- | -------------------------------------------------------------------------------- |
+| `KEEPALIVE_SUPABASE_URL_DEV`       | 開発用 Supabase の API URL（`https://<project-ref>.supabase.co`）                |
+| `KEEPALIVE_SUPABASE_ANON_KEY_DEV`  | 開発用 Supabase の anon key（アプリの `NEXT_PUBLIC_SUPABASE_ANON_KEY` と同じ値） |
+| `KEEPALIVE_SUPABASE_URL_PROD`      | 本番用 Supabase の API URL                                                       |
+| `KEEPALIVE_SUPABASE_ANON_KEY_PROD` | 本番用 Supabase の anon key                                                      |
+
+- URL / anon key は Supabase ダッシュボードの **Settings > API** で確認できる（URL 末尾のスラッシュは有無どちらでもよい）。
+- anon key は公開前提の鍵だが、リポジトリに直書きせず Secrets 経由で渡す。anon key をローテーションした場合は Secrets も更新すること。
+
+### 動作確認（手動実行）
+
+1. GitHub の **Actions > Supabase Keep-Alive > Run workflow** で `main` を選んで実行する（`workflow_dispatch`）。
+2. `keep-alive (dev)` / `keep-alive (prod)` の両ジョブが成功し、ログに `OK: HTTP 200` が出ていることを確認する。
+3. 以降は Actions の実行履歴（`schedule` イベント）で毎日成功していることを確認できる。失敗時は GitHub の通知設定（Actions の失敗通知）で気付ける。
+
+すでに Pause してしまっている場合は、先に Supabase ダッシュボードで対象プロジェクトを **Restore** してから実行する（Pause 中は DNS が消えているためワークフローは接続失敗で fail する）。
+
+### 注意事項
+
+- `schedule` トリガーはデフォルトブランチ（`main`）上のワークフロー定義でのみ動く。ブランチ上で編集しても main にマージされるまで自動実行には反映されない。
+- 公開リポジトリの場合、60 日間リポジトリに活動が無いと GitHub が schedule ワークフローを自動的に無効化する。Actions 画面で無効化されていないか定期的に確認すること。
+- GitHub Actions の `schedule` は負荷状況により数分〜数十分遅延することがあるが、keep-alive の目的（週 1 回以上のアクセス）には影響しない。
+
+### 停止手順
+
+- **一時停止**: GitHub の **Actions > Supabase Keep-Alive > ⋯ > Disable workflow**。再開は同じ場所の **Enable workflow**。
+- **恒久的に廃止**: `.github/workflows/supabase-keepalive.yml` を削除して main にマージし、上記 4 つの Secrets も削除する（Pro プランに移行した場合など）。
 
 ---
 

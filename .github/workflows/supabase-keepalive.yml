@@ -1,0 +1,73 @@
+name: Supabase Keep-Alive
+
+# Supabase 無料プランの自動 Pause（1 週間アクセスが無いとプロジェクトが一時停止される）を防ぐため、
+# 開発用・本番用の両プロジェクトに 1 日 1 回 PostgREST 経由の軽い SELECT を送る（Issue #125）。
+# 仕組み・必要な GitHub Secrets・停止手順は docs/setup.md の「Supabase keep-alive」を参照。
+#
+# 注意:
+# - schedule トリガーはデフォルトブランチ（main）上のワークフロー定義でのみ動く。
+# - Auth API の /auth/v1/health は DB アクティビティとして数えられない可能性があるため、
+#   RLS で anon に読める select_options テーブルへ REST（PostgREST）で問い合わせる。
+on:
+  schedule:
+    # 毎日 06:00 JST（21:00 UTC）。Vercel Cron（00:00 UTC）とは時間帯をずらしている
+    - cron: "0 21 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  keepalive:
+    name: keep-alive (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      # 片方が失敗してももう片方には必ずリクエストを送る
+      fail-fast: false
+      matrix:
+        include:
+          - target: dev
+            url_secret: KEEPALIVE_SUPABASE_URL_DEV
+            anon_key_secret: KEEPALIVE_SUPABASE_ANON_KEY_DEV
+          - target: prod
+            url_secret: KEEPALIVE_SUPABASE_URL_PROD
+            anon_key_secret: KEEPALIVE_SUPABASE_ANON_KEY_PROD
+    env:
+      SUPABASE_URL: ${{ secrets[matrix.url_secret] }}
+      SUPABASE_ANON_KEY: ${{ secrets[matrix.anon_key_secret] }}
+    steps:
+      - name: Query select_options via PostgREST
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SUPABASE_URL}" ] || [ -z "${SUPABASE_ANON_KEY}" ]; then
+            echo "::error::GitHub Secrets ${{ matrix.url_secret }} / ${{ matrix.anon_key_secret }} が未設定です（docs/setup.md 参照）"
+            exit 1
+          fi
+
+          # 末尾のスラッシュを除去してからパスを連結する
+          endpoint="${SUPABASE_URL%/}/rest/v1/select_options?select=id&limit=1"
+
+          # DNS 失敗（Pause 中は <ref>.supabase.co の DNS レコードが消える）など
+          # レスポンスが得られない場合は curl 自体が非 0 で終了するので、ここで検知して fail にする
+          if ! status="$(curl --silent --show-error \
+                --output /dev/null --write-out '%{http_code}' \
+                --max-time 30 --retry 2 --retry-delay 5 \
+                --header "apikey: ${SUPABASE_ANON_KEY}" \
+                --header "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
+                "${endpoint}")"; then
+            echo "::error::[${{ matrix.target }}] Supabase への接続に失敗しました（DNS 失敗 / タイムアウト等。プロジェクトが Pause していないか確認してください）"
+            exit 1
+          fi
+
+          case "${status}" in
+            2*)
+              echo "[${{ matrix.target }}] OK: HTTP ${status}"
+              ;;
+            *)
+              echo "::error::[${{ matrix.target }}] 想定外のレスポンス: HTTP ${status}（URL / anon key / RLS 設定を確認してください）"
+              exit 1
+              ;;
+          esac
