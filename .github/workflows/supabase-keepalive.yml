@@ -55,7 +55,9 @@ jobs:
           # ホスト名単体もマスク対象に追加する（Actions ログは公開リポジトリでは誰でも閲覧できる）
           host="${SUPABASE_URL#*://}"
           host="${host%%/*}"
-          echo "::add-mask::${host}"
+          if [ -n "${host}" ]; then
+            echo "::add-mask::${host}"
+          fi
 
           # 末尾のスラッシュを除去してからパスを連結する
           endpoint="${SUPABASE_URL%/}/rest/v1/select_options?select=id&limit=1"

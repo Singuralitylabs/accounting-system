@@ -6,8 +6,8 @@
 
 1. [前提条件](#前提条件)
 2. [初期セットアップ](#初期セットアップ)
-3. [Google 認証設定](#google認証設定)
-4. [ローカル Supabase 環境構築](#ローカルsupabase環境構築)
+3. [Google 認証設定](#google-認証設定)
+4. [ローカル Supabase 環境構築](#ローカル-supabase-環境構築)
 5. [サンプルデータ投入](#サンプルデータ投入)
 6. [データ移行（ローカル ↔ クラウド）](#データ移行)
 7. [開発コマンド一覧](#開発コマンド一覧)
@@ -453,7 +453,7 @@ Supabase 無料プランのプロジェクトは **1 週間アクセスが無い
 
 ### 動作確認（手動実行）
 
-1. GitHub の **Actions > Supabase Keep-Alive > Run workflow** で `main` を選んで実行する（`workflow_dispatch`）。
+1. GitHub の **Actions > Supabase Keep-Alive > Run workflow** で `main` を選んで実行する（`workflow_dispatch`）。ワークフローファイルが `main` に存在して初めて Actions 画面に表示されるため、手動実行は **main へのマージ後** に行う（PR ブランチ上では実行できない）。
 2. `keep-alive (dev)` / `keep-alive (prod)` の両ジョブが成功し、ログにそれぞれ `[dev] OK: HTTP 200` / `[prod] OK: HTTP 200` が出ていることを確認する。
 3. 以降は Actions の実行履歴（`schedule` イベント）で毎日成功していることを確認できる。失敗時は GitHub の Actions 失敗通知で気付けるが、`schedule` 起動の実行者は **ワークフローファイルの cron を最後に変更したユーザー** になるため、通知もその 1 人にしか届かない。複数人で監視したい場合は失敗時に Slack へ通知する step を追加するなどの対応を検討する。
 

@@ -460,7 +460,9 @@ RLS は行スコープのゲートであり、テーブルに対する `GRANT SE
 
 migration 17 以降に追加するテーブルは、同マイグレーションの `ALTER DEFAULT PRIVILEGES` で自動的に同じ権限が付くが、DEFAULT PRIVILEGES の設定差で 403 に戻らないよう、新規テーブルのマイグレーション内でも `GRANT` を明示する（例: `20260830050000_19_budget_declarations.sql`）。
 
-あわせて、`anon`（未ログイン）が触る必要のないテーブルでは自動付与された権限を `REVOKE ALL ... FROM anon` で剥奪する。ただし `select_options` は Supabase keep-alive（`docs/setup.md`）が anon key で SELECT するため、anon の SELECT 権限を維持する（[5.5](#55-select_option_types-テーブルselect_options-テーブル)）。migration 17 は既存テーブルの 403 障害に対する一括付与であり、新規テーブルで未ログインに CRUD を残す必然性は無い。RLS だけをゲートにしておくと、将来 `TO anon` のポリシーを足したり調査目的で RLS を外したりした瞬間にフル CRUD が開いてしまう。
+あわせて、`anon`（未ログイン）が触る必要のないテーブルでは自動付与された権限を `REVOKE ALL ... FROM anon` で剥奪する。migration 17 は既存テーブルの 403 障害に対する一括付与であり、新規テーブルで未ログインに CRUD を残す必然性は無い。RLS だけをゲートにしておくと、将来 `TO anon` のポリシーを足したり調査目的で RLS を外したりした瞬間にフル CRUD が開いてしまう。
+
+ただし `select_options` は Supabase keep-alive（`docs/setup.md`）が anon key で SELECT するため、anon の SELECT 権限を維持する（[5.5](#55-select_option_types-テーブルselect_options-テーブル)）。
 
 ### 5.1 profiles テーブル
 
