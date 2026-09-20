@@ -10,8 +10,9 @@ name: Supabase Keep-Alive
 #   RLS で anon に読める select_options テーブルへ REST（PostgREST）で問い合わせる。
 on:
   schedule:
-    # 毎日 06:00 JST（21:00 UTC）。Vercel Cron（00:00 UTC）とは時間帯をずらしている
-    - cron: "0 21 * * *"
+    # 毎日 06:17 JST（21:17 UTC）。Vercel Cron（00:00 UTC）とは時間帯をずらし、
+    # GitHub Actions の schedule が最も遅延・スキップされやすい「毎時 0 分」も避けている
+    - cron: "17 21 * * *"
   workflow_dispatch:
 
 # checkout も行わないため GITHUB_TOKEN に権限は一切与えない
@@ -55,23 +56,20 @@ jobs:
             exit 1
           fi
 
-          # スキーム欠落（http でアクセスして 301 になる）などの登録ミスを、Supabase 側の障害と切り分けて報告する
-          if [[ ! "${SUPABASE_URL}" =~ ^https://[^/]+ ]]; then
+          # スキーム欠落（http でアクセスして 301 になる）などの登録ミスを、Supabase 側の障害と切り分けて報告する。
+          # ホスト名だけを取り出して URL を組み立て直すため、末尾スラッシュの個数や余分なパスにも影響されない
+          if [[ ! "${SUPABASE_URL}" =~ ^https://([^/]+) ]]; then
             echo "::error::GitHub Secret ${URL_SECRET_NAME} の URL 形式が不正です（https://<project-ref>.supabase.co の形式で登録してください）"
             exit 1
           fi
+          host="${BASH_REMATCH[1]}"
 
           # Secrets はログ上で自動マスクされるが、curl のエラーメッセージ
           # （例: Could not resolve host: <project-ref>.supabase.co）にはスキーム抜きのホスト名が出るため、
           # ホスト名単体もマスク対象に追加する（Actions ログは公開リポジトリでは誰でも閲覧できる）
-          host="${SUPABASE_URL#*://}"
-          host="${host%%/*}"
-          if [ -n "${host}" ]; then
-            echo "::add-mask::${host}"
-          fi
+          echo "::add-mask::${host}"
 
-          # 末尾のスラッシュを除去してからパスを連結する
-          endpoint="${SUPABASE_URL%/}/rest/v1/select_options?select=id&limit=1"
+          endpoint="https://${host}/rest/v1/select_options?select=id&limit=1"
 
           # DNS 失敗（Pause 中は <ref>.supabase.co の DNS レコードが消える）など
           # レスポンスが得られない場合は curl 自体が非 0 で終了するので、終了コードを保持して fail にする。

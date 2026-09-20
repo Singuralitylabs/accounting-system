@@ -423,7 +423,7 @@ Supabase 無料プランのプロジェクトは **1 週間アクセスが無い
 
 ### 仕組み
 
-- `.github/workflows/supabase-keepalive.yml`（GitHub Actions、`schedule: cron`）が **毎日 06:00 JST（21:00 UTC）** に自動実行される。
+- `.github/workflows/supabase-keepalive.yml`（GitHub Actions、`schedule: cron`）が **毎日 06:17 JST（21:17 UTC）** に自動実行される（GitHub Actions の `schedule` は毎時 0 分が最も遅延・スキップされやすいため、0 分以外にずらしている）。
 - 開発用・本番用の 2 プロジェクトを matrix（`dev` / `prod`）で並列に処理し、それぞれの REST エンドポイントに anon key で軽い SELECT を送る。
 
   ```
@@ -449,7 +449,7 @@ Supabase 無料プランのプロジェクトは **1 週間アクセスが無い
 | `KEEPALIVE_SUPABASE_URL_PROD`      | 本番用 Supabase の API URL                                                       |
 | `KEEPALIVE_SUPABASE_ANON_KEY_PROD` | 本番用 Supabase の anon key                                                      |
 
-- URL / anon key は Supabase ダッシュボードの **Settings > API** で確認できる。URL は `https://` 付きで登録する（末尾のスラッシュは有無どちらでもよい。前後の改行・空白は実行時に除去される）。形式が不正な場合は「URL 形式が不正」のエラーでジョブが fail する。
+- URL / anon key は Supabase ダッシュボードの **Settings > API** で確認できる。URL は `https://` 付きで登録する（ホスト名だけを使って URL を組み立て直すため、末尾のスラッシュや余分なパス、前後の改行・空白は無視される）。形式が不正な場合は「URL 形式が不正」のエラーでジョブが fail する。
 - anon key は公開前提の鍵だが、リポジトリに直書きせず Secrets 経由で渡す。anon key をローテーションした場合や、Supabase の新形式キー（`sb_publishable_...`）へ切り替えた場合は Secrets の値も差し替え、手動実行（後述）で 200 が返ることを確認すること（ワークフロー側の `apikey` / `Authorization` ヘッダは変更不要）。
 
 ### 動作確認（手動実行）
@@ -463,6 +463,7 @@ Supabase 無料プランのプロジェクトは **1 週間アクセスが無い
 ### 注意事項
 
 - `schedule` トリガーはデフォルトブランチ（`main`）上のワークフロー定義でのみ動く。ブランチ上で編集しても main にマージされるまで自動実行には反映されない。
+- `schedule` 起動の実行者は **ワークフローファイルの cron を最後に変更したユーザー** であり、そのユーザーがリポジトリ / Organization から削除されると schedule ワークフローは実行されなくなる。担当者が離脱する際は、別のメンバーが `cron:` 行を編集してコミットし直すこと（実行者が引き継がれる）。
 - 本リポジトリは公開リポジトリのため、60 日間リポジトリに活動（コミット等）が無いと GitHub が schedule ワークフローを自動的に無効化する。利用頻度が低い期間はまさに Supabase が Pause する状況でもあるので、Actions 画面で無効化されていないか定期的に確認すること（無効化された場合は **Enable workflow** で再開する）。
 - GitHub Actions の `schedule` は負荷状況により数分〜数十分遅延することがあるが、keep-alive の目的（週 1 回以上のアクセス）には影響しない。
 
