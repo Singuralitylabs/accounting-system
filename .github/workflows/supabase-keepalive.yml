@@ -61,10 +61,11 @@ jobs:
           endpoint="${SUPABASE_URL%/}/rest/v1/select_options?select=id&limit=1"
 
           # DNS 失敗（Pause 中は <ref>.supabase.co の DNS レコードが消える）など
-          # レスポンスが得られない場合は curl 自体が非 0 で終了するので、ここで検知して fail にする
+          # レスポンスが得られない場合は curl 自体が非 0 で終了するので、ここで検知して fail にする。
+          # --retry-all-errors: 一時的な名前解決失敗・接続失敗も再試行対象にする（最悪でも約 100 秒で timeout-minutes 内）
           if ! status="$(curl --silent --show-error \
                 --output /dev/null --write-out '%{http_code}' \
-                --max-time 30 --retry 2 --retry-delay 5 \
+                --max-time 30 --retry 2 --retry-delay 5 --retry-all-errors \
                 --header "apikey: ${SUPABASE_ANON_KEY}" \
                 --header "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
                 "${endpoint}")"; then

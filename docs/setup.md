@@ -449,12 +449,12 @@ Supabase 無料プランのプロジェクトは **1 週間アクセスが無い
 | `KEEPALIVE_SUPABASE_ANON_KEY_PROD` | 本番用 Supabase の anon key                                                      |
 
 - URL / anon key は Supabase ダッシュボードの **Settings > API** で確認できる（URL 末尾のスラッシュは有無どちらでもよい）。
-- anon key は公開前提の鍵だが、リポジトリに直書きせず Secrets 経由で渡す。anon key をローテーションした場合は Secrets も更新すること。
+- anon key は公開前提の鍵だが、リポジトリに直書きせず Secrets 経由で渡す。anon key をローテーションした場合や、Supabase の新形式キー（`sb_publishable_...`）へ切り替えた場合は Secrets の値も差し替え、手動実行（後述）で 200 が返ることを確認すること（ワークフロー側の `apikey` / `Authorization` ヘッダは変更不要）。
 
 ### 動作確認（手動実行）
 
 1. GitHub の **Actions > Supabase Keep-Alive > Run workflow** で `main` を選んで実行する（`workflow_dispatch`）。
-2. `keep-alive (dev)` / `keep-alive (prod)` の両ジョブが成功し、ログに `OK: HTTP 200` が出ていることを確認する。
+2. `keep-alive (dev)` / `keep-alive (prod)` の両ジョブが成功し、ログにそれぞれ `[dev] OK: HTTP 200` / `[prod] OK: HTTP 200` が出ていることを確認する。
 3. 以降は Actions の実行履歴（`schedule` イベント）で毎日成功していることを確認できる。失敗時は GitHub の Actions 失敗通知で気付けるが、`schedule` 起動の実行者は **ワークフローファイルの cron を最後に変更したユーザー** になるため、通知もその 1 人にしか届かない。複数人で監視したい場合は失敗時に Slack へ通知する step を追加するなどの対応を検討する。
 
 すでに Pause してしまっている場合は、先に Supabase ダッシュボードで対象プロジェクトを **Restore** してから実行する（Pause 中は DNS が消えているためワークフローは接続失敗で fail する）。
