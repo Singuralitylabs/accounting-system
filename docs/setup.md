@@ -417,26 +417,7 @@ accounting-system/
 
 ## Supabase keep-alive（自動 Pause 対策）
 
-### 背景
-
-Supabase 無料プランのプロジェクトは **1 週間アクセスが無いと自動で Pause** され、`<project-ref>.supabase.co` の DNS レコードも消える。Pause 中は Vercel 上の middleware が `getaddrinfo ENOTFOUND <project-ref>.supabase.co` で Supabase Auth に到達できず、全ページが `504 MIDDLEWARE_INVOCATION_TIMEOUT` になる（Issue #125）。Pro プランへは移行しないため、定期的に DB へリクエストを送って Pause を防ぐ。
-
-### 仕組み
-
-- `.github/workflows/supabase-keepalive.yml`（GitHub Actions、`schedule: cron`）が **毎日 06:17 JST（21:17 UTC）** に自動実行される（GitHub Actions の `schedule` は毎時 0 分が最も遅延・スキップされやすいため、0 分以外にずらしている）。
-- 開発用・本番用の 2 プロジェクトを matrix（`dev` / `prod`）で並列に処理し、それぞれの REST エンドポイントに anon key で軽い SELECT を送る。
-
-  ```
-  GET {SUPABASE_URL}/rest/v1/select_options?select=id&limit=1
-  apikey: <anon key>
-  Authorization: Bearer <anon key>
-  ```
-
-  `select_options` は RLS で anon（未ログイン）にも SELECT を許可しているテーブル（[`docs/database.md` 5.5](./database.md#55-select_option_types-テーブルselect_options-テーブル)）で、PostgREST 経由で DB に届くため Supabase 側のアクティビティとして扱われる。Auth API の `/auth/v1/health` だけでは DB アクティビティとして数えられない可能性があるため使わない。
-
-- レスポンスが 2xx 以外、または接続自体に失敗した場合（DNS 失敗 / タイムアウト）はジョブを **fail** にする。片方のプロジェクトが失敗してももう片方には必ずリクエストを送る（`fail-fast: false`）。
-- Vercel Cron（`vercel.json`）を使わない理由: Vercel Cron は production デプロイでしか動かないため、main のプレビュー環境が向いている開発用 Supabase を叩けない。また Hobby プランは cron 2 本・1 日 1 回までの制限があり、既存の `/api/cron/budget-declaration-reminder` で 1 本使っている。
-- 本番用 Supabase は、既存の Vercel Cron（`/api/cron/budget-declaration-reminder`、毎日 00:00 UTC）が対象日判定の前に `budget_declaration_reminder_settings` を SELECT するため、単体でも毎日 DB アクティビティが発生している。Issue #125 で Pause したのは Vercel Cron の対象外である開発用（main プレビュー環境向け）側であり、本番側の keep-alive は Vercel Cron が停止・削除された場合の保険として含めている。
+Supabase 無料プランは 1 週間アクセスが無いとプロジェクトが自動 Pause されるため、`.github/workflows/supabase-keepalive.yml`（GitHub Actions、毎日 06:17 JST）が開発用・本番用の両 Supabase に anon key で軽い SELECT を送って Pause を防いでいる（Issue #125）。仕組みや注意事項はワークフローファイル冒頭のコメントを参照。ここでは運用に必要な設定と手順だけを記載する。
 
 ### 必要な GitHub Secrets
 
@@ -449,23 +430,16 @@ Supabase 無料プランのプロジェクトは **1 週間アクセスが無い
 | `KEEPALIVE_SUPABASE_URL_PROD`      | 本番用 Supabase の API URL                                                       |
 | `KEEPALIVE_SUPABASE_ANON_KEY_PROD` | 本番用 Supabase の anon key                                                      |
 
-- URL / anon key は Supabase ダッシュボードの **Settings > API** で確認できる。URL は `https://` 付きで登録する（ホスト名だけを使って URL を組み立て直すため、末尾のスラッシュや余分なパス、前後の改行・空白は無視される）。形式が不正な場合は「URL 形式が不正」のエラーでジョブが fail する。
-- anon key は公開前提の鍵だが、リポジトリに直書きせず Secrets 経由で渡す。anon key をローテーションした場合や、Supabase の新形式キー（`sb_publishable_...`）へ切り替えた場合は Secrets の値も差し替え、手動実行（後述）で 200 が返ることを確認すること（ワークフロー側の `apikey` / `Authorization` ヘッダは変更不要）。
+- URL / anon key は Supabase ダッシュボードの **Settings > API** で確認できる。URL は `https://` 付きで登録する（末尾のスラッシュや前後の空白は無視される。形式が不正な場合は「URL 形式が不正」のエラーで fail する）。
+- anon key をローテーションした場合は Secrets の値も差し替え、手動実行で 200 が返ることを確認する。
 
 ### 動作確認（手動実行）
 
-1. GitHub の **Actions > Supabase Keep-Alive > Run workflow** で `main` を選んで実行する（`workflow_dispatch`）。ワークフローファイルが `main` に存在して初めて Actions 画面に表示されるため、手動実行は **main へのマージ後** に行う（PR ブランチ上では実行できない）。
-2. `keep-alive (dev)` / `keep-alive (prod)` の両ジョブが成功し、ログにそれぞれ `[dev] OK: HTTP 200` / `[prod] OK: HTTP 200` が出ていることを確認する。
-3. 以降は Actions の実行履歴（`schedule` イベント）で毎日成功していることを確認できる。失敗時は GitHub の Actions 失敗通知で気付けるが、`schedule` 起動の実行者は **ワークフローファイルの cron を最後に変更したユーザー** になるため、通知もその 1 人にしか届かない。複数人で監視したい場合は失敗時に Slack へ通知する step を追加するなどの対応を検討する。
+1. GitHub の **Actions > Supabase Keep-Alive > Run workflow** で `main` を選んで実行する。ワークフローが `main` に存在して初めて Actions 画面に表示されるため、手動実行は main へのマージ後に行う。
+2. `keep-alive (dev)` / `keep-alive (prod)` の両ジョブが成功し、ログに `[dev] OK: HTTP 200` / `[prod] OK: HTTP 200` が出ていることを確認する。
+3. 以降は Actions の実行履歴（`schedule` イベント）で毎日成功していることを確認できる。
 
-すでに Pause してしまっている場合は、先に Supabase ダッシュボードで対象プロジェクトを **Restore** してから実行する（Pause 中は DNS が消えているためワークフローは接続失敗で fail する）。
-
-### 注意事項
-
-- `schedule` トリガーはデフォルトブランチ（`main`）上のワークフロー定義でのみ動く。ブランチ上で編集しても main にマージされるまで自動実行には反映されない。
-- `schedule` 起動の実行者は **ワークフローファイルの cron を最後に変更したユーザー** であり、そのユーザーがリポジトリ / Organization から削除されると schedule ワークフローは実行されなくなる。担当者が離脱する際は、別のメンバーが `cron:` 行を編集してコミットし直すこと（実行者が引き継がれる）。
-- 本リポジトリは公開リポジトリのため、60 日間リポジトリに活動（コミット等）が無いと GitHub が schedule ワークフローを自動的に無効化する。利用頻度が低い期間はまさに Supabase が Pause する状況でもあるので、Actions 画面で無効化されていないか定期的に確認すること（無効化された場合は **Enable workflow** で再開する）。
-- GitHub Actions の `schedule` は負荷状況により数分〜数十分遅延することがあるが、keep-alive の目的（週 1 回以上のアクセス）には影響しない。
+すでに Pause してしまっている場合は、先に Supabase ダッシュボードで対象プロジェクトを **Restore** してから実行する（Pause 中は DNS が消えているため接続失敗で fail する）。
 
 ### 停止手順
 

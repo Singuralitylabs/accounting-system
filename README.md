@@ -148,10 +148,6 @@ Supabase・Google 認証・Slack 通知に加え、事前収支申告の未申�
 
 一覧・設定手順は [docs/setup.md](./docs/setup.md) を参照してください。
 
-### Supabase keep-alive
-
-Supabase 無料プランの自動 Pause（1 週間アクセスが無いと停止）を防ぐため、GitHub Actions（`.github/workflows/supabase-keepalive.yml`）が毎日 1 回、開発用・本番用の両 Supabase に軽い SELECT を送っています。必要な GitHub Secrets・手動実行・停止手順は [docs/setup.md の「Supabase keep-alive」](./docs/setup.md#supabase-keep-alive自動-pause-対策) を参照してください。
-
 ## お問い合わせ
 
 本アプリケーションに関するお問い合わせは、下記までお願いいたします。

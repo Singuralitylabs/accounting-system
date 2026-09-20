@@ -264,7 +264,6 @@ CI/CD の実行基盤には GitHub Actions を利用する（origin = GitHub。g
 
 - トリガーはいずれも `pull_request` / `push`（対象パスで絞り込み）+ `workflow_dispatch` を基本とする。
 - ジョブは観点ごとに分離し、失敗時にどの観点が壊れたか一目で分かるようにする（[2.4 可観測性](#24-可観測性)）。
-- `.github/workflows/supabase-keepalive.yml`（Supabase 無料プランの自動 Pause 防止。`schedule` で毎日実行）は運用用のワークフローであり、上記 CI の対象外。仕組みは [`docs/setup.md` の「Supabase keep-alive」](./setup.md#supabase-keep-alive自動-pause-対策) を参照。
 
 ### 4.3 テストフレームワークの選定（Vitest）
 

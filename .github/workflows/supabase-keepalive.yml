@@ -1,13 +1,25 @@
 name: Supabase Keep-Alive
 
-# Supabase 無料プランの自動 Pause（1 週間アクセスが無いとプロジェクトが一時停止される）を防ぐため、
+# Supabase 無料プランの自動 Pause（1 週間アクセスが無いとプロジェクトが一時停止され、
+# <ref>.supabase.co の DNS も消えて middleware が 504 になる）を防ぐため、
 # 開発用・本番用の両プロジェクトに 1 日 1 回 PostgREST 経由の軽い SELECT を送る（Issue #125）。
-# 仕組み・必要な GitHub Secrets・停止手順は docs/setup.md の「Supabase keep-alive」を参照。
+# 必要な GitHub Secrets・手動実行・停止手順は docs/setup.md の「Supabase keep-alive」を参照。
+#
+# 仕組み:
+# - Auth API の /auth/v1/health は DB アクティビティとして数えられない可能性があるため、
+#   RLS で anon に読める select_options テーブル（docs/database.md 5.5）へ REST（PostgREST）で問い合わせる。
+# - Vercel Cron は production デプロイでしか動かず開発用 Supabase を叩けない（Hobby の cron 枠も既存
+#   リマインドで消費している）ため GitHub Actions を使う。本番用は既存の Vercel Cron
+#   （/api/cron/budget-declaration-reminder）が毎日 DB を SELECT しており単体でも Pause しないが、
+#   Vercel Cron 停止時の保険として本番用も対象に含める。Issue #125 で Pause したのは開発用側。
 #
 # 注意:
 # - schedule トリガーはデフォルトブランチ（main）上のワークフロー定義でのみ動く。
-# - Auth API の /auth/v1/health は DB アクティビティとして数えられない可能性があるため、
-#   RLS で anon に読める select_options テーブルへ REST（PostgREST）で問い合わせる。
+# - schedule の実行者は cron 行を最後に変更したユーザーになる。失敗通知はその人にしか届かず、
+#   その人がリポジトリから外れると schedule 自体が止まるため、担当者離脱時は別メンバーが cron 行を編集して
+#   コミットし直すこと。
+# - 公開リポジトリのため、60 日間リポジトリに活動が無いと GitHub が schedule を自動的に無効化する。
+#   Actions 画面で無効化されていないか定期的に確認し、無効化されていたら Enable workflow で再開する。
 on:
   schedule:
     # 毎日 06:17 JST（21:17 UTC）。Vercel Cron（00:00 UTC）とは時間帯をずらし、
