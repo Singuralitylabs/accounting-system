@@ -45,8 +45,19 @@ jobs:
         run: |
           set -euo pipefail
 
+          # ダッシュボードで貼り付けた際に混入しがちな改行・空白類を除去する
+          # （URL に改行が残ると curl exit 3（Malformed URL）で落ち、anon key に残ると不正なヘッダになる）
+          SUPABASE_URL="${SUPABASE_URL//[$'\r\n\t ']/}"
+          SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY//[$'\r\n\t ']/}"
+
           if [ -z "${SUPABASE_URL}" ] || [ -z "${SUPABASE_ANON_KEY}" ]; then
             echo "::error::GitHub Secrets ${URL_SECRET_NAME} / ${ANON_KEY_SECRET_NAME} が未設定です（docs/setup.md 参照）"
+            exit 1
+          fi
+
+          # スキーム欠落（http でアクセスして 301 になる）などの登録ミスを、Supabase 側の障害と切り分けて報告する
+          if [[ ! "${SUPABASE_URL}" =~ ^https://[^/]+ ]]; then
+            echo "::error::GitHub Secret ${URL_SECRET_NAME} の URL 形式が不正です（https://<project-ref>.supabase.co の形式で登録してください）"
             exit 1
           fi
 
@@ -63,15 +74,24 @@ jobs:
           endpoint="${SUPABASE_URL%/}/rest/v1/select_options?select=id&limit=1"
 
           # DNS 失敗（Pause 中は <ref>.supabase.co の DNS レコードが消える）など
-          # レスポンスが得られない場合は curl 自体が非 0 で終了するので、ここで検知して fail にする。
+          # レスポンスが得られない場合は curl 自体が非 0 で終了するので、終了コードを保持して fail にする。
           # --retry-all-errors: 一時的な名前解決失敗・接続失敗も再試行対象にする（最悪でも約 100 秒で timeout-minutes 内）
-          if ! status="$(curl --silent --show-error \
+          rc=0
+          status="$(curl --silent --show-error \
                 --output /dev/null --write-out '%{http_code}' \
                 --max-time 30 --retry 2 --retry-delay 5 --retry-all-errors \
                 --header "apikey: ${SUPABASE_ANON_KEY}" \
                 --header "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
-                "${endpoint}")"; then
-            echo "::error::[${TARGET}] Supabase への接続に失敗しました（DNS 失敗 / タイムアウト等。プロジェクトが Pause していないか確認してください）"
+                "${endpoint}")" || rc=$?
+
+          if [ "${rc}" -ne 0 ]; then
+            # curl の終了コードで原因を切り分ける（6: 名前解決失敗 = Pause の可能性大、28: タイムアウト）
+            case "${rc}" in
+              6)  hint="名前解決に失敗。プロジェクトが Pause していないか Supabase ダッシュボードで確認してください" ;;
+              28) hint="タイムアウト" ;;
+              *)  hint="接続失敗。直前の curl のエラーメッセージを確認してください" ;;
+            esac
+            echo "::error::[${TARGET}] Supabase への接続に失敗しました（curl exit ${rc}: ${hint}）"
             exit 1
           fi
 

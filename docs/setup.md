@@ -436,6 +436,7 @@ Supabase 無料プランのプロジェクトは **1 週間アクセスが無い
 
 - レスポンスが 2xx 以外、または接続自体に失敗した場合（DNS 失敗 / タイムアウト）はジョブを **fail** にする。片方のプロジェクトが失敗してももう片方には必ずリクエストを送る（`fail-fast: false`）。
 - Vercel Cron（`vercel.json`）を使わない理由: Vercel Cron は production デプロイでしか動かないため、main のプレビュー環境が向いている開発用 Supabase を叩けない。また Hobby プランは cron 2 本・1 日 1 回までの制限があり、既存の `/api/cron/budget-declaration-reminder` で 1 本使っている。
+- 本番用 Supabase は、既存の Vercel Cron（`/api/cron/budget-declaration-reminder`、毎日 00:00 UTC）が対象日判定の前に `budget_declaration_reminder_settings` を SELECT するため、単体でも毎日 DB アクティビティが発生している。Issue #125 で Pause したのは Vercel Cron の対象外である開発用（main プレビュー環境向け）側であり、本番側の keep-alive は Vercel Cron が停止・削除された場合の保険として含めている。
 
 ### 必要な GitHub Secrets
 
@@ -448,7 +449,7 @@ Supabase 無料プランのプロジェクトは **1 週間アクセスが無い
 | `KEEPALIVE_SUPABASE_URL_PROD`      | 本番用 Supabase の API URL                                                       |
 | `KEEPALIVE_SUPABASE_ANON_KEY_PROD` | 本番用 Supabase の anon key                                                      |
 
-- URL / anon key は Supabase ダッシュボードの **Settings > API** で確認できる（URL 末尾のスラッシュは有無どちらでもよい）。
+- URL / anon key は Supabase ダッシュボードの **Settings > API** で確認できる。URL は `https://` 付きで登録する（末尾のスラッシュは有無どちらでもよい。前後の改行・空白は実行時に除去される）。形式が不正な場合は「URL 形式が不正」のエラーでジョブが fail する。
 - anon key は公開前提の鍵だが、リポジトリに直書きせず Secrets 経由で渡す。anon key をローテーションした場合や、Supabase の新形式キー（`sb_publishable_...`）へ切り替えた場合は Secrets の値も差し替え、手動実行（後述）で 200 が返ることを確認すること（ワークフロー側の `apikey` / `Authorization` ヘッダは変更不要）。
 
 ### 動作確認（手動実行）
