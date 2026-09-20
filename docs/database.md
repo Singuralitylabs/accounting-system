@@ -462,6 +462,8 @@ migration 17 以降に追加するテーブルは、同マイグレーション�
 
 あわせて、`anon`（未ログイン）が触る必要のないテーブルでは自動付与された権限を `REVOKE ALL ... FROM anon` で剥奪する。migration 17 は既存テーブルの 403 障害に対する一括付与であり、新規テーブルで未ログインに CRUD を残す必然性は無い。RLS だけをゲートにしておくと、将来 `TO anon` のポリシーを足したり調査目的で RLS を外したりした瞬間にフル CRUD が開いてしまう。
 
+ただし `select_options` は Supabase keep-alive（`docs/setup.md`）が anon key で SELECT するため、anon の SELECT 権限を維持する（[5.5](#55-select_option_types-テーブルselect_options-テーブル)）。
+
 ### 5.1 profiles テーブル
 
 > パフォーマンス最適化のため、`auth.uid()` は `(select auth.uid())` でラップして 1 行ごとの再評価を避けている（Supabase Linter `auth_rls_initplan` 対応）。
@@ -807,7 +809,9 @@ CREATE POLICY "business_delete_policy" ON business
 > 管理者向け書き込みポリシーは `FOR ALL` ではなく `INSERT/UPDATE/DELETE` を個別に定義する。`FOR ALL` だと SELECT も対象となり、参照用ポリシーと重複して Supabase Linter `multiple_permissive_policies` が発火するため。
 
 ```sql
--- 全認証ユーザーが参照可能
+-- 以下 2 ポリシーとも TO 句が無いため全ロール（anon 含む）が参照可能。未ログインでも読める。
+-- select_options は Supabase keep-alive（docs/setup.md）が anon key で参照するため、
+-- migration 17 で anon に付与した SELECT 権限を REVOKE しないこと（REVOKE すると keep-alive が非 2xx で fail する）
 CREATE POLICY "Users can view select option types" ON select_option_types
     FOR SELECT USING (true);
 
