@@ -26,10 +26,15 @@ export const isTransientAuthError = (error: AuthError) =>
   isAuthRetryableFetchError(error) ||
   (isAuthApiError(error) && error.status >= 500);
 
-// Supabase Auth への 1 リクエストの打ち切り時間。
+// Supabase への 1 リクエストの打ち切り時間（`@supabase/ssr` の `global.fetch`
+// は auth-js と PostgREST の両方に注入されるため、Auth だけでなく後続の
+// `profiles` 取得にも適用される。profiles 側は abort を `{ error }` 解決に
+// 変換するため、既存どおりログ＋ `userClass = null` → `/` 転送になる）。
 //
-// 通常時の Auth 応答（数十〜数百 ms）に十分余裕を持たせつつ、ホスト到達不能時の
-// auth-js の指数バックオフ再試行（約 30 秒枠）の各試行を短時間で失敗させる。
+// 通常時の応答（数十〜数百 ms）に十分余裕を持たせつつ、応答が返らない
+// ハング型の試行を短時間で失敗させる。即時失敗型（DNS 解決失敗など）では
+// 試行自体は元々速いまま再試行ループが続くため、ループ全体の打ち切りは
+// 下の `withAuthTimeout` が担う。
 // fetch の中断（AbortError / TimeoutError）は auth-js の `_handleRequest` が
 // `AuthRetryableFetchError`（status 0）に包むため、上の `isTransientAuthError`
 // でそのまま一時的障害として拾える。拡張は不要。
@@ -37,8 +42,10 @@ export const AUTH_FETCH_TIMEOUT_MS = 5000;
 
 // `getUser()` 全体の上限。期限切れトークン時のリフレッシュ再試行ループは
 // 1 リクエストのタイムアウトだけでは約 30 秒枠いっぱいまで回り続けるため、
-// 外側からも打ち切って 503 に落とす（Vercel Edge の 25 秒制限より短くする）。
-export const AUTH_GET_USER_TIMEOUT_MS = 10000;
+// 外側からも打ち切って 503 に落とす。受け入れ基準「数秒以内に 503」のため
+// 6 秒とし、後続の `profiles` 取得（再試行なし・1 リクエスト 5 秒上限）との
+// 合算でも約 11 秒で Vercel Edge の 25 秒制限に収まる。
+export const AUTH_GET_USER_TIMEOUT_MS = 6000;
 
 /**
  * Edge Runtime 安全なタイムアウト付き fetch を作る。

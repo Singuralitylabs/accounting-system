@@ -74,7 +74,7 @@ export async function middleware(req: NextRequest) {
     //
     // 到達不能時は期限切れトークンのリフレッシュ再試行ループが約 30 秒続くため、
     // 外側からも打ち切って 503 に落とす（Edge の 25 秒制限より短くする）。
-    // 制限超過は AuthRetryableFetchError になるため、下の分岐で 503 を返す。
+    // 制限超過は AuthRetryableFetchError になるため、下の `catch` 節で 503 を返す。
     const {
       data: { user },
       error: getUserError,
@@ -119,6 +119,8 @@ export async function middleware(req: NextRequest) {
         let userClass = readClassClaim(session?.access_token);
 
         if (userClass === null) {
+          // profiles 取得の障害時は既存どおり `/` へ転送する（503 化は本 Issue の対象外）。
+          // なお `global.fetch` の 5 秒タイムアウトは PostgREST にも適用される。
           const { data: profile, error: profileError } = await supabase
             .from("profiles")
             .select("class")

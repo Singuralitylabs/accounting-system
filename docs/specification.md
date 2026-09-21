@@ -1174,7 +1174,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
   - /profit-loss: チームリーダー・経理担当者・管理者のみアクセス可能
   - /recurring-costs: 経理担当者・管理者のみアクセス可能
   - /extra-entries: 経理担当者・管理者のみアクセス可能
-- Supabase Auth 側の一時的障害（到達不能・5xx）では未ログイン扱い（/login への転送）にせず 503 を返す。Auth への 1 リクエストは 5 秒、`getUser()` 全体は 10 秒で打ち切るため、Vercel の 25 秒制限による 504 にならない
+- Supabase Auth 側の一時的障害（到達不能・5xx）では未ログイン扱い（/login への転送）にせず 503 を返す。Auth への 1 リクエストは 5 秒、`getUser()` 全体は 6 秒で打ち切る。後続の profiles 取得（再試行なし・1 リクエスト 5 秒上限）との合算でも約 11 秒のため、Vercel の 25 秒制限による 504 にならない
 
 ### 8.2 認可
 

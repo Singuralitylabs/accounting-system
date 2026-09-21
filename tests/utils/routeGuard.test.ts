@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AuthApiError,
   AuthError,
@@ -201,6 +201,60 @@ describe("createTimeoutFetch", () => {
     );
     expect(error).toBe(incomingReason);
   });
+
+  it("即時失敗型（DNS 解決失敗相当）はタイマーを待たず素通りする", async () => {
+    const networkError = new TypeError("fetch failed");
+    const failingFetch = ((_input: Parameters<typeof fetch>[0]) =>
+      Promise.reject(networkError)) as typeof fetch;
+
+    const start = Date.now();
+    const error = await createTimeoutFetch(
+      5000,
+      failingFetch,
+    )("https://unreachable.invalid/user").then(
+      () => {
+        throw new Error("内側のエラーが伝わりませんでした");
+      },
+      (reason) => reason,
+    );
+    // タイムアウト（5 秒）より十分速く、そのままのエラーで落ちる
+    expect(Date.now() - start).toBeLessThan(1000);
+    expect(error).toBe(networkError);
+  });
+
+  it("中断理由を auth-js と同じ包み方にすると一時的障害になる", async () => {
+    // auth-js の `_handleRequest` は fetch の reject を種類によらず
+    // `new AuthRetryableFetchError(message, 0)` に包む。この前提が崩れると
+    // middleware の 503 経路に載らなくなるため、結合を固定化する。
+    const hangingFetch = ((
+      _input: Parameters<typeof fetch>[0],
+      init?: Parameters<typeof fetch>[1],
+    ) =>
+      new Promise<never>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => {
+            reject(
+              (init.signal as AbortSignal).reason ??
+                new DOMException("Aborted", "AbortError"),
+            );
+          },
+          { once: true },
+        );
+      })) as typeof fetch;
+
+    const abortReason = await createTimeoutFetch(
+      20,
+      hangingFetch,
+    )("https://example.test/user").then(
+      () => {
+        throw new Error("タイムアウトで reject しませんでした");
+      },
+      (reason) => reason as Error,
+    );
+    const wrapped = new AuthRetryableFetchError(abortReason.message, 0);
+    expect(isTransientAuthError(wrapped)).toBe(true);
+  });
 });
 
 describe("withAuthTimeout", () => {
@@ -220,9 +274,37 @@ describe("withAuthTimeout", () => {
     expect(isTransientAuthError(error)).toBe(false);
   });
 
-  it("既定の上限が Edge の 25 秒制限より短い", () => {
-    expect(AUTH_GET_USER_TIMEOUT_MS).toBeLessThan(25000);
+  it("既定の上限と後続取得の合算でも Edge の 25 秒制限に収まる", () => {
+    // getUser 全体の上限＋後続の profiles 取得（再試行なし・1 リクエスト上限）の合算
+    expect(AUTH_GET_USER_TIMEOUT_MS + AUTH_FETCH_TIMEOUT_MS).toBeLessThan(
+      25000,
+    );
     expect(AUTH_FETCH_TIMEOUT_MS).toBeLessThan(AUTH_GET_USER_TIMEOUT_MS);
+  });
+});
+
+describe("タイムアウト後のタイマー残存", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("createTimeoutFetch の成功時はタイマーが残らない", async () => {
+    vi.useFakeTimers();
+    const baseFetch = (async () =>
+      new Response("ok")) as unknown as typeof fetch;
+    const pending = createTimeoutFetch(
+      5000,
+      baseFetch,
+    )("https://example.test/user");
+    // 成功パスで cleanup() が走り、保留タイマーは消える
+    await pending;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("withAuthTimeout の解決時はタイマーが残らない", async () => {
+    vi.useFakeTimers();
+    await withAuthTimeout(Promise.resolve(1), 5000);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 
