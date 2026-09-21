@@ -1,4 +1,5 @@
 import {
+  AuthRetryableFetchError,
   isAuthApiError,
   isAuthRetryableFetchError,
 } from "@supabase/supabase-js";
@@ -24,6 +25,99 @@ const PUBLIC_FILE_PATTERN = /\.(js|css|ico|png|jpg|jpeg|svg|gif)$/;
 export const isTransientAuthError = (error: AuthError) =>
   isAuthRetryableFetchError(error) ||
   (isAuthApiError(error) && error.status >= 500);
+
+// Supabase Auth への 1 リクエストの打ち切り時間。
+//
+// 通常時の Auth 応答（数十〜数百 ms）に十分余裕を持たせつつ、ホスト到達不能時の
+// auth-js の指数バックオフ再試行（約 30 秒枠）の各試行を短時間で失敗させる。
+// fetch の中断（AbortError / TimeoutError）は auth-js の `_handleRequest` が
+// `AuthRetryableFetchError`（status 0）に包むため、上の `isTransientAuthError`
+// でそのまま一時的障害として拾える。拡張は不要。
+export const AUTH_FETCH_TIMEOUT_MS = 5000;
+
+// `getUser()` 全体の上限。期限切れトークン時のリフレッシュ再試行ループは
+// 1 リクエストのタイムアウトだけでは約 30 秒枠いっぱいまで回り続けるため、
+// 外側からも打ち切って 503 に落とす（Vercel Edge の 25 秒制限より短くする）。
+export const AUTH_GET_USER_TIMEOUT_MS = 10000;
+
+/**
+ * Edge Runtime 安全なタイムアウト付き fetch を作る。
+ *
+ * `AbortSignal.timeout` / `AbortSignal.any` に依存せず、`AbortController` +
+ * `setTimeout` のみで「呼び出し元の signal」と「タイムアウト」のどちらが先に
+ * 発火しても中断する。auth-js（`@supabase/ssr` の `global.fetch` 経由）に渡す想定。
+ */
+export const createTimeoutFetch = (
+  timeoutMs: number = AUTH_FETCH_TIMEOUT_MS,
+  baseFetch: typeof fetch = fetch,
+): typeof fetch =>
+  ((input, init) => {
+    const incomingSignal = init?.signal;
+    if (incomingSignal?.aborted) {
+      return baseFetch(input, init);
+    }
+    const controller = new AbortController();
+    const timeoutError = () => {
+      const error = new Error(
+        `Supabase Auth request timed out after ${timeoutMs}ms`,
+      );
+      error.name = "TimeoutError";
+      return error;
+    };
+    const timer = setTimeout(() => controller.abort(timeoutError()), timeoutMs);
+    const onIncomingAbort = () => controller.abort(incomingSignal?.reason);
+    incomingSignal?.addEventListener("abort", onIncomingAbort, {
+      once: true,
+    });
+    const cleanup = () => {
+      clearTimeout(timer);
+      incomingSignal?.removeEventListener("abort", onIncomingAbort);
+    };
+    return baseFetch(input, { ...init, signal: controller.signal }).then(
+      (response) => {
+        cleanup();
+        return response;
+      },
+      (error) => {
+        cleanup();
+        throw error;
+      },
+    );
+  }) as typeof fetch;
+
+/**
+ * `getUser()` 等の Auth 呼び出し全体に上限を設ける。制限超過時は
+ * `AuthRetryableFetchError`（status 0）で reject するため、呼び出し側は
+ * `isTransientAuthError` → 503 の既存経路にそのまま載せられる。
+ */
+export const withAuthTimeout = <T>(
+  promise: Promise<T>,
+  timeoutMs: number = AUTH_GET_USER_TIMEOUT_MS,
+): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(
+        new AuthRetryableFetchError(
+          `Supabase Auth request timed out after ${timeoutMs}ms`,
+          0,
+        ),
+      );
+    }, timeoutMs);
+  });
+  const settle = (settled: Promise<T>) =>
+    settled.then(
+      (value) => {
+        clearTimeout(timer);
+        return value;
+      },
+      (error) => {
+        clearTimeout(timer);
+        throw error;
+      },
+    );
+  return Promise.race([settle(promise), timeout]);
+};
 
 export const isPublicSkipPath = (pathname: string) =>
   PUBLIC_FILE_PATTERN.test(pathname) ||

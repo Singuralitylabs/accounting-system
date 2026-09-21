@@ -4,7 +4,15 @@ import type { NextRequest } from "next/server";
 import { hasClassAccess } from "./app/utils/permissions";
 import { readClassClaim } from "./app/utils/authClaims";
 import type { Database } from "./app/lib/database.types";
-import { classifyPath, isTransientAuthError } from "./app/utils/routeGuard";
+import type { AuthError } from "@supabase/supabase-js";
+import {
+  AUTH_FETCH_TIMEOUT_MS,
+  AUTH_GET_USER_TIMEOUT_MS,
+  classifyPath,
+  createTimeoutFetch,
+  isTransientAuthError,
+  withAuthTimeout,
+} from "./app/utils/routeGuard";
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -37,6 +45,12 @@ export async function middleware(req: NextRequest) {
           );
         },
       },
+      // Supabase Auth への 1 リクエストが数秒で打ち切られるようにする。
+      // 到達不能時に auth-js が指数バックオフで約 30 秒再試行し続けると
+      // Edge の 25 秒制限で 504 になるため、短時間で 503 の経路に落とす。
+      global: {
+        fetch: createTimeoutFetch(AUTH_FETCH_TIMEOUT_MS),
+      },
     },
   );
 
@@ -57,10 +71,17 @@ export async function middleware(req: NextRequest) {
     // 検証する。getSession() はローカル Cookie の値をそのまま返すだけで署名検証を
     // 行わないため（auth-js 自身が偽装され得る旨を警告している）、認証の可否判定には
     // 使わない（#26: 偽造 Cookie による認証バイパスを防ぐ）。
+    //
+    // 到達不能時は期限切れトークンのリフレッシュ再試行ループが約 30 秒続くため、
+    // 外側からも打ち切って 503 に落とす（Edge の 25 秒制限より短くする）。
+    // 制限超過は AuthRetryableFetchError になるため、下の分岐で 503 を返す。
     const {
       data: { user },
       error: getUserError,
-    } = await supabase.auth.getUser();
+    } = await withAuthTimeout(
+      supabase.auth.getUser(),
+      AUTH_GET_USER_TIMEOUT_MS,
+    );
 
     if (getUserError && isTransientAuthError(getUserError)) {
       // Supabase Auth 側のネットワークエラー・5xx（一時的障害）。攻撃者が意図的に
@@ -126,6 +147,17 @@ export async function middleware(req: NextRequest) {
       }
     }
   } catch (error) {
+    // withAuthTimeout の制限超過（AuthRetryableFetchError）は throw で届くため、
+    // ここでも一時的障害は 503 に落とす。未ログイン扱いにはしない。
+    if (isTransientAuthError(error as AuthError)) {
+      console.error(
+        "Supabase Auth への到達に失敗しました（一時的障害）:",
+        error,
+      );
+      return withCookies(
+        new NextResponse("Service Unavailable", { status: 503 }),
+      );
+    }
     console.error("Middleware error:", error);
     return redirectTo("/login");
   }

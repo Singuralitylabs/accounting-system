@@ -5,11 +5,15 @@ import {
   AuthRetryableFetchError,
 } from "@supabase/supabase-js";
 import {
+  AUTH_FETCH_TIMEOUT_MS,
+  AUTH_GET_USER_TIMEOUT_MS,
   classifyPath,
+  createTimeoutFetch,
   isAuthRoute,
   isPublicSkipPath,
   isTransientAuthError,
   matchesRoute,
+  withAuthTimeout,
 } from "@/app/utils/routeGuard";
 
 describe("matchesRoute", () => {
@@ -68,6 +72,157 @@ describe("isTransientAuthError", () => {
 
   it("素の AuthError は一時的障害ではない", () => {
     expect(isTransientAuthError(new AuthError("generic"))).toBe(false);
+  });
+
+  it("タイムアウト由来の AuthRetryableFetchError(status 0) は一時的障害", () => {
+    expect(
+      isTransientAuthError(
+        new AuthRetryableFetchError(
+          `Supabase Auth request timed out after ${AUTH_FETCH_TIMEOUT_MS}ms`,
+          0,
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("withAuthTimeout の制限超過は一時的障害として拾える", async () => {
+    const error = await withAuthTimeout(new Promise<never>(() => {}), 20).then(
+      () => {
+        throw new Error("withAuthTimeout が reject しませんでした");
+      },
+      (reason) => reason,
+    );
+    expect(error).toBeInstanceOf(AuthRetryableFetchError);
+    expect(isTransientAuthError(error)).toBe(true);
+  });
+});
+
+describe("createTimeoutFetch", () => {
+  it("正常応答をそのまま返す", async () => {
+    const seen: AbortSignal[] = [];
+    const baseFetch = (async (
+      _input: Parameters<typeof fetch>[0],
+      init?: Parameters<typeof fetch>[1],
+    ) => {
+      seen.push(init?.signal as AbortSignal);
+      return new Response("ok");
+    }) as typeof fetch;
+
+    const response = await createTimeoutFetch(
+      1000,
+      baseFetch,
+    )("https://example.test/user");
+    expect(await response.text()).toBe("ok");
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toBeInstanceOf(AbortSignal);
+  });
+
+  it("応答しない fetch をタイムアウトで打ち切る", async () => {
+    const hangingFetch = ((
+      _input: Parameters<typeof fetch>[0],
+      init?: Parameters<typeof fetch>[1],
+    ) =>
+      new Promise<never>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => {
+            reject(
+              (init.signal as AbortSignal).reason ??
+                new DOMException("Aborted", "AbortError"),
+            );
+          },
+          { once: true },
+        );
+      })) as typeof fetch;
+
+    const error = await createTimeoutFetch(
+      20,
+      hangingFetch,
+    )("https://example.test/user").then(
+      () => {
+        throw new Error("タイムアウトで reject しませんでした");
+      },
+      (reason) => reason as Error,
+    );
+    expect(error.name).toBe("TimeoutError");
+    expect(error.message).toContain("timed out after 20ms");
+  });
+
+  it("中断済みの signal はそのまま委譲する", async () => {
+    const received: (RequestInit["signal"] | undefined)[] = [];
+    const baseFetch = (async (
+      _input: Parameters<typeof fetch>[0],
+      init?: Parameters<typeof fetch>[1],
+    ) => {
+      received.push(init?.signal);
+      return new Response("ok");
+    }) as typeof fetch;
+
+    const controller = new AbortController();
+    controller.abort(new Error("incoming"));
+    const response = await createTimeoutFetch(1000, baseFetch)(
+      "https://example.test/user",
+      { signal: controller.signal },
+    );
+    expect(await response.text()).toBe("ok");
+    expect(received[0]).toBe(controller.signal);
+  });
+
+  it("呼び出し元の signal の中断を内側に伝える", async () => {
+    const incomingReason = new Error("incoming abort");
+    const hangingFetch = ((
+      _input: Parameters<typeof fetch>[0],
+      init?: Parameters<typeof fetch>[1],
+    ) =>
+      new Promise<never>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => {
+            reject(
+              (init.signal as AbortSignal).reason ??
+                new DOMException("Aborted", "AbortError"),
+            );
+          },
+          { once: true },
+        );
+      })) as typeof fetch;
+
+    const controller = new AbortController();
+    const pending = createTimeoutFetch(1000, hangingFetch)(
+      "https://example.test/user",
+      { signal: controller.signal },
+    );
+    controller.abort(incomingReason);
+    const error = await pending.then(
+      () => {
+        throw new Error("中断で reject しませんでした");
+      },
+      (reason) => reason as Error,
+    );
+    expect(error).toBe(incomingReason);
+  });
+});
+
+describe("withAuthTimeout", () => {
+  it("内側が速ければその値を返す", async () => {
+    await expect(withAuthTimeout(Promise.resolve(42), 1000)).resolves.toBe(42);
+  });
+
+  it("内側のエラーをそのまま通す", async () => {
+    const original = new AuthApiError("unauthorized", 401, "401");
+    const error = await withAuthTimeout(Promise.reject(original), 1000).then(
+      () => {
+        throw new Error("内側のエラーが伝わりませんでした");
+      },
+      (reason) => reason,
+    );
+    expect(error).toBe(original);
+    expect(isTransientAuthError(error)).toBe(false);
+  });
+
+  it("既定の上限が Edge の 25 秒制限より短い", () => {
+    expect(AUTH_GET_USER_TIMEOUT_MS).toBeLessThan(25000);
+    expect(AUTH_FETCH_TIMEOUT_MS).toBeLessThan(AUTH_GET_USER_TIMEOUT_MS);
   });
 });
 
