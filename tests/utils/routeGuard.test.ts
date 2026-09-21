@@ -217,8 +217,9 @@ describe("createTimeoutFetch", () => {
       },
       (reason) => reason,
     );
-    // タイムアウト（5 秒）を待たず素通りすること自体は、下の同一性で保証する。
-    // wall-clock の上限アサーションは高負荷 CI で flaky になるため置かない。
+    // タイムアウト（5 秒）を待たず素通りすることの厳密な保証は、下の同一性
+    // アサーション（`toBe(networkError)`）が担う。上の wall-clock 上限は
+    // 高負荷 CI でも flaky にならないよう 5000ms と十分な余裕を持たせている。
     expect(Date.now() - start).toBeLessThan(5000);
     expect(error).toBe(networkError);
   });

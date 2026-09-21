@@ -18,7 +18,7 @@ const PUBLIC_FILE_PATTERN = /\.(js|css|ico|png|jpg|jpeg|svg|gif)$/;
 // getUser() のエラーが「Supabase Auth 側の一時的障害」かどうか。
 //
 // auth-js が AuthRetryableFetchError にするのは fetch 自体の失敗と 502/503/504 のみで、
-// 500 や 501 は AuthApiError になる（lib/fetch.ts の NETWORK_ERROR_CODES = [502,503,504]）。
+// 500 や 501 は AuthApiError になる（`lib/fetch.js` の NETWORK_ERROR_CODES = [502,503,504]。ソースは `fetch.ts`）。
 // どちらもトークンの正当性とは無関係なサーバ側障害なので、ステータス 5xx は一律で
 // 一時的障害として扱う。偽造・期限切れトークンは 401/403 になるため、この判定に
 // 混入することはない。
