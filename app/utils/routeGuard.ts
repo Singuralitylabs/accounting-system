@@ -28,8 +28,8 @@ export const isTransientAuthError = (error: AuthError) =>
 
 // Supabase への 1 リクエストの打ち切り時間（`@supabase/ssr` の `global.fetch`
 // は auth-js と PostgREST の両方に注入されるため、Auth だけでなく後続の
-// `profiles` 取得にも適用される。profiles 側は abort を `{ error }` 解決に
-// 変換するため、既存どおりログ＋ `userClass = null` → `/` 転送になる）。
+// `profiles` 取得のヘッダ待ちにも適用される。ヘッダ到着後のボディ停滞は
+// `middleware.ts` 側の `withAuthTimeout` が担う。
 //
 // 通常時の応答（数十〜数百 ms）に十分余裕を持たせつつ、応答が返らない
 // ハング型の試行を短時間で失敗させる。即時失敗型（DNS 解決失敗など）では
@@ -41,11 +41,16 @@ export const isTransientAuthError = (error: AuthError) =>
 // でそのまま一時的障害として拾える。拡張は不要。
 export const AUTH_FETCH_TIMEOUT_MS = 5000;
 
-// `getUser()` 全体の上限。期限切れトークン時のリフレッシュ再試行ループは
+// `getUser()` 全体の待ちの上限。期限切れトークン時のリフレッシュ再試行ループは
 // 1 リクエストのタイムアウトだけでは約 30 秒枠いっぱいまで回り続けるため、
-// 外側からも打ち切って 503 に落とす。受け入れ基準「数秒以内に 503」のため
-// 6 秒とし、後続の `profiles` 取得（再試行なし・1 リクエスト 5 秒上限）との
-// 合算でも約 11 秒で Vercel Edge の 25 秒制限に収まる。
+// 外側の待ちを `Promise.race` で打ち切って 503 に落とす。受け入れ基準
+// 「数秒以内に 503」のため 6 秒とする。
+//
+// middleware 全体の時間予算（上限の考え方。全て満たすこと）：
+// - `getUser()` ≤ 6 秒（本定数）＋後続の `profiles` 取得 ≤ 5 秒
+//   （`AUTH_FETCH_TIMEOUT_MS` で外側からも打ち切り）で合計約 11 秒
+// - Vercel Edge の 25 秒制限を大きく下回る。定数を変える場合はこの予算を保つこと
+//   （`tests/utils/routeGuard.test.ts` の合算テストが回帰を検出する）。
 export const AUTH_GET_USER_TIMEOUT_MS = 6000;
 
 /**

@@ -69,7 +69,7 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 - `user_class` クレームが有効な文字列でない場合（クレームキー自体が無い / 値が明示的に `null` / 空文字 / 文字列以外）は `profiles` への DB クエリにフォールバックするため、フック未有効化でも動作する（フェイルセーフ）。**本番では Supabase ダッシュボードでフックを有効化する必要がある**（マイグレーション適用後に有効化すること。適用前に有効化すると全ユーザーがログインできなくなる）。新規ユーザーはトークン発行後にプロフィールが作成されるため初回トークンは必ず `user_class: null` になるが、この場合もフォールバックするため直後のロール付与は即座に反映される。
 - ロール変更は対象ユーザーのトークンリフレッシュ（既定で最大約1時間）または再ログインまで JWT に反映されない（JWT にロールが既に載っている場合のみ）。即時反映が必要な用途では middleware だけに依存しないこと。
 - `getUser()` が Supabase Auth 側の一時的障害（fetch 自体の失敗、またはステータス 5xx）を返した場合、middleware はログイン中ユーザーを一律 `/login` に飛ばさず 503 を返す（一時的障害と偽造トークンを区別する）。auth-js の `isAuthRetryableFetchError` は 502/503/504 しか拾わず 500 は `AuthApiError` になるため、判定には 5xx の `AuthApiError` も含める必要がある（`app/utils/routeGuard.ts` の `isTransientAuthError`）。
-- Supabase 到達不能時の再試行ループで Edge の 25 秒制限に掛からないよう、Auth への 1 リクエストは 5 秒（`AUTH_FETCH_TIMEOUT_MS`）、`getUser()` 全体は 6 秒（`AUTH_GET_USER_TIMEOUT_MS`）で打ち切り、どちらも 503 に落とす（実装は `app/utils/routeGuard.ts` の `createTimeoutFetch` / `withAuthTimeout`）。
+- Supabase 到達不能時の再試行ループで Edge の 25 秒制限に掛からないよう、Supabase への 1 リクエストは 5 秒（`AUTH_FETCH_TIMEOUT_MS`）、`getUser()` 全体は 6 秒（`AUTH_GET_USER_TIMEOUT_MS`）で打ち切り、どちらも 503（`Retry-After: 2` 付き）に落とす（実装は `app/utils/routeGuard.ts` の `createTimeoutFetch` / `withAuthTimeout` と `middleware.ts` の `serviceUnavailable`）。`profiles` 取得も 5 秒で外側から打ち切り、超過時は 503（それ以外の取得失敗は既存どおり `/` へ）。
 
 ## 業務ロジック
 

@@ -45,7 +45,7 @@ export async function middleware(req: NextRequest) {
           );
         },
       },
-      // Supabase Auth への 1 リクエストが数秒で打ち切られるようにする。
+      // Supabase への 1 リクエストが数秒で打ち切られるようにする（Auth／PostgREST 共通）。
       // 到達不能時に auth-js が指数バックオフで約 30 秒再試行し続けると
       // Edge の 25 秒制限で 504 になるため、短時間で 503 の経路に落とす。
       global: {
@@ -65,6 +65,17 @@ export async function middleware(req: NextRequest) {
   };
   const redirectTo = (path: string) =>
     withCookies(NextResponse.redirect(new URL(path, req.url)));
+  // Supabase 側の一時的障害は 503 に落とす（未ログイン扱いにはしない）。
+  // `Retry-After` を付けてクライアントの再試行に委ねる。
+  const serviceUnavailable = (error: unknown) => {
+    console.error("Supabase Auth への到達に失敗しました（一時的障害）:", error);
+    return withCookies(
+      new NextResponse("Service Unavailable", {
+        status: 503,
+        headers: { "Retry-After": "2" },
+      }),
+    );
+  };
 
   try {
     // getUser() は Supabase Auth サーバへ問い合わせてアクセストークンの署名・有効性を
@@ -73,7 +84,7 @@ export async function middleware(req: NextRequest) {
     // 使わない（#26: 偽造 Cookie による認証バイパスを防ぐ）。
     //
     // 到達不能時は期限切れトークンのリフレッシュ再試行ループが約 30 秒続くため、
-    // 外側からも打ち切って 503 に落とす（Edge の 25 秒制限より短くする）。
+    // 外側の待ちも打ち切って 503 に落とす（Edge の 25 秒制限より短くする）。
     // 制限超過は AuthRetryableFetchError になるため、下の `catch` 節で 503 を返す。
     const {
       data: { user },
@@ -88,13 +99,7 @@ export async function middleware(req: NextRequest) {
       // 発生させることはできないため、ログイン中ユーザーを一律 /login へ飛ばす
       // （＝実質ログアウト扱いにする）のではなく 503 を返し、クライアントの
       // 再試行に委ねる。未ログイン扱いにはしない点でフェイルクローズは維持する。
-      console.error(
-        "Supabase Auth への到達に失敗しました（一時的障害）:",
-        getUserError,
-      );
-      return withCookies(
-        new NextResponse("Service Unavailable", { status: 503 }),
-      );
+      return serviceUnavailable(getUserError);
     }
 
     switch (pathClass.kind) {
@@ -119,13 +124,19 @@ export async function middleware(req: NextRequest) {
         let userClass = readClassClaim(session?.access_token);
 
         if (userClass === null) {
-          // profiles 取得の障害時は既存どおり `/` へ転送する（503 化は本 Issue の対象外）。
+          // profiles 取得はボディ停滞でも Edge の 25 秒制限に掛からないよう
+          // 外側からも打ち切る。制限超過は throw で `catch` 節の 503 に落ちる。
+          // それ以外の取得失敗は既存どおり `/` へ転送する。
           // なお `global.fetch` の 5 秒タイムアウトは PostgREST にも適用される。
-          const { data: profile, error: profileError } = await supabase
+          const profileQuery = supabase
             .from("profiles")
             .select("class")
             .eq("user_id", user.id)
             .single();
+          const { data: profile, error: profileError } = await withAuthTimeout(
+            Promise.resolve(profileQuery),
+            AUTH_FETCH_TIMEOUT_MS,
+          );
 
           if (profileError) {
             console.error("Profile fetch error:", profileError);
@@ -152,15 +163,14 @@ export async function middleware(req: NextRequest) {
     // withAuthTimeout の制限超過（AuthRetryableFetchError）は throw で届くため、
     // ここでも一時的障害は 503 に落とす。未ログイン扱いにはしない。
     if (isTransientAuthError(error as AuthError)) {
-      console.error(
-        "Supabase Auth への到達に失敗しました（一時的障害）:",
-        error,
-      );
-      return withCookies(
-        new NextResponse("Service Unavailable", { status: 503 }),
-      );
+      return serviceUnavailable(error);
     }
     console.error("Middleware error:", error);
+    // /login 上での想定外エラーは /login へ転送すると無限リダイレクトになるため、
+    // そのまま進める（ログイン画面の表示に委ねる）。
+    if (pathClass.kind === "auth_route") {
+      return res;
+    }
     return redirectTo("/login");
   }
 }

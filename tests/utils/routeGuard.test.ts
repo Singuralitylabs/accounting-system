@@ -16,6 +16,25 @@ import {
   withAuthTimeout,
 } from "@/app/utils/routeGuard";
 
+// 応答せず、signal の中断だけを中継する fetch（undici の実挙動に相当）。
+// タイムアウト／中断の振る舞い検証で共有する。
+const hangingFetch = ((
+  _input: Parameters<typeof fetch>[0],
+  init?: Parameters<typeof fetch>[1],
+) =>
+  new Promise<never>((_resolve, reject) => {
+    init?.signal?.addEventListener(
+      "abort",
+      () => {
+        reject(
+          (init.signal as AbortSignal).reason ??
+            new DOMException("Aborted", "AbortError"),
+        );
+      },
+      { once: true },
+    );
+  })) as typeof fetch;
+
 describe("matchesRoute", () => {
   it("完全一致する", () => {
     expect(matchesRoute("/team", "/team")).toBe(true);
@@ -118,23 +137,6 @@ describe("createTimeoutFetch", () => {
   });
 
   it("応答しない fetch をタイムアウトで打ち切る", async () => {
-    const hangingFetch = ((
-      _input: Parameters<typeof fetch>[0],
-      init?: Parameters<typeof fetch>[1],
-    ) =>
-      new Promise<never>((_resolve, reject) => {
-        init?.signal?.addEventListener(
-          "abort",
-          () => {
-            reject(
-              (init.signal as AbortSignal).reason ??
-                new DOMException("Aborted", "AbortError"),
-            );
-          },
-          { once: true },
-        );
-      })) as typeof fetch;
-
     const error = await createTimeoutFetch(
       20,
       hangingFetch,
@@ -170,23 +172,6 @@ describe("createTimeoutFetch", () => {
 
   it("呼び出し元の signal の中断を内側に伝える", async () => {
     const incomingReason = new Error("incoming abort");
-    const hangingFetch = ((
-      _input: Parameters<typeof fetch>[0],
-      init?: Parameters<typeof fetch>[1],
-    ) =>
-      new Promise<never>((_resolve, reject) => {
-        init?.signal?.addEventListener(
-          "abort",
-          () => {
-            reject(
-              (init.signal as AbortSignal).reason ??
-                new DOMException("Aborted", "AbortError"),
-            );
-          },
-          { once: true },
-        );
-      })) as typeof fetch;
-
     const controller = new AbortController();
     const pending = createTimeoutFetch(1000, hangingFetch)(
       "https://example.test/user",
@@ -229,23 +214,6 @@ describe("createTimeoutFetch", () => {
     // 種類によらず `new AuthRetryableFetchError(message, 0)` に包む。この前提が
     // 崩れる（将来の更新時）と middleware の 503 経路に載らなくなるため、
     // 結合を固定化する。更新時は包み方の実コードを再確認すること。
-    const hangingFetch = ((
-      _input: Parameters<typeof fetch>[0],
-      init?: Parameters<typeof fetch>[1],
-    ) =>
-      new Promise<never>((_resolve, reject) => {
-        init?.signal?.addEventListener(
-          "abort",
-          () => {
-            reject(
-              (init.signal as AbortSignal).reason ??
-                new DOMException("Aborted", "AbortError"),
-            );
-          },
-          { once: true },
-        );
-      })) as typeof fetch;
-
     const abortReason = await createTimeoutFetch(
       20,
       hangingFetch,
@@ -290,22 +258,6 @@ describe("withAuthTimeout", () => {
   it("期限切れトークンの再試行ループ想定でも全体上限で打ち切る", async () => {
     // auth-js の `_refreshAccessToken` 相当：ハングする試行＋バックオフ再試行を
     // 繰り返すループを、外側の上限で打ち切って一時的障害（＝503）に落とす。
-    const hangingFetch = ((
-      _input: Parameters<typeof fetch>[0],
-      init?: Parameters<typeof fetch>[1],
-    ) =>
-      new Promise<never>((_resolve, reject) => {
-        init?.signal?.addEventListener(
-          "abort",
-          () => {
-            reject(
-              (init.signal as AbortSignal).reason ??
-                new DOMException("Aborted", "AbortError"),
-            );
-          },
-          { once: true },
-        );
-      })) as typeof fetch;
     const fetchWithTimeout = createTimeoutFetch(50, hangingFetch);
     const refreshLoopLike = (async () => {
       for (let attempt = 0; attempt < 10; attempt++) {
@@ -316,7 +268,6 @@ describe("withAuthTimeout", () => {
           () => {},
         );
         await new Promise((resolve) => setTimeout(resolve, 50));
-        void attempt;
       }
       return "unexpectedly-settled" as const;
     })();
