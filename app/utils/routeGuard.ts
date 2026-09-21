@@ -36,7 +36,8 @@ export const isTransientAuthError = (error: AuthError) =>
 // 試行自体は元々速いまま再試行ループが続くため、ループ全体の打ち切りは
 // 下の `withAuthTimeout` が担う。
 // fetch の中断（AbortError / TimeoutError）は auth-js の `_handleRequest` が
-// `AuthRetryableFetchError`（status 0）に包むため、上の `isTransientAuthError`
+// `AuthRetryableFetchError`（status 0）に包むため（auth-js 2.65.1 の
+// `lib/fetch.js` で確認。将来の更新時は見直すこと）、上の `isTransientAuthError`
 // でそのまま一時的障害として拾える。拡張は不要。
 export const AUTH_FETCH_TIMEOUT_MS = 5000;
 
@@ -93,9 +94,11 @@ export const createTimeoutFetch = (
   }) as typeof fetch;
 
 /**
- * `getUser()` 等の Auth 呼び出し全体に上限を設ける。制限超過時は
- * `AuthRetryableFetchError`（status 0）で reject するため、呼び出し側は
- * `isTransientAuthError` → 503 の既存経路にそのまま載せられる。
+ * `getUser()` 等の Auth 呼び出し全体の待ちに上限を設ける。`Promise.race` による
+ * 待機解除であり、内側のリトライループ自体を cancel するものではない。
+ * 制限超過時は `AuthRetryableFetchError`（status 0）で reject するため、
+ * 呼び出し側は `isTransientAuthError` → 503 の既存経路にそのまま載せられる。
+ * 503 返却で Edge 実行は終了するため、残存した内側ループは破棄される。
  */
 export const withAuthTimeout = <T>(
   promise: Promise<T>,

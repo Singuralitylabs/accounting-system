@@ -217,15 +217,17 @@ describe("createTimeoutFetch", () => {
       },
       (reason) => reason,
     );
-    // タイムアウト（5 秒）より十分速く、そのままのエラーで落ちる
-    expect(Date.now() - start).toBeLessThan(1000);
+    // タイムアウト（5 秒）を待たず素通りすること自体は、下の同一性で保証する。
+    // wall-clock の上限アサーションは高負荷 CI で flaky になるため置かない。
+    expect(Date.now() - start).toBeLessThan(5000);
     expect(error).toBe(networkError);
   });
 
   it("中断理由を auth-js と同じ包み方にすると一時的障害になる", async () => {
-    // auth-js の `_handleRequest` は fetch の reject を種類によらず
-    // `new AuthRetryableFetchError(message, 0)` に包む。この前提が崩れると
-    // middleware の 503 経路に載らなくなるため、結合を固定化する。
+    // auth-js 2.65.1 の `_handleRequest`（`lib/fetch.js`）は fetch の reject を
+    // 種類によらず `new AuthRetryableFetchError(message, 0)` に包む。この前提が
+    // 崩れる（将来の更新時）と middleware の 503 経路に載らなくなるため、
+    // 結合を固定化する。更新時は包み方の実コードを再確認すること。
     const hangingFetch = ((
       _input: Parameters<typeof fetch>[0],
       init?: Parameters<typeof fetch>[1],
@@ -280,6 +282,51 @@ describe("withAuthTimeout", () => {
       25000,
     );
     expect(AUTH_FETCH_TIMEOUT_MS).toBeLessThan(AUTH_GET_USER_TIMEOUT_MS);
+    // 受け入れ基準「数秒以内に 503」の回帰検出（引き上げは基準との再合意が必要）
+    expect(AUTH_GET_USER_TIMEOUT_MS).toBeLessThanOrEqual(6000);
+  });
+
+  it("期限切れトークンの再試行ループ想定でも全体上限で打ち切る", async () => {
+    // auth-js の `_refreshAccessToken` 相当：ハングする試行＋バックオフ再試行を
+    // 繰り返すループを、外側の上限で打ち切って一時的障害（＝503）に落とす。
+    const hangingFetch = ((
+      _input: Parameters<typeof fetch>[0],
+      init?: Parameters<typeof fetch>[1],
+    ) =>
+      new Promise<never>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => {
+            reject(
+              (init.signal as AbortSignal).reason ??
+                new DOMException("Aborted", "AbortError"),
+            );
+          },
+          { once: true },
+        );
+      })) as typeof fetch;
+    const fetchWithTimeout = createTimeoutFetch(50, hangingFetch);
+    const refreshLoopLike = (async () => {
+      for (let attempt = 0; attempt < 10; attempt++) {
+        await fetchWithTimeout("https://unreachable.invalid/token").then(
+          () => {
+            throw new Error("成功しないはずの試行が解決しました");
+          },
+          () => {},
+        );
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        void attempt;
+      }
+      return "unexpectedly-settled" as const;
+    })();
+    const error = await withAuthTimeout(refreshLoopLike, 300).then(
+      () => {
+        throw new Error("全体上限で打ち切られませんでした");
+      },
+      (reason) => reason,
+    );
+    expect(error).toBeInstanceOf(AuthRetryableFetchError);
+    expect(isTransientAuthError(error)).toBe(true);
   });
 });
 
