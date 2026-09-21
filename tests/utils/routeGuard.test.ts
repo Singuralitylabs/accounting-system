@@ -1,16 +1,39 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AuthApiError,
   AuthError,
   AuthRetryableFetchError,
 } from "@supabase/supabase-js";
 import {
+  AUTH_FETCH_TIMEOUT_MS,
+  AUTH_GET_USER_TIMEOUT_MS,
   classifyPath,
+  createTimeoutFetch,
   isAuthRoute,
   isPublicSkipPath,
   isTransientAuthError,
   matchesRoute,
+  withAuthTimeout,
 } from "@/app/utils/routeGuard";
+
+// 応答せず、signal の中断だけを中継する fetch（undici の実挙動に相当）。
+// タイムアウト／中断の振る舞い検証で共有する。
+const hangingFetch = ((
+  _input: Parameters<typeof fetch>[0],
+  init?: Parameters<typeof fetch>[1],
+) =>
+  new Promise<never>((_resolve, reject) => {
+    init?.signal?.addEventListener(
+      "abort",
+      () => {
+        reject(
+          (init.signal as AbortSignal).reason ??
+            new DOMException("Aborted", "AbortError"),
+        );
+      },
+      { once: true },
+    );
+  })) as typeof fetch;
 
 describe("matchesRoute", () => {
   it("完全一致する", () => {
@@ -68,6 +91,219 @@ describe("isTransientAuthError", () => {
 
   it("素の AuthError は一時的障害ではない", () => {
     expect(isTransientAuthError(new AuthError("generic"))).toBe(false);
+  });
+
+  it("タイムアウト由来の AuthRetryableFetchError(status 0) は一時的障害", () => {
+    expect(
+      isTransientAuthError(
+        new AuthRetryableFetchError(
+          `Supabase Auth request timed out after ${AUTH_FETCH_TIMEOUT_MS}ms`,
+          0,
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("withAuthTimeout の制限超過は一時的障害として拾える", async () => {
+    const error = await withAuthTimeout(new Promise<never>(() => {}), 20).then(
+      () => {
+        throw new Error("withAuthTimeout が reject しませんでした");
+      },
+      (reason) => reason,
+    );
+    expect(error).toBeInstanceOf(AuthRetryableFetchError);
+    expect(isTransientAuthError(error)).toBe(true);
+  });
+});
+
+describe("createTimeoutFetch", () => {
+  it("正常応答をそのまま返す", async () => {
+    const seen: AbortSignal[] = [];
+    const baseFetch = (async (
+      _input: Parameters<typeof fetch>[0],
+      init?: Parameters<typeof fetch>[1],
+    ) => {
+      seen.push(init?.signal as AbortSignal);
+      return new Response("ok");
+    }) as typeof fetch;
+
+    const response = await createTimeoutFetch(
+      1000,
+      baseFetch,
+    )("https://example.test/user");
+    expect(await response.text()).toBe("ok");
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toBeInstanceOf(AbortSignal);
+  });
+
+  it("応答しない fetch をタイムアウトで打ち切る", async () => {
+    const error = await createTimeoutFetch(
+      20,
+      hangingFetch,
+    )("https://example.test/user").then(
+      () => {
+        throw new Error("タイムアウトで reject しませんでした");
+      },
+      (reason) => reason as Error,
+    );
+    expect(error.name).toBe("TimeoutError");
+    expect(error.message).toContain("timed out after 20ms");
+  });
+
+  it("中断済みの signal はそのまま委譲する", async () => {
+    const received: (RequestInit["signal"] | undefined)[] = [];
+    const baseFetch = (async (
+      _input: Parameters<typeof fetch>[0],
+      init?: Parameters<typeof fetch>[1],
+    ) => {
+      received.push(init?.signal);
+      return new Response("ok");
+    }) as typeof fetch;
+
+    const controller = new AbortController();
+    controller.abort(new Error("incoming"));
+    const response = await createTimeoutFetch(1000, baseFetch)(
+      "https://example.test/user",
+      { signal: controller.signal },
+    );
+    expect(await response.text()).toBe("ok");
+    expect(received[0]).toBe(controller.signal);
+  });
+
+  it("呼び出し元の signal の中断を内側に伝える", async () => {
+    const incomingReason = new Error("incoming abort");
+    const controller = new AbortController();
+    const pending = createTimeoutFetch(1000, hangingFetch)(
+      "https://example.test/user",
+      { signal: controller.signal },
+    );
+    controller.abort(incomingReason);
+    const error = await pending.then(
+      () => {
+        throw new Error("中断で reject しませんでした");
+      },
+      (reason) => reason as Error,
+    );
+    expect(error).toBe(incomingReason);
+  });
+
+  it("即時失敗型（DNS 解決失敗相当）はタイマーを待たず素通りする", async () => {
+    const networkError = new TypeError("fetch failed");
+    const failingFetch = ((_input: Parameters<typeof fetch>[0]) =>
+      Promise.reject(networkError)) as typeof fetch;
+
+    const start = Date.now();
+    const error = await createTimeoutFetch(
+      5000,
+      failingFetch,
+    )("https://unreachable.invalid/user").then(
+      () => {
+        throw new Error("内側のエラーが伝わりませんでした");
+      },
+      (reason) => reason,
+    );
+    // タイムアウト（5 秒）を待たず素通りすることの厳密な保証は、下の同一性
+    // アサーション（`toBe(networkError)`）が担う。上の wall-clock 上限は
+    // 高負荷 CI でも flaky にならないよう 5000ms と十分な余裕を持たせている。
+    expect(Date.now() - start).toBeLessThan(5000);
+    expect(error).toBe(networkError);
+  });
+
+  it("中断理由を auth-js と同じ包み方にすると一時的障害になる", async () => {
+    // auth-js 2.65.1 の `_handleRequest`（`lib/fetch.js`）は fetch の reject を
+    // 種類によらず `new AuthRetryableFetchError(message, 0)` に包む。この前提が
+    // 崩れる（将来の更新時）と middleware の 503 経路に載らなくなるため、
+    // 結合を固定化する。更新時は包み方の実コードを再確認すること。
+    const abortReason = await createTimeoutFetch(
+      20,
+      hangingFetch,
+    )("https://example.test/user").then(
+      () => {
+        throw new Error("タイムアウトで reject しませんでした");
+      },
+      (reason) => reason as Error,
+    );
+    const wrapped = new AuthRetryableFetchError(abortReason.message, 0);
+    expect(isTransientAuthError(wrapped)).toBe(true);
+  });
+});
+
+describe("withAuthTimeout", () => {
+  it("内側が速ければその値を返す", async () => {
+    await expect(withAuthTimeout(Promise.resolve(42), 1000)).resolves.toBe(42);
+  });
+
+  it("内側のエラーをそのまま通す", async () => {
+    const original = new AuthApiError("unauthorized", 401, "401");
+    const error = await withAuthTimeout(Promise.reject(original), 1000).then(
+      () => {
+        throw new Error("内側のエラーが伝わりませんでした");
+      },
+      (reason) => reason,
+    );
+    expect(error).toBe(original);
+    expect(isTransientAuthError(error)).toBe(false);
+  });
+
+  it("既定の上限と後続取得の合算でも Edge の 25 秒制限に収まる", () => {
+    // getUser 全体の上限＋後続の profiles 取得（再試行なし・1 リクエスト上限）の合算
+    expect(AUTH_GET_USER_TIMEOUT_MS + AUTH_FETCH_TIMEOUT_MS).toBeLessThan(
+      25000,
+    );
+    expect(AUTH_FETCH_TIMEOUT_MS).toBeLessThan(AUTH_GET_USER_TIMEOUT_MS);
+    // 受け入れ基準「数秒以内に 503」の回帰検出（引き上げは基準との再合意が必要）
+    expect(AUTH_GET_USER_TIMEOUT_MS).toBeLessThanOrEqual(6000);
+  });
+
+  it("期限切れトークンの再試行ループ想定でも全体上限で打ち切る", async () => {
+    // auth-js の `_refreshAccessToken` 相当：ハングする試行＋バックオフ再試行を
+    // 繰り返すループを、外側の上限で打ち切って一時的障害（＝503）に落とす。
+    const fetchWithTimeout = createTimeoutFetch(50, hangingFetch);
+    const refreshLoopLike = (async () => {
+      for (let attempt = 0; attempt < 10; attempt++) {
+        await fetchWithTimeout("https://unreachable.invalid/token").then(
+          () => {
+            throw new Error("成功しないはずの試行が解決しました");
+          },
+          () => {},
+        );
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      return "unexpectedly-settled" as const;
+    })();
+    const error = await withAuthTimeout(refreshLoopLike, 300).then(
+      () => {
+        throw new Error("全体上限で打ち切られませんでした");
+      },
+      (reason) => reason,
+    );
+    expect(error).toBeInstanceOf(AuthRetryableFetchError);
+    expect(isTransientAuthError(error)).toBe(true);
+  });
+});
+
+describe("タイムアウト後のタイマー残存", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("createTimeoutFetch の成功時はタイマーが残らない", async () => {
+    vi.useFakeTimers();
+    const baseFetch = (async () =>
+      new Response("ok")) as unknown as typeof fetch;
+    const pending = createTimeoutFetch(
+      5000,
+      baseFetch,
+    )("https://example.test/user");
+    // 成功パスで cleanup() が走り、保留タイマーは消える
+    await pending;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("withAuthTimeout の解決時はタイマーが残らない", async () => {
+    vi.useFakeTimers();
+    await withAuthTimeout(Promise.resolve(1), 5000);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 
