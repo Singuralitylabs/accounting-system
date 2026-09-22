@@ -10,19 +10,63 @@ import { createServerSupabase } from "./clients";
 import {
   BusinessRow,
   CostRow,
+  ReportPeriod,
   buildMonthlyReport,
   fiscalYearMonths,
   reportFlags,
+  reportRangeBounds,
 } from "../profitLossLogic";
 import { getAuthorizedViewer } from "./viewerAccess";
 
 // 集計に必要な行をまとめて取得する（RLS により権限に応じた行のみ返る）
 // セッション Cookie は @supabase/ssr 形式。createServerSupabase() 以外のクライアントを混ぜない
-// NOTE: business / costs は全件取得している。データが数年分蓄積して
-// ペイロードが問題になったら、対象期間（invoice_date / period の範囲＋ NULL 行）で
-// 絞り込む WHERE 句の追加を検討する。
-const fetchReportSourceRows = async () => {
+// period を渡すと対象期間＋月未確定（NULL）行に絞る。月次は単月、年間推移は年度12ヶ月を渡し、
+// いずれも5テーブルの一括取得（Promise.all）のままクエリ往復を増やさない。
+// 省略時は全件取得（後方互換。呼び出し側は原則として期間を渡す）。
+const fetchReportSourceRows = async (period?: ReportPeriod) => {
   const supabase = createServerSupabase();
+  const bounds = period ? reportRangeBounds(period) : null;
+  // 日付カラムの絞り込みは「期間内 OR NULL」。PostgREST の or() 内で and() を使う。
+  const datedOrUndated = (column: string) =>
+    `and(${column}.gte.${bounds!.startDate},${column}.lt.${bounds!.endExclusive}),${column}.is.null`;
+
+  let businessQuery = supabase
+    .from("business")
+    .select(
+      "id, name, amount, invoice_date, matter_id, matters!inner(id, title, team, category)",
+    );
+  let costQuery = supabase
+    .from("costs")
+    .select(
+      "id, name, price, item, period, matter_id, matters!inner(id, title, team, category)",
+    );
+  let recurringQuery = supabase
+    .from("recurring_costs")
+    .select("*")
+    .order("id", { ascending: true });
+  let extraQuery = supabase
+    .from("extra_entries")
+    .select("*")
+    .order("id", { ascending: true });
+  let adjustmentQuery = supabase
+    .from("profit_loss_adjustments")
+    .select("*")
+    .order("id", { ascending: true });
+
+  if (bounds) {
+    businessQuery = businessQuery.or(datedOrUndated("invoice_date"));
+    costQuery = costQuery.or(datedOrUndated("period"));
+    extraQuery = extraQuery.or(datedOrUndated("entry_date"));
+    // 定期費用は適用期間の重なりで絞る（支払サイクルの計上判定は集計側で行う）。
+    // 適用期間が取得期間と重ならない行だけを除外する。
+    recurringQuery = recurringQuery
+      .lt("start_month", bounds.endExclusive)
+      .or(`end_month.gte.${bounds.startDate},end_month.is.null`);
+    // 調整は対象月で絞る（target_month は NOT NULL）。
+    adjustmentQuery = adjustmentQuery
+      .gte("target_month", bounds.startDate)
+      .lt("target_month", bounds.endExclusive);
+  }
 
   const [
     businessResult,
@@ -31,25 +75,11 @@ const fetchReportSourceRows = async () => {
     extraResult,
     adjustmentResult,
   ] = await Promise.all([
-    supabase
-      .from("business")
-      .select(
-        "id, name, amount, invoice_date, matter_id, matters!inner(id, title, team, category)",
-      ),
-    supabase
-      .from("costs")
-      .select(
-        "id, name, price, item, period, matter_id, matters!inner(id, title, team, category)",
-      ),
-    supabase
-      .from("recurring_costs")
-      .select("*")
-      .order("id", { ascending: true }),
-    supabase.from("extra_entries").select("*").order("id", { ascending: true }),
-    supabase
-      .from("profit_loss_adjustments")
-      .select("*")
-      .order("id", { ascending: true }),
+    businessQuery,
+    costQuery,
+    recurringQuery,
+    extraQuery,
+    adjustmentQuery,
   ]);
 
   if (
@@ -92,7 +122,10 @@ export const getProfitLossReport = async (
     return null;
   }
 
-  const rows = await fetchReportSourceRows();
+  const rows = await fetchReportSourceRows({
+    startMonth: month,
+    endMonth: month,
+  });
   if (!rows) {
     return null;
   }
@@ -122,12 +155,17 @@ export const getAnnualTrend = async (
   }
 
   // 年度の全期間を 1 回のクエリで取得し、月別にバケット分けする
-  const rows = await fetchReportSourceRows();
+  // （月単位まで絞ると12回クエリになるため年度範囲で絞る）
+  const months = fiscalYearMonths(fiscalYear);
+  const rows = await fetchReportSourceRows({
+    startMonth: months[0],
+    endMonth: months[months.length - 1],
+  });
   if (!rows) {
     return null;
   }
 
-  const months = fiscalYearMonths(fiscalYear).map((month) =>
+  const trendMonths = months.map((month) =>
     buildMonthlyReport({
       month,
       businessRows: rows.businessRows,
@@ -142,7 +180,7 @@ export const getAnnualTrend = async (
     }),
   );
 
-  return { fiscalYear, months };
+  return { fiscalYear, months: trendMonths };
 };
 
 // 案件情報の単体取得（損益計算書の「案件を表示」ボタン → 案件詳細モーダル用）

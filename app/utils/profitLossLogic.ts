@@ -88,6 +88,65 @@ export const reportFlags = (profileClass: string | null | undefined) => ({
   includeTeamBreakdown: hasClassAccess(["accounting", "admin"], profileClass),
 });
 
+// 損益レポートの取得期間（両端を含む月キー "YYYY-MM"）。
+// 月次は { startMonth: month, endMonth: month }、年間推移は年度12ヶ月の両端を渡す。
+// 月単位まで絞ると年間推移が12回クエリになるため、年度範囲で1回取得する。
+export type ReportPeriod = {
+  startMonth: string;
+  endMonth: string;
+};
+
+export type ReportRangeBounds = {
+  // 期間開始月の月初日（"YYYY-MM-01"。以上条件に使う）
+  startDate: string;
+  // 期間終了月の翌月月初日（"YYYY-MM-01"。未満条件に使う）
+  endExclusive: string;
+};
+
+// 月キー（"YYYY-MM"）の翌月の月初日を返す。
+// 日付の月ズレを避けるため Date オブジェクトは使わない。
+const firstDayOfNextMonth = (monthKey: string): string => {
+  const year = parseInt(monthKey.slice(0, 4), 10);
+  const monthNumber = parseInt(monthKey.slice(5, 7), 10);
+  const nextYear = monthNumber === 12 ? year + 1 : year;
+  const nextMonthNumber = monthNumber === 12 ? 1 : monthNumber + 1;
+  return `${nextYear}-${String(nextMonthNumber).padStart(2, "0")}-01`;
+};
+
+// 取得期間から日付範囲（[startDate, endExclusive)）を求める。
+// SQL の WHERE 句とインメモリのフィルタで同じ境界を使うための単一の定義。
+export const reportRangeBounds = (period: ReportPeriod): ReportRangeBounds => ({
+  startDate: `${period.startMonth}-01`,
+  endExclusive: firstDayOfNextMonth(period.endMonth),
+});
+
+// 日付カラムが取得期間内または月未確定（NULL）か。
+// invoice_date / period / entry_date の絞り込みで NULL 行を落とさないための条件。
+export const isDateInRangeOrUndated = (
+  dateStr: string | null,
+  bounds: ReportRangeBounds,
+): boolean =>
+  dateStr === null ||
+  (dateStr >= bounds.startDate && dateStr < bounds.endExclusive);
+
+// 定期費用マスタの適用期間が取得期間と重なるか。
+// 支払サイクルによる計上月の判定は行わない（buildMonthlyReport 側で行う）。
+// 適用期間が取得期間と重ならない行だけを除外するための条件。
+export const doesRecurringCostOverlapRange = (
+  recurringCost: Pick<RecurringCostType, "start_month" | "end_month">,
+  bounds: ReportRangeBounds,
+): boolean =>
+  recurringCost.start_month < bounds.endExclusive &&
+  (recurringCost.end_month === null ||
+    recurringCost.end_month >= bounds.startDate);
+
+// 調整の対象月が取得期間内か（target_month は NOT NULL のため NULL 扱いは不要）。
+export const isAdjustmentInRange = (
+  targetMonth: string,
+  bounds: ReportRangeBounds,
+): boolean =>
+  targetMonth >= bounds.startDate && targetMonth < bounds.endExclusive;
+
 // buildMonthlyReport の入力。
 // boolean フラグが複数あるため、呼び出し側での取り違えを防ぐ目的で
 // 位置引数ではなくオブジェクトで受ける。
