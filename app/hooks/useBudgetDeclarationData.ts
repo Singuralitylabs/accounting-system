@@ -198,8 +198,19 @@ export const useDeleteBudgetDeclaration = () => {
       });
       notifySuccess(`${variables.team}の事前収支申告を削除しました。`);
     },
-    onError: (error) => {
+    onError: (error, variables) => {
       console.error("事前収支申告の削除エラー:", error);
+      // 二重クリックや別タブでの先行削除では削除 0 行がエラーになるが、申告は
+      // 実際には消えていることがある。DB エラー等で行が残っている場合でも、
+      // 手元のキャッシュ（staleTime 2分）は他の担当者の変更で実 DB とずれて
+      // いる可能性があるため、useDeleteMatter と同様に失敗時は無条件に
+      // 無効化して一覧・詳細を実状態に合わせる（コストは再取得のみ）。
+      queryClient.invalidateQueries({
+        queryKey: ["budgetDeclarations", "detail", variables.declarationId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["budgetDeclarations", "list"],
+      });
       notifyError(toErrorMessage(error, "事前収支申告の削除に失敗しました。"));
     },
   });
