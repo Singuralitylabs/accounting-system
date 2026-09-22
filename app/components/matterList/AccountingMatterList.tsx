@@ -21,6 +21,8 @@ import {
   hasMatterListFilters,
   partitionCheckedMatters,
 } from "../../utils/matterListFilters";
+import { useListPagination } from "../../hooks/useListPagination";
+import { MatterListPagination } from "./MatterListPagination";
 import { notifyError, notifyInfo } from "../../utils/notify";
 import { confirmAction } from "../../utils/confirmAction";
 import { ActiveMatterFilterBar } from "./ActiveMatterFilterBar";
@@ -76,6 +78,25 @@ export const AccountingMatterList = ({
   }
   const headerMatterList =
     optionSourceRef.current.length > 0 ? optionSourceRef.current : matterList;
+
+  // 件数増加に伴う DOM 肥大を抑えるためのクライアント側ページネーション。
+  // サーバ側の絞り込み結果・チェック選択は変えず、表示範囲だけを切り出す。
+  // 完了・通知の対象解決はページ外も含む matterList 全体で行うため、
+  // ページ外のチェックは partitionCheckedMatters の hiddenCheckedIds として扱われる。
+  const {
+    page,
+    setPage,
+    perPage,
+    setPerPage,
+    total,
+    totalPages,
+    startIndex,
+    endIndex,
+    pagedItems,
+    showPagination,
+  } = useListPagination(matterList, {
+    resetKey: JSON.stringify(compactedFilters),
+  });
 
   const handleShowMatterInfo = useCallback(
     (matter: MatterInfoWithUserNameType) => {
@@ -267,15 +288,22 @@ export const AccountingMatterList = ({
         {showCards ? (
           <div className="py-4 px-8">
             <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
-              {matterList.map((matter: MatterInfoWithUserNameType) => (
-                <MatterCard
+              {pagedItems.map((matter: MatterInfoWithUserNameType) => (
+                <div
                   key={matter.id}
-                  variant="accounting"
-                  matter={matter}
-                  isChecked={checkedMatterIdList.includes(matter.id)}
-                  onOpen={handleShowMatterInfo}
-                  onCheck={() => handleCheckCard(matter.id)}
-                />
+                  style={{
+                    contentVisibility: "auto",
+                    containIntrinsicSize: "auto 280px",
+                  }}
+                >
+                  <MatterCard
+                    variant="accounting"
+                    matter={matter}
+                    isChecked={checkedMatterIdList.includes(matter.id)}
+                    onOpen={handleShowMatterInfo}
+                    onCheck={() => handleCheckCard(matter.id)}
+                  />
+                </div>
               ))}
             </SimpleGrid>
           </div>
@@ -291,7 +319,7 @@ export const AccountingMatterList = ({
               }
             </Table.Thead>
             <Table.Tbody>
-              {matterList.map((matter: MatterInfoWithUserNameType) => (
+              {pagedItems.map((matter: MatterInfoWithUserNameType) => (
                 <AccountingTablebody
                   key={matter.id}
                   matter={matter}
@@ -305,6 +333,18 @@ export const AccountingMatterList = ({
           </Table>
         )}
       </div>
+      {showPagination && (
+        <MatterListPagination
+          page={page}
+          totalPages={totalPages}
+          onPageChange={setPage}
+          perPage={perPage}
+          onPerPageChange={setPerPage}
+          startIndex={startIndex}
+          endIndex={endIndex}
+          total={total}
+        />
+      )}
 
       {detailOpened && detailMatterInfo && (
         <MatterCardDetail

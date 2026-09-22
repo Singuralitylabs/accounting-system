@@ -6,6 +6,8 @@ import { formatTimeToJp } from "../../utils/formatter";
 import { MatterCardDetail } from "../modal/MatterCardDetail";
 import DisplayMenu from "../buttons/display-menu";
 import { Badge } from "@mantine/core";
+import { useListPagination } from "../../hooks/useListPagination";
+import { MatterListPagination } from "./MatterListPagination";
 
 // チーム案件一覧で使用する型（担当者情報を含む）
 export type TeamMatterType = {
@@ -36,6 +38,20 @@ const ReadonlyMatterList: FC<ReadonlyMatterListProps> = ({ matterList }) => {
     null,
   );
   const [detailOpened, setDetailOpened] = useState(false);
+  // 件数増加に伴う DOM 肥大を抑えるためのクライアント側ページネーション。
+  // 取得・ソートは変えず、表示範囲だけを切り出す。
+  const {
+    page,
+    setPage,
+    perPage,
+    setPerPage,
+    total,
+    totalPages,
+    startIndex,
+    endIndex,
+    pagedItems,
+    showPagination,
+  } = useListPagination(matterList ?? []);
 
   const getStatusBadge = (
     isFixed: boolean | null,
@@ -57,10 +73,14 @@ const ReadonlyMatterList: FC<ReadonlyMatterListProps> = ({ matterList }) => {
 
   const renderCardView = () => (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      {matterList.map((matter) => (
+      {pagedItems.map((matter) => (
         <div
           key={matter.id}
           className="bg-white rounded-lg shadow-md p-4 border"
+          style={{
+            contentVisibility: "auto",
+            containIntrinsicSize: "auto 280px",
+          }}
         >
           <div className="flex justify-between items-start mb-2">
             <h3 className="text-lg font-semibold truncate">{matter.title}</h3>
@@ -148,7 +168,7 @@ const ReadonlyMatterList: FC<ReadonlyMatterListProps> = ({ matterList }) => {
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200">
-          {matterList.map((matter) => (
+          {pagedItems.map((matter) => (
             <tr key={matter.id} className="hover:bg-gray-50">
               <td className="px-4 py-2 text-sm text-gray-900">#{matter.id}</td>
               <td className="px-4 py-2 text-sm text-gray-900 font-medium">
@@ -210,6 +230,19 @@ const ReadonlyMatterList: FC<ReadonlyMatterListProps> = ({ matterList }) => {
 
       {/* メイン表示エリア */}
       {switchDisplay ? renderTableView() : renderCardView()}
+
+      {showPagination && (
+        <MatterListPagination
+          page={page}
+          totalPages={totalPages}
+          onPageChange={setPage}
+          perPage={perPage}
+          onPerPageChange={setPerPage}
+          startIndex={startIndex}
+          endIndex={endIndex}
+          total={total}
+        />
+      )}
 
       {/* 詳細モーダル */}
       {selectedMatter && (
