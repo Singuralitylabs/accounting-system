@@ -21,12 +21,20 @@ export function useListPagination<T>(
   const initialPerPage =
     options?.initialPerPage ?? DEFAULT_MATTER_LIST_PER_PAGE;
   const [page, setPage] = useState(1);
+  // initialPerPage は初回マウント時のみ有効（変更しても反映されない）。
+  // 現在の呼び出しはすべて既定値のため実害はない。
   const [perPage, setPerPage] = useState(initialPerPage);
 
   const total = items.length;
   const totalPages = Math.max(1, Math.ceil(total / perPage));
   // レンダリング中に setState せず、範囲外ページは表示時に丸める
   const safePage = Math.min(Math.max(1, page), totalPages);
+
+  // ページ移動は有効範囲に丸める（内部に stale な範囲外の値が残り、
+  // 将来件数が増えた際に表示ページが跳ねるのを防ぐ）
+  const gotoPage = (next: number) => {
+    setPage(Math.min(Math.max(1, next), totalPages));
+  };
 
   const resetKey = options?.resetKey;
   // フィルタ条件（resetKey）・表示件数の変更時に1ページ目に戻る。
@@ -45,7 +53,7 @@ export function useListPagination<T>(
 
   return {
     page: safePage,
-    setPage,
+    setPage: gotoPage,
     perPage,
     setPerPage,
     total,

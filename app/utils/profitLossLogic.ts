@@ -150,8 +150,9 @@ export const isAdjustmentInRange = (
 
 // Supabase（PostgREST）の or() に渡す日付絞り込み条件「期間内 OR 月未確定（NULL）」。
 // invoice_date / period / entry_date 用。SQL とテストで同じ文字列を使うための単一の定義。
+// column は union 型に絞り、任意文字列の混入を型で防ぐ。
 export const datedOrUndatedFilter = (
-  column: string,
+  column: "invoice_date" | "period" | "entry_date",
   bounds: ReportRangeBounds,
 ): string =>
   `and(${column}.gte.${bounds.startDate},${column}.lt.${bounds.endExclusive}),${column}.is.null`;
