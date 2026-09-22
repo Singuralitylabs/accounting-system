@@ -118,7 +118,7 @@ describe("delayMsForJwtIssuedAtFuture", () => {
     ).toBe(JWT_IAT_RETRY_DELAYS_MS[1]);
   });
 
-  it("iat が未来ならその差分を待ち、上限で切る", () => {
+  it("iat が未来ならその差分を待つ（予算内なら再試行する）", () => {
     expect(
       delayMsForJwtIssuedAtFuture({
         attemptIndex: 0,
@@ -126,13 +126,53 @@ describe("delayMsForJwtIssuedAtFuture", () => {
         nowMs: 10_000,
       }),
     ).toBe(2_050);
+  });
+
+  it("必要な待ちが予算を超えるなら再試行しない（null を返す）", () => {
+    // ずれが 10 秒。4 秒待っても iat を追い越せないため待たない。
     expect(
       delayMsForJwtIssuedAtFuture({
         attemptIndex: 0,
         iatSec: 20,
         nowMs: 10_000,
       }),
-    ).toBe(MAX_IAT_WAIT_MS);
+    ).toBeNull();
+  });
+
+  it("既に待った分を差し引いた残り予算で判定する", () => {
+    // 残り 1 秒に対してバックオフ 2 秒は収まらない。
+    expect(
+      delayMsForJwtIssuedAtFuture({
+        attemptIndex: 2,
+        iatSec: null,
+        nowMs: 0,
+        elapsedWaitMs: MAX_IAT_WAIT_MS - 1_000,
+      }),
+    ).toBeNull();
+    // 予算を使い切っていれば無条件に再試行しない。
+    expect(
+      delayMsForJwtIssuedAtFuture({
+        attemptIndex: 0,
+        iatSec: null,
+        nowMs: 0,
+        elapsedWaitMs: MAX_IAT_WAIT_MS,
+      }),
+    ).toBeNull();
+  });
+
+  it("バックオフのみの再試行は合計が予算に収まる", () => {
+    let elapsedWaitMs = 0;
+    JWT_IAT_RETRY_DELAYS_MS.forEach((_, attemptIndex) => {
+      const delay = delayMsForJwtIssuedAtFuture({
+        attemptIndex,
+        iatSec: null,
+        nowMs: 0,
+        elapsedWaitMs,
+      });
+      expect(delay).toBe(JWT_IAT_RETRY_DELAYS_MS[attemptIndex]);
+      elapsedWaitMs += delay!;
+    });
+    expect(elapsedWaitMs).toBeLessThanOrEqual(MAX_IAT_WAIT_MS);
   });
 });
 
@@ -196,6 +236,30 @@ describe("createPostgrestFetch", () => {
     });
 
     const response = await wrapped("https://example.supabase.co/auth/v1/user");
+
+    expect(response.status).toBe(401);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("時計ずれが大きすぎるときは待たずに 401 を返す", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(pgrst303());
+    const sleep = vi.fn(async () => undefined);
+    const wrapped = createPostgrestFetch({
+      fetch: fetchMock as unknown as typeof fetch,
+      sleep,
+      now: () => 1_700_000_000_000,
+    });
+
+    // iat が 30 秒先。4 秒の予算では追い越せないため再試行しない。
+    const response = await wrapped(
+      "https://example.supabase.co/rest/v1/select_options",
+      {
+        headers: {
+          Authorization: `Bearer ${fakeToken({ iat: 1_700_000_030 })}`,
+        },
+      },
+    );
 
     expect(response.status).toBe(401);
     expect(fetchMock).toHaveBeenCalledTimes(1);
