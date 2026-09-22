@@ -492,6 +492,30 @@ describe("BudgetDeclarationForm", () => {
     expect(screen.getByRole("button", { name: "削除" })).toBeDisabled();
   });
 
+  it("削除済み（detail が null）の申告は削除ボタンを無効化し、案内を表示する", () => {
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: null,
+      isLoading: false,
+      isError: false,
+    });
+
+    renderWithMantine(
+      <BudgetDeclarationForm
+        opened
+        onClose={vi.fn()}
+        targetMonth="2026-10"
+        team="開発チーム"
+        declarationId={7}
+        teamLocked={false}
+        memberList={testMemberList}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "削除" })).toBeDisabled();
+    expect(screen.getByText("申告が見つかりません")).toBeInTheDocument();
+    expect(screen.getByText(/一覧は自動で更新されます。/)).toBeInTheDocument();
+  });
+
   it("削除確認をキャンセルすると削除処理を呼ばない", async () => {
     useBudgetDeclarationDetail.mockReturnValue({
       data: { comment: "", items: [] },

@@ -165,6 +165,13 @@ const BudgetDeclarationForm = ({
       ? !detail || isDetailFetching
       : isActiveRecurringItemsFetching || isActiveRecurringItemsError);
 
+  // 削除済みが確定した申告（別タブでの先行削除等で detail が null に収束）は
+  // 削除の操作対象が無いため、削除ボタンも止める（保存は saveDisabled の
+  // !detail が既に止めている）。取得中・取得失敗時は行が残っている可能性が
+  // あるため、従来どおり押せる状態を維持する
+  const isDetailMissing =
+    isEditMode && !isDetailLoading && !isDetailError && !detail;
+
   const [items, setItems] = useState<ItemRow[]>([]);
   const nextKeyRef = useRef(0);
   // detail から items/comment を反映済みの declarationId。編集中に detail が
@@ -389,9 +396,9 @@ const BudgetDeclarationForm = ({
           </Alert>
         )}
 
-        {isEditMode && !isDetailLoading && !isDetailError && !detail && (
+        {isDetailMissing && (
           <Alert color="gray" title="申告が見つかりません" className="mb-4">
-            既に削除されている可能性があります。一覧を閉じて再読み込みしてください。
+            既に削除されている可能性があります。一覧は自動で更新されます。
           </Alert>
         )}
 
@@ -615,7 +622,7 @@ const BudgetDeclarationForm = ({
             <Button
               color="red"
               variant="outline"
-              disabled={isSaving}
+              disabled={isSaving || isDetailMissing}
               onClick={handleDelete}
             >
               削除

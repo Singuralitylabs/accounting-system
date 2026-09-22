@@ -2,7 +2,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
 import React from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { deleteBudgetDeclaration } = vi.hoisted(() => ({
   deleteBudgetDeclaration: vi.fn(),
@@ -42,6 +42,10 @@ describe("useDeleteBudgetDeclaration", () => {
         mutations: { retry: false },
       },
     });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("削除エラー時も一覧・詳細のキャッシュを無効化する（先行削除で 0 行エラーになっても表示が残らない）", async () => {
