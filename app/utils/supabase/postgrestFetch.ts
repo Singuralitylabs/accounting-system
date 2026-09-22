@@ -1,47 +1,43 @@
-// PostgREST が返す PGRST303（JWT issued at future）への耐性。
+// PostgREST が返す `JWT issued at future`（`PGRST303`）への耐性。
 //
-// アプリは JWT を発行しない。access_token の iat は Supabase Auth（GoTrue）が付け、
-// Data API（PostgREST）が別ホストの時計で検証する。Auth の getUser() は通る一方で
-// 直後の REST が 401 になるのは、この発行側と検証側の時計ずれが原因（アプリの
-// Cookie 改変やセッション再利用ではない）。
+// 原因はアプリでも Supabase の設定でもなく、**PostgREST 側の不具合**だった。
+// PostgREST は現在時刻を `auto-update` でキャッシュしており、これを誤って読むため
+// 有効なトークンでも散発的に `iat` が未来と判定される。上流の報告（#5172）では、
+// キャッシュをやめて `getCurrentTime` を直接使うと事象が消えることが確認されている。
+// 修正は **14.18（2026-09-10）/ 16.3（2026-09-11）** で入った（CHANGELOG の
+// 「Fix sporadic "PGRST303 JWT issued at future" errors」/ #5196）。
 //
-// PostgREST の iat 許容は約 30 秒。それを超える一時的なずれでは、同じトークンを
-// 短い待ちのあと再送すると通る。新しいトークンを refresh すると iat がまた未来に
-// なり、同じエラーを再生するため、ここでは refresh しない。
+// したがって本ラッパは恒久対策ではなく、修正前のバージョンが動いている間の保険。
+// 本番の PostgREST が 14.18 以上であることを確認できたら削除してよい。
+//
+// 再送は refresh を伴わない。新しいトークンを取り直しても `iat` は再び「未来」と
+// 判定され得るし、そもそも不具合は検証側にあるため、同じトークンを送り直す。
+//
+// 判定は**メッセージ一致のみ**で行う。`PGRST303` は `JwtClaimsErr` 全般に付く
+// 総称コードで、`JWT expired` / `JWT not yet valid` / `JWT not in audience` /
+// `Parsing claims failed` も同じコードになる（PostgREST の `Error.hs`）。
+// コードだけで再試行すると、期限切れトークンを無駄に再送してしまう。
 
-export const JWT_ISSUED_AT_FUTURE_CODE = "PGRST303";
 export const JWT_ISSUED_AT_FUTURE_MESSAGE = "JWT issued at future";
 
-// 再試行間隔。合計待ちは最大でも数秒に収め、RSC を長くブロックしない。
-export const JWT_IAT_RETRY_DELAYS_MS = [400, 1000, 2000] as const;
-
-// 再試行に費やしてよい待ち時間の「合計」。1 回あたりの上限ではない点に注意。
-//
-// middleware の `profiles` 取得は `AUTH_FETCH_TIMEOUT_MS`（5 秒）で外側から
-// 打ち切られる（`app/utils/routeGuard.ts`）。1 回あたりの上限にすると
-// 4 秒 × 3 回 = 12 秒まで膨らみ、外側の打ち切りに必ず食い潰されて
-// 503 になるうえ、RSC でも同じ時間だけ描画をブロックする。
-//
-// また PGRST303 は PostgREST の iat 許容（約 30 秒）を超えたときに返るため、
-// 必要な待ちがこの予算に収まらない場合は「待っても iat は現在時刻に追いつかない」
-// ことが確定している。その場合は再試行せず、ただちに元の 401 を返す。
-export const MAX_IAT_WAIT_MS = 4000;
+// 再試行間隔。上流の事象は散発的で、キャッシュされた時刻が更新されれば通る。
+// 待ちを短く保ち、middleware の外側の打ち切り（`AUTH_FETCH_TIMEOUT_MS` = 5 秒）や
+// RSC の描画を意味のある長さブロックしない（合計 700ms）。
+export const JWT_IAT_RETRY_DELAYS_MS = [200, 500] as const;
 
 export type PostgrestFetchDependencies = {
   fetch?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
-  now?: () => number;
 };
 
 export const isPostgrestUrl = (url: string) => url.includes("/rest/v1/");
 
 export const isJwtIssuedAtFutureError = (payload: unknown) => {
   if (!payload || typeof payload !== "object") return false;
-  const { code, message } = payload as { code?: unknown; message?: unknown };
+  const { message } = payload as { message?: unknown };
   return (
-    code === JWT_ISSUED_AT_FUTURE_CODE ||
-    (typeof message === "string" &&
-      message.includes(JWT_ISSUED_AT_FUTURE_MESSAGE))
+    typeof message === "string" &&
+    message.includes(JWT_ISSUED_AT_FUTURE_MESSAGE)
   );
 };
 
@@ -49,65 +45,6 @@ export const requestUrl = (input: RequestInfo | URL) => {
   if (typeof input === "string") return input;
   if (input instanceof URL) return input.href;
   return input.url;
-};
-
-export const readAuthorizationHeader = (
-  input: RequestInfo | URL,
-  init?: RequestInit,
-) => {
-  if (init?.headers) {
-    return new Headers(init.headers).get("Authorization");
-  }
-  if (typeof Request !== "undefined" && input instanceof Request) {
-    return input.headers.get("Authorization");
-  }
-  return null;
-};
-
-// JWT の iat を読む（署名検証はしない。再試行待ち時間の計算にだけ使う）。
-export const readJwtIat = (authorization: string | null) => {
-  if (!authorization) return null;
-  const token = authorization.replace(/^Bearer\s+/i, "").trim();
-  const payloadPart = token.split(".")[1];
-  if (!payloadPart) return null;
-  try {
-    const base64 = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
-    const payload = JSON.parse(atob(base64)) as { iat?: unknown };
-    return typeof payload.iat === "number" ? payload.iat : null;
-  } catch {
-    return null;
-  }
-};
-
-/**
- * 次の再試行までの待ち時間。`null` は「待っても無駄なので再試行しない」。
- *
- * `elapsedWaitMs` はこれまでの再試行で既に待った合計。残り予算
- * （`MAX_IAT_WAIT_MS - elapsedWaitMs`）に収まらない待ちは要求しない。
- */
-export const delayMsForJwtIssuedAtFuture = ({
-  attemptIndex,
-  iatSec,
-  nowMs,
-  elapsedWaitMs = 0,
-}: {
-  attemptIndex: number;
-  iatSec: number | null;
-  nowMs: number;
-  elapsedWaitMs?: number;
-}): number | null => {
-  const remainingBudget = MAX_IAT_WAIT_MS - elapsedWaitMs;
-  if (remainingBudget <= 0) return null;
-
-  const backoff =
-    JWT_IAT_RETRY_DELAYS_MS[attemptIndex] ??
-    JWT_IAT_RETRY_DELAYS_MS[JWT_IAT_RETRY_DELAYS_MS.length - 1];
-  // iat が未来なら、その差分（+50ms の余裕）を待たないと再送しても同じ 401 になる。
-  const waitForIat = iatSec == null ? 0 : iatSec * 1000 - nowMs + 50;
-  const delay = Math.max(backoff, waitForIat);
-
-  // 残り予算に収まらない＝この再試行では iat を追い越せない。
-  return delay > remainingBudget ? null : delay;
 };
 
 const defaultSleep = (ms: number) =>
@@ -128,15 +65,21 @@ export const createPostgrestFetch = (
 ): typeof fetch => {
   const baseFetch = dependencies.fetch ?? fetch;
   const sleep = dependencies.sleep ?? defaultSleep;
-  const now = dependencies.now ?? Date.now;
 
   return async (input, init) => {
     const url = requestUrl(input);
+    // `Request` の body は 1 度しか読めないため、再送に備えて毎回複製する。
+    // supabase-js は文字列 URL + init を渡すので現状この分岐は通らないが、
+    // 将来 `Request` を渡されても 2 回目が「body used already」にならないようにする。
+    const isRequestInput =
+      typeof Request !== "undefined" && input instanceof Request;
     let attempt = 0;
-    let elapsedWaitMs = 0;
 
     while (true) {
-      const response = await baseFetch(input, init);
+      const response = await baseFetch(
+        isRequestInput ? (input as Request).clone() : input,
+        init,
+      );
 
       if (
         !isPostgrestUrl(url) ||
@@ -151,49 +94,25 @@ export const createPostgrestFetch = (
         return response;
       }
 
-      const iatSec = readJwtIat(readAuthorizationHeader(input, init));
-      const nowMs = now();
-      const delayMs = delayMsForJwtIssuedAtFuture({
-        attemptIndex: attempt,
-        iatSec,
-        nowMs,
-        elapsedWaitMs,
-      });
-      const skewSec =
-        iatSec == null ? null : iatSec - Math.floor(nowMs / 1000);
-
-      // 待ち予算を超える＝待っても iat を追い越せない。恒常的な時計ずれ
-      // （Supabase 側の NTP / サポート対応が必要）はここに落ちる。
-      if (delayMs === null) {
-        console.warn(
-          "PostgREST PGRST303 (JWT issued at future). 待ち時間の予算を超えるため再試行しません:",
-          {
-            attempt: attempt + 1,
-            elapsedWaitMs,
-            maxWaitMs: MAX_IAT_WAIT_MS,
-            iatSec,
-            nowSec: Math.floor(nowMs / 1000),
-            skewSec,
-          },
-        );
+      // 呼び出し側が既に中断している場合は、待たずにそのまま返す。
+      if (init?.signal?.aborted) {
         return response;
       }
 
+      const delayMs = JWT_IAT_RETRY_DELAYS_MS[attempt];
       console.warn(
-        "PostgREST PGRST303 (JWT issued at future). 同一トークンで再試行します（refresh はしない）:",
+        "PostgREST: JWT issued at future。同一トークンで再試行します（refresh はしない）:",
         {
           attempt: attempt + 1,
           maxAttempts: JWT_IAT_RETRY_DELAYS_MS.length,
           delayMs,
-          elapsedWaitMs,
-          iatSec,
-          nowSec: Math.floor(nowMs / 1000),
-          skewSec,
         },
       );
 
+      // 破棄するレスポンスの body を解放する。undici では未消費のままだと
+      // GC まで接続が保持される。
+      await response.body?.cancel().catch(() => undefined);
       await sleep(delayMs);
-      elapsedWaitMs += delayMs;
       attempt += 1;
     }
   };

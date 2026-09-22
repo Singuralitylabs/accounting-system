@@ -50,11 +50,10 @@ export async function middleware(req: NextRequest) {
       // 到達不能時に auth-js が指数バックオフで約 30 秒再試行し続けると
       // Edge の 25 秒制限で 504 になるため、短時間で 503 の経路に落とす。
       //
-      // さらに PostgREST の PGRST303（JWT issued at future）だけを同一トークンで
-      // 再送する層を外側に重ねる。再試行 1 回ごとに上の 5 秒タイムアウトが
-      // 適用され、待ち時間の合計は MAX_IAT_WAIT_MS（4 秒）で打ち切られるため、
-      // profiles 取得の外側の打ち切り（AUTH_FETCH_TIMEOUT_MS）を超えて
-      // middleware を長時間ブロックすることはない。
+      // さらに PostgREST の `JWT issued at future`（修正前バージョンの不具合）
+      // だけを同一トークンで再送する層を外側に重ねる。再試行 1 回ごとに上の
+      // 5 秒タイムアウトが適用され、再試行の待ちは合計 700ms しかないため、
+      // profiles 取得の外側の打ち切り（AUTH_FETCH_TIMEOUT_MS）に収まる。
       global: {
         fetch: createPostgrestFetch({
           fetch: createTimeoutFetch(AUTH_FETCH_TIMEOUT_MS),
