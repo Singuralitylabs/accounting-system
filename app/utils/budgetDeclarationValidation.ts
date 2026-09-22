@@ -5,33 +5,44 @@
 
 import { BudgetDeclarationItemInput } from "../types/types";
 import { UNIQUE_VIOLATION } from "./supabase/errorCodes";
+import { isCategoryUnregistered } from "./budgetDeclaration";
 
 export type BudgetDeclarationHeaderInput = {
   targetMonth: string;
   team: string;
 };
 
+// 分類マスタ（収入 = category、支出 = item）。クライアントの optionsAtom、
+// サーバの getActiveSelectOptionsByType のいずれからでも渡せる
+export type BudgetDeclarationCategoryMaster = {
+  categoryList: readonly string[];
+  itemList: readonly string[];
+};
+
 export type BudgetDeclarationValidationReason =
   | "header_required"
   | "item_required"
   | "item_amount"
-  | "item_amount_overflow";
+  | "item_amount_overflow"
+  | "item_manager_id"
+  | "item_category";
 
 export type BudgetDeclarationValidationResult =
   | { ok: true }
   | { ok: false; reason: BudgetDeclarationValidationReason };
 
 // budget_declaration_items.entry_type の CHECK 制約（income/expense）と同じ値域。
-// フォームの Select は必ずこの 2 値しか出さないが、明細差し替えは非トランザクション
-// のため、万一これ以外の値が渡ると既存明細の削除後に INSERT が失敗し
-// partialWriteFailed（一部反映）になる。保存前にここで弾く
+// フォームの Select は必ずこの 2 値しか出さないが、万一これ以外の値が渡ると
+// save_budget_declaration（migration 24）内の INSERT が CHECK 違反で失敗する。
+// 保存はアトミック（単一トランザクション）なので失敗しても既存データが失われる
+// ことはないが、分かりにくい DB エラーになるのを避けるため保存前にここで弾く
 const VALID_ENTRY_TYPES = new Set(["income", "expense"]);
 
 // budget_declaration_items.amount は numeric(15,2)（13 桁 + 小数点以下 2 桁）。
 // これを超える金額は DB の INSERT が 22003（numeric field overflow）で失敗する。
-// 明細差し替えは非トランザクションのため、保存前にここで弾かないと、
-// 既存明細の削除は完了した後に INSERT だけが失敗し、明細が消失した状態が残る
-// （app/utils/supabase/budgetDeclarations.ts の saveBudgetDeclaration 参照）。
+// 保存は save_budget_declaration（migration 24）内の単一トランザクションのため
+// 失敗しても既存データが失われることはないが、分かりにくい DB エラーになるのを
+// 避けるため保存前にここで弾く
 export const MAX_ITEM_AMOUNT = 10 ** 13 - 1; // 9,999,999,999,999
 
 export const BUDGET_DECLARATION_VALIDATION_MESSAGES: Record<
@@ -42,6 +53,8 @@ export const BUDGET_DECLARATION_VALIDATION_MESSAGES: Record<
   item_required: "明細の種別・分類・内容が未入力の行があります。",
   item_amount: "明細の金額は0より大きい値を入力してください。",
   item_amount_overflow: `明細の金額が大きすぎます（上限: ¥${MAX_ITEM_AMOUNT.toLocaleString("ja-JP")}）。`,
+  item_manager_id: "明細の担当者の指定が不正です。",
+  item_category: "明細の分類がマスタに登録されていません。選び直してください。",
 };
 
 export const hasBudgetDeclarationRequiredHeader = (
@@ -51,7 +64,8 @@ export const hasBudgetDeclarationRequiredHeader = (
 // 明細 1 行の妥当性。"ok" 以外は理由を返し、呼び出し側でメッセージを出し分ける
 export const validateBudgetDeclarationItem = (
   item: BudgetDeclarationItemInput,
-): "ok" | "required" | "amount" | "overflow" => {
+  masters?: BudgetDeclarationCategoryMaster,
+): "ok" | "required" | "amount" | "overflow" | "manager_id" | "category" => {
   // trim() で空白のみの入力（例: 内容に半角スペースのみ）も未入力扱いにする
   const entryType = item.entry_type.trim();
   if (!entryType || !item.category.trim() || !item.description.trim()) {
@@ -69,6 +83,34 @@ export const validateBudgetDeclarationItem = (
   if (item.amount > MAX_ITEM_AMOUNT) {
     return "overflow";
   }
+  // manager_id は任意項目（null 許容）だが、null でなければ profiles.id と同じ
+  // bigint の値域（正の整数）でなければならない。フォームの Select は常に
+  // memberList の id（数値）のみを渡すが、Server Action は認可済みユーザーから
+  // 任意のペイロードを受け取れるため、ここで型を保証しないと不正な値
+  // （小数・負数・NaN 等）のまま INSERT され、明細差し替えは非トランザクション
+  // のため INSERT 失敗時に既存明細が消失する
+  // （app/utils/supabase/budgetDeclarations.ts の saveBudgetDeclaration 参照）。
+  if (item.manager_id !== null && !Number.isSafeInteger(item.manager_id)) {
+    return "manager_id";
+  }
+  if (item.manager_id !== null && item.manager_id <= 0) {
+    return "manager_id";
+  }
+  // 分類がマスタ（収入 = category、支出 = item）に無い場合は保存させない。
+  // 管理者が無効化・改名した値を、前月コピーや直接の選び直しで使い続けられる
+  // 穴（Issue #116）を塞ぐ。masters 未指定時は従来どおり照合しない
+  // （既存呼び出しの互換維持・サーバ側は DB マスタで照合するため）
+  if (
+    masters &&
+    isCategoryUnregistered(
+      item.entry_type,
+      item.category,
+      masters.categoryList,
+      masters.itemList,
+    )
+  ) {
+    return "category";
+  }
   return "ok";
 };
 
@@ -77,13 +119,14 @@ export const validateBudgetDeclarationItem = (
 export const validateBudgetDeclarationPayload = (
   header: BudgetDeclarationHeaderInput,
   items: readonly BudgetDeclarationItemInput[],
+  masters?: BudgetDeclarationCategoryMaster,
 ): BudgetDeclarationValidationResult => {
   if (!hasBudgetDeclarationRequiredHeader(header)) {
     return { ok: false, reason: "header_required" };
   }
 
   for (const item of items) {
-    const result = validateBudgetDeclarationItem(item);
+    const result = validateBudgetDeclarationItem(item, masters);
     if (result === "required") {
       return { ok: false, reason: "item_required" };
     }
@@ -92,6 +135,12 @@ export const validateBudgetDeclarationPayload = (
     }
     if (result === "overflow") {
       return { ok: false, reason: "item_amount_overflow" };
+    }
+    if (result === "manager_id") {
+      return { ok: false, reason: "item_manager_id" };
+    }
+    if (result === "category") {
+      return { ok: false, reason: "item_category" };
     }
   }
 

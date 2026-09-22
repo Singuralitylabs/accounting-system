@@ -70,6 +70,7 @@ const BudgetDeclarationItemTable = ({ declarationId }: Props) => {
             <Table.Th>分類</Table.Th>
             <Table.Th>内容</Table.Th>
             <Table.Th className="text-right">金額</Table.Th>
+            <Table.Th>担当者</Table.Th>
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
@@ -81,6 +82,7 @@ const BudgetDeclarationItemTable = ({ declarationId }: Props) => {
               <Table.Td className="text-right">
                 {formatCurrency(item.amount)}
               </Table.Td>
+              <Table.Td>{item.managerName ?? "-"}</Table.Td>
             </Table.Tr>
           ))}
         </Table.Tbody>

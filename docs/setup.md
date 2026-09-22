@@ -6,12 +6,13 @@
 
 1. [前提条件](#前提条件)
 2. [初期セットアップ](#初期セットアップ)
-3. [Google 認証設定](#google認証設定)
-4. [ローカル Supabase 環境構築](#ローカルsupabase環境構築)
+3. [Google 認証設定](#google-認証設定)
+4. [ローカル Supabase 環境構築](#ローカル-supabase-環境構築)
 5. [サンプルデータ投入](#サンプルデータ投入)
 6. [データ移行（ローカル ↔ クラウド）](#データ移行)
 7. [開発コマンド一覧](#開発コマンド一覧)
-8. [トラブルシューティング](#トラブルシューティング)
+8. [Supabase keep-alive（自動 Pause 対策）](#supabase-keep-alive自動-pause-対策)
+9. [トラブルシューティング](#トラブルシューティング)
 
 ---
 
@@ -401,6 +402,8 @@ pg_dump postgresql://postgres:postgres@127.0.0.1:54322/postgres > backup.sql
 ```
 accounting-system/
 ├── .env.local                 # 環境変数（ローカル用。gitignore。手順 4 で新規作成）
+├── .github/
+│   └── workflows/            # GitHub Actions（CI と Supabase keep-alive）
 ├── supabase/
 │   ├── .gitignore            # Supabase用gitignore
 │   ├── config.toml           # Supabase設定
@@ -411,6 +414,39 @@ accounting-system/
     ├── database.md              # データベース設計書
     └── testing.md               # テスト設計書
 ```
+
+---
+
+## Supabase keep-alive（自動 Pause 対策）
+
+Supabase 無料プランは 1 週間アクセスが無いとプロジェクトが自動 Pause されるため、`.github/workflows/supabase-keepalive.yml`（GitHub Actions、毎日 06:17 JST）が開発用・本番用の両 Supabase に anon key で軽い SELECT を送って Pause を防いでいる（Issue #125）。仕組みや注意事項はワークフローファイル冒頭のコメントを参照。ここでは運用に必要な設定と手順だけを記載する。
+
+### 必要な GitHub Secrets
+
+リポジトリの **Settings > Secrets and variables > Actions > Repository secrets** に以下の 4 つを登録する。未設定のままだと該当ジョブは「Secrets が未設定」のエラーで fail する。
+
+| Secret 名                          | 値                                                                               |
+| ---------------------------------- | -------------------------------------------------------------------------------- |
+| `KEEPALIVE_SUPABASE_URL_DEV`       | 開発用 Supabase の API URL（`https://<project-ref>.supabase.co`）                |
+| `KEEPALIVE_SUPABASE_ANON_KEY_DEV`  | 開発用 Supabase の anon key（アプリの `NEXT_PUBLIC_SUPABASE_ANON_KEY` と同じ値） |
+| `KEEPALIVE_SUPABASE_URL_PROD`      | 本番用 Supabase の API URL                                                       |
+| `KEEPALIVE_SUPABASE_ANON_KEY_PROD` | 本番用 Supabase の anon key                                                      |
+
+- URL / anon key は Supabase ダッシュボードの **Settings > API** で確認できる。URL は `https://` 付きで登録する（末尾のスラッシュや前後の空白は無視される。形式が不正な場合は「URL 形式が不正」のエラーで fail する）。
+- anon key をローテーションした場合は Secrets の値も差し替え、手動実行で 200 が返ることを確認する。
+
+### 動作確認（手動実行）
+
+1. GitHub の **Actions > Supabase Keep-Alive > Run workflow** で `main` を選んで実行する。ワークフローが `main` に存在して初めて Actions 画面に表示されるため、手動実行は main へのマージ後に行う。
+2. `keep-alive (dev)` / `keep-alive (prod)` の両ジョブが成功し、ログに `[dev] OK: HTTP 200` / `[prod] OK: HTTP 200` が出ていることを確認する。
+3. 以降は Actions の実行履歴（`schedule` イベント）で毎日成功していることを確認できる。
+
+すでに Pause してしまっている場合は、先に Supabase ダッシュボードで対象プロジェクトを **Restore** してから実行する（Pause 中は DNS が消えているため接続失敗で fail する）。
+
+### 停止手順
+
+- **一時停止**: GitHub の **Actions > Supabase Keep-Alive > ⋯ > Disable workflow**。再開は同じ場所の **Enable workflow**。
+- **恒久的に廃止**: `.github/workflows/supabase-keepalive.yml` を削除して main にマージし、上記 4 つの Secrets も削除する（Pro プランに移行した場合など）。
 
 ---
 

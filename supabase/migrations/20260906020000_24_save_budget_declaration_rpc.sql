@@ -1,0 +1,120 @@
+-- save_budget_declaration: 事前収支申告の保存を単一トランザクション化する
+--
+-- Issue #103: saveBudgetDeclaration()（app/utils/supabase/budgetDeclarations.ts）は
+-- ヘッダの UPDATE・既存明細の全 DELETE・新しい明細の INSERT をそれぞれ独立した
+-- PostgREST 呼び出しとして実行しており、アトミックでなかった。編集保存時、
+-- 既存明細を全削除した後の INSERT が失敗すると、明細が 1 件も無い状態で
+-- コミット済みのまま確定してしまい、partialWriteFailed を返して再読み込みを
+-- 促しても削除済みの明細は復元できず、利用者の入力内容が失われていた。
+--
+-- 本関数はヘッダの作成/更新・明細の全削除・明細の全登録を 1 回の関数呼び出し
+-- （= 1 トランザクション）にまとめ、途中で失敗した場合は保存前の状態に完全に
+-- ロールバックされるようにする。
+--
+-- 明示的に SECURITY INVOKER とする（既定と同じだが、RLS をバイパスしないことを
+-- 意図的に示すため明記する）。migration 07 の search_path 対策と同じく
+-- SET search_path = '' も付ける。budget_declarations / budget_declaration_items
+-- への書き込みはいずれも呼び出し元のロールで RLS（migration 19 の
+-- budget_declarations_insert_policy 等）がそのまま適用されるため、経理担当者・
+-- 管理者・自チームのチームリーダー以外は書き込みポリシーで拒否される。
+--
+-- declared_by はクライアントから受け取らず、関数内で auth.uid() から解決する
+-- （PostgREST 経由で任意の profiles.id を渡してなりすまされることを防ぐ）。
+-- INSERT 経路は budget_declarations_insert_policy の WITH CHECK でも
+-- 「declared_by = 自分自身」を二重に担保するが、UPDATE 経路（budget_declarations_
+-- update_policy）は declared_by を検査しないため、そちらは本関数内でのみ
+-- なりすましを防いでいる（docs/database.md 5.8「declared_by の扱い」参照）。
+--
+-- manager_id（migration 21）が実在しない profiles.id を指す場合、明細 INSERT が
+-- FK 違反（23503）で失敗するが、トランザクション全体がロールバックされるため
+-- ヘッダ・既存明細は保存前の状態のまま残る。アプリ側は保存前に
+-- assertManagerIdsExist（app/utils/supabase/profiles.ts）で存在確認しわかりやすい
+-- エラーメッセージを返すため通常はここに到達しないが、到達しても本関数の
+-- アトミック性によりデータが失われることはない。
+-- p_declaration_id / p_comment に DEFAULT NULL を付けている。Postgres 関数の
+-- 引数は NULL 許容性を型として持たないため、supabase gen types は Args を
+-- 「DEFAULT の有無」でしか区別しない（DEFAULT が無いと必須キー、あれば省略可能
+-- なオプションキーになるが、いずれも `| null` は付かない）。DEFAULT を付けて
+-- おくことで、生成される型が `p_declaration_id?: number` / `p_comment?: string`
+-- になり、呼び出し側は null の代わりに undefined（キー省略）を渡せばよくなる
+-- （app/utils/supabase/budgetDeclarations.ts の `?? undefined` 参照）。
+-- PostgREST は常に名前付き引数（NAMED NOTATION）で呼び出すため、呼び出し側の
+-- 引数の並びには影響しないが、SQL の CREATE FUNCTION 構文上 DEFAULT 付き引数は
+-- DEFAULT 無し引数より後ろに置く必要があるため、この順序にしている
+CREATE OR REPLACE FUNCTION public.save_budget_declaration(
+  p_target_month date,
+  p_team text,
+  p_items jsonb,
+  p_declaration_id bigint DEFAULT NULL,
+  p_comment text DEFAULT NULL
+)
+RETURNS TABLE (id bigint)
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = ''
+AS $$
+DECLARE
+  v_declaration_id bigint;
+  v_declared_by bigint;
+BEGIN
+  SELECT p.id INTO v_declared_by FROM public.profiles p WHERE p.user_id = auth.uid();
+  IF v_declared_by IS NULL THEN
+    RAISE EXCEPTION 'プロフィールが見つかりません';
+  END IF;
+
+  IF p_declaration_id IS NULL THEN
+    INSERT INTO public.budget_declarations (target_month, team, declared_by, comment)
+    VALUES (p_target_month, p_team, v_declared_by, p_comment)
+    RETURNING budget_declarations.id INTO v_declaration_id;
+  ELSE
+    -- team・target_month でも絞る。フォームでは両方とも編集不可（対象月は表示専用、
+    -- チームは編集時に常に固定）だが、渡された id が別の申告を指していた場合に
+    -- 誤って別チーム・別月の申告を書き換えないための整合性チェック
+    -- （RLS がチーム単位のアクセス制御自体は担保する）
+    UPDATE public.budget_declarations
+    SET declared_by = v_declared_by, comment = p_comment
+    WHERE budget_declarations.id = p_declaration_id
+      AND budget_declarations.team = p_team
+      AND budget_declarations.target_month = p_target_month
+    RETURNING budget_declarations.id INTO v_declaration_id;
+
+    -- RLS で 0 行 / 既に削除済みでもエラーにはならず単に対象行が無いだけになるため、
+    -- 呼び出し側が判別できるよう例外にする。ERRCODE には plpgsql 組み込みの
+    -- no_data_found（P0002）を使う。isDuplicateDeclarationError と同じく
+    -- error.code で判別できるようにするため、メッセージ文字列ではなく
+    -- SQLSTATE を判定に使う（app/utils/supabase/budgetDeclarations.ts 参照）
+    IF v_declaration_id IS NULL THEN
+      RAISE EXCEPTION 'DECLARATION_NOT_FOUND' USING ERRCODE = 'P0002';
+    END IF;
+  END IF;
+
+  -- 明細差し替え: 既存明細を全削除してから入力内容を挿入する。新規作成では
+  -- 既存明細が存在しないため 0 行 DELETE になるだけで無害
+  DELETE FROM public.budget_declaration_items
+  WHERE declaration_id = v_declaration_id;
+
+  -- p_items が空配列なら 0 行 INSERT になるだけで無害。manager_id（migration 21）は
+  -- 任意入力のため item に無い/JSON null の場合は NULL のまま INSERT する
+  INSERT INTO public.budget_declaration_items
+    (declaration_id, entry_type, category, description, amount, manager_id, display_order)
+  SELECT
+    v_declaration_id,
+    -- entry_type は DB の CHECK（income/expense）対象のため、前後空白付きの値の
+    -- まま INSERT すると CHECK 違反で失敗する（元の saveBudgetDeclaration と同じ理由）
+    btrim(item ->> 'entry_type'),
+    btrim(item ->> 'category'),
+    btrim(item ->> 'description'),
+    (item ->> 'amount')::numeric,
+    (item ->> 'manager_id')::bigint,
+    ordinality - 1
+  FROM jsonb_array_elements(p_items) WITH ORDINALITY AS t(item, ordinality);
+
+  RETURN QUERY SELECT v_declaration_id;
+END;
+$$;
+
+COMMENT ON FUNCTION public.save_budget_declaration(date, text, jsonb, bigint, text) IS
+  '事前収支申告の作成・編集（ヘッダ + 明細差し替え）を単一トランザクションで行う。p_declaration_id が null なら新規作成、それ以外なら既存ヘッダの更新（team・target_month も一致する場合のみ）。明細は既存を全削除してから p_items（entry_type/category/description/amount/manager_id を持つオブジェクトの配列）を全登録する。declared_by は auth.uid() から解決しクライアントからは受け取らない。書き込みの可否は呼び出し元ロールに対する budget_declarations / budget_declaration_items の RLS がそのまま適用される（SECURITY INVOKER）。詳細: docs/database.md, Issue #103';
+
+REVOKE EXECUTE ON FUNCTION public.save_budget_declaration(date, text, jsonb, bigint, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.save_budget_declaration(date, text, jsonb, bigint, text) TO authenticated;
