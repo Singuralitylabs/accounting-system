@@ -14,6 +14,7 @@ import {
   buildMonthlyReport,
   datedOrUndatedFilter,
   fiscalYearMonths,
+  isMonthKey,
   recurringOverlapEndFilter,
   reportFlags,
   reportRangeBounds,
@@ -116,6 +117,11 @@ const fetchReportSourceRows = async (period?: ReportPeriod) => {
 export const getProfitLossReport = async (
   month: string,
 ): Promise<PLReportType | null> => {
+  // 不正な月キーは沈黙の空表示にせず取得失敗として扱う（呼び出し元が再取得を促す）
+  if (!isMonthKey(month)) {
+    console.error(`損益レポートの対象月の形式が不正です: ${month}`);
+    return null;
+  }
   // 取得失敗・権限不足はどちらも null（呼び出し元が再取得を促す）
   const { profileInfo } = await getAuthorizedViewer(
     PL_ALLOWED_CLASSES,
@@ -149,6 +155,11 @@ export const getProfitLossReport = async (
 export const getAnnualTrend = async (
   fiscalYear: number,
 ): Promise<AnnualTrendType | null> => {
+  // 不正な年度は沈黙の空表示にせず取得失敗として扱う（呼び出し元が再取得を促す）
+  if (!Number.isInteger(fiscalYear)) {
+    console.error(`年間推移の年度の形式が不正です: ${fiscalYear}`);
+    return null;
+  }
   const { profileInfo } = await getAuthorizedViewer(
     PL_ALLOWED_CLASSES,
     "損益レポート",

@@ -30,8 +30,7 @@ export function useListPagination<T>(
   // レンダリング中に setState せず、範囲外ページは表示時に丸める
   const safePage = Math.min(Math.max(1, page), totalPages);
 
-  // ページ移動は有効範囲に丸める（内部に stale な範囲外の値が残り、
-  // 将来件数が増えた際に表示ページが跳ねるのを防ぐ）
+  // ページ移動は直接指定の範囲外値を有効範囲に丸める
   const gotoPage = (next: number) => {
     setPage(Math.min(Math.max(1, next), totalPages));
   };

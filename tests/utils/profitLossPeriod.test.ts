@@ -8,6 +8,7 @@ import {
   fiscalYearMonths,
   isAdjustmentInRange,
   isDateInRangeOrUndated,
+  isMonthKey,
   recurringOverlapEndFilter,
   reportRangeBounds,
 } from "@/app/utils/profitLossLogic";
@@ -53,6 +54,18 @@ const recurring = (
 ): Pick<RecurringCostType, "start_month" | "end_month"> => ({
   start_month,
   end_month,
+});
+
+describe("isMonthKey", () => {
+  it("YYYY-MM 形式（月は01〜12）のみ受け付ける", () => {
+    expect(isMonthKey("2026-07")).toBe(true);
+    expect(isMonthKey("2026-12")).toBe(true);
+    expect(isMonthKey("2026-7")).toBe(false);
+    expect(isMonthKey("2026-13")).toBe(false);
+    expect(isMonthKey("2026-00")).toBe(false);
+    expect(isMonthKey("2026-07-01")).toBe(false);
+    expect(isMonthKey("")).toBe(false);
+  });
 });
 
 describe("reportRangeBounds", () => {

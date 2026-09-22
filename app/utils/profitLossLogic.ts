@@ -96,6 +96,12 @@ export type ReportPeriod = {
   endMonth: string;
 };
 
+// 月キー（"YYYY-MM"）の形式検証。
+// Server Action 経由でクライアント到達可能な取得期間の入口で使い、
+// 不正な値は呼び出し側で取得失敗（再取得を促す表示）として扱う。
+export const isMonthKey = (value: string): boolean =>
+  /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+
 export type ReportRangeBounds = {
   // 期間開始月の月初日（"YYYY-MM-01"。以上条件に使う）
   startDate: string;
