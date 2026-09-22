@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, useState } from "react";
 import { type SupabaseClient } from "@supabase/supabase-js";
 import { Database } from "@/app/lib/database.types";
+import { createPostgrestFetch } from "@/app/utils/supabase/postgrestFetch";
 
 type SupabaseContext = {
   supabase: SupabaseClient<Database>;
@@ -21,6 +22,7 @@ export default function SupabaseProvider({
     createBrowserClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { global: { fetch: createPostgrestFetch() } },
     ),
   );
   const router = useRouter();

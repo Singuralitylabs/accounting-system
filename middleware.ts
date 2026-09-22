@@ -13,6 +13,7 @@ import {
   isTransientAuthError,
   withAuthTimeout,
 } from "./app/utils/routeGuard";
+import { createPostgrestFetch } from "./app/utils/supabase/postgrestFetch";
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -48,8 +49,15 @@ export async function middleware(req: NextRequest) {
       // Supabase への 1 リクエストが数秒で打ち切られるようにする（Auth／PostgREST 共通）。
       // 到達不能時に auth-js が指数バックオフで約 30 秒再試行し続けると
       // Edge の 25 秒制限で 504 になるため、短時間で 503 の経路に落とす。
+      //
+      // さらに PostgREST の `JWT issued at future`（修正前バージョンの不具合）
+      // だけを同一トークンで再送する層を外側に重ねる。再試行 1 回ごとに上の
+      // 5 秒タイムアウトが適用され、再試行の待ちは合計 700ms しかないため、
+      // profiles 取得の外側の打ち切り（AUTH_FETCH_TIMEOUT_MS）に収まる。
       global: {
-        fetch: createTimeoutFetch(AUTH_FETCH_TIMEOUT_MS),
+        fetch: createPostgrestFetch({
+          fetch: createTimeoutFetch(AUTH_FETCH_TIMEOUT_MS),
+        }),
       },
     },
   );
