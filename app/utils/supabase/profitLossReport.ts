@@ -12,7 +12,9 @@ import {
   CostRow,
   ReportPeriod,
   buildMonthlyReport,
+  datedOrUndatedFilter,
   fiscalYearMonths,
+  recurringOverlapEndFilter,
   reportFlags,
   reportRangeBounds,
 } from "../profitLossLogic";
@@ -26,9 +28,6 @@ import { getAuthorizedViewer } from "./viewerAccess";
 const fetchReportSourceRows = async (period?: ReportPeriod) => {
   const supabase = createServerSupabase();
   const bounds = period ? reportRangeBounds(period) : null;
-  // 日付カラムの絞り込みは「期間内 OR NULL」。PostgREST の or() 内で and() を使う。
-  const datedOrUndated = (column: string) =>
-    `and(${column}.gte.${bounds!.startDate},${column}.lt.${bounds!.endExclusive}),${column}.is.null`;
 
   let businessQuery = supabase
     .from("business")
@@ -54,15 +53,19 @@ const fetchReportSourceRows = async (period?: ReportPeriod) => {
     .order("id", { ascending: true });
 
   if (bounds) {
-    businessQuery = businessQuery.or(datedOrUndated("invoice_date"));
-    costQuery = costQuery.or(datedOrUndated("period"));
-    extraQuery = extraQuery.or(datedOrUndated("entry_date"));
+    businessQuery = businessQuery.or(
+      datedOrUndatedFilter("invoice_date", bounds),
+    );
+    costQuery = costQuery.or(datedOrUndatedFilter("period", bounds));
+    extraQuery = extraQuery.or(datedOrUndatedFilter("entry_date", bounds));
     // 定期費用は適用期間の重なりで絞る（支払サイクルの計上判定は集計側で行う）。
     // 適用期間が取得期間と重ならない行だけを除外する。
     recurringQuery = recurringQuery
       .lt("start_month", bounds.endExclusive)
-      .or(`end_month.gte.${bounds.startDate},end_month.is.null`);
+      .or(recurringOverlapEndFilter(bounds));
     // 調整は対象月で絞る（target_month は NOT NULL）。
+    // なお対象行が取得期間外にある調整は orphanedAdjustments のラベル解決が
+    // 汎用表示（「売上（ID: X）」等）に落ちる場合がある（集計値は不変）。
     adjustmentQuery = adjustmentQuery
       .gte("target_month", bounds.startDate)
       .lt("target_month", bounds.endExclusive);

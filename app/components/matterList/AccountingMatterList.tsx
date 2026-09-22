@@ -81,8 +81,9 @@ export const AccountingMatterList = ({
 
   // 件数増加に伴う DOM 肥大を抑えるためのクライアント側ページネーション。
   // サーバ側の絞り込み結果・チェック選択は変えず、表示範囲だけを切り出す。
-  // 完了・通知の対象解決はページ外も含む matterList 全体で行うため、
-  // ページ外のチェックは partitionCheckedMatters の hiddenCheckedIds として扱われる。
+  // チェック選択はページをまたいで保持され、完了・通知の対象解決はページ外も含む
+  // matterList 全体で行う（対象外になるのはサーバ側の絞り込みで非表示の分のみで、
+  // partitionCheckedMatters の hiddenCheckedIds として扱われる）。
   const {
     page,
     setPage,

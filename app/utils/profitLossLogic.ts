@@ -115,6 +115,7 @@ const firstDayOfNextMonth = (monthKey: string): string => {
 
 // 取得期間から日付範囲（[startDate, endExclusive)）を求める。
 // SQL の WHERE 句とインメモリのフィルタで同じ境界を使うための単一の定義。
+// 呼び出し側は startMonth <= endMonth を満たすこと（逆転させると空範囲＋NULL 行のみの取得になる）。
 export const reportRangeBounds = (period: ReportPeriod): ReportRangeBounds => ({
   startDate: `${period.startMonth}-01`,
   endExclusive: firstDayOfNextMonth(period.endMonth),
@@ -146,6 +147,19 @@ export const isAdjustmentInRange = (
   bounds: ReportRangeBounds,
 ): boolean =>
   targetMonth >= bounds.startDate && targetMonth < bounds.endExclusive;
+
+// Supabase（PostgREST）の or() に渡す日付絞り込み条件「期間内 OR 月未確定（NULL）」。
+// invoice_date / period / entry_date 用。SQL とテストで同じ文字列を使うための単一の定義。
+export const datedOrUndatedFilter = (
+  column: string,
+  bounds: ReportRangeBounds,
+): string =>
+  `and(${column}.gte.${bounds.startDate},${column}.lt.${bounds.endExclusive}),${column}.is.null`;
+
+// 定期費用の適用終了側の or() 条件（`start_month < endExclusive` と AND で使う）。
+// 適用期間が取得期間と重ならない行だけを除外するための条件。
+export const recurringOverlapEndFilter = (bounds: ReportRangeBounds): string =>
+  `end_month.gte.${bounds.startDate},end_month.is.null`;
 
 // buildMonthlyReport の入力。
 // boolean フラグが複数あるため、呼び出し側での取り違えを防ぐ目的で

@@ -3,10 +3,12 @@ import {
   BusinessRow,
   CostRow,
   buildMonthlyReport,
+  datedOrUndatedFilter,
   doesRecurringCostOverlapRange,
   fiscalYearMonths,
   isAdjustmentInRange,
   isDateInRangeOrUndated,
+  recurringOverlapEndFilter,
   reportRangeBounds,
 } from "@/app/utils/profitLossLogic";
 import {
@@ -142,6 +144,31 @@ describe("isAdjustmentInRange", () => {
   it("対象月が範囲外なら落とす", () => {
     expect(isAdjustmentInRange("2026-06-01", bounds)).toBe(false);
     expect(isAdjustmentInRange("2027-07-01", bounds)).toBe(false);
+  });
+});
+
+describe("SQL フィルタ文字列（fetchReportSourceRows と同じ定義）", () => {
+  it("日付カラムは「期間内 OR NULL」の or() 条件になる", () => {
+    const bounds = reportRangeBounds({
+      startMonth: "2026-07",
+      endMonth: "2026-07",
+    });
+    expect(datedOrUndatedFilter("invoice_date", bounds)).toBe(
+      "and(invoice_date.gte.2026-07-01,invoice_date.lt.2026-08-01),invoice_date.is.null",
+    );
+    expect(datedOrUndatedFilter("period", bounds)).toBe(
+      "and(period.gte.2026-07-01,period.lt.2026-08-01),period.is.null",
+    );
+  });
+
+  it("定期費用の終了側は「継続中 OR 開始日以降に終了」の or() 条件になる", () => {
+    const bounds = reportRangeBounds({
+      startMonth: "2026-07",
+      endMonth: "2027-06",
+    });
+    expect(recurringOverlapEndFilter(bounds)).toBe(
+      "end_month.gte.2026-07-01,end_month.is.null",
+    );
   });
 });
 
@@ -286,6 +313,139 @@ describe("期間絞り込みの前後で集計値が変わらない", () => {
       business(111111, "2026-06-30"),
     ];
     const costRows = [cost(100000, "2026-12-15"), cost(99999, "2028-01-01")];
+    // 年度をまたぐ定期費用（四半期・年払い・年度前終了・年度後開始・継続中）
+    const recurringCosts: RecurringCostType[] = [
+      {
+        id: 1,
+        name: "四半期費用",
+        item: "システム料",
+        price: 30000,
+        team: "チームA",
+        payment_cycle: "quarterly",
+        start_month: "2026-07-01",
+        end_month: null,
+        comment: null,
+        inserted_at: "2026-07-01T00:00:00+09:00",
+        updated_at: "2026-07-01T00:00:00+09:00",
+      },
+      {
+        id: 2,
+        name: "年払い費用",
+        item: "広告宣伝費",
+        price: 120000,
+        team: null,
+        payment_cycle: "yearly",
+        start_month: "2026-07-01",
+        end_month: null,
+        comment: null,
+        inserted_at: "2026-07-01T00:00:00+09:00",
+        updated_at: "2026-07-01T00:00:00+09:00",
+      },
+      {
+        id: 3,
+        name: "年度前終了",
+        item: "施設利用料",
+        price: 50000,
+        team: "チームA",
+        payment_cycle: "monthly",
+        start_month: "2025-01-01",
+        end_month: "2026-06-01",
+        comment: null,
+        inserted_at: "2026-07-01T00:00:00+09:00",
+        updated_at: "2026-07-01T00:00:00+09:00",
+      },
+      {
+        id: 4,
+        name: "年度後開始",
+        item: "施設利用料",
+        price: 50000,
+        team: "チームA",
+        payment_cycle: "monthly",
+        start_month: "2027-07-01",
+        end_month: null,
+        comment: null,
+        inserted_at: "2026-07-01T00:00:00+09:00",
+        updated_at: "2026-07-01T00:00:00+09:00",
+      },
+    ];
+    const extraEntries: ExtraEntryType[] = [
+      {
+        id: 11,
+        entry_type: "income",
+        category: "協賛金",
+        entry_date: "2027-01-15",
+        invoice_number: null,
+        description: "年度内",
+        billing_target: null,
+        manager_id: 1,
+        team: "チームA",
+        billing_amount: 100000,
+        expense_amount: null,
+        payment_method: null,
+        inserted_at: "2026-07-01T00:00:00+09:00",
+        updated_at: "2026-07-01T00:00:00+09:00",
+      },
+      {
+        id: 12,
+        entry_type: "income",
+        category: "協賛金",
+        entry_date: null,
+        invoice_number: null,
+        description: "月未確定",
+        billing_target: null,
+        manager_id: 1,
+        team: "チームA",
+        billing_amount: 90000,
+        expense_amount: null,
+        payment_method: null,
+        inserted_at: "2026-07-01T00:00:00+09:00",
+        updated_at: "2026-07-01T00:00:00+09:00",
+      },
+      {
+        id: 13,
+        entry_type: "expense",
+        category: "交通費",
+        entry_date: "2027-07-10",
+        invoice_number: null,
+        description: "年度外",
+        billing_target: null,
+        manager_id: 1,
+        team: "チームA",
+        billing_amount: null,
+        expense_amount: 15000,
+        payment_method: "銀行振込",
+        inserted_at: "2026-07-01T00:00:00+09:00",
+        updated_at: "2026-07-01T00:00:00+09:00",
+      },
+    ];
+    const adjustments: ProfitLossAdjustmentType[] = [
+      {
+        id: 21,
+        target_month: "2026-07-01",
+        business_id: businessRows[0].id,
+        cost_id: null,
+        recurring_cost_id: null,
+        adjustment_amount: 20000,
+        source_amount_snapshot: 500000,
+        reason: "年度内調整",
+        adjusted_by: 1,
+        inserted_at: "2026-07-01T00:00:00+09:00",
+        updated_at: "2026-07-01T00:00:00+09:00",
+      },
+      {
+        id: 22,
+        target_month: "2027-07-01",
+        business_id: businessRows[2].id,
+        cost_id: null,
+        recurring_cost_id: null,
+        adjustment_amount: 5000,
+        source_amount_snapshot: 999999,
+        reason: "年度外調整",
+        adjusted_by: 1,
+        inserted_at: "2026-07-01T00:00:00+09:00",
+        updated_at: "2026-07-01T00:00:00+09:00",
+      },
+    ];
     const bounds = reportRangeBounds({
       startMonth: "2026-07",
       endMonth: "2027-06",
@@ -296,15 +456,26 @@ describe("期間絞り込みの前後で集計値が変わらない", () => {
     const filteredCosts = costRows.filter((row) =>
       isDateInRangeOrUndated(row.period, bounds),
     );
+    // SQL と同じ条件で絞り込む（定期費用は適用期間の重なり、調整は対象月）
+    const filteredRecurring = recurringCosts.filter((rc) =>
+      doesRecurringCostOverlapRange(rc, bounds),
+    );
+    const filteredExtra = extraEntries.filter((entry) =>
+      isDateInRangeOrUndated(entry.entry_date, bounds),
+    );
+    const filteredAdjustments = adjustments.filter((adj) =>
+      isAdjustmentInRange(adj.target_month, bounds),
+    );
+    // 年度外の行だけが落ちていること
+    expect(filteredRecurring.map((rc) => rc.id).sort()).toEqual([1, 2]);
+    expect(filteredExtra.map((entry) => entry.id).sort()).toEqual([11, 12]);
+    expect(filteredAdjustments.map((adj) => adj.id)).toEqual([21]);
 
     const months = fiscalYearMonths(2026);
     expect(months).toHaveLength(12);
     months.forEach((month) => {
       const base = {
         month,
-        recurringCosts: [] as RecurringCostType[],
-        extraEntries: [] as ExtraEntryType[],
-        adjustments: [] as ProfitLossAdjustmentType[],
         isTeamLeader: false,
         includeTeamBreakdown: false,
         includeOrphanedAdjustments: false,
@@ -314,8 +485,20 @@ describe("期間絞り込みの前後で集計値が変わらない", () => {
           ...base,
           businessRows: filteredBusiness,
           costRows: filteredCosts,
+          recurringCosts: filteredRecurring,
+          extraEntries: filteredExtra,
+          adjustments: filteredAdjustments,
         }),
-      ).toEqual(buildMonthlyReport({ ...base, businessRows, costRows }));
+      ).toEqual(
+        buildMonthlyReport({
+          ...base,
+          businessRows,
+          costRows,
+          recurringCosts,
+          extraEntries,
+          adjustments,
+        }),
+      );
     });
   });
 });

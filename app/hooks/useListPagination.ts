@@ -29,9 +29,11 @@ export function useListPagination<T>(
   const safePage = Math.min(Math.max(1, page), totalPages);
 
   const resetKey = options?.resetKey;
+  // フィルタ条件（resetKey）・表示件数の変更時に1ページ目に戻る。
+  // 件数の増減（新規作成・削除・再取得）では戻さず、範囲外ページの丸め（safePage）に任せる。
   useEffect(() => {
     setPage(1);
-  }, [resetKey, perPage, total]);
+  }, [resetKey, perPage]);
 
   const pagedItems = useMemo(() => {
     const start = (safePage - 1) * perPage;

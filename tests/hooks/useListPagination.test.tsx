@@ -53,6 +53,42 @@ describe("useListPagination", () => {
     expect(result.current.pagedItems).toHaveLength(10);
   });
 
+  it("件数減少で最終ページが変わっても丸めで表示する（1ページ目へのリセットではない）", () => {
+    const { result, rerender } = renderHook(
+      ({ list }: { list: { id: number }[] }) => useListPagination(list),
+      { initialProps: { list: items(50) } },
+    );
+    act(() => {
+      result.current.setPage(3);
+    });
+    rerender({ list: items(30) });
+    // 30件では最終2ページ。件数変動ではリセットせず丸める
+    expect(result.current.page).toBe(2);
+    expect(result.current.pagedItems.map((item) => item.id)).toEqual([
+      25, 26, 27, 28, 29, 30,
+    ]);
+  });
+
+  it("件数がページサイズちょうどではページネーションUIは不要", () => {
+    const { result } = renderHook(() => useListPagination(items(24)));
+    expect(result.current.showPagination).toBe(false);
+    expect(result.current.totalPages).toBe(1);
+    expect(result.current.pagedItems).toHaveLength(24);
+  });
+
+  it("表示件数の変更後は1ページ目に戻る", () => {
+    const { result } = renderHook(() => useListPagination(items(30)));
+    act(() => {
+      result.current.setPage(2);
+    });
+    expect(result.current.page).toBe(2);
+    act(() => {
+      result.current.setPerPage(12);
+    });
+    expect(result.current.page).toBe(1);
+    expect(result.current.totalPages).toBe(3);
+  });
+
   it("フィルタ条件（resetKey）が変わったら1ページ目に戻る", () => {
     const { result, rerender } = renderHook(
       ({ resetKey }: { resetKey: string }) =>
