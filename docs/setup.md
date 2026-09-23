@@ -204,15 +204,15 @@ docker exec supabase_auth_accounting-system printenv GOTRUE_EXTERNAL_GOOGLE_CLIE
 yarn supabase start
 ```
 
-起動後、表示された URL とキーで `.env.local` の次の 3 つを書き換える。
+起動後、`yarn supabase status` の Pretty 表示で `.env.local` の次の 3 つを書き換える。
 
-| `supabase status` の項目               | `.env.local`                    |
-| -------------------------------------- | ------------------------------- |
-| `API_URL`                              | `NEXT_PUBLIC_SUPABASE_URL`      |
-| `ANON_KEY` または `PUBLISHABLE_KEY`    | `NEXT_PUBLIC_SUPABASE_ANON_KEY` |
-| `SERVICE_ROLE_KEY` または `SECRET_KEY` | `SUPABASE_SERVICE_ROLE_KEY`     |
+| Pretty 表示 | `.env.local`                    |
+| ----------- | ------------------------------- |
+| Project URL | `NEXT_PUBLIC_SUPABASE_URL`      |
+| Publishable | `NEXT_PUBLIC_SUPABASE_ANON_KEY` |
+| Secret      | `SUPABASE_SERVICE_ROLE_KEY`     |
 
-CLI 2.115（`package.json` の `supabase`）は JWT の `ANON_KEY` / `SERVICE_ROLE_KEY`（`eyJ...`）と、新しい `PUBLISHABLE_KEY`（`sb_publishable_...`）/ `SECRET_KEY`（`sb_secret_...`）の両方を出す。このリポジトリの `@supabase/supabase-js` 2.46.1 とローカル API の組み合わせでは、どちらを変数に入れても `select_options` の読み取りは成功する（変数名は上表のまま変えない）。ホスト版ダッシュボードは既定で publishable key / secret key を表示する。同じ変数名にその値を入れてよい。Legacy API Keys タブの JWT も同じ変数に入れて使える。
+`yarn supabase status -o env` には、同じ値に加えて JWT の `ANON_KEY` / `SERVICE_ROLE_KEY`（`eyJ...`）も出る。このリポジトリの `@supabase/supabase-js` 2.46.1 とローカル API の組み合わせでは、Pretty 表示の Publishable / Secret でも、`-o env` の JWT でも、`select_options` の読み取りは成功する。変数名は上表のまま変えない。ホスト版ダッシュボードも既定で publishable key / secret key を表示する。同じ変数名にその値を入れてよい。Legacy API Keys タブの JWT も同じ変数に入れて使える。
 
 キーの値はこのドキュメントに書かない。
 
@@ -291,24 +291,24 @@ supa-db -c "SELECT * FROM profiles;"  # SQLを直接実行
 #### 1. ローカルデータのエクスポート
 
 ```bash
-# スキーマのみをエクスポート
-supabase db dump --schema-only > schema.sql
+# スキーマのみ（CLI 2.115 の既定。--schema-only フラグは無い）
+supabase db dump --local -f schema.sql
 
-# データのみをエクスポート
-supabase db dump --data-only > data.sql
-
-# 全体をエクスポート
-supabase db dump > full_backup.sql
+# データのみ
+supabase db dump --local --data-only -f data.sql
 ```
+
+`--local` を付けないと、リンク済みのリモートをダンプしようとする。未リンクだと `Cannot find project ref` で失敗する。
 
 #### 2. ホスト版 Supabase への切り替え
 
 `.env.local` の次の 2 つは **セットで** 切り替える。URL だけ、またはキーだけを本番向けにすると、認証もデータも期待したプロジェクトに繋がらない。
 
 ```env
-# ローカルに戻すときはこの 2 行をコメントアウトし、下のホスト版の 2 行をコメントアウトする
+# ホスト版を使う間は、ローカルの 2 行をコメントアウトしたままにする。
+# ローカルに戻すときは、ホスト版の 2 行をコメントアウトし、ローカルの 2 行のコメントを外す。
 # NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
-# NEXT_PUBLIC_SUPABASE_ANON_KEY=<local anon or publishable key>
+# NEXT_PUBLIC_SUPABASE_ANON_KEY=<local publishable key>
 
 NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<hosted publishable or legacy anon key>
@@ -343,26 +343,29 @@ supabase db push
 
 #### 4. データの移行
 
-```bash
-# テスト環境のデータベース接続情報は
-# Supabaseダッシュボード > Settings > Database で確認
+接続 URI はプロジェクトの Connect ダイアログに出る。ダイアログの文字列をそのまま使う（Database password が必要）。次はダイレクト接続の形の例である。
 
-# データを投入（接続URLは要確認）
-psql "postgresql://postgres:[password]@db.[your-project-id].supabase.co:5432/postgres" < data.sql
+```bash
+psql "postgresql://postgres:[password]@db.[project-ref].supabase.co:5432/postgres" < data.sql
 ```
 
 ### クラウド → ローカル環境への移行
 
+`supabase db pull` はリモートのスキーマを新しいマイグレーションファイルとして保存する。行データのコピーではなく、先に `supabase link` が必要である。既存ボリュームに対する `supabase start` だけでは、そのファイルは適用されない。
+
 ```bash
-# クラウド環境から最新データを取得
+supabase link --project-ref <project-ref>
 supabase db pull
-
-# ローカル環境の設定に戻す
-# .env.localファイルをローカル設定に戻す
-
-# ローカルSupabaseを再起動
-supabase stop && supabase start
+supabase db reset
 ```
+
+行データが必要なら、リンク済みプロジェクトから data-only ダンプを取る。
+
+```bash
+supabase db dump --linked --data-only -f data.sql
+```
+
+`.env.local` をローカルの URL とキーに戻したあとは、dev サーバを再起動する。
 
 ---
 
@@ -384,8 +387,7 @@ supabase db reset
 # データベース接続
 supa-db  # エイリアス設定後
 
-# ログ確認
-supabase logs
+# ログ確認（supabase logs サブコマンドは CLI 2.115 に無い）
 docker logs supabase_db_accounting-system
 docker logs supabase_auth_accounting-system
 ```
@@ -618,8 +620,8 @@ yarn db:types-local
 # Dockerリソース確認
 docker stats
 
-# Supabaseログ確認
-supabase logs
+# 認証コンテナのログ
+docker logs supabase_auth_accounting-system
 
 # データベース接続数確認
 supa-db -c "SELECT count(*) FROM pg_stat_activity;"
