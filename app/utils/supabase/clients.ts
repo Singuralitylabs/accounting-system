@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import type { Database } from "@/app/lib/database.types";
+import { createPostgrestFetch } from "./postgrestFetch";
 
 /**
  * Server Component / Server Action / Route Handler 用の Supabase クライアント。
@@ -33,6 +34,7 @@ export const createServerSupabase = () => {
           }
         },
       },
+      global: { fetch: createPostgrestFetch() },
     },
   );
 };
@@ -49,5 +51,8 @@ export const createServiceRoleSupabase = () =>
   createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false } },
+    {
+      auth: { persistSession: false },
+      global: { fetch: createPostgrestFetch() },
+    },
   );
