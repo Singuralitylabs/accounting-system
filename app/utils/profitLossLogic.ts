@@ -88,6 +88,129 @@ export const reportFlags = (profileClass: string | null | undefined) => ({
   includeTeamBreakdown: hasClassAccess(["accounting", "admin"], profileClass),
 });
 
+// 損益レポートの取得期間（両端を含む月キー "YYYY-MM"）。
+// 月次は { startMonth: month, endMonth: month }、年間推移は年度12ヶ月の両端を渡す。
+// 月単位まで絞ると年間推移が12回クエリになるため、年度範囲で1回取得する。
+export type ReportPeriod = {
+  startMonth: string;
+  endMonth: string;
+};
+
+// 月キー（"YYYY-MM"）の形式検証。
+// Server Action 経由でクライアント到達可能な取得期間の入口で使い、
+// 不正な値は呼び出し側で取得失敗（再取得を促す表示）として扱う。
+export const isMonthKey = (value: string): boolean =>
+  /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+
+export type ReportRangeBounds = {
+  // 期間開始月の月初日（"YYYY-MM-01"。以上条件に使う）
+  startDate: string;
+  // 期間終了月の翌月月初日（"YYYY-MM-01"。未満条件に使う）
+  endExclusive: string;
+};
+
+// 月キー（"YYYY-MM"）の翌月の月初日を返す。
+// 日付の月ズレを避けるため Date オブジェクトは使わない。
+const firstDayOfNextMonth = (monthKey: string): string => {
+  const year = parseInt(monthKey.slice(0, 4), 10);
+  const monthNumber = parseInt(monthKey.slice(5, 7), 10);
+  const nextYear = monthNumber === 12 ? year + 1 : year;
+  const nextMonthNumber = monthNumber === 12 ? 1 : monthNumber + 1;
+  return `${nextYear}-${String(nextMonthNumber).padStart(2, "0")}-01`;
+};
+
+// 取得期間から日付範囲（[startDate, endExclusive)）を求める。
+// SQL の WHERE 句とインメモリのフィルタで同じ境界を使うための単一の定義。
+// 呼び出し側は startMonth <= endMonth を満たすこと（逆転させると空範囲＋NULL 行のみの取得になる）。
+export const reportRangeBounds = (period: ReportPeriod): ReportRangeBounds => ({
+  startDate: `${period.startMonth}-01`,
+  endExclusive: firstDayOfNextMonth(period.endMonth),
+});
+
+// 日付カラムが取得期間内または月未確定（NULL）か。
+// invoice_date / period / entry_date の絞り込みで NULL 行を落とさないための条件。
+export const isDateInRangeOrUndated = (
+  dateStr: string | null,
+  bounds: ReportRangeBounds,
+): boolean =>
+  dateStr === null ||
+  (dateStr >= bounds.startDate && dateStr < bounds.endExclusive);
+
+// 定期費用マスタの適用期間が取得期間と重なるか。
+// 支払サイクルによる計上月の判定は行わない（buildMonthlyReport 側で行う）。
+// 適用期間が取得期間と重ならない行だけを除外するための条件。
+export const doesRecurringCostOverlapRange = (
+  recurringCost: Pick<RecurringCostType, "start_month" | "end_month">,
+  bounds: ReportRangeBounds,
+): boolean =>
+  recurringCost.start_month < bounds.endExclusive &&
+  (recurringCost.end_month === null ||
+    recurringCost.end_month >= bounds.startDate);
+
+// 調整の対象月が取得期間内か（target_month は NOT NULL のため NULL 扱いは不要）。
+export const isAdjustmentInRange = (
+  targetMonth: string,
+  bounds: ReportRangeBounds,
+): boolean =>
+  targetMonth >= bounds.startDate && targetMonth < bounds.endExclusive;
+
+// 調整の対象行のうち取得済み ID に無いもの（取得期間外へ移動した行）を集める。
+// orphanedAdjustments のラベル解決用。対象は buildMonthlyReport と同じく
+// target_month が当月の調整のみ。追加取得した行は月振り分け（厳密な月一致・
+// undated は NULL のみ・定期費用は計上月判定）で集計から除外されるため集計値は不変。
+export const collectMissingAdjustmentTargetIds = (
+  month: string,
+  adjustments: Pick<
+    ProfitLossAdjustmentType,
+    "target_month" | "business_id" | "cost_id" | "recurring_cost_id"
+  >[],
+  businessIds: ReadonlySet<number>,
+  costIds: ReadonlySet<number>,
+  recurringCostIds: ReadonlySet<number>,
+): { businessIds: number[]; costIds: number[]; recurringCostIds: number[] } => {
+  const missingBusinessIds = new Set<number>();
+  const missingCostIds = new Set<number>();
+  const missingRecurringCostIds = new Set<number>();
+  adjustments
+    .filter((adjustment) => toMonthKey(adjustment.target_month) === month)
+    .forEach((adjustment) => {
+      if (
+        adjustment.business_id !== null &&
+        !businessIds.has(adjustment.business_id)
+      ) {
+        missingBusinessIds.add(adjustment.business_id);
+      }
+      if (adjustment.cost_id !== null && !costIds.has(adjustment.cost_id)) {
+        missingCostIds.add(adjustment.cost_id);
+      }
+      if (
+        adjustment.recurring_cost_id !== null &&
+        !recurringCostIds.has(adjustment.recurring_cost_id)
+      ) {
+        missingRecurringCostIds.add(adjustment.recurring_cost_id);
+      }
+    });
+  return {
+    businessIds: Array.from(missingBusinessIds),
+    costIds: Array.from(missingCostIds),
+    recurringCostIds: Array.from(missingRecurringCostIds),
+  };
+};
+
+// Supabase（PostgREST）の or() に渡す日付絞り込み条件「期間内 OR 月未確定（NULL）」。
+// invoice_date / period / entry_date 用。SQL とテストで同じ文字列を使うための単一の定義。
+// column は union 型に絞り、任意文字列の混入を型で防ぐ。
+export const datedOrUndatedFilter = (
+  column: "invoice_date" | "period" | "entry_date",
+  bounds: ReportRangeBounds,
+): string =>
+  `and(${column}.gte.${bounds.startDate},${column}.lt.${bounds.endExclusive}),${column}.is.null`;
+
+// 定期費用の適用終了側の or() 条件（`start_month < endExclusive` と AND で使う）。
+// 適用期間が取得期間と重ならない行だけを除外するための条件。
+export const recurringOverlapEndFilter = (bounds: ReportRangeBounds): string =>
+  `end_month.gte.${bounds.startDate},end_month.is.null`;
+
 // buildMonthlyReport の入力。
 // boolean フラグが複数あるため、呼び出し側での取り違えを防ぐ目的で
 // 位置引数ではなくオブジェクトで受ける。

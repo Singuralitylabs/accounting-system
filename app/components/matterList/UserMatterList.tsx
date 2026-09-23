@@ -7,6 +7,8 @@ import { MatterType } from "../../types/types";
 import { ModalLoadingFallback } from "../LoadingSpinner";
 import { MatterCard } from "../MatterCard";
 import { useDeleteMatter, useUserMatterList } from "../../hooks/useMatterData";
+import { useListPagination } from "../../hooks/useListPagination";
+import { MatterListPagination } from "./MatterListPagination";
 import {
   confirmAction,
   DELETE_MATTER_CONFIRM_MESSAGE,
@@ -47,6 +49,20 @@ export function UserMatterList({
 }) {
   // React Queryでデータを管理（初期データ付き）
   const { data: matterList } = useUserMatterList(initialData);
+  // 件数増加に伴う DOM 肥大を抑えるためのクライアント側ページネーション。
+  // サーバ側の取得・ソートは変えず、表示範囲だけを切り出す。
+  const {
+    page,
+    setPage,
+    perPage,
+    setPerPage,
+    total,
+    totalPages,
+    startIndex,
+    endIndex,
+    pagedItems,
+    showPagination,
+  } = useListPagination(matterList ?? []);
 
   const [opened, setOpened] = useState(false);
   const [matterInfo, setMatterInfo] = useState<MatterType | null>(null);
@@ -120,7 +136,7 @@ export function UserMatterList({
 
   const tableInfoList = useMemo(
     () =>
-      matterList?.map((matter) => (
+      pagedItems?.map((matter) => (
         <Table.Tr
           key={matter.id}
           bg={
@@ -153,7 +169,7 @@ export function UserMatterList({
           </Table.Td>
         </Table.Tr>
       )),
-    [matterList, handleOpenCard, handleCopyCard, handleDeleteCard],
+    [pagedItems, handleOpenCard, handleCopyCard, handleDeleteCard],
   );
 
   return (
@@ -169,15 +185,22 @@ export function UserMatterList({
         (showCards ? (
           <div className="py-4 px-8">
             <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
-              {matterList.map((matter) => (
-                <MatterCard
+              {pagedItems.map((matter) => (
+                <div
                   key={matter.id}
-                  variant="user"
-                  matter={matter}
-                  onOpen={handleOpenCard}
-                  onCopy={handleCopyCard}
-                  onDelete={handleDeleteCard}
-                />
+                  style={{
+                    contentVisibility: "auto",
+                    containIntrinsicSize: "auto 280px",
+                  }}
+                >
+                  <MatterCard
+                    variant="user"
+                    matter={matter}
+                    onOpen={handleOpenCard}
+                    onCopy={handleCopyCard}
+                    onDelete={handleDeleteCard}
+                  />
+                </div>
               ))}
             </SimpleGrid>
           </div>
@@ -189,6 +212,18 @@ export function UserMatterList({
             </Table>
           </div>
         ))}
+      {showPagination && (
+        <MatterListPagination
+          page={page}
+          totalPages={totalPages}
+          onPageChange={setPage}
+          perPage={perPage}
+          onPerPageChange={setPerPage}
+          startIndex={startIndex}
+          endIndex={endIndex}
+          total={total}
+        />
+      )}
       {opened && matterInfo && (
         <MatterCardDetail
           variant="user"

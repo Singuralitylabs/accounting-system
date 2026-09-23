@@ -13,6 +13,10 @@ import { getProfileInfo } from "./profiles";
 export const getAllMatterInfoList = async (
   filters: MatterListFilters = {}
 ) => {
+  // Issue #16 の判断: 完了案件をデフォルトで隠さない。経理用一覧は完了案件の
+  // 確認も用途に含み、既存の並び順（is_completed 昇順）で未完了を先頭に寄せている。
+  // デフォルト非表示にすると一覧の表示内容が変わり、完了・通知の対象解決にも
+  // 影響するため、件数対策はクライアント側ページネーションで行う。
   const supabase = createServerSupabase();
   const userNames =
     filters.user_name && filters.user_name.length > 0
