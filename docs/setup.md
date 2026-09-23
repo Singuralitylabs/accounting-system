@@ -63,7 +63,7 @@ Supabase CLI は `package.json` の devDependencies にバージョン固定し�
 yarn supabase --version
 ```
 
-Cloud Agent 向けの `.cursor/setup/supabase-up.sh`（`SUPABASE_CLI_VERSION`）とはバージョン番号を一致させること。このスクリプトは起動時に、下の「環境変数の設定」と同じ 8 変数だけの `.env.local` を書く。
+Cloud Agent 向けの `.cursor/setup/supabase-up.sh`（`SUPABASE_CLI_VERSION`）とはバージョン番号を一致させること。このスクリプトは起動時に、下の「環境変数の設定」と同じ 8 変数だけの `.env.local` を書く。`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `SLACK_WEBHOOK_URL` / `CRON_SECRET` / `PROJECT_ID` は、空でないシェルの環境変数、既存の `.env.local`、既定値の順で埋める。環境変数が空なら、手で書いた値は次回起動でも残る。`CRON_SECRET` がどちらにも無いときは、起動時に推測できない値を生成する。固定の既定文字列は書かない。
 
 ---
 
@@ -71,14 +71,14 @@ Cloud Agent 向けの `.cursor/setup/supabase-up.sh`（`SUPABASE_CLI_VERSION`）
 
 ローカルの Google ログインは、Supabase Auth がブラウザを Google へリダイレクトし、認可コードをローカル API（`http://127.0.0.1:54321`）が受け取るサーバサイドフローである。Google 側に必要なのは **承認済みのリダイレクト URI** だけで、承認済みの JavaScript 生成元は登録しない。
 
-`supabase/config.toml` の `[auth.external.google]` は **ローカルスタック専用** である。ホスト版（開発用・本番の Supabase プロジェクト）には適用されない。ホスト版の Google プロバイダは、Supabase ダッシュボードで **Authentication** を開いた画面（タイトルは **Sign In / Providers**、パスは `/auth/providers`）で別途設定する。ローカル Studio（`http://127.0.0.1:54323`）で同じパスを開くとページタイトルは同じ **Sign In / Providers** になる。左メニューは **Users** と **Policies** である。プロバイダ設定の取得はホスト版だけで有効なため、ローカルでは **Auth Providers** のフォームは読み込まれず、スケルトンのままになる。ローカルの Google クライアントは、この画面ではなく `config.toml` の `env()` で渡す。ホスト版のログインで Google に渡る `redirect_uri` は `https://<project-ref>.supabase.co/auth/v1/callback` である。ローカル用に Clients へ登録する `http://127.0.0.1:54321/auth/v1/callback` と `http://localhost:54321/auth/v1/callback` とは別の URI なので、ローカル用クライアントの ID とシークレットをホスト版に流用しても、ホスト版のコールバックでは一致しない。一方、本番で使っているクライアント ID にローカルの `http://127.0.0.1:54321/auth/v1/callback` を付けて認可を始めると、Google はサインイン画面を返す。その画面のアプリ名は「シンラボ経理システム」である。サインイン後のコード交換には、同じクライアントのシークレットが必要である。
+`supabase/config.toml` の `[auth.external.google]` は **ローカルスタック専用** である。ホスト版（開発用・本番の Supabase プロジェクト）には適用されない。ホスト版の Google プロバイダは、Supabase ダッシュボードで **Authentication** を開いた画面（タイトルは **Sign In / Providers**、パスは `/auth/providers`）で別途設定する。ローカル Studio（`http://127.0.0.1:54323`）で同じパスを開くとページタイトルは同じ **Sign In / Providers** になる。左メニューは **Users** と **Policies** である。プロバイダ設定の取得はホスト版だけで有効なため、ローカルでは **Auth Providers** のフォームは読み込まれず、スケルトンのままになる。ローカルの Google クライアントは、この画面ではなく `config.toml` の `env()` で渡す。ホスト版のログインで Google に渡る `redirect_uri` は `https://<project-ref>.supabase.co/auth/v1/callback` である。ローカル用に Clients へ登録する `http://127.0.0.1:54321/auth/v1/callback` と `http://localhost:54321/auth/v1/callback` とは別の URI なので、ローカル用クライアントの ID とシークレットをホスト版に流用しても、ホスト版のコールバックでは一致しない。ローカル開発では、この手順で作る `accounting-system Local` クライアントを使う。本番クライアントの ID をローカルに流用できるのは、そのクライアントの承認済みリダイレクト URI にローカルの callback が登録されている場合だけである。未登録だと Google は認可の開始時点で `Error 400: redirect_uri_mismatch` を返し、サインイン画面は出ない。登録済みの本番クライアントでローカル callback が受理されたときだけ、サインイン画面のアプリ名は「シンラボ経理システム」になる。そのあとのコード交換には、同じクライアントのシークレットが必要である。
 
 ### 1. Google Auth Platform を開く
 
 1. [Google Auth Platform の Overview](https://console.cloud.google.com/auth/overview) を開く
 2. プロジェクトを選択するか、新しく作成する
 
-旧メニュー **APIs & Services > OAuth consent screen** と **APIs & Services > Credentials** は廃止されている。同意画面とクライアントは、Google Auth Platform の **Branding / Audience / Clients / Data Access** に分かれている。
+旧メニュー **APIs & Services > OAuth consent screen** は Google Auth Platform に移っている。同意画面と OAuth クライアントの作成・編集は **Branding / Audience / Clients / Data Access** で行う。**APIs & Services > Credentials** は API キー、サービスアカウント、OAuth クライアントの一覧として残っている。そこからクライアントを新規作成すると **Clients** へ誘導される。
 
 ### 2. アプリ情報と Audience
 
@@ -162,15 +162,7 @@ SLACK_WEBHOOK_URL=
 CRON_SECRET=your-cron-secret
 ```
 
-`.env.local` に書くのは次の 8 つである。アプリが参照するが `.env.local` には書かない名前は、その下の表に分けてある。
-
-| 書かない名前                                   | 理由                                                                                                                                                                                            |
-| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_ENV`                              | アプリも設定ファイルも参照しない                                                                                                                                                                |
-| `SUPABASE_URL`                                 | アプリは参照しない。GitHub Actions の keep-alive ジョブが同名の **ジョブ内** 環境変数を使うが、登録する Secret 名は `KEEPALIVE_SUPABASE_URL_DEV` / `KEEPALIVE_SUPABASE_URL_PROD` である（後述） |
-| `LOCAL_DB_URL`                                 | アプリは参照しない。ローカル Postgres へは手順中の接続文字列を直接使う                                                                                                                          |
-| `VERCEL_URL` / `VERCEL_PROJECT_PRODUCTION_URL` | Vercel が本番ランタイムに注入する。申告ページ URL の組み立てにだけ使い、`.env.local` には追加しない                                                                                             |
-| `ANALYZE`                                      | `ANALYZE=true yarn build` のときだけバンドル分析を有効にする。常設の設定ではない                                                                                                                |
+`.env.local` に書くのは次の 8 つである。
 
 | 変数                            | 参照箇所                                                                         | 取り扱い                                                                                                                                                      |
 | ------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -182,6 +174,16 @@ CRON_SECRET=your-cron-secret
 | `GOOGLE_CLIENT_SECRET`          | `supabase/config.toml` の `env(GOOGLE_CLIENT_SECRET)`                            | 秘匿。ローカル Supabase 専用                                                                                                                                  |
 | `SLACK_WEBHOOK_URL`             | `app/actions/slack/index.ts`、`app/utils/slack/sendBudgetDeclarationReminder.ts` | 秘匿                                                                                                                                                          |
 | `CRON_SECRET`                   | `app/api/cron/budget-declaration-reminder/route.ts`                              | 秘匿。第三者に知られると cron エンドポイントを叩ける                                                                                                          |
+
+アプリが参照するかどうかにかかわらず、`.env.local` に書かない名前は次のとおりである。
+
+| 書かない名前                                   | 理由                                                                                                                                                                                            |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_ENV`                              | アプリも設定ファイルも参照しない                                                                                                                                                                |
+| `SUPABASE_URL`                                 | アプリは参照しない。GitHub Actions の keep-alive ジョブが同名の **ジョブ内** 環境変数を使うが、登録する Secret 名は `KEEPALIVE_SUPABASE_URL_DEV` / `KEEPALIVE_SUPABASE_URL_PROD` である（後述） |
+| `LOCAL_DB_URL`                                 | アプリは参照しない。ローカル Postgres へは手順中の接続文字列を直接使う                                                                                                                          |
+| `VERCEL_URL` / `VERCEL_PROJECT_PRODUCTION_URL` | Vercel が本番ランタイムに注入する。申告ページ URL の組み立てにだけ使い、`.env.local` には追加しない                                                                                             |
+| `ANALYZE`                                      | `ANALYZE=true yarn build` のときだけバンドル分析を有効にする。常設の設定ではない                                                                                                                |
 
 `config.toml` の `env(...)` は、Supabase CLI 2.115 が次の順で解決する。先に見つかった値を使う。
 
@@ -302,17 +304,20 @@ supabase db dump --local --data-only -f data.sql
 
 #### 2. ホスト版 Supabase への切り替え
 
-`.env.local` の次の 2 つは **セットで** 切り替える。URL だけ、またはキーだけを本番向けにすると、認証もデータも期待したプロジェクトに繋がらない。
+`.env.local` の接続先は次の 3 つを **セットで** 切り替える。`NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY` のいずれかだけをホスト版にすると、ブラウザ用クライアントと cron ルート（`createServiceRoleSupabase`）が別プロジェクトを向く。`PROJECT_ID` は `yarn db:types` と `.mcp.json` 用の Reference ID であり、接続先とは別に書いてよい。
 
 ```env
-# ホスト版を使う間は、ローカルの 2 行をコメントアウトしたままにする。
-# ローカルに戻すときは、ホスト版の 2 行をコメントアウトし、ローカルの 2 行のコメントを外す。
+# ホスト版を使う間は、ローカルの接続先 3 行をコメントアウトしたままにする。
+# ローカルに戻すときは、ホスト版の 3 行をコメントアウトし、ローカルの 3 行のコメントを外す。
 # NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
-# NEXT_PUBLIC_SUPABASE_ANON_KEY=<local publishable key>
+# NEXT_PUBLIC_SUPABASE_ANON_KEY=<local publishable or legacy anon key>
+# SUPABASE_SERVICE_ROLE_KEY=<local secret or legacy service_role key>
 
 NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<hosted publishable or legacy anon key>
 SUPABASE_SERVICE_ROLE_KEY=<hosted secret or legacy service_role key>
+
+# 型生成用。接続先の切り替えとは独立。
 PROJECT_ID=<project-ref>
 ```
 
@@ -480,7 +485,7 @@ Supabase 無料プランは 1 週間アクセスが無いとプロジェクト�
 
 - これら 4 つは GitHub の Repository secrets であり、`.env.local` の変数名とは一致しない。とくに URL 用 Secret は `SUPABASE_URL` ではない（ジョブ内で `SUPABASE_URL` という環境変数に展開しているだけである）。
 - Project URL は `https://<project-ref>.supabase.co`。Reference ID が分かればこの形で登録できる。画面で確認するときは **Project Settings** の INTEGRATIONS にある **Data API** に出る API URL を使う。`https://` 付きで登録する（末尾のスラッシュや前後の空白は無視される。形式が不正な場合は「URL 形式が不正」のエラーで fail する）。
-- キーは **Project Settings** の CONFIGURATION にある **API Keys** の publishable key、または同じ画面の **Legacy anon, service_role API keys** タブの anon key を使う。ワークフローは `apikey` と `Authorization: Bearer` の両方に同じ値を載せる。ホスト版で publishable key が `Invalid JWT` になる場合は、**Legacy anon, service_role API keys** の JWT 形式 anon key に差し替える。
+- キーは **Project Settings** の CONFIGURATION にある **API Keys** の **Legacy anon, service_role API keys** タブにある JWT 形式の anon key（`eyJ...`）を第一候補にする。ワークフローは `apikey` と `Authorization: Bearer` の両方に同じ値を載せる。既定タブの publishable key（`sb_publishable_...`）は JWT ではないため、ホスト版で `Invalid JWT` になることがある。200 が返る場合だけ publishable key を使ってよい。
 - キーをローテーションした場合は Secrets の値も差し替え、手動実行で 200 が返ることを確認する。
 
 ### 動作確認（手動実行）
@@ -569,7 +574,7 @@ npm uninstall -g next
 
 `yarn supabase start` と `yarn dev` が両方成功しても、`.env.local` の `NEXT_PUBLIC_SUPABASE_URL` と `NEXT_PUBLIC_SUPABASE_ANON_KEY` がホスト版のままだと、アプリはホスト版に接続する。ローカルの Google クライアント設定は効かない。
 
-この 2 つはセットでローカル（`http://127.0.0.1:54321` と、そのスタックの anon / publishable key）に戻し、dev サーバを再起動する。`NEXT_PUBLIC_*` の変更は再起動するまで反映されない。
+この 2 つはセットでローカル（`http://127.0.0.1:54321` と、そのスタックの anon / publishable key）に戻し、dev サーバを再起動する。cron ルートが同じプロジェクトを向くように、`SUPABASE_SERVICE_ROLE_KEY` も同じスタックの値に戻す。`NEXT_PUBLIC_*` の変更は再起動するまで反映されない。
 
 ### 認証コンテナから Google へ届かない
 
@@ -579,7 +584,7 @@ npm uninstall -g next
 docker exec supabase_auth_accounting-system wget -q -O /dev/null -T 10 https://accounts.google.com/
 ```
 
-終了コードが 0 ならコンテナから届いている。届かないとき、`sudo iptables-legacy -L FORWARD` の policy が `DROP` で、許可が `docker0` だけのときは、Supabase の bridge（ネットワーク名 `supabase_network_accounting-system`）を往復とも許可する。
+終了コードが 0 ならコンテナから届いている。届かないとき、`sudo iptables-legacy -L FORWARD` の policy が `DROP` で、許可が `docker0` だけのときは、Supabase の bridge（ネットワーク名 `supabase_network_accounting-system`）を往復とも許可する。これは一時的な回避である。確認したのは Docker 28 以降の `DOCKER-FORWARD` / `DOCKER-CT` と `iptables-legacy` の組み合わせである。nft バックエンドでは `iptables-legacy` ではなく nft 側のルールになる。Docker デーモンは起動時にこれらのチェーンを作り直すため、追加したルールはデーモンの再起動やアップデートで消える。消えたら同じコマンドを再実行する。
 
 ```bash
 br="br-$(docker network inspect supabase_network_accounting-system --format '{{.Id}}' | cut -c1-12)"
@@ -596,7 +601,7 @@ sudo iptables-legacy -A DOCKER-CT -o "$br" -m conntrack --ctstate RELATED,ESTABL
    - 承認済みの JavaScript 生成元は切り分けに使わない。未設定でもこのアプリのログインには影響しない
    - Audience が External で `Error 403: access_denied` になる場合は、Test users にその Google アカウントが入っているか
    - Google の画面が **Access blocked: Authorization Error** / **The OAuth client was not found.** / `Error 401: invalid_client` のときは、`GOOGLE_CLIENT_ID` がサンプルのプレースホルダのままか、Clients に無い ID である。作成時にダウンロードした JSON のクライアント ID に替え、`yarn supabase stop && yarn supabase start` してからログインし直す
-   - Google の画面が **Sign in** で **to continue to** のあとにアプリ名が出ているときは、クライアント ID と `http://127.0.0.1:54321/auth/v1/callback` は受理されている。この手順で作ったクライアントならアプリ名は `accounting-system Local`、本番で使っているクライアントなら「シンラボ経理システム」である。次は `@future-tech-association.org` のアカウントでサインインする。サインイン後のコード交換には、同じクライアントの `GOOGLE_CLIENT_SECRET` が必要である
+   - Google の画面が **Sign in** で **to continue to** のあとにアプリ名が出ているときは、クライアント ID とその `redirect_uri` は受理されている。この手順で作ったクライアントならアプリ名は `accounting-system Local` である。本番クライアントにローカル callback が登録されている場合だけ、アプリ名は「シンラボ経理システム」になる。未登録ならサインイン画面の前に `Error 400: redirect_uri_mismatch` になる。次は `@future-tech-association.org` のアカウントでサインインする。サインイン後のコード交換には、同じクライアントの `GOOGLE_CLIENT_SECRET` が必要である
 
 2. **環境変数の確認**
    - `docker exec supabase_auth_accounting-system printenv GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID` が `.env.local` の値と一致しているか。`env(GOOGLE_CLIENT_ID)` のままなら、`.env.local` に値を書いて `yarn supabase stop && yarn supabase start` する。シェルに古い `GOOGLE_CLIENT_ID` が export されていると `.env.local` は無視される

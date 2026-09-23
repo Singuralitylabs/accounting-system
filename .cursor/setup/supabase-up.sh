@@ -21,11 +21,61 @@ if ! command -v supabase >/dev/null 2>&1; then
   sudo dpkg -i /tmp/supabase.deb
 fi
 
-# Supabase substitutes env(GOOGLE_CLIENT_ID/SECRET) for the Google auth provider
-# in supabase/config.toml. Real Google OAuth login needs real values (add them
-# as Cloud Agent secrets); placeholders are enough for the stack to boot.
-export GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-local-dev-placeholder.apps.googleusercontent.com}"
-export GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET:-local-dev-placeholder-secret}"
+# Values written to .env.local, and GOOGLE_* exported for config.toml env():
+# non-empty shell environment > existing .env.local > default.
+# Shell wins so a Cloud Agent secret added later replaces a value this script
+# wrote on an earlier boot. An empty shell keeps a hand-edited .env.local.
+# CRON_SECRET has no committed default. A missing value is random. The old
+# well-known local-dev-cron-secret is treated as unset.
+read_dotenv_value() {
+  local key="$1"
+  [[ -f .env.local ]] || return 0
+  grep -E "^${key}=" .env.local | head -n1 | cut -d= -f2- || true
+}
+
+pick_env() {
+  local key="$1"
+  local default="$2"
+  local from_shell=""
+  if [[ -n "${!key+x}" ]]; then
+    from_shell="${!key}"
+  fi
+  if [[ -n "${from_shell}" ]]; then
+    printf '%s' "${from_shell}"
+    return
+  fi
+  local from_file
+  from_file="$(read_dotenv_value "$key")"
+  if [[ -n "${from_file}" ]]; then
+    printf '%s' "${from_file}"
+    return
+  fi
+  printf '%s' "${default}"
+}
+
+PROJECT_ID_VALUE="$(pick_env PROJECT_ID "")"
+case "${PROJECT_ID_VALUE}" in
+  matter-controller | accounting-system) PROJECT_ID_VALUE="" ;;
+esac
+
+# Placeholders are enough for the stack to boot. Real Google login needs real
+# values (Cloud Agent secrets, or a hand-edited .env.local kept above).
+GOOGLE_CLIENT_ID="$(pick_env GOOGLE_CLIENT_ID "local-dev-placeholder.apps.googleusercontent.com")"
+GOOGLE_CLIENT_SECRET="$(pick_env GOOGLE_CLIENT_SECRET "local-dev-placeholder-secret")"
+export GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET
+
+SLACK_WEBHOOK_URL="$(pick_env SLACK_WEBHOOK_URL "")"
+
+if [[ -z "${CRON_SECRET-}" ]]; then
+  existing_cron="$(read_dotenv_value CRON_SECRET)"
+  if [[ "${existing_cron}" == "local-dev-cron-secret" || -z "${existing_cron}" ]]; then
+    CRON_SECRET_VALUE="$(openssl rand -hex 16)"
+  else
+    CRON_SECRET_VALUE="${existing_cron}"
+  fi
+else
+  CRON_SECRET_VALUE="${CRON_SECRET}"
+fi
 
 # --- Bring the stack to a fully healthy state ---
 # `supabase start` is not reliable to gate on: when booting from a snapshot the
@@ -90,32 +140,18 @@ echo "[supabase-up] Supabase database is accepting connections."
 supabase migration up --local
 
 # --- Generate .env.local from the live, healthy Supabase status ---
-# PROJECT_ID is the remote Supabase project ref (20-char) for `yarn db:types`
-# and MCP. It is not config.toml project_id. Keep a previous valid ref; drop
-# local Docker names that used to be written here by mistake.
-EXISTING_PROJECT_ID=""
-EXISTING_CRON_SECRET=""
-if [[ -f .env.local ]]; then
-  EXISTING_PROJECT_ID="$(grep -E '^PROJECT_ID=' .env.local | head -n1 | cut -d= -f2- || true)"
-  EXISTING_CRON_SECRET="$(grep -E '^CRON_SECRET=' .env.local | head -n1 | cut -d= -f2- || true)"
-fi
-case "${EXISTING_PROJECT_ID}" in
-  matter-controller | accounting-system | "")
-    EXISTING_PROJECT_ID=""
-    ;;
-esac
-
-eval "$(status_env)"
+# PROJECT_ID and the non-status values were resolved before start.
 # docs/setup.md の .env.local サンプルと同じ 8 変数だけを書く。
 # NEXT_PUBLIC_ENV / SUPABASE_URL / LOCAL_DB_URL はアプリが参照しない。
+eval "$(status_env)"
 cat > .env.local <<EOF
 NEXT_PUBLIC_SUPABASE_URL=${API_URL}
 NEXT_PUBLIC_SUPABASE_ANON_KEY=${ANON_KEY}
 SUPABASE_SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}
-PROJECT_ID=${EXISTING_PROJECT_ID}
+PROJECT_ID=${PROJECT_ID_VALUE}
 GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
 GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
-CRON_SECRET=${EXISTING_CRON_SECRET:-${CRON_SECRET:-local-dev-cron-secret}}
+SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+CRON_SECRET=${CRON_SECRET_VALUE}
 EOF
 echo "[supabase-up] Wrote .env.local (API ${API_URL})."
