@@ -3,6 +3,7 @@ import {
   BusinessRow,
   CostRow,
   buildMonthlyReport,
+  collectMissingAdjustmentTargetIds,
   datedOrUndatedFilter,
   doesRecurringCostOverlapRange,
   fiscalYearMonths,
@@ -157,6 +158,130 @@ describe("isAdjustmentInRange", () => {
   it("対象月が範囲外なら落とす", () => {
     expect(isAdjustmentInRange("2026-06-01", bounds)).toBe(false);
     expect(isAdjustmentInRange("2027-07-01", bounds)).toBe(false);
+  });
+});
+
+describe("orphanedAdjustments のラベル解決（補完取得）", () => {
+  const adjustmentOn = (
+    target_month: string,
+    target: { business_id: number | null; cost_id: number | null },
+  ): ProfitLossAdjustmentType => ({
+    id: nextId++,
+    target_month,
+    business_id: target.business_id,
+    cost_id: target.cost_id,
+    recurring_cost_id: null,
+    adjustment_amount: 10000,
+    source_amount_snapshot: 300000,
+    reason: "実績額修正",
+    adjusted_by: 1,
+    inserted_at: "2026-07-01T00:00:00+09:00",
+    updated_at: "2026-07-01T00:00:00+09:00",
+  });
+
+  it("当月調整の欠けている対象IDだけを集める（他月・取得済みは除外、重複は1件）", () => {
+    const julyRow = business(500000, "2026-07-10");
+    const movedRow = business(300000, "2026-08-05");
+    const julyCost = cost(100000, "2026-07-10");
+    const adjustments = [
+      adjustmentOn("2026-07-01", {
+        business_id: movedRow.id,
+        cost_id: null,
+      }),
+      adjustmentOn("2026-07-01", {
+        business_id: movedRow.id,
+        cost_id: null,
+      }),
+      adjustmentOn("2026-07-01", { business_id: null, cost_id: julyCost.id }),
+      // 対象月が当月でない調整は集計対象外のため集めない
+      adjustmentOn("2026-08-01", {
+        business_id: movedRow.id,
+        cost_id: null,
+      }),
+    ];
+    expect(
+      collectMissingAdjustmentTargetIds(
+        "2026-07",
+        adjustments,
+        new Set([julyRow.id]),
+        new Set([julyCost.id]),
+        new Set([7]),
+      ),
+    ).toEqual({
+      businessIds: [movedRow.id],
+      costIds: [],
+      recurringCostIds: [],
+    });
+  });
+
+  it("補完行を追加しても集計値は変わらずラベルが解決される", () => {
+    // レビュー指摘の再現手順：2026-07 の business 行に調整を入れる →
+    // invoice_date を 2026-08 に変更 → 2026-07 の月次を開く
+    const monthlyRow = business(500000, "2026-07-10");
+    const movedRow = business(300000, "2026-08-05");
+    const adjustments = [
+      adjustmentOn("2026-07-01", {
+        business_id: movedRow.id,
+        cost_id: null,
+      }),
+    ];
+    const base = {
+      month: "2026-07",
+      costRows: [] as CostRow[],
+      recurringCosts: [] as RecurringCostType[],
+      extraEntries: [] as ExtraEntryType[],
+      isTeamLeader: false,
+      includeTeamBreakdown: true,
+      includeOrphanedAdjustments: true,
+    };
+    // 期間絞り込みで対象行が落ちた状態：ラベルは汎用表示に落ちる
+    const withoutSupplement = buildMonthlyReport({
+      ...base,
+      businessRows: [monthlyRow],
+      adjustments,
+    });
+    expect(withoutSupplement.orphanedAdjustments).toHaveLength(1);
+    expect(withoutSupplement.orphanedAdjustments?.[0].label).toBe(
+      `売上（ID: ${movedRow.id}）`,
+    );
+
+    // 補完取得を模擬：欠けている ID を集めて対象行を追加する
+    const missing = collectMissingAdjustmentTargetIds(
+      "2026-07",
+      adjustments,
+      new Set([monthlyRow.id]),
+      new Set(),
+      new Set(),
+    );
+    expect(missing.businessIds).toEqual([movedRow.id]);
+    const withSupplement = buildMonthlyReport({
+      ...base,
+      businessRows: [monthlyRow, movedRow],
+      adjustments,
+    });
+    expect(withSupplement.orphanedAdjustments?.[0]).toMatchObject({
+      targetType: "business",
+      label: `${movedRow.matters.title} - ${movedRow.name}`,
+    });
+
+    // 集計値は不変（orphanedAdjustments のラベル以外が一致）
+    expect(withSupplement.revenueTotal).toBe(withoutSupplement.revenueTotal);
+    expect(withSupplement.matterCostTotal).toBe(
+      withoutSupplement.matterCostTotal,
+    );
+    expect(withSupplement.grossProfitTotal).toBe(
+      withoutSupplement.grossProfitTotal,
+    );
+    expect(withSupplement.recurringCostTotal).toBe(
+      withoutSupplement.recurringCostTotal,
+    );
+    expect(withSupplement.ordinaryProfit).toBe(
+      withoutSupplement.ordinaryProfit,
+    );
+    expect(withSupplement.undated).toEqual(withoutSupplement.undated);
+    expect(withSupplement.revenueByCategory).toEqual(
+      withoutSupplement.revenueByCategory,
+    );
   });
 });
 

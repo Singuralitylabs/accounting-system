@@ -154,6 +154,49 @@ export const isAdjustmentInRange = (
 ): boolean =>
   targetMonth >= bounds.startDate && targetMonth < bounds.endExclusive;
 
+// 調整の対象行のうち取得済み ID に無いもの（取得期間外へ移動した行）を集める。
+// orphanedAdjustments のラベル解決用。対象は buildMonthlyReport と同じく
+// target_month が当月の調整のみ。追加取得した行は月振り分け（厳密な月一致・
+// undated は NULL のみ・定期費用は計上月判定）で集計から除外されるため集計値は不変。
+export const collectMissingAdjustmentTargetIds = (
+  month: string,
+  adjustments: Pick<
+    ProfitLossAdjustmentType,
+    "target_month" | "business_id" | "cost_id" | "recurring_cost_id"
+  >[],
+  businessIds: ReadonlySet<number>,
+  costIds: ReadonlySet<number>,
+  recurringCostIds: ReadonlySet<number>,
+): { businessIds: number[]; costIds: number[]; recurringCostIds: number[] } => {
+  const missingBusinessIds = new Set<number>();
+  const missingCostIds = new Set<number>();
+  const missingRecurringCostIds = new Set<number>();
+  adjustments
+    .filter((adjustment) => toMonthKey(adjustment.target_month) === month)
+    .forEach((adjustment) => {
+      if (
+        adjustment.business_id !== null &&
+        !businessIds.has(adjustment.business_id)
+      ) {
+        missingBusinessIds.add(adjustment.business_id);
+      }
+      if (adjustment.cost_id !== null && !costIds.has(adjustment.cost_id)) {
+        missingCostIds.add(adjustment.cost_id);
+      }
+      if (
+        adjustment.recurring_cost_id !== null &&
+        !recurringCostIds.has(adjustment.recurring_cost_id)
+      ) {
+        missingRecurringCostIds.add(adjustment.recurring_cost_id);
+      }
+    });
+  return {
+    businessIds: Array.from(missingBusinessIds),
+    costIds: Array.from(missingCostIds),
+    recurringCostIds: Array.from(missingRecurringCostIds),
+  };
+};
+
 // Supabase（PostgREST）の or() に渡す日付絞り込み条件「期間内 OR 月未確定（NULL）」。
 // invoice_date / period / entry_date 用。SQL とテストで同じ文字列を使うための単一の定義。
 // column は union 型に絞り、任意文字列の混入を型で防ぐ。

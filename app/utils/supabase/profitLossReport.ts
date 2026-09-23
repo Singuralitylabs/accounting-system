@@ -12,6 +12,7 @@ import {
   CostRow,
   ReportPeriod,
   buildMonthlyReport,
+  collectMissingAdjustmentTargetIds,
   datedOrUndatedFilter,
   fiscalYearMonths,
   isMonthKey,
@@ -20,6 +21,13 @@ import {
   reportRangeBounds,
 } from "../profitLossLogic";
 import { getAuthorizedViewer } from "./viewerAccess";
+
+// business / costs の取得列。ラベル解決に matters.title を使うため join を含む。
+// 通常取得と orphanedAdjustments 用の補完取得で同じ形を使う。
+const BUSINESS_SELECT =
+  "id, name, amount, invoice_date, matter_id, matters!inner(id, title, team, category)";
+const COST_SELECT =
+  "id, name, price, item, period, matter_id, matters!inner(id, title, team, category)";
 
 // 集計に必要な行をまとめて取得する（RLS により権限に応じた行のみ返る）
 // セッション Cookie は @supabase/ssr 形式。createServerSupabase() 以外のクライアントを混ぜない
@@ -30,16 +38,8 @@ const fetchReportSourceRows = async (period?: ReportPeriod) => {
   const supabase = createServerSupabase();
   const bounds = period ? reportRangeBounds(period) : null;
 
-  let businessQuery = supabase
-    .from("business")
-    .select(
-      "id, name, amount, invoice_date, matter_id, matters!inner(id, title, team, category)",
-    );
-  let costQuery = supabase
-    .from("costs")
-    .select(
-      "id, name, price, item, period, matter_id, matters!inner(id, title, team, category)",
-    );
+  let businessQuery = supabase.from("business").select(BUSINESS_SELECT);
+  let costQuery = supabase.from("costs").select(COST_SELECT);
   let recurringQuery = supabase
     .from("recurring_costs")
     .select("*")
@@ -65,8 +65,6 @@ const fetchReportSourceRows = async (period?: ReportPeriod) => {
       .lt("start_month", bounds.endExclusive)
       .or(recurringOverlapEndFilter(bounds));
     // 調整は対象月で絞る（target_month は NOT NULL）。
-    // なお対象行が取得期間外にある調整は orphanedAdjustments のラベル解決が
-    // 汎用表示（「売上（ID: X）」等）に落ちる場合がある（集計値は不変）。
     adjustmentQuery = adjustmentQuery
       .gte("target_month", bounds.startDate)
       .lt("target_month", bounds.endExclusive);
@@ -137,6 +135,57 @@ export const getProfitLossReport = async (
   });
   if (!rows) {
     return null;
+  }
+
+  // 対象行が取得期間外へ移動した調整のラベル解決用に、欠けている対象行だけを
+  // ID 指定で補完取得する（通常は0件でクエリを発行しない。あっても1往復にまとめる）。
+  // 補完行は月振り分けで集計から除外されるため集計値は不変。
+  // RLS で読めない行は解決できず汎用表示（「売上（ID: X）」等）に落ちる。
+  const missingIds = collectMissingAdjustmentTargetIds(
+    month,
+    rows.adjustments,
+    new Set(rows.businessRows.map((row) => row.id)),
+    new Set(rows.costRows.map((row) => row.id)),
+    new Set(rows.recurringCosts.map((rc) => rc.id)),
+  );
+  if (
+    missingIds.businessIds.length > 0 ||
+    missingIds.costIds.length > 0 ||
+    missingIds.recurringCostIds.length > 0
+  ) {
+    const supabase = createServerSupabase();
+    const [missingBusiness, missingCosts, missingRecurring] = await Promise.all(
+      [
+        missingIds.businessIds.length > 0
+          ? supabase
+              .from("business")
+              .select(BUSINESS_SELECT)
+              .in("id", missingIds.businessIds)
+          : Promise.resolve({ data: [], error: null }),
+        missingIds.costIds.length > 0
+          ? supabase
+              .from("costs")
+              .select(COST_SELECT)
+              .in("id", missingIds.costIds)
+          : Promise.resolve({ data: [], error: null }),
+        missingIds.recurringCostIds.length > 0
+          ? supabase
+              .from("recurring_costs")
+              .select("*")
+              .in("id", missingIds.recurringCostIds)
+          : Promise.resolve({ data: [], error: null }),
+      ],
+    );
+    if (missingBusiness.error || missingCosts.error || missingRecurring.error) {
+      console.error(
+        "損益レポートの調整対象行の補完取得に失敗しました（汎用ラベルで表示します）:",
+        missingBusiness.error ?? missingCosts.error ?? missingRecurring.error,
+      );
+    } else {
+      rows.businessRows.push(...((missingBusiness.data ?? []) as BusinessRow[]));
+      rows.costRows.push(...((missingCosts.data ?? []) as CostRow[]));
+      rows.recurringCosts.push(...(missingRecurring.data ?? []));
+    }
   }
 
   return buildMonthlyReport({

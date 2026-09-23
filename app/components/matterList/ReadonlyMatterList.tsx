@@ -220,7 +220,9 @@ const ReadonlyMatterList: FC<ReadonlyMatterListProps> = ({ matterList }) => {
       {/* 表示切替ボタン */}
       <div className="mb-4 flex justify-between items-center">
         <div className="text-sm text-gray-500">
-          {matterList.length}件の案件が表示されています
+          {showPagination
+            ? `${total}件中 ${startIndex}〜${endIndex}件を表示しています`
+            : `${matterList.length}件の案件が表示されています`}
         </div>
         <DisplayMenu
           switchDisplay={switchDisplay}

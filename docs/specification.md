@@ -515,7 +515,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 - 「2026年度」= 2026年7月〜2027年6月
 - 列: 7月〜翌6月の12ヶ月＋年度合計、行: 売上 / 案件費用 / 粗利 / 管理費 / 経常利益
 - 年度の全期間を 1 回のクエリで取得し、サーバ関数内で月別にバケット分けする
-- 取得範囲の絞り込み（Issue #16）：月次は対象月＋月未確定（NULL）行のみ、年間推移は年度 12 ヶ月＋月未確定（NULL）行のみを取得する。`business.invoice_date` / `costs.period` / `extra_entries.entry_date` は「期間内 OR NULL」、定期費用は適用期間の重なり（`start_month < 翌月1日 AND (end_month IS NULL OR end_month >= 当月1日)`）で絞り、支払サイクルの計上判定は集計側で行う。損益調整は `target_month` の範囲で絞る（NOT NULL）。いずれも 5 テーブルの一括取得（`Promise.all`）のままで、年間推移が月単位の 12 回クエリにならない。範囲境界の単一の定義は `reportRangeBounds`（`app/utils/profitLossLogic.ts`）
+- 取得範囲の絞り込み（Issue #16）：月次は対象月＋月未確定（NULL）行のみ、年間推移は年度 12 ヶ月＋月未確定（NULL）行のみを取得する。`business.invoice_date` / `costs.period` / `extra_entries.entry_date` は「期間内 OR NULL」、定期費用は適用期間の重なり（`start_month < 翌月1日 AND (end_month IS NULL OR end_month >= 当月1日)`）で絞り、支払サイクルの計上判定は集計側で行う。損益調整は `target_month` の範囲で絞る（NOT NULL）。いずれも 5 テーブルの一括取得（`Promise.all`）のままで、年間推移が月単位の 12 回クエリにならない。範囲境界の単一の定義は `reportRangeBounds`（`app/utils/profitLossLogic.ts`）。月次では対象行が取得期間外へ移動した調整（`orphanedAdjustments`）のラベル解決用に、欠けている対象行だけを ID 指定（`in()`）で補完取得する（通常は 0 件で追加クエリなし、あっても `Promise.all` で 1 往復にまとめる。補完行は月振り分けで集計から除外されるため集計値は不変。年間推移は対象外で往復を増やさない）
 
 #### 4.17.2 画面
 
