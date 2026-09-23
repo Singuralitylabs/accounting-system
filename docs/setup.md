@@ -71,7 +71,7 @@ Cloud Agent 向けの `.cursor/setup/supabase-up.sh`（`SUPABASE_CLI_VERSION`）
 
 ローカルの Google ログインは、Supabase Auth がブラウザを Google へリダイレクトし、認可コードをローカル API（`http://127.0.0.1:54321`）が受け取るサーバサイドフローである。Google 側に必要なのは **承認済みのリダイレクト URI** だけで、承認済みの JavaScript 生成元は登録しない。
 
-`supabase/config.toml` の `[auth.external.google]` は **ローカルスタック専用** である。ホスト版（開発用・本番の Supabase プロジェクト）には適用されない。ホスト版の Google プロバイダは、Supabase ダッシュボードで **Authentication** を開いた画面（タイトルは **Sign In / Providers**、パスは `/auth/providers`）で別途設定する。ローカル Studio（`http://127.0.0.1:54323`）でも同じ画面になる。ホスト版のログインで Google に渡る `redirect_uri` は `https://<project-ref>.supabase.co/auth/v1/callback` である。ローカル用に Clients へ登録する `http://127.0.0.1:54321/auth/v1/callback` と `http://localhost:54321/auth/v1/callback` とは別の URI なので、ローカル用クライアントの ID とシークレットをホスト版に流用しても、ホスト版のコールバックでは一致しない。
+`supabase/config.toml` の `[auth.external.google]` は **ローカルスタック専用** である。ホスト版（開発用・本番の Supabase プロジェクト）には適用されない。ホスト版の Google プロバイダは、Supabase ダッシュボードで **Authentication** を開いた画面（タイトルは **Sign In / Providers**、パスは `/auth/providers`）で別途設定する。ローカル Studio（`http://127.0.0.1:54323`）でも同じ画面になる。ホスト版のログインで Google に渡る `redirect_uri` は `https://<project-ref>.supabase.co/auth/v1/callback` である。ローカル用に Clients へ登録する `http://127.0.0.1:54321/auth/v1/callback` と `http://localhost:54321/auth/v1/callback` とは別の URI なので、ローカル用クライアントの ID とシークレットをホスト版に流用しても、ホスト版のコールバックでは一致しない。一方、本番で使っているクライアント ID にローカルの `http://127.0.0.1:54321/auth/v1/callback` を付けて認可を始めると、Google はサインイン画面を返す。その画面のアプリ名は「シンラボ経理システム」である。サインイン後のコード交換には、同じクライアントのシークレットが必要である。
 
 ### 1. Google Auth Platform を開く
 
