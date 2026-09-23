@@ -11,11 +11,9 @@ const { deleteBudgetDeclaration } = vi.hoisted(() => ({
 vi.mock("@/app/utils/supabase/budgetDeclarations", () => ({
   deleteBudgetDeclaration,
 }));
-vi.mock("@/app/utils/notify", () => ({
-  notifyError: vi.fn(),
-  notifySuccess: vi.fn(),
-  toErrorMessage: (_error: unknown, fallback: string) => fallback,
-}));
+vi.mock("@/app/utils/notify", () =>
+  import("../testUtils/mockNotify").then((m) => m.mockNotify()),
+);
 
 import { useDeleteBudgetDeclaration } from "@/app/hooks/useBudgetDeclarationData";
 import { notifyError, notifySuccess } from "@/app/utils/notify";

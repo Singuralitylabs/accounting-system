@@ -328,6 +328,7 @@ DB Types 整合性チェックのワークフローを実行するために、Gi
 - テストファイル名は「対象 + 期待する振る舞い」が想像できる名前にする。
 - コンポーネントテストはファイル先頭に `// @vitest-environment jsdom` を付ける。デフォルト環境は `node` のままにする。
 - 描画は `tests/testUtils/renderWithMantine.tsx`（`MantineProvider` + `DatesLocaleProvider`）経由で行う。
+- `@/app/utils/notify` をモックするときは `tests/testUtils/mockNotify.ts` の `mockNotify()` を共有する。`toErrorMessage` は実装をそのまま使い、通知関数だけ `vi.fn` に差し替える。手書きの `vi.mock("@/app/utils/notify", …)` を増やさない。
 
 ### テストの検証対象
 
