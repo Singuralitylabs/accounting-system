@@ -596,7 +596,7 @@ sudo iptables-legacy -A DOCKER-CT -o "$br" -m conntrack --ctstate RELATED,ESTABL
    - 承認済みの JavaScript 生成元は切り分けに使わない。未設定でもこのアプリのログインには影響しない
    - Audience が External で `Error 403: access_denied` になる場合は、Test users にその Google アカウントが入っているか
    - Google の画面が **Access blocked: Authorization Error** / **The OAuth client was not found.** / `Error 401: invalid_client` のときは、`GOOGLE_CLIENT_ID` がサンプルのプレースホルダのままか、Clients に無い ID である。作成時にダウンロードした JSON のクライアント ID に替え、`yarn supabase stop && yarn supabase start` してからログインし直す
-   - Google の画面が **Sign in** で **to continue to シンラボ経理システム** と出ているときは、クライアント ID と `http://127.0.0.1:54321/auth/v1/callback` は受理されている。次は `@future-tech-association.org` のアカウントでサインインする。サインイン後のコード交換には、同じクライアントの `GOOGLE_CLIENT_SECRET` が必要である
+   - Google の画面が **Sign in** で **to continue to** のあとにアプリ名が出ているときは、クライアント ID と `http://127.0.0.1:54321/auth/v1/callback` は受理されている。この手順で作ったクライアントならアプリ名は `accounting-system Local`、本番で使っているクライアントなら「シンラボ経理システム」である。次は `@future-tech-association.org` のアカウントでサインインする。サインイン後のコード交換には、同じクライアントの `GOOGLE_CLIENT_SECRET` が必要である
 
 2. **環境変数の確認**
    - `docker exec supabase_auth_accounting-system printenv GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID` が `.env.local` の値と一致しているか。`env(GOOGLE_CLIENT_ID)` のままなら、`.env.local` に値を書いて `yarn supabase stop && yarn supabase start` する。シェルに古い `GOOGLE_CLIENT_ID` が export されていると `.env.local` は無視される
