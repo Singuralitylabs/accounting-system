@@ -71,7 +71,7 @@ Cloud Agent 向けの `.cursor/setup/supabase-up.sh`（`SUPABASE_CLI_VERSION`）
 
 ローカルの Google ログインは、Supabase Auth がブラウザを Google へリダイレクトし、認可コードをローカル API（`http://127.0.0.1:54321`）が受け取るサーバサイドフローである。Google 側に必要なのは **承認済みのリダイレクト URI** だけで、承認済みの JavaScript 生成元は登録しない。
 
-`supabase/config.toml` の `[auth.external.google]` は **ローカルスタック専用** である。ホスト版（開発用・本番の Supabase プロジェクト）には適用されない。ホスト版の Google プロバイダは、Supabase ダッシュボードの **Authentication > Sign In / Providers** で別途設定する。
+`supabase/config.toml` の `[auth.external.google]` は **ローカルスタック専用** である。ホスト版（開発用・本番の Supabase プロジェクト）には適用されない。ホスト版の Google プロバイダは、Supabase ダッシュボードで **Authentication** を開いた画面（タイトルは **Sign In / Providers**、パスは `/auth/providers`）で別途設定する。ローカル Studio（`http://127.0.0.1:54323`）でも同じ画面になる。
 
 ### 1. Google Auth Platform を開く
 
@@ -316,8 +316,8 @@ SUPABASE_SERVICE_ROLE_KEY=<hosted secret or legacy service_role key>
 PROJECT_ID=<project-ref>
 ```
 
-- Project URL は `https://<project-ref>.supabase.co` で決まる。Reference ID が分かっていれば、ダッシュボードを探す必要はない。画面で確認するときは **Integrations > Data API** に出る API URL を使う
-- キーは **Settings > API Keys** にある。既定表示は publishable key（`sb_publishable_...`）と secret key（`sb_secret_...`）。**Settings > API** という単一ページは無い。JWT 形式が必要なら同じ画面の **Legacy API Keys** タブを開く
+- Project URL は `https://<project-ref>.supabase.co` で決まる。Reference ID が分かっていれば、ダッシュボードを探す必要はない。画面で確認するときは **Project Settings** の INTEGRATIONS にある **Data API**（`/integrations/data_api/overview`）の API URL を使う。旧 **Settings > API**（`/settings/api`）はこの Data API へリダイレクトされる。左の最上位 **Integrations** は連携カードの一覧であり、API URL の画面そのものではない
+- キーは同じ **Project Settings** の **API Keys**（`/settings/api-keys`）にある。既定表示は publishable key（`sb_publishable_...`）と secret key（`sb_secret_...`）。JWT 形式が必要なら同じ画面の **Legacy API Keys** タブを開く
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` はローカルの `config.toml` 専用である。ホスト版の Google ログインには効かない
 - 切り替え後は dev サーバを再起動する
 
@@ -479,8 +479,8 @@ Supabase 無料プランは 1 週間アクセスが無いとプロジェクト�
 | `KEEPALIVE_SUPABASE_ANON_KEY_PROD` | 本番用 Supabase の anon key                                                      |
 
 - これら 4 つは GitHub の Repository secrets であり、`.env.local` の変数名とは一致しない。とくに URL 用 Secret は `SUPABASE_URL` ではない（ジョブ内で `SUPABASE_URL` という環境変数に展開しているだけである）。
-- Project URL は `https://<project-ref>.supabase.co`。Reference ID が分かればこの形で登録できる。画面で確認するときは **Integrations > Data API** の API URL を使う。`https://` 付きで登録する（末尾のスラッシュや前後の空白は無視される。形式が不正な場合は「URL 形式が不正」のエラーで fail する）。
-- キーは **Settings > API Keys** の publishable key、または **Legacy API Keys** の anon key を使う。ワークフローは `apikey` と `Authorization: Bearer` の両方に同じ値を載せる。ホスト版で publishable key が `Invalid JWT` になる場合は、Legacy API Keys の JWT 形式 anon key に差し替える。
+- Project URL は `https://<project-ref>.supabase.co`。Reference ID が分かればこの形で登録できる。画面で確認するときは **Project Settings** の **Data API** に出る API URL を使う。`https://` 付きで登録する（末尾のスラッシュや前後の空白は無視される。形式が不正な場合は「URL 形式が不正」のエラーで fail する）。
+- キーは **Project Settings > API Keys** の publishable key、または同じ画面の **Legacy API Keys** の anon key を使う。ワークフローは `apikey` と `Authorization: Bearer` の両方に同じ値を載せる。ホスト版で publishable key が `Invalid JWT` になる場合は、Legacy API Keys の JWT 形式 anon key に差し替える。
 - キーをローテーションした場合は Secrets の値も差し替え、手動実行で 200 が返ることを確認する。
 
 ### 動作確認（手動実行）
