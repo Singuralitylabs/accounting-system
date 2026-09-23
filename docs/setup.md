@@ -212,7 +212,7 @@ yarn supabase start
 | Publishable | `NEXT_PUBLIC_SUPABASE_ANON_KEY` |
 | Secret      | `SUPABASE_SERVICE_ROLE_KEY`     |
 
-`yarn supabase status -o env` には、同じ値に加えて JWT の `ANON_KEY` / `SERVICE_ROLE_KEY`（`eyJ...`）も出る。このリポジトリの `@supabase/supabase-js` 2.46.1 とローカル API の組み合わせでは、Pretty 表示の Publishable / Secret でも、`-o env` の JWT でも、`select_options` の読み取りは成功する。変数名は上表のまま変えない。ホスト版ダッシュボードも既定で publishable key / secret key を表示する。同じ変数名にその値を入れてよい。Legacy API Keys タブの JWT も同じ変数に入れて使える。
+`yarn supabase status -o env` には、同じ値に加えて JWT の `ANON_KEY` / `SERVICE_ROLE_KEY`（`eyJ...`）も出る。このリポジトリの `@supabase/supabase-js` 2.46.1 とローカル API の組み合わせでは、Pretty 表示の Publishable / Secret でも、`-o env` の JWT でも、`select_options` の読み取りは成功する。変数名は上表のまま変えない。ホスト版ダッシュボードも既定タブ **Publishable and secret API keys** で publishable key / secret key を表示する。同じ変数名にその値を入れてよい。同じ画面の **Legacy anon, service_role API keys** タブの JWT も同じ変数に入れて使える。
 
 キーの値はこのドキュメントに書かない。
 
@@ -317,7 +317,7 @@ PROJECT_ID=<project-ref>
 ```
 
 - Project URL は `https://<project-ref>.supabase.co` で決まる。Reference ID が分かっていれば、ダッシュボードを探す必要はない。画面で確認するときは **Project Settings** の INTEGRATIONS にある **Data API**（`/integrations/data_api/overview`）の API URL を使う。旧 **Settings > API**（`/settings/api`）はこの Data API へリダイレクトされる。左の最上位 **Integrations** は連携カードの一覧であり、API URL の画面そのものではない
-- キーは同じ **Project Settings** の **API Keys**（`/settings/api-keys`）にある。既定表示は publishable key（`sb_publishable_...`）と secret key（`sb_secret_...`）。JWT 形式が必要なら同じ画面の **Legacy API Keys** タブを開く
+- キーは同じ **Project Settings** の CONFIGURATION にある **API Keys**（`/settings/api-keys`）を使う。既定タブは **Publishable and secret API keys** で、publishable key（`sb_publishable_...`）と secret key（`sb_secret_...`）が出る。JWT 形式が必要なら同じ画面の **Legacy anon, service_role API keys** タブを開く
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` はローカルの `config.toml` 専用である。ホスト版の Google ログインには効かない
 - 切り替え後は dev サーバを再起動する
 
@@ -479,8 +479,8 @@ Supabase 無料プランは 1 週間アクセスが無いとプロジェクト�
 | `KEEPALIVE_SUPABASE_ANON_KEY_PROD` | 本番用 Supabase の anon key                                                      |
 
 - これら 4 つは GitHub の Repository secrets であり、`.env.local` の変数名とは一致しない。とくに URL 用 Secret は `SUPABASE_URL` ではない（ジョブ内で `SUPABASE_URL` という環境変数に展開しているだけである）。
-- Project URL は `https://<project-ref>.supabase.co`。Reference ID が分かればこの形で登録できる。画面で確認するときは **Project Settings** の **Data API** に出る API URL を使う。`https://` 付きで登録する（末尾のスラッシュや前後の空白は無視される。形式が不正な場合は「URL 形式が不正」のエラーで fail する）。
-- キーは **Project Settings > API Keys** の publishable key、または同じ画面の **Legacy API Keys** の anon key を使う。ワークフローは `apikey` と `Authorization: Bearer` の両方に同じ値を載せる。ホスト版で publishable key が `Invalid JWT` になる場合は、Legacy API Keys の JWT 形式 anon key に差し替える。
+- Project URL は `https://<project-ref>.supabase.co`。Reference ID が分かればこの形で登録できる。画面で確認するときは **Project Settings** の INTEGRATIONS にある **Data API** に出る API URL を使う。`https://` 付きで登録する（末尾のスラッシュや前後の空白は無視される。形式が不正な場合は「URL 形式が不正」のエラーで fail する）。
+- キーは **Project Settings** の CONFIGURATION にある **API Keys** の publishable key、または同じ画面の **Legacy anon, service_role API keys** タブの anon key を使う。ワークフローは `apikey` と `Authorization: Bearer` の両方に同じ値を載せる。ホスト版で publishable key が `Invalid JWT` になる場合は、**Legacy anon, service_role API keys** の JWT 形式 anon key に差し替える。
 - キーをローテーションした場合は Secrets の値も差し替え、手動実行で 200 が返ることを確認する。
 
 ### 動作確認（手動実行）
