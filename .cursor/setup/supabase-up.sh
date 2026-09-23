@@ -94,8 +94,10 @@ supabase migration up --local
 # and MCP. It is not config.toml project_id. Keep a previous valid ref; drop
 # local Docker names that used to be written here by mistake.
 EXISTING_PROJECT_ID=""
+EXISTING_CRON_SECRET=""
 if [[ -f .env.local ]]; then
   EXISTING_PROJECT_ID="$(grep -E '^PROJECT_ID=' .env.local | head -n1 | cut -d= -f2- || true)"
+  EXISTING_CRON_SECRET="$(grep -E '^CRON_SECRET=' .env.local | head -n1 | cut -d= -f2- || true)"
 fi
 case "${EXISTING_PROJECT_ID}" in
   matter-controller | accounting-system | "")
@@ -104,16 +106,16 @@ case "${EXISTING_PROJECT_ID}" in
 esac
 
 eval "$(status_env)"
+# docs/setup.md の .env.local サンプルと同じ 8 変数だけを書く。
+# NEXT_PUBLIC_ENV / SUPABASE_URL / LOCAL_DB_URL はアプリが参照しない。
 cat > .env.local <<EOF
-NEXT_PUBLIC_ENV=development
 NEXT_PUBLIC_SUPABASE_URL=${API_URL}
 NEXT_PUBLIC_SUPABASE_ANON_KEY=${ANON_KEY}
-SUPABASE_URL=${API_URL}
 SUPABASE_SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}
 PROJECT_ID=${EXISTING_PROJECT_ID}
-LOCAL_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
 GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
 GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
 SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+CRON_SECRET=${EXISTING_CRON_SECRET:-${CRON_SECRET:-local-dev-cron-secret}}
 EOF
 echo "[supabase-up] Wrote .env.local (API ${API_URL})."
