@@ -327,7 +327,7 @@ PROJECT_ID=<project-ref>
 curl -s -o /dev/null -w "%{redirect_url}\n" "http://127.0.0.1:54321/auth/v1/authorize?provider=google&redirect_to=http%3A%2F%2Flocalhost%3A3000%2Fauth%2Fcallback"
 ```
 
-ローカルの Google クライアントが有効で、認証コンテナから `accounts.google.com` へ出られるなら、リダイレクト先のホストは `accounts.google.com` になる。`504`（`context deadline exceeded`）のときは、ホストからは届いてもコンテナの DNS が IPv6 だけを返して届いていないことがある。アプリ側が別プロジェクトを向いていないかは、再起動後のブラウザのネットワークで `NEXT_PUBLIC_SUPABASE_URL` のホストを確認する。
+ローカルの Google クライアントが有効で、認証コンテナから `accounts.google.com` へ出られるなら、リダイレクト先のホストは `accounts.google.com` になる。`504`（`context deadline exceeded`）のときは、認証コンテナから Google へ届いていない。切り分けはトラブルシューティングの「認証コンテナから Google へ届かない」を見る。アプリ側が別プロジェクトを向いていないかは、再起動後のブラウザのネットワークで `NEXT_PUBLIC_SUPABASE_URL` のホストを確認する。
 
 #### 3. クラウド環境へのスキーマ適用
 
@@ -570,6 +570,24 @@ npm uninstall -g next
 `yarn supabase start` と `yarn dev` が両方成功しても、`.env.local` の `NEXT_PUBLIC_SUPABASE_URL` と `NEXT_PUBLIC_SUPABASE_ANON_KEY` がホスト版のままだと、アプリはホスト版に接続する。ローカルの Google クライアント設定は効かない。
 
 この 2 つはセットでローカル（`http://127.0.0.1:54321` と、そのスタックの anon / publishable key）に戻し、dev サーバを再起動する。`NEXT_PUBLIC_*` の変更は再起動するまで反映されない。
+
+### 認証コンテナから Google へ届かない
+
+`/auth/v1/authorize` が `504`（`context deadline exceeded`）のとき、GoTrue は Google の認可 URL を返す前に `accounts.google.com` へ届いていない。ホストからは開けるのに認証コンテナからだけ失敗する場合は、Supabase 用 Docker bridge の転送がホストの firewall で落ちている。
+
+```bash
+docker exec supabase_auth_accounting-system wget -q -O /dev/null -T 10 https://accounts.google.com/
+```
+
+終了コードが 0 ならコンテナから届いている。届かないとき、`sudo iptables-legacy -L FORWARD` の policy が `DROP` で、許可が `docker0` だけのときは、Supabase の bridge（ネットワーク名 `supabase_network_accounting-system`）を往復とも許可する。
+
+```bash
+br="br-$(docker network inspect supabase_network_accounting-system --format '{{.Id}}' | cut -c1-12)"
+sudo iptables-legacy -A DOCKER-FORWARD -i "$br" -j ACCEPT
+sudo iptables-legacy -A DOCKER-CT -o "$br" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+```
+
+戻り（`RELATED,ESTABLISHED`）が無いと、外向きの SYN だけが出て応答が捨てられ、接続はタイムアウトする。許可したあと同じ `wget` が成功し、上の `curl` のリダイレクト先ホストが `accounts.google.com` になればこの切り分けは終わり。
 
 ### 認証エラー
 
