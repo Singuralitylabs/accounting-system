@@ -595,6 +595,7 @@ sudo iptables-legacy -A DOCKER-CT -o "$br" -m conntrack --ctstate RELATED,ESTABL
    - **Clients** のリダイレクト URI が `http://127.0.0.1:54321/auth/v1/callback` と `http://localhost:54321/auth/v1/callback` の両方と一致しているか
    - 承認済みの JavaScript 生成元は切り分けに使わない。未設定でもこのアプリのログインには影響しない
    - Audience が External で `Error 403: access_denied` になる場合は、Test users にその Google アカウントが入っているか
+   - Google の画面が **Access blocked: Authorization Error** / **The OAuth client was not found.** / `Error 401: invalid_client` のときは、`GOOGLE_CLIENT_ID` がサンプルのプレースホルダのままか、Clients に無い ID である。作成時にダウンロードした JSON のクライアント ID に替え、`yarn supabase stop && yarn supabase start` してからログインし直す
 
 2. **環境変数の確認**
    - `docker exec supabase_auth_accounting-system printenv GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID` が `.env.local` の値と一致しているか。`env(GOOGLE_CLIENT_ID)` のままなら、`.env.local` に値を書いて `yarn supabase stop && yarn supabase start` する。シェルに古い `GOOGLE_CLIENT_ID` が export されていると `.env.local` は無視される
