@@ -3,10 +3,10 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SignIn } from "@/app/components/auth/auth-components";
+import { notifyError } from "@/app/utils/notify";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
 
 const mockPush = vi.fn();
-const mockNotifyError = vi.fn();
 const mockGetUser = vi.fn();
 const mockSignOut = vi.fn();
 const mockSignInWithOAuth = vi.fn();
@@ -15,9 +15,9 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush }),
 }));
 
-vi.mock("@/app/utils/notify", () => ({
-  notifyError: (...args: unknown[]) => mockNotifyError(...args),
-}));
+vi.mock("@/app/utils/notify", () =>
+  import("@/tests/testUtils/mockNotify").then((m) => m.mockNotify()),
+);
 
 vi.mock("@/app/components/providers/SupabaseProvider", () => ({
   useSupabase: () => ({
@@ -34,7 +34,7 @@ vi.mock("@/app/components/providers/SupabaseProvider", () => ({
 describe("SignIn", () => {
   beforeEach(() => {
     mockPush.mockReset();
-    mockNotifyError.mockReset();
+    vi.mocked(notifyError).mockReset();
     mockGetUser.mockReset();
     mockSignOut.mockReset();
     mockSignInWithOAuth.mockReset();
@@ -88,7 +88,7 @@ describe("SignIn", () => {
     fireEvent.click(screen.getByRole("button", { name: "Google でログイン" }));
 
     await waitFor(() => {
-      expect(mockNotifyError).toHaveBeenCalledWith(
+      expect(notifyError).toHaveBeenCalledWith(
         "ログイン処理でエラーが発生しました。",
       );
     });
@@ -140,7 +140,7 @@ describe("SignIn", () => {
 
     await waitFor(() => {
       expect(mockSignOut).toHaveBeenCalled();
-      expect(mockNotifyError).toHaveBeenCalled();
+      expect(notifyError).toHaveBeenCalled();
     });
     expect(mockSignInWithOAuth).not.toHaveBeenCalled();
     expect(screen.getByRole("button")).not.toBeDisabled();

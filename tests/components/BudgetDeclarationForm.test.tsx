@@ -5,6 +5,7 @@ import { createStore, Provider } from "jotai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { optionsAtom } from "@/app/atoms/optionsAtom";
 import BudgetDeclarationForm from "@/app/components/budgetDeclarations/BudgetDeclarationForm";
+import { notifyError } from "@/app/utils/notify";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
 
 const {
@@ -14,7 +15,6 @@ const {
   saveMutation,
   deleteMutation,
   confirmAction,
-  notifyError,
 } = vi.hoisted(() => ({
   useBudgetDeclarationDetail: vi.fn(),
   usePreviousBudgetDeclarationItems: vi.fn(),
@@ -28,7 +28,6 @@ const {
     isPending: false,
   },
   confirmAction: vi.fn(),
-  notifyError: vi.fn(),
 }));
 
 vi.mock("@/app/hooks/useBudgetDeclarationData", () => ({
@@ -43,12 +42,9 @@ vi.mock("@/app/hooks/useBudgetRecurringItemData", () => ({
 }));
 
 vi.mock("@/app/utils/confirmAction", () => ({ confirmAction }));
-vi.mock("@/app/utils/notify", () => ({
-  notifyError,
-  notifySuccess: vi.fn(),
-  toErrorMessage: (error: unknown, fallback: string) =>
-    error instanceof Error ? error.message : fallback,
-}));
+vi.mock("@/app/utils/notify", () =>
+  import("@/tests/testUtils/mockNotify").then((m) => m.mockNotify()),
+);
 
 // 「チーム」Select のドロップダウンは、この Modal 配下では開いた後も
 // ラッパーに aria-hidden が残る（Mantine + jsdom の組み合わせによる既知の

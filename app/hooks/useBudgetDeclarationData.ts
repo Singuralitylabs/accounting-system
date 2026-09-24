@@ -3,6 +3,7 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type QueryClient,
 } from "@tanstack/react-query";
 import {
   deleteBudgetDeclaration,
@@ -23,6 +24,35 @@ import {
 } from "../utils/budgetDeclaration";
 import { notifyError, notifySuccess, toErrorMessage } from "../utils/notify";
 
+// 一覧は月付きキー（["budgetDeclarations", "list", month]）の前方一致で
+// まとめて無効化できるよう、プレフィックスだけを共有する。
+const budgetDeclarationListQueryKey = ["budgetDeclarations", "list"] as const;
+
+const budgetDeclarationDetailQueryKey = (declarationId: number | null) =>
+  ["budgetDeclarations", "detail", declarationId] as const;
+
+// list と、id があるときだけ detail を無効化する。
+// previousItems（このファイル）と activeRecurringItems
+// （useBudgetRecurringItemData）は対象にしない。previousItems は
+// refetchOnMount: "always" で取り直す。
+// 一覧は対象月が変わっても追従するよう list 全体を無効化する。
+// 明細 id が null のとき（新規作成の失敗）は detail を触らない。
+// 削除成功時の明細破棄は removeQueries であり、このヘルパでは行わない。
+const invalidateBudgetDeclarationQueries = (
+  queryClient: QueryClient,
+  declarationId: number | null,
+) => {
+  queryClient.invalidateQueries({
+    queryKey: budgetDeclarationListQueryKey,
+  });
+  if (declarationId === null) {
+    return;
+  }
+  queryClient.invalidateQueries({
+    queryKey: budgetDeclarationDetailQueryKey(declarationId),
+  });
+};
+
 // 対象月のチーム別申告状況一覧（month: "YYYY-MM"）
 export const useBudgetDeclarationList = (
   month: string,
@@ -33,7 +63,7 @@ export const useBudgetDeclarationList = (
   initialDataUpdatedAt?: number,
 ) => {
   return useQuery({
-    queryKey: ["budgetDeclarations", "list", month],
+    queryKey: [...budgetDeclarationListQueryKey, month],
     queryFn: async () => {
       const { rows, error } = await getBudgetDeclarationList(month);
       if (error) {
@@ -58,7 +88,7 @@ export const useBudgetDeclarationList = (
 // マウントのたびに staleTime を無視して必ず再取得する（refetchOnMount: "always"）
 export const useBudgetDeclarationDetail = (declarationId: number | null) => {
   return useQuery<BudgetDeclarationDetailType | null>({
-    queryKey: ["budgetDeclarations", "detail", declarationId],
+    queryKey: budgetDeclarationDetailQueryKey(declarationId),
     queryFn: async () => {
       const { detail, error } = await getBudgetDeclarationDetail(
         declarationId as number,
@@ -133,12 +163,7 @@ export const useSaveBudgetDeclaration = () => {
     onSuccess: (result, variables) => {
       // 一覧は対象月・チームの組み合わせ次第でどの行が変わるか分からないため
       // list 全体（月違い含む）を無効化し、明細は保存した申告の分だけ無効化する
-      queryClient.invalidateQueries({
-        queryKey: ["budgetDeclarations", "list"],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["budgetDeclarations", "detail", result.id],
-      });
+      invalidateBudgetDeclarationQueries(queryClient, result.id);
       notifySuccess(
         variables.declarationId === null
           ? `${variables.team}の事前収支申告を作成しました。`
@@ -157,14 +182,7 @@ export const useSaveBudgetDeclaration = () => {
       // 対象なし（P0002）になる。いずれも一覧・明細のキャッシュを無効化しないと
       // 古い表示のまま「一覧から編集してください」の案内どおりに操作できない
       // ループになるため、失敗時は無条件に無効化する（コストは再取得 1 回のみ）
-      queryClient.invalidateQueries({
-        queryKey: ["budgetDeclarations", "list"],
-      });
-      if (variables.declarationId !== null) {
-        queryClient.invalidateQueries({
-          queryKey: ["budgetDeclarations", "detail", variables.declarationId],
-        });
-      }
+      invalidateBudgetDeclarationQueries(queryClient, variables.declarationId);
       notifyError(toErrorMessage(error, "事前収支申告の保存に失敗しました。"));
     },
   });
@@ -190,11 +208,12 @@ export const useDeleteBudgetDeclaration = () => {
       return result;
     },
     onSuccess: (_result, variables) => {
+      // 明細は removeQueries で破棄し、観測中のクエリが消した申告を再取得しないようにする。
       queryClient.removeQueries({
-        queryKey: ["budgetDeclarations", "detail", variables.declarationId],
+        queryKey: budgetDeclarationDetailQueryKey(variables.declarationId),
       });
       queryClient.invalidateQueries({
-        queryKey: ["budgetDeclarations", "list"],
+        queryKey: budgetDeclarationListQueryKey,
       });
       notifySuccess(`${variables.team}の事前収支申告を削除しました。`);
     },
@@ -205,12 +224,7 @@ export const useDeleteBudgetDeclaration = () => {
       // 手元のキャッシュ（staleTime 2分）は他の担当者の変更で実 DB とずれて
       // いる可能性があるため、useDeleteMatter と同様に失敗時は無条件に
       // 無効化して一覧・詳細を実状態に合わせる（コストは再取得のみ）。
-      queryClient.invalidateQueries({
-        queryKey: ["budgetDeclarations", "detail", variables.declarationId],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["budgetDeclarations", "list"],
-      });
+      invalidateBudgetDeclarationQueries(queryClient, variables.declarationId);
       notifyError(toErrorMessage(error, "事前収支申告の削除に失敗しました。"));
     },
   });

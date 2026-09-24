@@ -3,27 +3,20 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import BudgetDeclarationReminderSettings from "@/app/components/budgetDeclarations/BudgetDeclarationReminderSettings";
+import { notifyError, notifySuccess } from "@/app/utils/notify";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
 
-const {
-  confirmAction,
-  notifyError,
-  notifySuccess,
-  updateBudgetDeclarationReminderTargetDays,
-} = vi.hoisted(() => ({
-  confirmAction: vi.fn(),
-  notifyError: vi.fn(),
-  notifySuccess: vi.fn(),
-  updateBudgetDeclarationReminderTargetDays: vi.fn(),
-}));
+const { confirmAction, updateBudgetDeclarationReminderTargetDays } = vi.hoisted(
+  () => ({
+    confirmAction: vi.fn(),
+    updateBudgetDeclarationReminderTargetDays: vi.fn(),
+  }),
+);
 
 vi.mock("@/app/utils/confirmAction", () => ({ confirmAction }));
-vi.mock("@/app/utils/notify", () => ({
-  notifyError,
-  notifySuccess,
-  toErrorMessage: (error: unknown, fallback: string) =>
-    error instanceof Error ? error.message : fallback,
-}));
+vi.mock("@/app/utils/notify", () =>
+  import("@/tests/testUtils/mockNotify").then((m) => m.mockNotify()),
+);
 vi.mock("@/app/utils/supabase/budgetDeclarationReminderSettings", () => ({
   updateBudgetDeclarationReminderTargetDays,
 }));

@@ -7,24 +7,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { optionsAtom } from "@/app/atoms/optionsAtom";
 import BudgetRecurringItemList from "@/app/components/budgetDeclarations/BudgetRecurringItemList";
 import { BudgetRecurringItemType } from "@/app/types/types";
+import { notifyError, notifySuccess } from "@/app/utils/notify";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
 
-const {
-  useBudgetRecurringItemList,
-  saveMutation,
-  confirmAction,
-  notifyError,
-  notifySuccess,
-} = vi.hoisted(() => ({
-  useBudgetRecurringItemList: vi.fn(),
-  saveMutation: {
-    mutateAsync: vi.fn().mockResolvedValue({}),
-    isPending: false,
-  },
-  confirmAction: vi.fn(),
-  notifyError: vi.fn(),
-  notifySuccess: vi.fn(),
-}));
+const { useBudgetRecurringItemList, saveMutation, confirmAction } = vi.hoisted(
+  () => ({
+    useBudgetRecurringItemList: vi.fn(),
+    saveMutation: {
+      mutateAsync: vi.fn().mockResolvedValue({}),
+      isPending: false,
+    },
+    confirmAction: vi.fn(),
+  }),
+);
 
 vi.mock("@/app/hooks/useBudgetRecurringItemData", () => ({
   useBudgetRecurringItemList,
@@ -32,12 +27,9 @@ vi.mock("@/app/hooks/useBudgetRecurringItemData", () => ({
 }));
 
 vi.mock("@/app/utils/confirmAction", () => ({ confirmAction }));
-vi.mock("@/app/utils/notify", () => ({
-  notifyError,
-  notifySuccess,
-  toErrorMessage: (error: unknown, fallback: string) =>
-    error instanceof Error ? error.message : fallback,
-}));
+vi.mock("@/app/utils/notify", () =>
+  import("@/tests/testUtils/mockNotify").then((m) => m.mockNotify()),
+);
 
 const testMemberList = [
   { value: "1", label: "山田太郎" },
