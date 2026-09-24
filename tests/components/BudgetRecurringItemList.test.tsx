@@ -28,7 +28,7 @@ vi.mock("@/app/hooks/useBudgetRecurringItemData", () => ({
 
 vi.mock("@/app/utils/confirmAction", () => ({ confirmAction }));
 vi.mock("@/app/utils/notify", () =>
-  import("../testUtils/mockNotify").then((m) => m.mockNotify()),
+  import("@/tests/testUtils/mockNotify").then((m) => m.mockNotify()),
 );
 
 const testMemberList = [

@@ -31,15 +31,16 @@ const budgetDeclarationListQueryKey = ["budgetDeclarations", "list"] as const;
 const budgetDeclarationDetailQueryKey = (declarationId: number | null) =>
   ["budgetDeclarations", "detail", declarationId] as const;
 
-// 保存・削除の成功／失敗で同じキー組を個別に書かないためのヘルパ。
+// list と、id があるときだけ detail を無効化する。
+// previousItems（このファイル）と activeRecurringItems
+// （useBudgetRecurringItemData）は対象にしない。previousItems は
+// refetchOnMount: "always" で取り直す。
 // 一覧は対象月が変わっても追従するよう list 全体を無効化する。
-// 明細は id があるときだけ対象にする（新規作成の失敗時は detail が無い）。
-// 削除成功時は detail を "remove" で破棄し、観測中のクエリが
-// 消した申告を再取得しないようにする。
+// 明細 id が null のとき（新規作成の失敗）は detail を触らない。
+// 削除成功時の明細破棄は removeQueries であり、このヘルパでは行わない。
 const invalidateBudgetDeclarationQueries = (
   queryClient: QueryClient,
   declarationId: number | null,
-  detail: "invalidate" | "remove" = "invalidate",
 ) => {
   queryClient.invalidateQueries({
     queryKey: budgetDeclarationListQueryKey,
@@ -47,12 +48,9 @@ const invalidateBudgetDeclarationQueries = (
   if (declarationId === null) {
     return;
   }
-  const detailKey = budgetDeclarationDetailQueryKey(declarationId);
-  if (detail === "remove") {
-    queryClient.removeQueries({ queryKey: detailKey });
-    return;
-  }
-  queryClient.invalidateQueries({ queryKey: detailKey });
+  queryClient.invalidateQueries({
+    queryKey: budgetDeclarationDetailQueryKey(declarationId),
+  });
 };
 
 // 対象月のチーム別申告状況一覧（month: "YYYY-MM"）
@@ -210,11 +208,13 @@ export const useDeleteBudgetDeclaration = () => {
       return result;
     },
     onSuccess: (_result, variables) => {
-      invalidateBudgetDeclarationQueries(
-        queryClient,
-        variables.declarationId,
-        "remove",
-      );
+      // 明細は removeQueries で破棄し、観測中のクエリが消した申告を再取得しないようにする。
+      queryClient.removeQueries({
+        queryKey: budgetDeclarationDetailQueryKey(variables.declarationId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: budgetDeclarationListQueryKey,
+      });
       notifySuccess(`${variables.team}の事前収支申告を削除しました。`);
     },
     onError: (error, variables) => {

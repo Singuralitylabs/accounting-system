@@ -5,9 +5,10 @@ import { vi } from "vitest";
 // toErrorMessage は実装をそのまま使う。手書きの vi.mock を増やすと
 // toErrorMessage の分岐がファイルごとにずれ、notify.ts の API 変更に追従できない。
 //
-// vi.mock は import より前にホイストされるため、ファクトリ内で動的 import する:
+// vi.mock は import より前にホイストされるため、ファクトリ内で動的 import する。
+// `@` はリポジトリルートなので、テストの階層に依存しない:
 //   vi.mock("@/app/utils/notify", () =>
-//     import("../testUtils/mockNotify").then((m) => m.mockNotify()),
+//     import("@/tests/testUtils/mockNotify").then((m) => m.mockNotify()),
 //   );
 // アサーション側はモック後の `@/app/utils/notify` から notifyError 等を import する。
 export async function mockNotify() {

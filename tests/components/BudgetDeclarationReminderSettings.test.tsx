@@ -15,7 +15,7 @@ const { confirmAction, updateBudgetDeclarationReminderTargetDays } = vi.hoisted(
 
 vi.mock("@/app/utils/confirmAction", () => ({ confirmAction }));
 vi.mock("@/app/utils/notify", () =>
-  import("../testUtils/mockNotify").then((m) => m.mockNotify()),
+  import("@/tests/testUtils/mockNotify").then((m) => m.mockNotify()),
 );
 vi.mock("@/app/utils/supabase/budgetDeclarationReminderSettings", () => ({
   updateBudgetDeclarationReminderTargetDays,
