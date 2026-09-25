@@ -1,16 +1,19 @@
 "use client";
 
-import { SimpleGrid, Table } from "@mantine/core";
+import { Button, SimpleGrid, Table } from "@mantine/core";
 import dynamic from "next/dynamic";
 import { useCallback, useMemo, useState } from "react";
 import { MatterType } from "../../types/types";
 import { ModalLoadingFallback } from "../LoadingSpinner";
 import { MatterCard } from "../MatterCard";
 import { useDeleteMatter, useUserMatterList } from "../../hooks/useMatterData";
+import { useListPagination } from "../../hooks/useListPagination";
+import { MatterListPagination } from "./MatterListPagination";
 import {
   confirmAction,
   DELETE_MATTER_CONFIRM_MESSAGE,
 } from "../../utils/confirmAction";
+import { createEmptyMatter } from "../../utils/matterValidation";
 import { useListDisplayMode } from "../../hooks/useListDisplayMode";
 import TableInfo from "../TableInfo";
 import ThreedotsMenu from "../buttons/threedots-menu";
@@ -46,6 +49,20 @@ export function UserMatterList({
 }) {
   // React Queryでデータを管理（初期データ付き）
   const { data: matterList } = useUserMatterList(initialData);
+  // 件数増加に伴う DOM 肥大を抑えるためのクライアント側ページネーション。
+  // サーバ側の取得・ソートは変えず、表示範囲だけを切り出す。
+  const {
+    page,
+    setPage,
+    perPage,
+    setPerPage,
+    total,
+    totalPages,
+    startIndex,
+    endIndex,
+    pagedItems,
+    showPagination,
+  } = useListPagination(matterList ?? []);
 
   const [opened, setOpened] = useState(false);
   const [matterInfo, setMatterInfo] = useState<MatterType | null>(null);
@@ -76,6 +93,12 @@ export function UserMatterList({
       inserted_at: new Date().toISOString(),
       accounting_memo: "",
     });
+    setOpened(true);
+  }, []);
+
+  const handleCreateCard = useCallback(() => {
+    setIsNew(true);
+    setMatterInfo(createEmptyMatter());
     setOpened(true);
   }, []);
 
@@ -113,7 +136,7 @@ export function UserMatterList({
 
   const tableInfoList = useMemo(
     () =>
-      matterList?.map((matter) => (
+      pagedItems?.map((matter) => (
         <Table.Tr
           key={matter.id}
           bg={
@@ -146,41 +169,60 @@ export function UserMatterList({
           </Table.Td>
         </Table.Tr>
       )),
-    [matterList, handleOpenCard, handleCopyCard, handleDeleteCard],
+    [pagedItems, handleOpenCard, handleCopyCard, handleDeleteCard],
   );
-
-  if (!Array.isArray(matterList)) {
-    return null;
-  }
 
   return (
     <div>
-      <DisplayMenu
-        switchDisplay={switchDisplay}
-        onSwitchDisplay={setSwitchDisplay}
-      />
-      {showCards ? (
-        <div className="py-4 px-8">
-          <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
-            {matterList?.map((matter) => (
-              <MatterCard
-                key={matter.id}
-                variant="user"
-                matter={matter}
-                onOpen={handleOpenCard}
-                onCopy={handleCopyCard}
-                onDelete={handleDeleteCard}
-              />
-            ))}
-          </SimpleGrid>
-        </div>
-      ) : (
-        <div className="overflow-auto h-[calc(100vh-200px)]">
-          <Table stickyHeader>
-            <Table.Thead className="bg-white">{tableHeads}</Table.Thead>
-            <Table.Tbody>{tableInfoList}</Table.Tbody>
-          </Table>
-        </div>
+      <div className="flex flex-col items-end gap-2 px-8 pt-4">
+        <Button onClick={handleCreateCard}>+ 新規作成</Button>
+        <DisplayMenu
+          switchDisplay={switchDisplay}
+          onSwitchDisplay={setSwitchDisplay}
+        />
+      </div>
+      {Array.isArray(matterList) &&
+        (showCards ? (
+          <div className="py-4 px-8">
+            <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
+              {pagedItems.map((matter) => (
+                <div
+                  key={matter.id}
+                  style={{
+                    contentVisibility: "auto",
+                    containIntrinsicSize: "auto 280px",
+                  }}
+                >
+                  <MatterCard
+                    variant="user"
+                    matter={matter}
+                    onOpen={handleOpenCard}
+                    onCopy={handleCopyCard}
+                    onDelete={handleDeleteCard}
+                  />
+                </div>
+              ))}
+            </SimpleGrid>
+          </div>
+        ) : (
+          <div className="overflow-auto h-[calc(100vh-200px)]">
+            <Table stickyHeader>
+              <Table.Thead className="bg-white">{tableHeads}</Table.Thead>
+              <Table.Tbody>{tableInfoList}</Table.Tbody>
+            </Table>
+          </div>
+        ))}
+      {showPagination && (
+        <MatterListPagination
+          page={page}
+          totalPages={totalPages}
+          onPageChange={setPage}
+          perPage={perPage}
+          onPerPageChange={setPerPage}
+          startIndex={startIndex}
+          endIndex={endIndex}
+          total={total}
+        />
       )}
       {opened && matterInfo && (
         <MatterCardDetail

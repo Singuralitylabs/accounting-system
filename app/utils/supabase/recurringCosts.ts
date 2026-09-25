@@ -1,12 +1,8 @@
 "use server";
 
 import { RecurringCostInListType } from "../../types/types";
-import { toFirstOfMonth } from "../formatter";
+import { toFirstOfMonthOrNull } from "../formatter";
 import { createServerSupabase } from "./clients";
-
-// 月初日（YYYY-MM-01）の date 文字列に正規化する（null はそのまま）
-const toFirstOfMonthOrNull = (dateStr: string | null): string | null =>
-  dateStr ? toFirstOfMonth(dateStr) : null;
 
 // 一覧の行データを DB 書き込み用の形に変換する（INSERT / UPDATE 共通）
 // updated_at は DB トリガー（update_recurring_costs_updated_at）が now() で設定する

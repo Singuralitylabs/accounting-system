@@ -5,7 +5,14 @@ import {
   CostInCardType,
   MatterType,
 } from "@/app/types/types";
-import { Modal, Button, Group, Badge, LoadingOverlay } from "@mantine/core";
+import {
+  Modal,
+  Button,
+  Group,
+  Badge,
+  LoadingOverlay,
+  Tooltip,
+} from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useState, useEffect } from "react";
 import { CiSquarePlus } from "react-icons/ci";
@@ -24,6 +31,7 @@ import {
   DELETE_MATTER_CONFIRM_MESSAGE,
   getUpdateMatterConfirmMessage,
 } from "@/app/utils/confirmAction";
+import { createEmptyMatter } from "@/app/utils/matterValidation";
 
 type Props = {
   matterInfo: MatterType;
@@ -85,6 +93,13 @@ export function UserMatterDetail({
     initialValues: {
       ...matterInfo,
     },
+    validate: {
+      title: (value) => (value ? null : "案件名を入力してください。"),
+      category: (value) => (value ? null : "分類を選択してください。"),
+      team: (value) => (value ? null : "チームを選択してください。"),
+      start_date: (value) =>
+        isNew && !value ? "案件開始日を入力してください。" : null,
+    },
   });
 
   const closeModal = () => {
@@ -95,25 +110,19 @@ export function UserMatterDetail({
 
   const handleAddMatterInfo = async (isFixed: boolean) => {
     const matterInfo: MatterType = {
-      id: 0,
+      ...createEmptyMatter(),
       title: form.getValues().title,
       category: form.getValues().category,
       team: form.getValues().team,
       start_date: form.getValues().start_date,
       description: form.getValues().description,
       is_fixed: isFixed,
-      is_completed: false,
-      has_updates: false,
-      user_id: 1,
       accounting_memo: "",
       total_amount: 0,
       total_cost: 0,
       cost_count: costInfoInCardList.length,
       business_count: businessInfoInCardList.length,
       unchecked_cost_count: costInfoInCardList.length,
-      parent_matter_id: null,
-      inserted_at: "",
-      updated_at: "",
     };
 
     const businesses = businessInfoInCardList.filter(
@@ -270,7 +279,7 @@ export function UserMatterDetail({
     <Modal
       opened={opened}
       onClose={closeModal}
-      title={matterInfo.title}
+      title={isNew && !matterInfo.title ? "新規案件の作成" : matterInfo.title}
       size="100%"
     >
       <form
@@ -393,32 +402,37 @@ export function UserMatterDetail({
           <Group justify="flex-end" mt="md">
             {isNew ? (
               <>
-                <Button
-                  disabled={isBusy}
-                  onClick={() => {
-                    const validation = form.validate();
-                    if (validation.hasErrors) {
-                      return;
-                    }
-                    handleAddMatterInfo(false);
-                  }}
-                >
-                  下書き作成
-                </Button>
-                <Button
-                  type="button"
-                  color="red"
-                  disabled={isBusy}
-                  onClick={() => {
-                    const validation = form.validate();
-                    if (validation.hasErrors) {
-                      return;
-                    }
-                    handleAddMatterInfo(true);
-                  }}
-                >
-                  経理申請
-                </Button>
+                <Tooltip label="経理に共有されますが、チェック対象外のため、案件内容を変更できます。後日、経理申請を行う必要があります。">
+                  <Button
+                    type="button"
+                    disabled={isBusy}
+                    onClick={() => {
+                      const validation = form.validate();
+                      if (validation.hasErrors) {
+                        return;
+                      }
+                      handleAddMatterInfo(false);
+                    }}
+                  >
+                    下書き作成
+                  </Button>
+                </Tooltip>
+                <Tooltip label="経理のチェック対象となります。申請後は取引先情報・コスト情報の新規追加のみ可能です。それ以外の変更が必要な場合には、経理に連絡する必要があります。">
+                  <Button
+                    type="button"
+                    color="red"
+                    disabled={isBusy}
+                    onClick={() => {
+                      const validation = form.validate();
+                      if (validation.hasErrors) {
+                        return;
+                      }
+                      handleAddMatterInfo(true);
+                    }}
+                  >
+                    経理申請
+                  </Button>
+                </Tooltip>
               </>
             ) : (
               <>

@@ -1,7 +1,7 @@
 "use server";
 
 import { User } from "@supabase/supabase-js";
-import { ProfilesType } from "../../types/types";
+import { AccessFailure, ProfilesType } from "../../types/types";
 import { isAllowedEmailDomain } from "../constants";
 import { getCachedProfileInfo, getCachedProfileInfoById } from "./requestCache";
 import { createServerSupabase } from "./clients";
@@ -39,6 +39,76 @@ export const getAllUserInfo = async () => {
   }
 
   return { userInfoList, error };
+};
+
+// 担当者選択の選択肢（全メンバーの id/name）を返す。profiles への直接 SELECT
+// （getAllUserInfo）は RLS で teamleader が自チームに絞られるため使えない
+// （事前収支申告は teamleader もアクセスでき、選択肢は全メンバーである必要がある）。
+// DB 関数 get_member_options（SECURITY DEFINER。migration 21）経由で取得する
+// エラー時のログは呼び出し元（利用箇所の文脈が分かる場所）に任せる。
+// ここで console.error すると、呼び出し元も別途ログする場合に同じエラーが
+// 2 回出力されてノイズになる（DynamicBudgetDeclarations.tsx 参照）
+export const getMemberOptions = async () => {
+  const supabase = createServerSupabase();
+
+  const { data: memberOptions, error } = await supabase.rpc(
+    "get_member_options",
+  );
+
+  return { memberOptions, error };
+};
+
+// 渡された id のうち実在する profiles.id のみを返す（事前収支申告の manager_id
+// 保存前検証用）。get_member_options() で全メンバーを取得して JS 側で照合する
+// こともできるが、保存のたびに全メンバー分の行を転送するのは無駄
+// （メンバー数が増えるほど悪化する）ため、id 集合だけを DB 側で照合する
+export const validateMemberIds = async (targetIds: number[]) => {
+  const supabase = createServerSupabase();
+
+  const { data: existingIds, error } = await supabase.rpc(
+    "validate_member_ids",
+    { target_ids: targetIds },
+  );
+
+  return { existingIds, error };
+};
+
+// 保存前に manager_id が実在する profiles.id か確認する共通ヘルパ。
+// 存在しない manager_id のまま書き込みへ進めると FK 違反（23503）という
+// 分かりにくいエラーで失敗するため、DB 書き込みの前にここで弾いてわかりやすい
+// エラーメッセージを返す。budgetRecurringItems.ts（明細の書き込みが非トランザクション
+// = 複数行の並列 INSERT/UPDATE）では存在しない manager_id により一部だけ反映された
+// 状態（partialWriteFailed）を防ぐ役割も兼ねるが、budgetDeclarations.ts の保存は
+// save_budget_declaration（migration 24）内の単一トランザクションで原子的に行われる
+// ため、このチェックを経ずに FK 違反が起きても保存前の状態に完全にロールバックされる。
+// 問題なければ null、問題があれば呼び出し元にそのまま返せる AccessFailure を返す
+export const assertManagerIdsExist = async (
+  managerIds: number[],
+  subject: string,
+  // 「見つからない」場合の案内文の末尾（呼び出し元の画面遷移に合わせて変える。
+  // 例: "フォームを開き直して選び直してください。" / "画面を再読み込みして選び直してください。"）
+  notFoundHint: string,
+): Promise<AccessFailure | null> => {
+  if (managerIds.length === 0) return null;
+
+  const { existingIds: validIds, error } = await validateMemberIds(managerIds);
+  if (error) {
+    console.error(`${subject}の担当者確認に失敗しました:`, error);
+    return {
+      kind: "fetchFailed",
+      message: `${subject}の担当者確認に失敗しました。`,
+    };
+  }
+
+  const existingIds = new Set((validIds ?? []).map((row) => row.id));
+  if (managerIds.some((id) => !existingIds.has(id))) {
+    return {
+      kind: "validationFailed",
+      message: `選択された担当者が見つかりません。${notFoundHint}`,
+    };
+  }
+
+  return null;
 };
 
 export const insertUserInfo = async ({

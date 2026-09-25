@@ -24,12 +24,13 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 - スキーマ変更（テーブル / RLS / トリガー / enum / 初期データなど）は **必ず `supabase/migrations/` に SQL ファイルとして追加する**。命名は `YYYYMMDDHHMMSS_<snake_case_name>.sql`。リモートに直接当てた変更も後追いで同形式のファイルを追加し、ローカルから `supabase db reset` で同じ状態を再現できる状態を維持する。
 - マイグレーションを足したら同じ PR で `docs/database.md` も更新する（テーブル定義 / RLS / トリガーの記載と実物を一致させる）。
 - テストは Vitest（`tests/` 配下。純粋関数は `*.test.ts`、コンポーネントは `*.test.tsx` + jsdom。TZ=Asia/Tokyo 固定）。方針・対象・規約は `docs/testing.md` を参照。テスト済みコードを修正したら対応するテストも更新する。
-- CI は GitHub Actions（`.github/workflows/`: typecheck+lint / test / build / format-check）。
+- CI は GitHub Actions（`.github/workflows/`: typecheck+lint / test / build / format-check）。同ディレクトリの `supabase-keepalive.yml` は CI ではなく Supabase 無料プランの自動 Pause 防止用（毎日 1 回 REST で SELECT。`docs/setup.md` 参照）。
 
 ## 作業ルール
 
 - 作業ブランチへの commit / push は確認不要。ただし **push 前に `yarn typecheck && yarn lint && yarn test && yarn build && yarn format:check` をローカルで通すこと**。
 - `main` へ直接 push しない。変更は作業ブランチ＋PR を経由する。
+- **`release`（本番）への反映は必ず `main` を経由する。** PR のマージ先は原則 `main` であり、作業ブランチから `release` へ直接 PR を作らない。`release` へ入るのは `main` → `release` のリリースカットのみ。本番ホットフィックスも同様に `main` に入れてからカットする（この運用により `release` のツリーは常に `main` のある時点と一致する）。
 - **PR のマージは禁止。** `gh pr merge`、GitHub MCP の merge、`main` への merge / push をエージェントが実行してはならない。マージはユーザーだけが行う。担当範囲は CI green ＋レビュー完了まで。
 
 ## アーキテクチャ
@@ -62,13 +63,14 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 
 ロールは `profiles.class` カラムに格納：`public` / `teamleader` / `accounting` / `admin`。
 
-ルートごとの閲覧許可ロールは `app/utils/permissions.ts` の `ROUTE_PERMISSIONS` が単一の定義（`/team` / `/accounting` / `/profit-loss` / `/recurring-costs` / `/extra-entries` / `/budget-declarations` / `/dashboard`）。`/`, `/new`, `/matters` はロール制限なし（ログイン必須）。権限クラス×ページの手動確認表は `docs/testing.md` の「3.7 手動確認（RLS・権限クラス別）」を参照。
+ルートごとの閲覧許可ロールは `app/utils/permissions.ts` の `ROUTE_PERMISSIONS` が単一の定義（`/matters/team` / `/matters/accounting` / `/team` / `/accounting` / `/profit-loss` / `/recurring-costs` / `/extra-entries` / `/budget-declarations` / `/dashboard`）。`/`, `/matters` 自体はロール制限なし（ログイン必須）だが、`/matters` 配下のサブルート（`/matters/team`, `/matters/accounting`）にはロール制限がある。旧 URL の `/team` / `/accounting` は新 URL へのリダイレクト用ページとして残っており、リダイレクト前のロール保護のため `ROUTE_PERMISSIONS` にも引き続き存在する（重複に見えても消さないこと）。権限クラス×ページの手動確認表は `docs/testing.md` の「3.7 手動確認（RLS・権限クラス別）」を参照。
 
 - middleware は `getUser()`（Supabase Auth サーバでアクセストークンの署名・有効性を検証する）で認証を確認する。`getSession()` はローカル Cookie の値をそのまま返すだけで署名検証を行わないため、認証の可否判定には使わない（偽造 Cookie による認証バイパスを防ぐ）。
 - 制限ルートのロールは、`getUser()` で検証済みの同一アクセストークンから読む JWT の `user_class` クレームを使う（`profiles` への DB クエリを排除）。`user_class` は Custom Access Token Hook（`public.custom_access_token_hook`、`docs/database.md` 参照）が付与する。クレームは同じ検証済みトークンの一部であるため、改ざんされていればトークンの署名検証自体が失敗し `getUser()` がエラーになる。
 - `user_class` クレームが有効な文字列でない場合（クレームキー自体が無い / 値が明示的に `null` / 空文字 / 文字列以外）は `profiles` への DB クエリにフォールバックするため、フック未有効化でも動作する（フェイルセーフ）。**本番では Supabase ダッシュボードでフックを有効化する必要がある**（マイグレーション適用後に有効化すること。適用前に有効化すると全ユーザーがログインできなくなる）。新規ユーザーはトークン発行後にプロフィールが作成されるため初回トークンは必ず `user_class: null` になるが、この場合もフォールバックするため直後のロール付与は即座に反映される。
 - ロール変更は対象ユーザーのトークンリフレッシュ（既定で最大約1時間）または再ログインまで JWT に反映されない（JWT にロールが既に載っている場合のみ）。即時反映が必要な用途では middleware だけに依存しないこと。
 - `getUser()` が Supabase Auth 側の一時的障害（fetch 自体の失敗、またはステータス 5xx）を返した場合、middleware はログイン中ユーザーを一律 `/login` に飛ばさず 503 を返す（一時的障害と偽造トークンを区別する）。auth-js の `isAuthRetryableFetchError` は 502/503/504 しか拾わず 500 は `AuthApiError` になるため、判定には 5xx の `AuthApiError` も含める必要がある（`app/utils/routeGuard.ts` の `isTransientAuthError`）。
+- Supabase 到達不能時の再試行ループで Edge の 25 秒制限に掛からないよう、Supabase への 1 リクエストは 5 秒（`AUTH_FETCH_TIMEOUT_MS`）、`getUser()` 全体は 6 秒（`AUTH_GET_USER_TIMEOUT_MS`）で打ち切り、どちらも 503（`Retry-After: 2` 付き）に落とす（実装は `app/utils/routeGuard.ts` の `createTimeoutFetch` / `withAuthTimeout` と `middleware.ts` の `serviceUnavailable`）。`profiles` 取得も 5 秒で外側から打ち切り、超過時は 503（それ以外の取得失敗は既存どおり `/` へ）。
 
 ## 業務ロジック
 

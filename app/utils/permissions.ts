@@ -24,6 +24,11 @@ export const ROUTE_PERMISSIONS: Record<string, Role[]> = {
 // 損益計算書を閲覧できるロール（/profit-loss のルート保護と常に一致する）
 export const PL_ALLOWED_CLASSES = ROUTE_PERMISSIONS["/profit-loss"];
 
+// 損益調整（実績額修正）を書き込めるロール。/profit-loss 内の操作で専用ルートを
+// 持たないため ROUTE_PERMISSIONS ではなくここに直接定義する。
+// profit_loss_adjustments の RLS（INSERT/UPDATE/DELETE は accounting / admin のみ）と揃える
+export const PL_ADJUSTMENT_WRITE_CLASSES: Role[] = ["accounting", "admin"];
+
 export const hasClassAccess = (
   allowedClasses: readonly Role[],
   profileClass: string | null | undefined,
@@ -38,7 +43,7 @@ export const matchesRoute = (pathname: string, route: string) =>
 // matchesRoute の引数は (pathname, route)。`matchesRoute("/matters", "/")` は
 // `"/matters" === "/"` でも `"/matters".startsWith("//")` でもないので false。
 // そのため AUTH_ONLY_ROUTES の "/" はトップページだけにマッチする。
-export const AUTH_ONLY_ROUTES = ["/", "/new", "/matters"] as const;
+export const AUTH_ONLY_ROUTES = ["/", "/matters"] as const;
 
 export const isAuthOnlyPath = (pathname: string) =>
   AUTH_ONLY_ROUTES.some((route) => matchesRoute(pathname, route));

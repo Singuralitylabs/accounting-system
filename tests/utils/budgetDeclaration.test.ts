@@ -4,12 +4,14 @@ import {
   BUDGET_DECLARATION_ALLOWED_CLASSES,
   BudgetDeclarationError,
   BudgetDeclarationWithItems,
-  addMonths,
   buildBudgetDeclarationStatusList,
   canWriteBudgetTeam,
+  categoryOptionsFor,
   defaultTargetMonth,
+  isCategoryUnregistered,
   isForbiddenError,
   isPartialWriteFailureError,
+  previousItemsToFormRows,
   summarizeBudgetItems,
   totalBudgetSummary,
   visibleBudgetTeams,
@@ -24,29 +26,6 @@ const declaration = (
   declared_by_name: "山田",
   items: [],
   ...overrides,
-});
-
-describe("addMonths", () => {
-  it("同一年内で加算する", () => {
-    expect(addMonths("2026-03", 2)).toBe("2026-05");
-  });
-
-  it("年をまたいで繰り上がる", () => {
-    expect(addMonths("2026-12", 1)).toBe("2027-01");
-  });
-
-  it("年をまたいで繰り下がる", () => {
-    expect(addMonths("2026-01", -1)).toBe("2025-12");
-  });
-
-  it("12ヶ月以上の加算・減算でも年が正しく動く", () => {
-    expect(addMonths("2026-06", 18)).toBe("2027-12");
-    expect(addMonths("2026-06", -18)).toBe("2024-12");
-  });
-
-  it("0 の加算は同じ月を返す", () => {
-    expect(addMonths("2026-06", 0)).toBe("2026-06");
-  });
 });
 
 describe("defaultTargetMonth", () => {
@@ -350,12 +329,15 @@ describe("BudgetDeclarationError / isForbiddenError", () => {
 });
 
 describe("isPartialWriteFailureError", () => {
-  it("明細差し替えの途中で失敗した場合（partialWriteFailed）は一部反映の可能性があると判定する", () => {
+  // budget_declarations の保存（saveBudgetDeclaration）は save_budget_declaration
+  // （migration 24）内の単一トランザクションで行われるため partialWriteFailed を
+  // 返さない。現在この kind を返しうるのは budgetRecurringItems.ts の一括更新のみ
+  it("複数行の一括更新が途中で失敗した場合（partialWriteFailed）は一部反映の可能性があると判定する", () => {
     expect(
       isPartialWriteFailureError(
         new BudgetDeclarationError({
           kind: "partialWriteFailed",
-          message: "事前収支申告の明細登録に失敗しました。",
+          message: "定期明細の更新に失敗しました。",
         }),
       ),
     ).toBe(true);
@@ -389,5 +371,189 @@ describe("isPartialWriteFailureError", () => {
   it("無関係なエラーは対象外", () => {
     expect(isPartialWriteFailureError(new Error("network"))).toBe(false);
     expect(isPartialWriteFailureError(null)).toBe(false);
+  });
+});
+
+describe("previousItemsToFormRows", () => {
+  // 並び順は取得側（getPreviousBudgetDeclarationItems）が display_order 順に
+  // 揃えて渡す前提のため、ここでは渡された順のまま変換されることだけ確認する
+  it("id・display_order を持たない新規行に変換する（担当者も引き継ぐ）", () => {
+    expect(
+      previousItemsToFormRows([
+        {
+          id: 10,
+          entry_type: "income",
+          category: "セミナー",
+          description: "○○受託案件",
+          amount: 500000,
+          manager_id: 1,
+          display_order: 0,
+        },
+        {
+          id: 11,
+          entry_type: "expense",
+          category: "外注費",
+          description: "外注A",
+          amount: 100000,
+          manager_id: 2,
+          display_order: 1,
+        },
+      ]),
+    ).toEqual([
+      {
+        entry_type: "income",
+        category: "セミナー",
+        description: "○○受託案件",
+        amount: 500000,
+        manager_id: 1,
+      },
+      {
+        entry_type: "expense",
+        category: "外注費",
+        description: "外注A",
+        amount: 100000,
+        manager_id: 2,
+      },
+    ]);
+  });
+
+  it("担当者未設定（manager_id: null）の明細もそのまま変換する", () => {
+    expect(
+      previousItemsToFormRows([
+        {
+          id: 10,
+          entry_type: "income",
+          category: "セミナー",
+          description: "○○受託案件",
+          amount: 500000,
+          manager_id: null,
+          display_order: 0,
+        },
+      ]),
+    ).toEqual([
+      {
+        entry_type: "income",
+        category: "セミナー",
+        description: "○○受託案件",
+        amount: 500000,
+        manager_id: null,
+      },
+    ]);
+  });
+
+  it("明細 0 件なら空配列を返す", () => {
+    expect(previousItemsToFormRows([])).toEqual([]);
+  });
+});
+
+describe("categoryOptionsFor", () => {
+  const categoryList = ["セミナー", "受託案件"];
+  const itemList = ["外注費", "ツール利用料"];
+
+  it("収入は category マスタ、支出は item マスタを返す", () => {
+    expect(categoryOptionsFor("income", "", categoryList, itemList)).toEqual(
+      categoryList,
+    );
+    expect(categoryOptionsFor("expense", "", categoryList, itemList)).toEqual(
+      itemList,
+    );
+  });
+
+  it("値がマスタに含まれる場合はマスタをそのまま返す", () => {
+    expect(
+      categoryOptionsFor("income", "セミナー", categoryList, itemList),
+    ).toEqual(categoryList);
+  });
+
+  it("値がマスタに無い場合は「（マスタ未登録）」付きの選択肢を先頭に追加する", () => {
+    expect(
+      categoryOptionsFor("expense", "旧品目", categoryList, itemList),
+    ).toEqual([
+      { value: "旧品目", label: "旧品目（マスタ未登録）", disabled: true },
+      ...itemList,
+    ]);
+  });
+
+  it("注入した選択肢は disabled で、選び直して復活させられない", () => {
+    const options = categoryOptionsFor(
+      "income",
+      "旧分類",
+      categoryList,
+      itemList,
+    );
+    expect(options[0]).toMatchObject({
+      value: "旧分類",
+      label: "旧分類（マスタ未登録）",
+      disabled: true,
+    });
+    // 空の分類（新規行）では注入されない＝ドロップダウンから無効値を選べない
+    expect(categoryOptionsFor("income", "", categoryList, itemList)).toEqual(
+      categoryList,
+    );
+  });
+
+  it("返り値はマスタ配列と独立している（呼び出し元の変更が波及しない）", () => {
+    const result = categoryOptionsFor(
+      "income",
+      "",
+      categoryList,
+      itemList,
+    ) as string[];
+    result.push("追加分");
+    expect(categoryList).toEqual(["セミナー", "受託案件"]);
+  });
+});
+
+describe("isCategoryUnregistered", () => {
+  const categoryList = ["セミナー", "受託案件"];
+  const itemList = ["外注費", "ツール利用料"];
+
+  it("マスタに含まれる分類は false", () => {
+    expect(
+      isCategoryUnregistered("income", "セミナー", categoryList, itemList),
+    ).toBe(false);
+    expect(
+      isCategoryUnregistered("expense", "外注費", categoryList, itemList),
+    ).toBe(false);
+  });
+
+  it("マスタに無い分類は true（前月コピーで持ち込んだ無効値の検出）", () => {
+    expect(
+      isCategoryUnregistered("income", "旧分類", categoryList, itemList),
+    ).toBe(true);
+    expect(
+      isCategoryUnregistered("expense", "旧品目", categoryList, itemList),
+    ).toBe(true);
+  });
+
+  it("種別違いのマスタ混同は未登録と判定する", () => {
+    // 収入マスタの値を支出行で使う・その逆は未登録扱い
+    expect(
+      isCategoryUnregistered("expense", "セミナー", categoryList, itemList),
+    ).toBe(true);
+    expect(
+      isCategoryUnregistered("income", "外注費", categoryList, itemList),
+    ).toBe(true);
+  });
+
+  it("空文字は未入力であり未登録ではない", () => {
+    expect(isCategoryUnregistered("income", "", categoryList, itemList)).toBe(
+      false,
+    );
+  });
+
+  it("前後の空白は保存時と同じく trim して照合する", () => {
+    expect(
+      isCategoryUnregistered("income", " セミナー ", categoryList, itemList),
+    ).toBe(false);
+    expect(
+      isCategoryUnregistered("income", " 旧分類 ", categoryList, itemList),
+    ).toBe(true);
+  });
+
+  it("想定外の種別は required 側の責務のため false", () => {
+    expect(
+      isCategoryUnregistered("unknown", "旧分類", categoryList, itemList),
+    ).toBe(false);
   });
 });

@@ -3,16 +3,17 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountingMatterList } from "@/app/components/matterList/AccountingMatterList";
+import { notifyError } from "@/app/utils/notify";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
 
-const { listState, mutateAsync, slackMutateAsync, notifyError, confirmAction } =
-  vi.hoisted(() => ({
+const { listState, mutateAsync, slackMutateAsync, confirmAction } = vi.hoisted(
+  () => ({
     listState: { is_fixed: true, checkPending: false, slackPending: false },
     mutateAsync: vi.fn(),
     slackMutateAsync: vi.fn(),
-    notifyError: vi.fn(),
     confirmAction: vi.fn(async () => true),
-  }));
+  }),
+);
 
 vi.mock("@/app/hooks/useMatterData", () => {
   const base = {
@@ -70,11 +71,9 @@ vi.mock("@/app/hooks/useMatterData", () => {
   };
 });
 
-vi.mock("@/app/utils/notify", () => ({
-  notifyError,
-  notifyInfo: vi.fn(),
-  notifySuccess: vi.fn(),
-}));
+vi.mock("@/app/utils/notify", () =>
+  import("@/tests/testUtils/mockNotify").then((m) => m.mockNotify()),
+);
 
 vi.mock("@/app/utils/confirmAction", () => ({
   confirmAction,
@@ -95,7 +94,7 @@ describe("AccountingMatterList", () => {
     listState.slackPending = false;
     mutateAsync.mockReset();
     slackMutateAsync.mockReset();
-    notifyError.mockReset();
+    vi.mocked(notifyError).mockReset();
     confirmAction.mockReset();
     confirmAction.mockResolvedValue(true);
   });

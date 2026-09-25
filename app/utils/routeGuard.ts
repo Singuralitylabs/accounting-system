@@ -1,4 +1,5 @@
 import {
+  AuthRetryableFetchError,
   isAuthApiError,
   isAuthRetryableFetchError,
 } from "@supabase/supabase-js";
@@ -17,13 +18,121 @@ const PUBLIC_FILE_PATTERN = /\.(js|css|ico|png|jpg|jpeg|svg|gif)$/;
 // getUser() のエラーが「Supabase Auth 側の一時的障害」かどうか。
 //
 // auth-js が AuthRetryableFetchError にするのは fetch 自体の失敗と 502/503/504 のみで、
-// 500 や 501 は AuthApiError になる（lib/fetch.ts の NETWORK_ERROR_CODES = [502,503,504]）。
+// 500 や 501 は AuthApiError になる（`lib/fetch.js` の NETWORK_ERROR_CODES = [502,503,504]。ソースは `fetch.ts`）。
 // どちらもトークンの正当性とは無関係なサーバ側障害なので、ステータス 5xx は一律で
 // 一時的障害として扱う。偽造・期限切れトークンは 401/403 になるため、この判定に
 // 混入することはない。
 export const isTransientAuthError = (error: AuthError) =>
   isAuthRetryableFetchError(error) ||
   (isAuthApiError(error) && error.status >= 500);
+
+// Supabase への 1 リクエストの打ち切り時間（`@supabase/ssr` の `global.fetch`
+// は auth-js と PostgREST の両方に注入されるため、Auth だけでなく後続の
+// `profiles` 取得のヘッダ待ちにも適用される。ヘッダ到着後のボディ停滞は
+// `middleware.ts` 側の `withAuthTimeout` が担う。
+//
+// 通常時の応答（数十〜数百 ms）に十分余裕を持たせつつ、応答が返らない
+// ハング型の試行を短時間で失敗させる。即時失敗型（DNS 解決失敗など）では
+// 試行自体は元々速いまま再試行ループが続くため、ループ全体の打ち切りは
+// 下の `withAuthTimeout` が担う。
+// fetch の中断（AbortError / TimeoutError）は auth-js の `_handleRequest` が
+// `AuthRetryableFetchError`（status 0）に包むため（auth-js 2.65.1 の
+// `lib/fetch.js` で確認。将来の更新時は見直すこと）、上の `isTransientAuthError`
+// でそのまま一時的障害として拾える。拡張は不要。
+export const AUTH_FETCH_TIMEOUT_MS = 5000;
+
+// `getUser()` 全体の待ちの上限。期限切れトークン時のリフレッシュ再試行ループは
+// 1 リクエストのタイムアウトだけでは約 30 秒枠いっぱいまで回り続けるため、
+// 外側の待ちを `Promise.race` で打ち切って 503 に落とす。受け入れ基準
+// 「数秒以内に 503」のため 6 秒とする。
+//
+// middleware 全体の時間予算（上限の考え方。全て満たすこと）：
+// - `getUser()` ≤ 6 秒（本定数）＋後続の `profiles` 取得 ≤ 5 秒
+//   （`AUTH_FETCH_TIMEOUT_MS` で外側からも打ち切り）で合計約 11 秒
+// - Vercel Edge の 25 秒制限を大きく下回る。定数を変える場合はこの予算を保つこと
+//   （`tests/utils/routeGuard.test.ts` の合算テストが回帰を検出する）。
+export const AUTH_GET_USER_TIMEOUT_MS = 6000;
+
+/**
+ * Edge Runtime 安全なタイムアウト付き fetch を作る。
+ *
+ * `AbortSignal.timeout` / `AbortSignal.any` に依存せず、`AbortController` +
+ * `setTimeout` のみで「呼び出し元の signal」と「タイムアウト」のどちらが先に
+ * 発火しても中断する。auth-js（`@supabase/ssr` の `global.fetch` 経由）に渡す想定。
+ */
+export const createTimeoutFetch = (
+  timeoutMs: number = AUTH_FETCH_TIMEOUT_MS,
+  baseFetch: typeof fetch = fetch,
+): typeof fetch =>
+  ((input, init) => {
+    const incomingSignal = init?.signal;
+    if (incomingSignal?.aborted) {
+      return baseFetch(input, init);
+    }
+    const controller = new AbortController();
+    const timeoutError = () => {
+      const error = new Error(
+        `Supabase Auth request timed out after ${timeoutMs}ms`,
+      );
+      error.name = "TimeoutError";
+      return error;
+    };
+    const timer = setTimeout(() => controller.abort(timeoutError()), timeoutMs);
+    const onIncomingAbort = () => controller.abort(incomingSignal?.reason);
+    incomingSignal?.addEventListener("abort", onIncomingAbort, {
+      once: true,
+    });
+    const cleanup = () => {
+      clearTimeout(timer);
+      incomingSignal?.removeEventListener("abort", onIncomingAbort);
+    };
+    return baseFetch(input, { ...init, signal: controller.signal }).then(
+      (response) => {
+        cleanup();
+        return response;
+      },
+      (error) => {
+        cleanup();
+        throw error;
+      },
+    );
+  }) as typeof fetch;
+
+/**
+ * `getUser()` 等の Auth 呼び出し全体の待ちに上限を設ける。`Promise.race` による
+ * 待機解除であり、内側のリトライループ自体を cancel するものではない。
+ * 制限超過時は `AuthRetryableFetchError`（status 0）で reject するため、
+ * 呼び出し側は `isTransientAuthError` → 503 の既存経路にそのまま載せられる。
+ * 503 返却で Edge 実行は終了するため、残存した内側ループは破棄される。
+ */
+export const withAuthTimeout = <T>(
+  promise: Promise<T>,
+  timeoutMs: number = AUTH_GET_USER_TIMEOUT_MS,
+): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(
+        new AuthRetryableFetchError(
+          `Supabase Auth request timed out after ${timeoutMs}ms`,
+          0,
+        ),
+      );
+    }, timeoutMs);
+  });
+  const settle = (settled: Promise<T>) =>
+    settled.then(
+      (value) => {
+        clearTimeout(timer);
+        return value;
+      },
+      (error) => {
+        clearTimeout(timer);
+        throw error;
+      },
+    );
+  return Promise.race([settle(promise), timeout]);
+};
 
 export const isPublicSkipPath = (pathname: string) =>
   PUBLIC_FILE_PATTERN.test(pathname) ||
