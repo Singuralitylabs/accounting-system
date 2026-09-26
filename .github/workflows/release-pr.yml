@@ -73,12 +73,17 @@ jobs:
       # 既存の main→release オープン PR がある場合は二重作成しない。
       # 品質ゲート 4 本を消費してから止めないよう、ここ（validate-input）で
       # 先に中断する。create-pr 側では再掲しない。
+      # このジョブは checkout しないため、gh に -R で対象リポジトリを明示する
+      # （gh は対象をカレントディレクトリの git remote から解決し、
+      # GITHUB_REPOSITORY 環境変数は参照しないため。指定なしでは
+      # no git remotes found で失敗する）。
       - name: 既存リリース PR の存在確認
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           NUMBER=$(gh pr list --base release --head main --state open \
+            -R "$GITHUB_REPOSITORY" \
             --json number --jq '.[0].number // empty')
           if [ -n "$NUMBER" ]; then
             echo "::error::既存のリリース PR #${NUMBER} が open 状態です。先にこれをマージ／クローズしてください。"
