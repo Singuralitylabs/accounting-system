@@ -135,6 +135,42 @@ describe("MatterProfitTable", () => {
     expect(screen.getByText("調整あり")).toBeInTheDocument();
   });
 
+  it("明細によってチームが異なる案件はチームを並べて注意アイコンを付ける（Issue #152）", () => {
+    renderWithMantine(
+      <MatterProfitTable
+        matters={buildMatterBreakdowns(
+          businesses,
+          [{ ...costs[0], team: "SDGs" }],
+          buildLabelIndex([]),
+        )}
+        hasExtraEntries={false}
+        canEditAdjustments={false}
+        loadingMatterId={null}
+        onShowMatter={vi.fn()}
+        onEditAdjustment={vi.fn()}
+        canEditLabels={false}
+        onEditTitle={vi.fn()}
+      />,
+    );
+    const matterRow = screen.getByText("案件X").closest("tr")!;
+    expect(within(matterRow).getByText("シンラボ / SDGs")).toBeInTheDocument();
+    expect(
+      within(matterRow).getByRole("img", {
+        name: /明細によってチームが異なります/,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("チームが 1 つの案件には注意アイコンを出さず、操作列の見出しに名前を付ける", () => {
+    renderTable();
+    expect(
+      screen.queryByRole("img", { name: /明細によってチームが異なります/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("columnheader", { name: "操作" }),
+    ).toBeInTheDocument();
+  });
+
   it("経理追加収支が無い月は注記を出さない", () => {
     renderTable(true, true, false);
     expect(

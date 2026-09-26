@@ -540,7 +540,8 @@ const titledRecurringCostLine = (
 // 案件別収支（案件 → 案件内訳）を組み立てる（Issue #152 でチームの階層を廃止）。
 // 案件は ID の昇順、案件内訳は売上明細 → 費用明細（各 ID の昇順）。
 // 経理追加収支は案件ではないため含めない（売上合計・案件費用合計には別途加算する）。
-// 案件のチームは最初の明細のチーム（通常は案件内で同じ。チーム別の集計は明細単位で行う）
+// 案件のチームは最初の明細のチーム（通常は案件内で同じ。チーム別の集計は明細単位で行う）。
+// 明細によってチームが異なる場合に画面で示せるよう、明細のチームの一覧（teams）も持つ
 export const buildMatterBreakdowns = (
   businesses: BusinessLine[],
   costs: CostLine[],
@@ -555,6 +556,7 @@ export const buildMatterBreakdowns = (
         matterTitle: line.matterTitle,
         category: line.category,
         team: line.team,
+        teams: [],
         revenue: 0,
         cost: 0,
         grossProfit: 0,
@@ -562,7 +564,11 @@ export const buildMatterBreakdowns = (
         costs: [],
       });
     }
-    return matters.get(line.matterId)!;
+    const matter = matters.get(line.matterId)!;
+    if (!matter.teams.includes(line.team)) {
+      matter.teams.push(line.team);
+    }
+    return matter;
   };
 
   businesses.forEach((line) => {

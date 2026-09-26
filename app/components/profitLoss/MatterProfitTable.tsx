@@ -72,6 +72,25 @@ const ChangedIcon = ({ label }: { label: string }) => (
   </Tooltip>
 );
 
+// 明細によってチームが異なる案件の目印（Issue #152。確定済みの月で一部の明細だけ
+// 反映した場合など。チーム別収支は明細ごとのチームで集計している）
+const MixedTeamsIcon = () => {
+  const label =
+    "明細によってチームが異なります（確定後に一部の明細だけ反映した場合など）。チーム別収支は明細ごとのチームで集計しています";
+  return (
+    <Tooltip label={label} multiline w={280}>
+      <span
+        className="inline-flex ml-1 text-orange-600 align-middle"
+        role="img"
+        aria-label={label}
+        tabIndex={0}
+      >
+        <FaExclamationCircle size="0.75rem" />
+      </span>
+    </Tooltip>
+  );
+};
+
 // 金額 3 列（売上 / 案件費用 / 粗利）。null の列は空欄にする（明細行は該当列のみ）
 const AmountCells = ({
   revenue,
@@ -211,6 +230,7 @@ const MatterProfitTable = ({
   };
 
   const matterKeyOf = (matterId: number) => `matter:${matterId}`;
+  const matterKeys = matters.map((matter) => matterKeyOf(matter.matterId));
 
   return (
     <Paper withBorder radius="md" className="overflow-x-auto mb-6">
@@ -222,16 +242,13 @@ const MatterProfitTable = ({
             <Table.Th className="text-right w-32">売上</Table.Th>
             <Table.Th className="text-right w-32">案件費用</Table.Th>
             <Table.Th className="text-right w-32">粗利</Table.Th>
-            <Table.Th className="w-36">
+            {/* 列見出しの名前は「操作」（一括開閉のボタンの文言を列名として読み上げないようにする） */}
+            <Table.Th className="w-36" aria-label="操作">
               <ExpandAllButtons
                 label="案件別収支"
                 disabled={matters.length === 0}
-                onExpandAll={() =>
-                  expandAll(
-                    matters.map((matter) => matterKeyOf(matter.matterId)),
-                  )
-                }
-                onCollapseAll={collapseAll}
+                onExpandAll={() => expandAll(matterKeys)}
+                onCollapseAll={() => collapseAll(matterKeys)}
               />
             </Table.Th>
           </Table.Tr>
@@ -293,7 +310,10 @@ const MatterProfitTable = ({
                       {matter.category}
                     </Badge>
                   </Table.Td>
-                  <Table.Td className="text-gray-700">{matter.team}</Table.Td>
+                  <Table.Td className="text-gray-700">
+                    {matter.teams.join(" / ")}
+                    {matter.teams.length > 1 && <MixedTeamsIcon />}
+                  </Table.Td>
                   <AmountCells
                     revenue={matter.revenue}
                     cost={matter.cost}

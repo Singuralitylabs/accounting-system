@@ -77,7 +77,7 @@ describe("AnnualTrendTable（Issue #152）", () => {
       screen.queryByText("色付きの列は確定済みの月（確定値を表示）です"),
     ).not.toBeInTheDocument();
     expect(
-      document.querySelectorAll(`.${CLOSED_MONTH_COLUMN_CLASS}`),
+      document.querySelectorAll(`.${CSS.escape(CLOSED_MONTH_COLUMN_CLASS)}`),
     ).toHaveLength(0);
   });
 });

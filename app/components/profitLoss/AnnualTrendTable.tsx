@@ -16,8 +16,9 @@ const amountColor = (value: number) =>
   value < 0 ? "text-red-600" : "text-green-700";
 
 // 確定済みの月（Issue #148）の列の背景色（Issue #152）。鍵アイコン（teal）と揃え、
-// 年度合計列（bg-slate-50）と見分けられる色にする
-export const CLOSED_MONTH_COLUMN_CLASS = "bg-teal-50";
+// 年度合計列（bg-slate-50）と見分けられる色にする。半透明にして、行のホバー時の背景
+// （highlightOnHover）が確定済みの月のセルでも透けて見えるようにする
+export const CLOSED_MONTH_COLUMN_CLASS = "bg-teal-100/40";
 
 const AnnualTrendTable = ({
   trend,
@@ -75,7 +76,6 @@ const AnnualTrendTable = ({
                 <Table.Th
                   key={month.month}
                   className={`text-right ${closedColumnClass(month)}`}
-                  data-closed={month.closing ? "true" : undefined}
                 >
                   {month.closing && (
                     // 確定済みの月（Issue #148）は確定値（スナップショット）を表示している

@@ -767,8 +767,10 @@ describe("buildMonthReport: チーム別内訳", () => {
         ],
       }),
     );
-    // 案件別収支では 1 件の案件にまとまる
+    // 案件別収支では 1 件の案件にまとまり、明細のチームを出現順にすべて持つ
     expect(report.matterBreakdowns).toHaveLength(1);
+    expect(report.matterBreakdowns[0].teams).toEqual(["チームA", "チームB"]);
+    expect(report.matterBreakdowns[0].team).toBe("チームA");
     expect(report.byTeam?.find((row) => row.team === "チームA")).toMatchObject({
       revenue: 500000,
       matterCost: 0,

@@ -4,9 +4,6 @@ import type { PostgrestError } from "@supabase/supabase-js";
 vi.mock("@/app/utils/supabase/clients", () => ({
   createServerSupabase: vi.fn(),
 }));
-vi.mock("@/app/utils/supabase/selectOptionsCache", () => ({
-  getActiveSelectOptionsByType: vi.fn(),
-}));
 
 import {
   ID_CHUNK_SIZE,

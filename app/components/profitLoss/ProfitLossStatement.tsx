@@ -29,6 +29,7 @@ import ProfitLossAdjustmentModal from "./ProfitLossAdjustmentModal";
 import ProfitLossLabelModal from "./ProfitLossLabelModal";
 import MatterProfitTable from "./MatterProfitTable";
 import CategoryProfitTable from "./CategoryProfitTable";
+import TeamProfitTable from "./TeamProfitTable";
 import ClosingDiffPanel from "./ClosingDiffPanel";
 import {
   AdjustmentButton,
@@ -128,6 +129,9 @@ const ProfitLossStatement = ({
 }: Props) => {
   // 管理費の費目行の展開状態（案件別収支の展開状態は MatterProfitTable が持つ）
   const { expandedRows, toggleRow, expandAll, collapseAll } = useExpandedRows();
+  const recurringKeys = report.recurringCostByItem.map((breakdown) =>
+    recurringRowKey(breakdown.item),
+  );
   // チーム別タブはチーム別内訳のあるロール（accounting / admin）のみ。無ければ案件別を表示する
   const activeBreakdownTab: BreakdownTab =
     breakdownTab === "team" && !report.byTeam
@@ -277,18 +281,13 @@ const ProfitLossStatement = ({
               <Table.Th className="text-right w-32">元データ</Table.Th>
               <Table.Th className="text-right w-32">調整</Table.Th>
               <Table.Th className="text-right w-32">実績</Table.Th>
-              <Table.Th className="w-36">
+              {/* 列見出しの名前は「操作」（一括開閉のボタンの文言を列名として読み上げないようにする） */}
+              <Table.Th className="w-36" aria-label="操作">
                 <ExpandAllButtons
                   label="管理費の内訳"
-                  disabled={report.recurringCostByItem.length === 0}
-                  onExpandAll={() =>
-                    expandAll(
-                      report.recurringCostByItem.map((breakdown) =>
-                        recurringRowKey(breakdown.item),
-                      ),
-                    )
-                  }
-                  onCollapseAll={collapseAll}
+                  disabled={recurringKeys.length === 0}
+                  onExpandAll={() => expandAll(recurringKeys)}
+                  onCollapseAll={() => collapseAll(recurringKeys)}
                 />
               </Table.Th>
             </Table.Tr>
@@ -480,56 +479,7 @@ const ProfitLossStatement = ({
 
         {report.byTeam && (
           <Tabs.Panel value="team" className="pt-4">
-            {report.byTeam.length === 0 ? (
-              <Text size="sm" c="dimmed">
-                この月に計上される収支はありません。
-              </Text>
-            ) : (
-              <Paper withBorder radius="md" className="overflow-x-auto mb-6">
-                <Table verticalSpacing="sm" highlightOnHover>
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>チーム別収支</Table.Th>
-                      <Table.Th className="text-right">売上</Table.Th>
-                      <Table.Th className="text-right">案件費用</Table.Th>
-                      <Table.Th className="text-right">粗利</Table.Th>
-                      <Table.Th className="text-right">管理費</Table.Th>
-                      <Table.Th className="text-right">経常利益</Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {report.byTeam.map((teamBreakdown) => (
-                      <Table.Tr key={`team-${teamBreakdown.team}`}>
-                        <Table.Td>{teamBreakdown.team}</Table.Td>
-                        <Table.Td className="text-right">
-                          {formatCurrency(teamBreakdown.revenue)}
-                        </Table.Td>
-                        <Table.Td className="text-right">
-                          {formatCurrency(teamBreakdown.matterCost)}
-                        </Table.Td>
-                        <Table.Td
-                          className={`text-right ${amountColor(
-                            teamBreakdown.grossProfit,
-                          )}`}
-                        >
-                          {formatCurrency(teamBreakdown.grossProfit)}
-                        </Table.Td>
-                        <Table.Td className="text-right">
-                          {formatCurrency(teamBreakdown.recurringCost)}
-                        </Table.Td>
-                        <Table.Td
-                          className={`text-right font-bold ${amountColor(
-                            teamBreakdown.profit,
-                          )}`}
-                        >
-                          {formatCurrency(teamBreakdown.profit)}
-                        </Table.Td>
-                      </Table.Tr>
-                    ))}
-                  </Table.Tbody>
-                </Table>
-              </Paper>
-            )}
+            <TeamProfitTable byTeam={report.byTeam} />
           </Tabs.Panel>
         )}
       </Tabs>
@@ -614,7 +564,10 @@ const ProfitLossStatement = ({
       )}
 
       {/* 経理追加収支: 明細一覧（管理リンクはページ上部の AccountingMasterActions） */}
-      <ExtraEntrySection extraEntries={report.extraEntries} />
+      <ExtraEntrySection
+        extraEntries={report.extraEntries}
+        hasTeamBreakdown={!!report.byTeam}
+      />
 
       {/* 全体共通（参考）: teamleader のみデータが入る */}
       {((report.orgWideRecurringCosts &&

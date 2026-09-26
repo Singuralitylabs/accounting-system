@@ -12,9 +12,9 @@ type Props = {
   grossProfitTotal: number;
 };
 
-// 分類別収支（案件別収支のすぐ下に別の表として表示する。Issue #147）。
+// 分類別収支（収支の内訳タブの「分類別」。Issue #147 / #152）。
 // 振り分けは docs/specification.md 4.16.2「分類別収支の振り分けルール」。
-// 合計は案件別収支の合計と必ず一致する。明細への展開は持たない（明細は案件別収支で確認する）
+// 合計は売上総利益（案件 ＋ 経理追加収支）と必ず一致する。明細への展開は持たない（明細は案件別収支で確認する）
 const CategoryProfitTable = ({
   breakdown,
   revenueTotal,

@@ -42,9 +42,17 @@ export const useExpandedRows = () => {
       return next;
     });
   };
-  // 一括で開く / 閉じる（Issue #152。表ごとの「すべて開く」「すべて閉じる」）
-  const expandAll = (keys: readonly string[]) => setExpandedRows(new Set(keys));
-  const collapseAll = () => setExpandedRows(new Set());
+  // 一括で開く / 閉じる（Issue #152。表ごとの「すべて開く」「すべて閉じる」）。
+  // 種別の異なるキーが同じ集合に混在しうるため、渡したキーだけを開く / 閉じる
+  // （他の種別の展開状態は変えない）
+  const expandAll = (keys: readonly string[]) =>
+    setExpandedRows((prev) => new Set([...Array.from(prev), ...keys]));
+  const collapseAll = (keys: readonly string[]) =>
+    setExpandedRows((prev) => {
+      const next = new Set(prev);
+      keys.forEach((key) => next.delete(key));
+      return next;
+    });
   return { expandedRows, toggleRow, expandAll, collapseAll };
 };
 

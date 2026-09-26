@@ -8,11 +8,16 @@ import { Badge, Paper, Table, Text } from "@mantine/core";
 
 type Props = {
   extraEntries: ExtraEntryLine[];
+  // チーム別収支を表示するか（accounting / admin。説明文の対象を画面に合わせる）
+  hasTeamBreakdown?: boolean;
 };
 
 // 経理追加収支の明細一覧。管理画面への導線は損益計算書ページ上部の
 // AccountingMasterActions に集約したため、ここでは明細表示のみ行う。
-const ExtraEntrySection = ({ extraEntries }: Props) => {
+const ExtraEntrySection = ({
+  extraEntries,
+  hasTeamBreakdown = false,
+}: Props) => {
   if (extraEntries.length === 0) {
     return null;
   }
@@ -23,7 +28,9 @@ const ExtraEntrySection = ({ extraEntries }: Props) => {
         経理追加収支
       </Text>
       <Text size="xs" c="dimmed" className="mb-3">
-        案件に紐づかない収入・支出です。売上合計・案件費用合計（売上総利益）と、分類別・チーム別の収支に算入されています（案件別収支には含みません）。
+        案件に紐づかない収入・支出です。売上合計・案件費用合計（売上総利益）と、
+        {hasTeamBreakdown ? "分類別・チーム別" : "分類別"}
+        の収支に算入されています（案件別収支には含みません）。
       </Text>
       <Table verticalSpacing="xs">
         <Table.Thead>

@@ -54,6 +54,7 @@ const report = (withTeamBreakdown: boolean): PLReportType => ({
       isCustomTitle: false,
       category: "受託案件",
       team: "シンラボ",
+      teams: ["シンラボ"],
       revenue: 120000,
       cost: 30000,
       grossProfit: 90000,

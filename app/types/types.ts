@@ -204,7 +204,10 @@ export type MatterBreakdown = DisplayTitle & {
   matterId: number;
   matterTitle: string;
   category: string;
-  team: string;
+  team: string; // 最初の明細のチーム（通常は案件内で同じ）
+  // 明細のチーム（重複なし・出現順）。確定済みの月で一部の明細だけ反映した場合など、
+  // 同じ案件でも明細によってチームが異なることがある（その場合は 2 件以上）
+  teams: string[];
   revenue: number; // 売上明細の実績額合計
   cost: number; // 費用明細の実績額合計
   grossProfit: number; // revenue − cost
