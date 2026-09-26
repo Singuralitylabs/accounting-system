@@ -9,7 +9,11 @@ import { Alert, Group, Select, Tabs } from "@mantine/core";
 import { useState } from "react";
 import { CustomMonthPicker } from "../CustomMonthPicker";
 import { LoadingSpinner } from "../LoadingSpinner";
-import ProfitLossStatement from "./ProfitLossStatement";
+import ProfitLossStatement, {
+  BreakdownTab,
+  DEFAULT_BREAKDOWN_TAB,
+  resolveBreakdownTab,
+} from "./ProfitLossStatement";
 import AnnualTrendTable from "./AnnualTrendTable";
 import AccountingMasterActions from "./AccountingMasterActions";
 import CopyPreviousExtraEntriesButton from "./CopyPreviousExtraEntriesButton";
@@ -49,6 +53,10 @@ const ProfitLossView = ({
   const currentFiscalYear = monthToFiscalYear(initialMonth);
 
   const [activeTab, setActiveTab] = useState<string | null>("monthly");
+  // 月次の収支の内訳タブ（Issue #152）。月を切り替えても維持する
+  const [breakdownTab, setBreakdownTab] = useState<BreakdownTab>(
+    DEFAULT_BREAKDOWN_TAB,
+  );
   const [month, setMonth] = useState<string>(initialMonth);
   const [fiscalYear, setFiscalYear] = useState<number>(currentFiscalYear);
 
@@ -157,6 +165,11 @@ const ProfitLossView = ({
                 report={report}
                 canEditAdjustments={canEditAdjustments}
                 canEditLabels={canEditLabels}
+                breakdownTab={resolveBreakdownTab(
+                  breakdownTab,
+                  !!report.byTeam,
+                )}
+                onBreakdownTabChange={setBreakdownTab}
               />
             </>
           )}

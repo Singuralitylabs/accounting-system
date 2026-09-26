@@ -5,13 +5,11 @@ import {
   AdjustmentTarget,
   LabelTarget,
   MatterBreakdown,
-  TeamMatterGroup,
+  MatterTotals,
   TitledBusinessLine,
   TitledCostLine,
 } from "@/app/types/types";
 import { formatCurrency } from "@/app/utils/formatter";
-import { formatEntryType } from "@/app/utils/extraEntry";
-import { teamLabel } from "@/app/utils/constants";
 import {
   Badge,
   Button,
@@ -27,6 +25,7 @@ import {
   AdjustmentButton,
   AdjustmentIndicators,
   EditableTitle,
+  ExpandAllButtons,
   ExpandToggle,
   TitleExtras,
   adjustmentNote,
@@ -37,10 +36,10 @@ import {
 } from "./plTableParts";
 
 type Props = {
-  groups: TeamMatterGroup[];
-  revenueTotal: number;
-  matterCostTotal: number;
-  grossProfitTotal: number;
+  matters: MatterBreakdown[];
+  totals: MatterTotals; // 案件の合計（集計側で計算した PLReportType.matterTotals）
+  // 経理追加収支（案件外）があるか。この表には含めないため、売上総利益と一致しない旨を注記する
+  hasExtraEntries: boolean;
   canEditAdjustments: boolean; // 実績額修正の操作を表示するか（accounting / admin）
   isClosed?: boolean; // 確定済みの月か（Issue #148。実績額修正を無効化する）
   // 確定後に未処理の変更がある明細（"business:1" 形式）・案件（Issue #149。変更アイコンを付ける）
@@ -75,6 +74,24 @@ const ChangedIcon = ({ label }: { label: string }) => (
   </Tooltip>
 );
 
+// 明細によって分類・チームが異なる案件の目印（Issue #152。確定済みの月で一部の明細
+// だけ反映した場合など。分類別収支・チーム別収支は明細ごとの分類・チームで集計している）
+const MixedValuesIcon = ({ kind }: { kind: "分類" | "チーム" }) => {
+  const label = `明細によって${kind}が異なります（確定後に一部の明細だけ反映した場合など）。${kind}別収支は明細ごとの${kind}で集計しています`;
+  return (
+    <Tooltip label={label} multiline w={280}>
+      <span
+        className="inline-flex ml-1 text-orange-600 align-middle"
+        role="img"
+        aria-label={label}
+        tabIndex={0}
+      >
+        <FaExclamationCircle size="0.75rem" />
+      </span>
+    </Tooltip>
+  );
+};
+
 // 金額 3 列（売上 / 案件費用 / 粗利）。null の列は空欄にする（明細行は該当列のみ）
 const AmountCells = ({
   revenue,
@@ -104,14 +121,14 @@ const AmountCells = ({
   </>
 );
 
-// 案件別収支（チーム → 案件 → 案件内訳）。Issue #147
-// チームはマスタの並び順、案件は ID の昇順、案件内訳は売上明細 → 費用明細（各 ID 昇順）で、
-// 並び順は集計側（buildTeamMatterGroups）で確定済みのものをそのまま表示する。
+// 案件別収支（案件 → 案件内訳。Issue #147、#152 でチームの階層を廃止しチームは列で表示）。
+// 案件は ID の昇順、案件内訳は売上明細 → 費用明細（各 ID 昇順）で、
+// 並び順は集計側（buildMatterBreakdowns）で確定済みのものをそのまま表示する。
+// 経理追加収支は案件ではないため含めない（損益計算書の下の「経理追加収支」に表示する）
 const MatterProfitTable = ({
-  groups,
-  revenueTotal,
-  matterCostTotal,
-  grossProfitTotal,
+  matters,
+  totals,
+  hasExtraEntries,
   canEditAdjustments,
   isClosed = false,
   changedKeys = new Set<string>(),
@@ -122,7 +139,7 @@ const MatterProfitTable = ({
   canEditLabels,
   onEditTitle,
 }: Props) => {
-  const { expandedRows, toggleRow } = useExpandedRows();
+  const { expandedRows, toggleRow, expandAll, collapseAll } = useExpandedRows();
 
   const detailRow = (
     kind: "business" | "cost",
@@ -146,7 +163,7 @@ const MatterProfitTable = ({
       : { targetType: "cost", costId: id };
     return (
       <Table.Tr key={`${kind}-${id}`} className="bg-gray-50">
-        <Table.Td className="text-gray-600" style={INDENT.detail}>
+        <Table.Td className="text-gray-600" style={INDENT.child}>
           <Badge
             size="xs"
             variant="outline"
@@ -179,6 +196,7 @@ const MatterProfitTable = ({
             <span className="block text-xs text-gray-500 ml-12">{note}</span>
           )}
         </Table.Td>
+        <Table.Td />
         <Table.Td className="text-right text-gray-600">
           {isBusiness && (
             <>
@@ -208,214 +226,127 @@ const MatterProfitTable = ({
     );
   };
 
+  const matterKeyOf = (matterId: number) => `matter:${matterId}`;
+  const matterKeys = matters.map((matter) => matterKeyOf(matter.matterId));
+
   return (
     <Paper withBorder radius="md" className="overflow-x-auto mb-6">
       <Table verticalSpacing="sm" highlightOnHover>
         <Table.Thead>
           <Table.Tr>
             <Table.Th>案件別収支</Table.Th>
+            <Table.Th className="w-40">チーム</Table.Th>
             <Table.Th className="text-right w-32">売上</Table.Th>
             <Table.Th className="text-right w-32">案件費用</Table.Th>
             <Table.Th className="text-right w-32">粗利</Table.Th>
-            <Table.Th className="w-36" />
+            {/* 列見出しの名前は「操作」（一括開閉のボタンの文言を列名として読み上げないようにする） */}
+            <Table.Th className="w-36" aria-label="操作">
+              <ExpandAllButtons
+                label="案件別収支"
+                disabled={matters.length === 0}
+                onExpandAll={() => expandAll(matterKeys)}
+                onCollapseAll={() => collapseAll(matterKeys)}
+              />
+            </Table.Th>
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {groups.length === 0 && (
+          {matters.length === 0 && (
             <Table.Tr>
-              <Table.Td colSpan={5}>
+              <Table.Td colSpan={6}>
                 <Text size="sm" c="dimmed">
-                  この月に計上される案件・経理追加収支はありません。
+                  この月に計上される案件はありません。
                 </Text>
               </Table.Td>
             </Table.Tr>
           )}
-          {groups.map((group) => {
-            const teamKey = `team:${teamLabel(group.team)}`;
-            const isTeamExpanded = expandedRows.has(teamKey);
-            const extraKey = `${teamKey}:extra`;
-            const isExtraExpanded = expandedRows.has(extraKey);
+          {matters.map((matter) => {
+            const matterKey = matterKeyOf(matter.matterId);
+            const isMatterExpanded = expandedRows.has(matterKey);
             return (
-              <Fragment key={teamKey}>
-                <Table.Tr
-                  {...expandableRowProps(() => toggleRow(teamKey))}
-                  className="cursor-pointer bg-slate-50"
-                >
-                  <Table.Td className="font-bold">
+              <Fragment key={matterKey}>
+                <Table.Tr {...expandableRowProps(() => toggleRow(matterKey))}>
+                  <Table.Td className="text-gray-700">
                     <ExpandToggle
-                      isExpanded={isTeamExpanded}
-                      onToggle={() => toggleRow(teamKey)}
+                      isExpanded={isMatterExpanded}
+                      onToggle={() => toggleRow(matterKey)}
                     >
-                      {teamLabel(group.team)}
-                      {group.team === null && (
-                        <span className="text-xs text-gray-500 font-normal">
-                          （チーム未指定の経理追加収支）
-                        </span>
-                      )}
+                      <span className="text-xs text-gray-500">
+                        #{matter.matterId}
+                      </span>
+                      {matter.displayTitle}
                     </ExpandToggle>
+                    {changedMatterIds.has(matter.matterId) && (
+                      <ChangedIcon label="この案件は確定後に変更があります（未反映）" />
+                    )}
+                    <TitleExtras
+                      title={matter}
+                      originalTitle={matter.matterTitle}
+                      onEdit={
+                        canEditLabels
+                          ? () =>
+                              onEditTitle(
+                                {
+                                  targetType: "matter",
+                                  matterId: matter.matterId,
+                                },
+                                matter.matterTitle,
+                                matter.isCustomTitle
+                                  ? matter.displayTitle
+                                  : null,
+                              )
+                          : undefined
+                      }
+                    />
+                    {matter.categories.map((category) => (
+                      <Badge
+                        key={category}
+                        size="xs"
+                        variant="light"
+                        color="gray"
+                        className="ml-2"
+                      >
+                        {category}
+                      </Badge>
+                    ))}
+                    {matter.categories.length > 1 && (
+                      <MixedValuesIcon kind="分類" />
+                    )}
+                  </Table.Td>
+                  <Table.Td className="text-gray-700">
+                    {matter.teams.join(" / ")}
+                    {matter.teams.length > 1 && (
+                      <MixedValuesIcon kind="チーム" />
+                    )}
                   </Table.Td>
                   <AmountCells
-                    revenue={group.revenue}
-                    cost={group.cost}
-                    grossProfit={group.grossProfit}
-                    bold
+                    revenue={matter.revenue}
+                    cost={matter.cost}
+                    grossProfit={matter.grossProfit}
                   />
-                  <Table.Td />
+                  <Table.Td>
+                    <Group justify="center" wrap="nowrap">
+                      <Button
+                        size="xs"
+                        variant="light"
+                        loading={loadingMatterId === matter.matterId}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onShowMatter(matter.matterId);
+                        }}
+                      >
+                        案件を表示
+                      </Button>
+                    </Group>
+                  </Table.Td>
                 </Table.Tr>
-                {isTeamExpanded && (
+                {isMatterExpanded && (
                   <>
-                    {group.matters.map((matter) => {
-                      const matterKey = `matter:${matter.matterId}`;
-                      const isMatterExpanded = expandedRows.has(matterKey);
-                      return (
-                        <Fragment key={matterKey}>
-                          <Table.Tr
-                            {...expandableRowProps(() => toggleRow(matterKey))}
-                          >
-                            <Table.Td
-                              className="text-gray-700"
-                              style={INDENT.child}
-                            >
-                              <ExpandToggle
-                                isExpanded={isMatterExpanded}
-                                onToggle={() => toggleRow(matterKey)}
-                              >
-                                <span className="text-xs text-gray-500">
-                                  #{matter.matterId}
-                                </span>
-                                {matter.displayTitle}
-                              </ExpandToggle>
-                              {changedMatterIds.has(matter.matterId) && (
-                                <ChangedIcon label="この案件は確定後に変更があります（未反映）" />
-                              )}
-                              <TitleExtras
-                                title={matter}
-                                originalTitle={matter.matterTitle}
-                                onEdit={
-                                  canEditLabels
-                                    ? () =>
-                                        onEditTitle(
-                                          {
-                                            targetType: "matter",
-                                            matterId: matter.matterId,
-                                          },
-                                          matter.matterTitle,
-                                          matter.isCustomTitle
-                                            ? matter.displayTitle
-                                            : null,
-                                        )
-                                    : undefined
-                                }
-                              />
-                              <Badge
-                                size="xs"
-                                variant="light"
-                                color="gray"
-                                className="ml-2"
-                              >
-                                {matter.category}
-                              </Badge>
-                            </Table.Td>
-                            <AmountCells
-                              revenue={matter.revenue}
-                              cost={matter.cost}
-                              grossProfit={matter.grossProfit}
-                            />
-                            <Table.Td>
-                              <Group justify="center" wrap="nowrap">
-                                <Button
-                                  size="xs"
-                                  variant="light"
-                                  loading={loadingMatterId === matter.matterId}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    onShowMatter(matter.matterId);
-                                  }}
-                                >
-                                  案件を表示
-                                </Button>
-                              </Group>
-                            </Table.Td>
-                          </Table.Tr>
-                          {isMatterExpanded && (
-                            <>
-                              {matter.businesses.map((line) =>
-                                detailRow("business", line, matter),
-                              )}
-                              {matter.costs.map((line) =>
-                                detailRow("cost", line, matter),
-                              )}
-                            </>
-                          )}
-                        </Fragment>
-                      );
-                    })}
-                    {group.extraEntries.length > 0 && (
-                      <>
-                        <Table.Tr
-                          {...expandableRowProps(() => toggleRow(extraKey))}
-                        >
-                          <Table.Td
-                            className="text-gray-700"
-                            style={INDENT.child}
-                          >
-                            <ExpandToggle
-                              isExpanded={isExtraExpanded}
-                              onToggle={() => toggleRow(extraKey)}
-                            >
-                              経理追加収支（案件外）
-                            </ExpandToggle>
-                          </Table.Td>
-                          <AmountCells
-                            revenue={group.extraRevenue}
-                            cost={group.extraCost}
-                            grossProfit={group.extraRevenue - group.extraCost}
-                          />
-                          <Table.Td />
-                        </Table.Tr>
-                        {/* 経理追加収支は案件に紐づかないため「案件を表示」・実績額修正の対象外 */}
-                        {isExtraExpanded &&
-                          group.extraEntries.map((entry) => (
-                            <Table.Tr
-                              key={`extra-${entry.extraEntryId}`}
-                              className="bg-gray-50"
-                            >
-                              <Table.Td
-                                className="text-gray-600"
-                                style={INDENT.detail}
-                              >
-                                <Badge
-                                  size="xs"
-                                  variant="outline"
-                                  color={
-                                    entry.entryType === "income"
-                                      ? "green"
-                                      : "red"
-                                  }
-                                  className="mr-2"
-                                >
-                                  {formatEntryType(entry.entryType)}
-                                </Badge>
-                                {entry.description}
-                                <span className="text-xs text-gray-500 ml-1">
-                                  （{entry.category}）
-                                </span>
-                              </Table.Td>
-                              <Table.Td className="text-right text-gray-600">
-                                {entry.entryType === "income"
-                                  ? formatCurrency(entry.billingAmount)
-                                  : ""}
-                              </Table.Td>
-                              <Table.Td className="text-right text-gray-600">
-                                {entry.expenseAmount !== null
-                                  ? formatCurrency(entry.expenseAmount)
-                                  : ""}
-                              </Table.Td>
-                              <Table.Td />
-                              <Table.Td />
-                            </Table.Tr>
-                          ))}
-                      </>
+                    {matter.businesses.map((line) =>
+                      detailRow("business", line, matter),
+                    )}
+                    {matter.costs.map((line) =>
+                      detailRow("cost", line, matter),
                     )}
                   </>
                 )}
@@ -423,17 +354,23 @@ const MatterProfitTable = ({
             );
           })}
           <Table.Tr className="bg-slate-100 border-t-2 border-gray-300">
-            <Table.Td className="font-bold">合計</Table.Td>
+            <Table.Td className="font-bold">案件の合計</Table.Td>
+            <Table.Td />
             <AmountCells
-              revenue={revenueTotal}
-              cost={matterCostTotal}
-              grossProfit={grossProfitTotal}
+              revenue={totals.revenue}
+              cost={totals.cost}
+              grossProfit={totals.grossProfit}
               bold
             />
             <Table.Td />
           </Table.Tr>
         </Table.Tbody>
       </Table>
+      {hasExtraEntries && (
+        <Text size="xs" c="dimmed" px="md" py="xs">
+          経理追加収支（案件外）はこの表に含みません（下の「経理追加収支」を参照）。売上総利益には経理追加収支も含まれるため、案件の合計とは一致しません。
+        </Text>
+      )}
     </Paper>
   );
 };

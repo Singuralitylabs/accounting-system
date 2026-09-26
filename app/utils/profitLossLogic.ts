@@ -12,6 +12,7 @@ import {
   ExtraEntryType,
   GrossProfitBreakdown,
   MatterBreakdown,
+  MatterTotals,
   OrphanedAdjustmentType,
   PLMonthLines,
   PLReportType,
@@ -21,7 +22,6 @@ import {
   RecurringCostLine,
   RecurringCostType,
   TeamBreakdown,
-  TeamMatterGroup,
   TitledBusinessLine,
   TitledCostLine,
   TitledRecurringCostLine,
@@ -289,9 +289,6 @@ export type MonthlyReportInput = {
   // 確定後の変更 closingDiffs）を計算するか。年間推移（12ヶ月分を一括計算）は表示に
   // 使わないため false を渡し、12ヶ月分の無駄な計算を避ける（月次タブの単月表示でのみ true）
   includeMonthlyDetails: boolean;
-  // 案件別収支のチームの並び順（項目管理のチームマスタの display_order 順）。
-  // マスタに無いチーム（無効化・削除済み）は後ろに名称順で並ぶ
-  teamOrder?: string[];
   // 損益計算書上の表示タイトル（Issue #150。RLS により閲覧できる行のみ）
   labels?: ProfitLossLabelType[];
 };
@@ -516,23 +513,6 @@ export const buildLiveMonthLines = ({
   };
 };
 
-// 案件別収支のチームの並び順。マスタ（teamOrder）の順 → マスタに無いチームは名称順 →
-// 全体共通（NULL）は最後
-export const compareTeams = (teamOrder: readonly string[]) => {
-  const rank = new Map(teamOrder.map((team, index) => [team, index]));
-  return (a: string | null, b: string | null): number => {
-    if (a === b) return 0;
-    if (a === null) return 1;
-    if (b === null) return -1;
-    const rankA = rank.get(a);
-    const rankB = rank.get(b);
-    if (rankA !== undefined && rankB !== undefined) return rankA - rankB;
-    if (rankA !== undefined) return -1;
-    if (rankB !== undefined) return 1;
-    return a.localeCompare(b, "ja");
-  };
-};
-
 const titledBusinessLine = (
   line: BusinessLine,
   labelIndex: LabelIndex,
@@ -558,36 +538,27 @@ const titledRecurringCostLine = (
   ),
 });
 
-// 案件別収支（チーム → 案件 → 案件内訳）を組み立てる。
-// 明細行はいずれもちょうど1つのチーム（経理追加収支のチーム未指定は全体共通）・
-// 1つの案件（経理追加収支は案件外）に属するため、チーム小計の合計は
-// 売上合計・案件費用合計と必ず一致する。
-export const buildTeamMatterGroups = (
+// 案件別収支（案件 → 案件内訳）を組み立てる（Issue #152 でチームの階層を廃止）。
+// 案件は ID の昇順、案件内訳は売上明細 → 費用明細（各 ID の昇順）。
+// 経理追加収支は案件ではないため含めない（売上合計・案件費用合計には別途加算する）。
+// 明細によって分類・チームが異なる場合に画面で示せるよう、明細の分類・チームの一覧
+// （categories / teams）を持つ（分類別・チーム別の集計は明細単位で行う）。
+// 取得順（ライブ / 確定明細）に依らず表示が揃うよう、明細を ID 順に並べてから組み立てる
+// （案件名も売上明細 → 費用明細の ID 順で最初の明細のものを使う）
+export const buildMatterBreakdowns = (
   businesses: BusinessLine[],
   costs: CostLine[],
-  extraEntries: ExtraEntryLine[],
-  teamOrder: readonly string[] = [],
   labelIndex: LabelIndex = buildLabelIndex(),
-): TeamMatterGroup[] => {
-  const groups = new Map<
-    string | null,
-    { matters: Map<number, MatterBreakdown>; extraEntries: ExtraEntryLine[] }
-  >();
-  const getGroup = (team: string | null) => {
-    if (!groups.has(team)) {
-      groups.set(team, { matters: new Map(), extraEntries: [] });
-    }
-    return groups.get(team)!;
-  };
+): MatterBreakdown[] => {
+  const matters = new Map<number, MatterBreakdown>();
   const getMatter = (line: BusinessLine | CostLine) => {
-    const matters = getGroup(line.team).matters;
     if (!matters.has(line.matterId)) {
       matters.set(line.matterId, {
         ...resolveTitle(line.matterTitle, labelIndex.matter.get(line.matterId)),
         matterId: line.matterId,
         matterTitle: line.matterTitle,
-        category: line.category,
-        team: line.team,
+        categories: [],
+        teams: [],
         revenue: 0,
         cost: 0,
         grossProfit: 0,
@@ -595,68 +566,48 @@ export const buildTeamMatterGroups = (
         costs: [],
       });
     }
-    return matters.get(line.matterId)!;
+    const matter = matters.get(line.matterId)!;
+    if (!matter.categories.includes(line.category)) {
+      matter.categories.push(line.category);
+    }
+    if (!matter.teams.includes(line.team)) {
+      matter.teams.push(line.team);
+    }
+    return matter;
   };
 
-  businesses.forEach((line) => {
+  [...businesses].sort(byNumber((line) => line.businessId)).forEach((line) => {
     const matter = getMatter(line);
     matter.revenue += line.actualAmount;
     matter.businesses.push(titledBusinessLine(line, labelIndex));
   });
-  costs.forEach((line) => {
+  [...costs].sort(byNumber((line) => line.costId)).forEach((line) => {
     const matter = getMatter(line);
     matter.cost += line.actualAmount;
     matter.costs.push(titledCostLine(line, labelIndex));
   });
-  extraEntries.forEach((entry) => {
-    getGroup(entry.team).extraEntries.push(entry);
-  });
 
-  return Array.from(groups.entries())
-    .sort(([a], [b]) => compareTeams(teamOrder)(a, b))
-    .map(([team, group]) => {
-      const matters = Array.from(group.matters.values())
-        .map((matter) => ({
-          ...matter,
-          grossProfit: matter.revenue - matter.cost,
-          businesses: [...matter.businesses].sort(
-            byNumber((line) => line.businessId),
-          ),
-          costs: [...matter.costs].sort(byNumber((line) => line.costId)),
-        }))
-        .sort(byNumber((matter) => matter.matterId));
-      const sortedExtraEntries = [...group.extraEntries].sort(
-        byNumber((line) => line.extraEntryId),
-      );
-      const extraRevenue = sortedExtraEntries.reduce(
-        (sum, entry) => sum + extraEntryRevenue(entry),
-        0,
-      );
-      const extraCost = sortedExtraEntries.reduce(
-        (sum, entry) => sum + extraEntryCost(entry),
-        0,
-      );
-      const revenue =
-        matters.reduce((sum, matter) => sum + matter.revenue, 0) + extraRevenue;
-      const cost =
-        matters.reduce((sum, matter) => sum + matter.cost, 0) + extraCost;
-      return {
-        team,
-        revenue,
-        cost,
-        grossProfit: revenue - cost,
-        matters,
-        extraEntries: sortedExtraEntries,
-        extraRevenue,
-        extraCost,
-      };
-    });
+  return Array.from(matters.values())
+    .map((matter) => ({
+      ...matter,
+      grossProfit: matter.revenue - matter.cost,
+    }))
+    .sort(byNumber((matter) => matter.matterId));
+};
+
+// 案件別収支の合計（案件の売上・費用のみ。経理追加収支は含まない）
+export const sumMatterBreakdowns = (
+  matters: readonly MatterBreakdown[],
+): MatterTotals => {
+  const revenue = matters.reduce((sum, matter) => sum + matter.revenue, 0);
+  const cost = matters.reduce((sum, matter) => sum + matter.cost, 0);
+  return { revenue, cost, grossProfit: revenue - cost };
 };
 
 // 分類別収支（売上分類の大分類ごとに 売上 − 案件費用）。
 // 案件の売上・費用は案件の分類（matters.category）へ、経理追加収支の請求額・経費は
 // エントリの分類へ振り分ける。いずれもちょうど1つの分類に属するため、
-// 合計は「売上合計 − 案件費用合計」（= 案件別収支の合計）と必ず一致する。
+// 合計は「売上合計 − 案件費用合計」（= 売上総利益）と必ず一致する。
 // 分類の値はマスタ（select_options）に追従するため、特定の分類名には依存しない。
 export const buildCategoryBreakdown = (
   businesses: BusinessLine[],
@@ -691,7 +642,6 @@ export type AggregateInput = {
   lines: PLMonthLines;
   isTeamLeader: boolean;
   includeTeamBreakdown: boolean;
-  teamOrder?: readonly string[];
   labels?: ProfitLossLabelType[];
 };
 
@@ -703,7 +653,6 @@ export const aggregateMonthLines = ({
   lines,
   isTeamLeader,
   includeTeamBreakdown,
-  teamOrder = [],
   labels = [],
 }: AggregateInput): PLReportType => {
   const labelIndex = buildLabelIndex(labels);
@@ -726,11 +675,9 @@ export const aggregateMonthLines = ({
     : undefined;
 
   // ===== 案件別収支・分類別収支 =====
-  const teamMatterGroups = buildTeamMatterGroups(
+  const matterBreakdowns = buildMatterBreakdowns(
     lines.businesses,
     lines.costs,
-    countedExtraEntries,
-    teamOrder,
     labelIndex,
   );
   const categoryBreakdown = buildCategoryBreakdown(
@@ -738,14 +685,17 @@ export const aggregateMonthLines = ({
     lines.costs,
     countedExtraEntries,
   );
-  const revenueTotal = teamMatterGroups.reduce(
-    (sum, group) => sum + group.revenue,
-    0,
-  );
-  const matterCostTotal = teamMatterGroups.reduce(
-    (sum, group) => sum + group.cost,
-    0,
-  );
+  const matterTotals = sumMatterBreakdowns(matterBreakdowns);
+  // 売上合計・案件費用合計は、案件の売上・費用に経理追加収支の請求額・経費を加えたもの
+  const revenueTotal =
+    matterTotals.revenue +
+    countedExtraEntries.reduce(
+      (sum, entry) => sum + extraEntryRevenue(entry),
+      0,
+    );
+  const matterCostTotal =
+    matterTotals.cost +
+    countedExtraEntries.reduce((sum, entry) => sum + extraEntryCost(entry), 0);
   const grossProfitTotal = revenueTotal - matterCostTotal;
 
   // ===== 管理費（定期費用。費目別。明細は展開表示に使う） =====
@@ -788,11 +738,19 @@ export const aggregateMonthLines = ({
       }
       return teamMap.get(label)!;
     };
-    // 案件別収支と同じ明細・実績額を使う（本表とチーム別内訳がズレないようにする）
-    teamMatterGroups.forEach((group) => {
-      const entry = getTeamEntry(group.team);
-      entry.revenue += group.revenue;
-      entry.matterCost += group.cost;
+    // 売上合計と同じ明細・実績額を使う（本表とチーム別内訳がズレないようにする）。
+    // チームは明細ごとの値を使う（確定済みの月で一部の明細だけ反映した場合など、
+    // 同じ案件でも明細によってチームが異なることがあるため、案件単位では集計しない）
+    lines.businesses.forEach((line) => {
+      getTeamEntry(line.team).revenue += line.actualAmount;
+    });
+    lines.costs.forEach((line) => {
+      getTeamEntry(line.team).matterCost += line.actualAmount;
+    });
+    countedExtraEntries.forEach((extra) => {
+      const entry = getTeamEntry(extra.team);
+      entry.revenue += extraEntryRevenue(extra);
+      entry.matterCost += extraEntryCost(extra);
     });
     lines.recurringCosts.forEach((line) => {
       getTeamEntry(line.team).recurringCost += line.actualAmount;
@@ -811,7 +769,8 @@ export const aggregateMonthLines = ({
     revenueTotal,
     matterCostTotal,
     grossProfitTotal,
-    teamMatterGroups,
+    matterBreakdowns,
+    matterTotals,
     categoryBreakdown,
     recurringCostTotal,
     recurringCostByItem,

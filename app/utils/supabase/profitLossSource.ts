@@ -33,7 +33,6 @@ import { toFirstOfMonth } from "../formatter";
 import { createServerSupabase } from "./clients";
 import { fetchClosedMonthKeys } from "./closedMonthsQuery";
 import { fetchAllByIds, fetchAllPages } from "./paging";
-import { getActiveSelectOptionsByType } from "./selectOptionsCache";
 
 // business / costs の取得列。計上月（案件開始日）・下書き判定・ラベル解決に
 // matters の列を使うため join を含む。通常取得と orphanedAdjustments 用の補完取得で同じ形を使う。
@@ -54,7 +53,6 @@ export type LiveSourceRows = {
 };
 
 export type ReportSourceRows = LiveSourceRows & {
-  teamOrder: string[];
   labels: ProfitLossLabelType[];
   // 確定済みの月（"YYYY-MM"）→ 確定スナップショット（Issue #148）
   closings: Map<string, MonthClosingSnapshot>;
@@ -259,11 +257,9 @@ export const fetchReportSourceRows = async (
       .limit(limit),
   );
 
-  const [sourceRows, labelResult, teamOptions] = await Promise.all([
+  const [sourceRows, labelResult] = await Promise.all([
     fetchClosingSourceRows(period),
     labelQuery,
-    // 案件別収支のチームの並び順（項目管理のチームマスタの display_order 順）
-    getActiveSelectOptionsByType(["team"]),
   ]);
   if (!sourceRows) {
     return null;
@@ -272,19 +268,8 @@ export const fetchReportSourceRows = async (
     console.error("損益レポートのデータ取得に失敗しました:", labelResult.error);
     return null;
   }
-  // 並び順の取得失敗は集計値に影響しないため致命的にはしない（チーム名順で表示する）
-  if (teamOptions.error) {
-    console.error(
-      "損益レポートのチーム並び順の取得に失敗しました（チーム名順で表示します）:",
-      teamOptions.error,
-    );
-  }
-
   return {
     ...sourceRows,
-    teamOrder: (teamOptions.optionsByType.team ?? []).map(
-      (option) => option.value,
-    ),
     labels: labelResult.data ?? [],
   };
 };

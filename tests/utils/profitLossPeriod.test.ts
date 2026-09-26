@@ -298,8 +298,8 @@ describe("orphanedAdjustments のラベル解決（補完取得）", () => {
       withoutSupplement.ordinaryProfit,
     );
     expect(withSupplement.undated).toEqual(withoutSupplement.undated);
-    expect(withSupplement.teamMatterGroups).toEqual(
-      withoutSupplement.teamMatterGroups,
+    expect(withSupplement.matterBreakdowns).toEqual(
+      withoutSupplement.matterBreakdowns,
     );
   });
 });

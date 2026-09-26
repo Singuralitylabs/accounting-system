@@ -413,7 +413,6 @@ export const buildMonthReport = (
     lines,
     isTeamLeader: input.isTeamLeader,
     includeTeamBreakdown: input.includeTeamBreakdown,
-    teamOrder: input.teamOrder,
     labels: input.labels,
   });
   // 対象行なし調整・確定後の変更は、経理担当者・管理者（includeTeamBreakdown）の
