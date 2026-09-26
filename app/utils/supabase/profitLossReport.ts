@@ -49,17 +49,24 @@ export const getProfitLossReport = async (
     month,
     ...rows,
     closing: rows.closings.get(month) ?? null,
-    includeOrphanedAdjustments: true,
+    includeMonthlyDetails: true,
     ...reportFlags(profileInfo.class),
   });
 
-  // 確定後の差分（Issue #149）の追加・削除に、他の月との移動の情報を付ける
+  // 確定後の差分（Issue #149）の追加・削除に、他の月との移動の情報を付ける。
+  // 取得に失敗した場合は、相手側の月も確定済みかどうか（片方だけ反映すると両月の合計が
+  // ずれる警告）が分からないため、差分一覧で注意を出して反映を止める
   if (report.closingDiffs) {
-    const context = await fetchDiffMoveContext(month, [
+    const { context, failed } = await fetchDiffMoveContext(month, [
       ...report.closingDiffs.pending,
       ...report.closingDiffs.dismissed,
     ]);
-    if (context) {
+    if (failed) {
+      report.closingDiffs = {
+        ...report.closingDiffs,
+        moveInfoUnavailable: true,
+      };
+    } else if (context) {
       report.closingDiffs = annotateDiffMoves(report.closingDiffs, context);
     }
   }
@@ -100,9 +107,10 @@ export const getAnnualTrend = async (
       month,
       ...rows,
       closing: rows.closings.get(month) ?? null,
-      // 年間推移は orphanedAdjustments を表示に使わないため 12ヶ月分の
-      // 無駄な計算を避ける（AnnualTrendTable は参照しない）
-      includeOrphanedAdjustments: false,
+      // 年間推移は対象行なし調整・確定後の変更を表示に使わないため 12ヶ月分の
+      // 無駄な計算を避ける（AnnualTrendTable は参照しない。差分の件数はバナー用の
+      // getClosingDiffSummary から取る）
+      includeMonthlyDetails: false,
       ...reportFlags(profileInfo.class),
     }),
   );

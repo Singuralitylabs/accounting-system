@@ -155,6 +155,33 @@ describe("ClosingDiffPanel", () => {
     );
   });
 
+  it("移動の情報を取得できなかった場合は注意を出し、反映できない（見送りはできる）", () => {
+    renderWithMantine(
+      <ClosingDiffPanel
+        report={report({
+          pending: [baseDiff({})],
+          dismissed: [],
+          moveInfoUnavailable: true,
+        })}
+        loadingMatterId={null}
+        onShowMatter={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByText(/移動した明細かどうかを確認できませんでした/),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "案件X 取引先Aを選択" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "選択した変更を反映" }),
+    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "すべて反映" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "選択した変更を見送る" }),
+    ).toBeEnabled();
+  });
+
   it("選択した差分を見送れ、見送り済みから取り消せる", async () => {
     const dismissed = baseDiff({
       key: "cost:5",

@@ -6,6 +6,7 @@ import {
   formatEntryType,
   shiftDateToMonth,
   isExtraEntryUnchanged,
+  selectChangedExtraEntries,
 } from "@/app/utils/extraEntry";
 import { ExtraEntryType } from "@/app/types/types";
 
@@ -243,5 +244,41 @@ describe("isExtraEntryUnchanged", () => {
     expect(
       isExtraEntryUnchanged(original, asRow({ description: "出張2" })),
     ).toBe(false);
+  });
+});
+
+describe("selectChangedExtraEntries", () => {
+  const asRow = (
+    overrides: Partial<ExtraEntryType>,
+    flags: { isNew?: boolean; isRemoved?: boolean } = {},
+  ) => ({
+    ...entry(overrides),
+    isNew: false,
+    isRemoved: false,
+    ...flags,
+  });
+  const baseline = new Map(
+    [entry({ id: 1 }), entry({ id: 2 }), entry({ id: 3 })].map((row) => [
+      row.id,
+      row,
+    ]),
+  );
+
+  it("追加・削除・編集した行だけを選び、編集していない行と追加の取り消しは送らない", () => {
+    const rows = [
+      asRow({ id: 1 }), // 未変更
+      asRow({ id: 2, billing_amount: 400000 }), // 編集
+      asRow({ id: 3 }, { isRemoved: true }), // 削除
+      asRow({ id: 10 }, { isNew: true }), // 追加
+      asRow({ id: 11 }, { isNew: true, isRemoved: true }), // 追加して取り消し
+    ];
+    expect(
+      selectChangedExtraEntries(rows, baseline).map((row) => row.id),
+    ).toEqual([2, 3, 10]);
+  });
+
+  it("読み込み時点の値と比べる（読み込み後に他の利用者が変えた行を上書きしない）", () => {
+    // 画面の行は読み込み時点のまま。DB 側が後から変わっていても送らない
+    expect(selectChangedExtraEntries([asRow({ id: 1 })], baseline)).toEqual([]);
   });
 });

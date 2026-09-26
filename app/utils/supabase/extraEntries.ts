@@ -4,7 +4,6 @@ import { AccessFailure, ExtraEntryInListType } from "../../types/types";
 import {
   buildCopiedExtraEntries,
   excludeDuplicateExtraEntries,
-  isExtraEntryUnchanged,
   toExtraEntryDbRow as toDbRow,
 } from "../extraEntry";
 import { addMonths, toFirstOfMonth } from "../formatter";
@@ -12,8 +11,8 @@ import {
   CLOSED_MONTH_LOCK_MESSAGE,
   findExtraEntryLockViolations,
   isClosedMonth,
-  toClosedMonthSet,
 } from "../profitLossClosing";
+import { fetchClosedMonthKeys } from "./closedMonthsQuery";
 import { createServerSupabase } from "./clients";
 
 // 経理追加収支一覧の取得（RLS により権限に応じた行のみ返る）
@@ -35,29 +34,30 @@ export const getExtraEntryList = async () => {
 
 // 確定済みの月（損益計算書の月次収支確定。Issue #148）の集合を取得する
 const fetchClosedMonths = async () => {
-  const supabase = createServerSupabase();
-  const { data, error } = await supabase
-    .from("profit_loss_closings")
-    .select("target_month");
-  return { closedMonths: toClosedMonthSet(data ?? []), error };
+  const { months, error } = await fetchClosedMonthKeys();
+  return { closedMonths: new Set(months ?? []), error };
 };
 
 export type BulkUpsertExtraEntryResult = { error?: AccessFailure };
 
-// 経理追加収支の一括登録・更新・削除
+// 経理追加収支の一括登録・更新・削除。
+// extraEntries は追加・削除・編集した行のみ（画面側で selectChangedExtraEntries により選ぶ）。
+// 送られた保存済みの行はすべて更新対象として扱う。
 // 書き込み権限（accounting / admin のみ）は RLS で担保される。
 // 確定済みの月（Issue #148）のエントリの追加・更新・削除、確定済みの月へ / からの
 // 日付の変更は RLS でも拒否されるが、UPDATE / DELETE は RLS で拒否されると 0 行更新に
 // なるだけでエラーにならない（黙って保存されない）ため、書き込み前にここで判定し、
-// 1 件でも該当すれば何も書き込まずに分かりやすいエラーを返す
+// 1 件でも該当すれば何も書き込まずに分かりやすいエラーを返す。
+// 更新する行が既に削除されていた（画面の読み込み後に他の利用者が削除した）場合も、
+// 書き込み前に拒否する（UPDATE が 0 行になって一部だけ保存されるのを防ぐ）
 export const bulkUpsertExtraEntry = async (
   extraEntries: ExtraEntryInListType[]
 ): Promise<BulkUpsertExtraEntryResult> => {
   const supabase = createServerSupabase();
 
-  const existingIds = extraEntries
-    .filter((ee) => !ee.isNew)
-    .map((ee) => ee.id);
+  const existingIds = Array.from(
+    new Set(extraEntries.filter((ee) => !ee.isNew).map((ee) => ee.id))
+  );
   const [{ closedMonths, error: closingError }, originalResult] =
     await Promise.all([
       fetchClosedMonths(),
@@ -75,6 +75,21 @@ export const bulkUpsertExtraEntry = async (
   const originals = new Map(
     (originalResult.data ?? []).map((row) => [row.id, row])
   );
+  // 読み込み後に他の利用者が削除した行の更新は拒否する（削除は既に目的を果たしているため
+  // 対象から外すだけにする）
+  const deletedUpdates = extraEntries.filter(
+    (ee) => !ee.isNew && !ee.isRemoved && !originals.has(ee.id)
+  );
+  if (deletedUpdates.length > 0) {
+    return {
+      error: {
+        kind: "validationFailed",
+        message: `編集した行のうち、他の利用者に削除された行があります。画面を再読み込みしてから編集し直してください。（対象: ${deletedUpdates
+          .map((ee) => ee.description || "（内容未入力の行）")
+          .join("、")}）`,
+      },
+    };
+  }
   const violations = findExtraEntryLockViolations(
     extraEntries,
     originals,
@@ -91,14 +106,12 @@ export const bulkUpsertExtraEntry = async (
 
   // 新規作成用
   const newEntries = extraEntries.filter((ee) => ee.isNew && !ee.isRemoved);
-  // 更新用（編集していない行は UPDATE しない。画面は全行を送るため）
-  const updateEntries = extraEntries.filter((ee) => {
-    if (ee.isNew || ee.isRemoved) return false;
-    const original = originals.get(ee.id);
-    return !original || !isExtraEntryUnchanged(original, ee);
-  });
-  // 削除用
-  const deleteEntries = extraEntries.filter((ee) => ee.isRemoved && !ee.isNew);
+  // 更新用
+  const updateEntries = extraEntries.filter((ee) => !ee.isNew && !ee.isRemoved);
+  // 削除用（既に削除されている行は除く）
+  const deleteEntries = extraEntries.filter(
+    (ee) => ee.isRemoved && !ee.isNew && originals.has(ee.id)
+  );
 
   const operations = [];
 

@@ -924,9 +924,9 @@ export type Database = {
     Functions: {
       apply_profit_loss_closing_diffs: {
         Args: {
+          p_delete_keys: Json
           p_target_month: string
           p_upsert_lines: Json
-          p_delete_keys: Json
         }
         Returns: {
           applied_count: number
@@ -941,8 +941,8 @@ export type Database = {
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
       dismiss_profit_loss_closing_diffs: {
         Args: {
-          p_target_month: string
           p_dismissals: Json
+          p_target_month: string
         }
         Returns: {
           dismissed_count: number
@@ -988,9 +988,9 @@ export type Database = {
       }
       save_profit_loss_closing: {
         Args: {
-          p_target_month: string
-          p_lines: Json
           p_closing_id?: number
+          p_lines: Json
+          p_target_month: string
         }
         Returns: {
           id: number
@@ -998,10 +998,10 @@ export type Database = {
       }
       save_profit_loss_label: {
         Args: {
-          p_label: string
-          p_matter_id?: number
           p_business_id?: number
           p_cost_id?: number
+          p_label: string
+          p_matter_id?: number
           p_recurring_cost_id?: number
         }
         Returns: {
@@ -1010,8 +1010,8 @@ export type Database = {
       }
       undo_profit_loss_closing_dismissals: {
         Args: {
-          p_target_month: string
           p_keys: Json
+          p_target_month: string
         }
         Returns: {
           undone_count: number

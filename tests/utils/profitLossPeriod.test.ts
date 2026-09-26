@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   BusinessRow,
   CostRow,
-  buildMonthlyReport,
   collectMissingAdjustmentTargetIds,
   datedOrUndatedFilter,
   doesRecurringCostOverlapRange,
   fiscalYearMonths,
+  groupConsecutiveMonths,
   isAdjustmentInRange,
   isDateInRangeOrUndated,
   isMatterInRangeOrUndated,
@@ -15,6 +15,7 @@ import {
   recurringOverlapEndFilter,
   reportRangeBounds,
 } from "@/app/utils/profitLossLogic";
+import { buildMonthReport } from "@/app/utils/profitLossClosing";
 import {
   ExtraEntryType,
   ProfitLossAdjustmentType,
@@ -250,10 +251,10 @@ describe("orphanedAdjustments のラベル解決（補完取得）", () => {
       extraEntries: [] as ExtraEntryType[],
       isTeamLeader: false,
       includeTeamBreakdown: true,
-      includeOrphanedAdjustments: true,
+      includeMonthlyDetails: true,
     };
     // 期間絞り込みで対象行が落ちた状態：ラベルは汎用表示に落ちる
-    const withoutSupplement = buildMonthlyReport({
+    const withoutSupplement = buildMonthReport({
       ...base,
       businessRows: [monthlyRow],
       adjustments,
@@ -272,7 +273,7 @@ describe("orphanedAdjustments のラベル解決（補完取得）", () => {
       new Set(),
     );
     expect(missing.businessIds).toEqual([movedRow.id]);
-    const withSupplement = buildMonthlyReport({
+    const withSupplement = buildMonthReport({
       ...base,
       businessRows: [monthlyRow, movedRow],
       adjustments,
@@ -432,9 +433,9 @@ describe("期間絞り込みの前後で集計値が変わらない", () => {
       recurringCosts: [] as RecurringCostType[],
       isTeamLeader: false,
       includeTeamBreakdown: true,
-      includeOrphanedAdjustments: true,
+      includeMonthlyDetails: true,
     };
-    const full = buildMonthlyReport({
+    const full = buildMonthReport({
       ...base,
       businessRows,
       costRows,
@@ -447,7 +448,7 @@ describe("期間絞り込みの前後で集計値が変わらない", () => {
       startMonth: "2026-07",
       endMonth: "2026-07",
     });
-    const filtered = buildMonthlyReport({
+    const filtered = buildMonthReport({
       ...base,
       businessRows: businessRows.filter((row) =>
         isMatterInRangeOrUndated(row.matters, bounds),
@@ -641,10 +642,10 @@ describe("期間絞り込みの前後で集計値が変わらない", () => {
         month,
         isTeamLeader: false,
         includeTeamBreakdown: false,
-        includeOrphanedAdjustments: false,
+        includeMonthlyDetails: false,
       };
       expect(
-        buildMonthlyReport({
+        buildMonthReport({
           ...base,
           businessRows: filteredBusiness,
           costRows: filteredCosts,
@@ -653,7 +654,7 @@ describe("期間絞り込みの前後で集計値が変わらない", () => {
           adjustments: filteredAdjustments,
         }),
       ).toEqual(
-        buildMonthlyReport({
+        buildMonthReport({
           ...base,
           businessRows,
           costRows,
@@ -663,5 +664,17 @@ describe("期間絞り込みの前後で集計値が変わらない", () => {
         }),
       );
     });
+  });
+});
+
+describe("groupConsecutiveMonths", () => {
+  it("連続する月を 1 つの取得期間にまとめ、離れた月は別の期間にする（年跨ぎも連続扱い）", () => {
+    expect(
+      groupConsecutiveMonths(["2026-11", "2026-12", "2027-01", "2027-06"]),
+    ).toEqual([
+      { startMonth: "2026-11", endMonth: "2027-01" },
+      { startMonth: "2027-06", endMonth: "2027-06" },
+    ]);
+    expect(groupConsecutiveMonths([])).toEqual([]);
   });
 });

@@ -5,7 +5,7 @@
 // （profitLossSource.ts）に依存しない軽量なモジュールに分けている
 
 import { AccessFailure } from "../../types/types";
-import { createServerSupabase } from "./clients";
+import { fetchClosedMonthKeys } from "./closedMonthsQuery";
 
 export type ClosedMonthsResult =
   | { months: string[]; error?: undefined }
@@ -15,11 +15,7 @@ export type ClosedMonthsResult =
 // ログインユーザー全員に許可しているため、ロールを問わず取得できる
 // （経理追加収支画面・定期費用マスタ画面の編集ロック / 注記、案件詳細モーダルの注意表示に使う）
 export const getClosedMonths = async (): Promise<ClosedMonthsResult> => {
-  const supabase = createServerSupabase();
-  const { data, error } = await supabase
-    .from("profit_loss_closings")
-    .select("target_month")
-    .order("target_month", { ascending: true });
+  const { months, error } = await fetchClosedMonthKeys();
   if (error) {
     console.error("確定済みの月の取得に失敗しました:", error);
     return {
@@ -29,6 +25,5 @@ export const getClosedMonths = async (): Promise<ClosedMonthsResult> => {
       },
     };
   }
-  return { months: (data ?? []).map((row) => row.target_month.slice(0, 7)) };
+  return { months };
 };
-

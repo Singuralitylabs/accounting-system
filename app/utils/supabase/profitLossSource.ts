@@ -27,12 +27,12 @@ import {
 import {
   MonthClosingSnapshot,
   stripClosingLineIds,
-  toClosedMonthSet,
 } from "../profitLossClosing";
 import { annotateDiffMoves, diffKeyOf } from "../profitLossDiff";
 import { toFirstOfMonth } from "../formatter";
 import type { PostgrestError } from "@supabase/supabase-js";
 import { createServerSupabase } from "./clients";
+import { fetchClosedMonthKeys } from "./closedMonthsQuery";
 import { getActiveSelectOptionsByType } from "./selectOptionsCache";
 
 // business / costs の取得列。計上月（案件開始日）・下書き判定・ラベル解決に
@@ -74,25 +74,29 @@ export const fetchAllPages = async <T extends { id: number }>(
   }
 };
 
-export type ReportSourceRows = {
-  teamOrder: string[];
+// ライブ集計（buildLiveMonthLines）に必要な行
+export type LiveSourceRows = {
   businessRows: BusinessRow[];
   costRows: CostRow[];
   recurringCosts: RecurringCostType[];
   extraEntries: ExtraEntryType[];
   adjustments: ProfitLossAdjustmentType[];
+};
+
+export type ReportSourceRows = LiveSourceRows & {
+  teamOrder: string[];
   labels: ProfitLossLabelType[];
   // 確定済みの月（"YYYY-MM"）→ 確定スナップショット（Issue #148）
   closings: Map<string, MonthClosingSnapshot>;
 };
 
-// 集計に必要な行をまとめて取得する（RLS により権限に応じた行のみ返る）
-// セッション Cookie は @supabase/ssr 形式。createServerSupabase() 以外のクライアントを混ぜない
-// 対象期間＋月未確定（NULL）行に絞る。月次は単月、年間推移は年度12ヶ月を渡し、
-// いずれも一括取得（Promise.all）のままクエリ往復を増やさない。
-export const fetchReportSourceRows = async (
+// ライブ集計に必要な行だけを取得する（RLS により権限に応じた行のみ返る）。
+// 月次収支の確定（スナップショットの保存）はこれだけで足りるため、表示タイトル・確定明細・
+// 見送り記録・チームマスタは取得しない。損益レポートの取得（fetchReportSourceRows）も
+// これを他の取得と並列に呼ぶ
+export const fetchLiveSourceRows = async (
   period: ReportPeriod,
-): Promise<ReportSourceRows | null> => {
+): Promise<LiveSourceRows | null> => {
   const supabase = createServerSupabase();
   const bounds = reportRangeBounds(period);
 
@@ -150,6 +154,49 @@ export const fetchReportSourceRows = async (
       .order("id", { ascending: true })
       .limit(limit),
   );
+
+  const [
+    businessResult,
+    costResult,
+    recurringResult,
+    extraResult,
+    adjustmentResult,
+  ] = await Promise.all([
+    businessQuery,
+    costQuery,
+    recurringQuery,
+    extraQuery,
+    adjustmentQuery,
+  ]);
+  const error =
+    businessResult.error ??
+    costResult.error ??
+    recurringResult.error ??
+    extraResult.error ??
+    adjustmentResult.error;
+  if (error) {
+    console.error("損益レポートのデータ取得に失敗しました:", error);
+    return null;
+  }
+  return {
+    businessRows: (businessResult.data ?? []) as BusinessRow[],
+    costRows: (costResult.data ?? []) as CostRow[],
+    recurringCosts: recurringResult.data ?? [],
+    extraEntries: extraResult.data ?? [],
+    adjustments: adjustmentResult.data ?? [],
+  };
+};
+
+// 集計・表示に必要な行をまとめて取得する（RLS により権限に応じた行のみ返る）
+// セッション Cookie は @supabase/ssr 形式。createServerSupabase() 以外のクライアントを混ぜない
+// 対象期間＋月未確定（NULL）行に絞る。月次は単月、年間推移は年度12ヶ月を渡し、
+// いずれも一括取得（Promise.all）のままクエリ往復を増やさない。
+export const fetchReportSourceRows = async (
+  period: ReportPeriod,
+): Promise<ReportSourceRows | null> => {
+  const supabase = createServerSupabase();
+  const bounds = reportRangeBounds(period);
+
   // 表示タイトル（Issue #150）は全月共通のため期間で絞らない（件数は対象行数以下）
   const labelQuery = fetchAllPages((afterId, limit) =>
     supabase
@@ -190,22 +237,14 @@ export const fetchReportSourceRows = async (
   );
 
   const [
-    businessResult,
-    costResult,
-    recurringResult,
-    extraResult,
-    adjustmentResult,
+    liveRows,
     labelResult,
     closingResult,
     closingLineResult,
     dismissalResult,
     teamOptions,
   ] = await Promise.all([
-    businessQuery,
-    costQuery,
-    recurringQuery,
-    extraQuery,
-    adjustmentQuery,
+    fetchLiveSourceRows(period),
     labelQuery,
     closingQuery,
     closingLineQuery,
@@ -213,13 +252,11 @@ export const fetchReportSourceRows = async (
     // 案件別収支のチームの並び順（項目管理のチームマスタの display_order 順）
     getActiveSelectOptionsByType(["team"]),
   ]);
+  if (!liveRows) {
+    return null;
+  }
 
   const error =
-    businessResult.error ??
-    costResult.error ??
-    recurringResult.error ??
-    extraResult.error ??
-    adjustmentResult.error ??
     labelResult.error ??
     closingResult.error ??
     closingLineResult.error ??
@@ -257,14 +294,10 @@ export const fetchReportSourceRows = async (
   });
 
   return {
+    ...liveRows,
     teamOrder: (teamOptions.optionsByType.team ?? []).map(
       (option) => option.value,
     ),
-    businessRows: (businessResult.data ?? []) as BusinessRow[],
-    costRows: (costResult.data ?? []) as CostRow[],
-    recurringCosts: recurringResult.data ?? [],
-    extraEntries: extraResult.data ?? [],
-    adjustments: adjustmentResult.data ?? [],
     labels: labelResult.data ?? [],
     closings,
   };
@@ -325,15 +358,21 @@ export const supplementAdjustmentTargets = async (
 // 確定後の差分（Issue #149）の追加・削除に付ける、他の月との移動の情報を取得する。
 // - 削除の差分: 明細の現在の所在（案件開始日の月・下書きか。行が無ければ削除済み）
 // - 追加の差分: その明細を確定明細に持つ他の確定済みの月（移動元）
-// 追加・削除の差分が無ければクエリを発行しない（あっても 1 往復にまとめる）
+// 追加・削除の差分が無ければクエリを発行しない（context: null。あっても 1 往復にまとめる）。
+// 取得に失敗した場合は failed: true を返す（移動の有無が分からないまま反映させないため、
+// 呼び出し側で差分一覧に注意を出し反映を止める）
+export type DiffMoveContextResult =
+  | { context: Parameters<typeof annotateDiffMoves>[1] | null; failed?: false }
+  | { context?: undefined; failed: true };
+
 export const fetchDiffMoveContext = async (
   month: string,
   diffs: ClosingDiff[],
-): Promise<Parameters<typeof annotateDiffMoves>[1] | null> => {
+): Promise<DiffMoveContextResult> => {
   const removed = diffs.filter((diff) => diff.kind === "removed");
   const added = diffs.filter((diff) => diff.kind === "added");
   if (removed.length === 0 && added.length === 0) {
-    return null;
+    return { context: null };
   }
   const idsOf = (list: ClosingDiff[], type: DiffSourceType) =>
     list.filter((diff) => diff.sourceType === type).map((d) => d.sourceId);
@@ -364,7 +403,7 @@ export const fetchDiffMoveContext = async (
             .in("source_id", addedIds)
             .neq("profit_loss_closings.target_month", toFirstOfMonth(month))
         : Promise.resolve({ data: [], error: null }),
-      supabase.from("profit_loss_closings").select("target_month"),
+      fetchClosedMonthKeys(),
     ]);
   const error =
     businessResult.error ??
@@ -372,11 +411,8 @@ export const fetchDiffMoveContext = async (
     otherLinesResult.error ??
     closingsResult.error;
   if (error) {
-    console.error(
-      "確定後の差分の移動元・移動先の取得に失敗しました（移動の表示を省略します）:",
-      error,
-    );
-    return null;
+    console.error("確定後の差分の移動元・移動先の取得に失敗しました:", error);
+    return { failed: true };
   }
 
   type LocatedRow = {
@@ -411,8 +447,10 @@ export const fetchDiffMoveContext = async (
   });
 
   return {
-    liveLocations,
-    otherClosedMonths,
-    closedMonths: toClosedMonthSet(closingsResult.data ?? []),
+    context: {
+      liveLocations,
+      otherClosedMonths,
+      closedMonths: new Set(closingsResult.months ?? []),
+    },
   };
 };

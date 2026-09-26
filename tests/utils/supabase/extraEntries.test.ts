@@ -49,11 +49,13 @@ const setup = (
   const from = vi.fn((table: string) => {
     if (table === "profit_loss_closings") {
       return {
-        select: () =>
-          Promise.resolve({
-            data: closedMonths.map((m) => ({ target_month: `${m}-01` })),
-            error: null,
-          }),
+        select: () => ({
+          order: () =>
+            Promise.resolve({
+              data: closedMonths.map((m) => ({ target_month: `${m}-01` })),
+              error: null,
+            }),
+        }),
       };
     }
     return {
@@ -97,18 +99,47 @@ describe("bulkUpsertExtraEntry の確定済みの月の編集ロック（Issue #
     createServerSupabase.mockReset();
   });
 
-  it("確定済みの月の行を編集していなければ、他の月の行を保存でき、未変更の行は UPDATE しない", async () => {
+  it("確定済みの月の行を送らなければ（画面で編集していなければ）、他の月の行を保存できる", async () => {
     const august = saved(1, "2026-08-10");
     const september = saved(2, "2026-09-10");
     const writes = setup(["2026-08"], [august, september]);
+    // 画面は追加・削除・編集した行だけを送る（selectChangedExtraEntries）
     const result = await bulkUpsertExtraEntry([
-      row(august), // 確定済みの月・未変更
       row({ ...september, billing_amount: 20000 }), // 未確定の月・変更あり
     ]);
     expect(result).toEqual({});
     expect(writes).toEqual([
-      { op: "update", payload: expect.objectContaining({ billing_amount: 20000 }), id: 2 },
+      {
+        op: "update",
+        payload: expect.objectContaining({ billing_amount: 20000 }),
+        id: 2,
+      },
     ]);
+  });
+
+  it("編集した行が読み込み後に他の利用者に削除されていたら、何も書き込まずに再読み込みを促す", async () => {
+    const september = saved(2, "2026-09-10");
+    // DB には id 2 が無い
+    const writes = setup([], []);
+    const result = await bulkUpsertExtraEntry([
+      row(saved(10, "2026-09-01"), { isNew: true }),
+      row({ ...september, billing_amount: 1 }),
+    ]);
+    expect(result.error?.kind).toBe("validationFailed");
+    expect(result.error?.message).toContain("他の利用者に削除された行");
+    expect(result.error?.message).toContain("経理追加2");
+    expect(writes).toEqual([]); // 追加も含めて何も書き込まない
+  });
+
+  it("削除した行が既に削除されていた場合は、その削除だけを省いて他の行を保存する", async () => {
+    const september = saved(2, "2026-09-10");
+    const writes = setup([], [september]);
+    const result = await bulkUpsertExtraEntry([
+      row(saved(3, "2026-09-10"), { isRemoved: true }), // DB に無い
+      row(september, { isRemoved: true }),
+    ]);
+    expect(result).toEqual({});
+    expect(writes).toEqual([{ op: "delete", id: [2] }]);
   });
 
   it("保存前の確認の後に月が確定され RLS で 0 行更新になった場合は、成功扱いにせずエラーにする", async () => {

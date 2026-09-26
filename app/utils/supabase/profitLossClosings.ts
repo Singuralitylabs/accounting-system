@@ -9,7 +9,11 @@ import {
 } from "../../types/types";
 import { PL_CLOSING_WRITE_CLASSES } from "../permissions";
 import { toFirstOfMonth } from "../formatter";
-import { buildLiveMonthLines, isMonthKey } from "../profitLossLogic";
+import {
+  buildLiveMonthLines,
+  groupConsecutiveMonths,
+  isMonthKey,
+} from "../profitLossLogic";
 import {
   monthLinesToClosingRows,
   sameClosingRows,
@@ -23,7 +27,11 @@ import {
   sanitizeDiffSelections,
 } from "../profitLossDiff";
 import { createServerSupabase } from "./clients";
-import { fetchReportSourceRows } from "./profitLossSource";
+import {
+  fetchLiveSourceRows,
+  fetchReportSourceRows,
+  ReportSourceRows,
+} from "./profitLossSource";
 import { getAuthorizedViewer } from "./viewerAccess";
 import { getClosedMonths } from "./profitLossClosedMonths";
 
@@ -54,8 +62,9 @@ export const closeProfitLossMonth = async (
   }
 
   const supabase = createServerSupabase();
+  // 確定の明細に要るのはライブ集計の行だけ（表示タイトル・確定明細等は取得しない）
   const liveClosingRows = async () => {
-    const rows = await fetchReportSourceRows({
+    const rows = await fetchLiveSourceRows({
       startMonth: month,
       endMonth: month,
     });
@@ -181,16 +190,28 @@ export const reopenProfitLossMonth = async (
   }
 
   const supabase = createServerSupabase();
-  const { error: deleteError } = await supabase
+  // RLS で拒否された DELETE はエラーにならず 0 行になるだけのため、削除した行を返させて
+  // 件数を確かめる（既に解除済み・権限が変わった等で何も消えなければ成功扱いにしない）
+  const { data: deleted, error: deleteError } = await supabase
     .from("profit_loss_closings")
     .delete()
-    .eq("target_month", toFirstOfMonth(month));
+    .eq("target_month", toFirstOfMonth(month))
+    .select("id");
   if (deleteError) {
     console.error("月次収支の確定解除に失敗しました:", deleteError);
     return {
       error: {
         kind: "fetchFailed",
         message: "月次収支の確定解除に失敗しました。",
+      },
+    };
+  }
+  if (!deleted || deleted.length === 0) {
+    return {
+      error: {
+        kind: "validationFailed",
+        message:
+          "この月は確定されていないか、確定を解除する権限がありません。画面を再読み込みして確認してください。",
       },
     };
   }
@@ -205,8 +226,9 @@ export type ClosingDiffSummaryResult =
 
 // 未処理の差分がある確定済みの月と件数（損益計算書ページ上部のバナー・月ピッカー・
 // 年間推移のアイコン用。accounting / admin のみ）。
-// 確定済みの月の一覧を取得したうえで、その範囲のライブの行・確定明細・見送り記録を
-// 1 回の一括取得（fetchReportSourceRows の Promise.all）で取得し、月別に差分を数える
+// 確定済みの月の一覧を取得したうえで、連続する確定済みの月ごと（通常は 1 つの範囲）に
+// ライブの行・確定明細・見送り記録を並列に取得し、月別に差分を数える
+// （離れた確定済みの月の間の未確定の月の行まで取得しないようにする）
 export const getClosingDiffSummary =
   async (): Promise<ClosingDiffSummaryResult> => {
     const { profileInfo, error } = await getAuthorizedViewer(
@@ -224,11 +246,12 @@ export const getClosingDiffSummary =
     if (months.length === 0) {
       return { summary: [] };
     }
-    const rows = await fetchReportSourceRows({
-      startMonth: months[0],
-      endMonth: months[months.length - 1],
-    });
-    if (!rows) {
+    const rangeRows = await Promise.all(
+      groupConsecutiveMonths(months).map((period) =>
+        fetchReportSourceRows(period),
+      ),
+    );
+    if (rangeRows.some((rows) => !rows)) {
       return {
         error: {
           kind: "fetchFailed",
@@ -237,15 +260,17 @@ export const getClosingDiffSummary =
       };
     }
     const summary: ClosingDiffSummary = [];
-    rows.closings.forEach((closing, month) => {
-      const { pending } = diffClosingLines({
-        liveLines: buildLiveMonthLines({ month, ...rows }),
-        closedLines: closing.lines,
-        dismissals: closing.dismissals,
+    (rangeRows as ReportSourceRows[]).forEach((rows) => {
+      rows.closings.forEach((closing, month) => {
+        const { pending } = diffClosingLines({
+          liveLines: buildLiveMonthLines({ month, ...rows }),
+          closedLines: closing.lines,
+          dismissals: closing.dismissals,
+        });
+        if (pending.length > 0) {
+          summary.push({ month, count: pending.length });
+        }
       });
-      if (pending.length > 0) {
-        summary.push({ month, count: pending.length });
-      }
     });
     return { summary: summary.sort((a, b) => a.month.localeCompare(b.month)) };
   };

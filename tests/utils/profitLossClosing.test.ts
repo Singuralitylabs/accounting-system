@@ -4,7 +4,6 @@ import {
   CostRow,
   MonthlyReportInput,
   buildLiveMonthLines,
-  buildMonthlyReport,
 } from "@/app/utils/profitLossLogic";
 import {
   MonthClosingSnapshot,
@@ -18,6 +17,7 @@ import {
   refreshSnapshotNames,
   toClosedMonthSet,
 } from "@/app/utils/profitLossClosing";
+import { selectChangedExtraEntries } from "@/app/utils/extraEntry";
 import {
   ExtraEntryType,
   ProfitLossAdjustmentType,
@@ -163,7 +163,7 @@ const baseInput = (
   ],
   isTeamLeader: false,
   includeTeamBreakdown: true,
-  includeOrphanedAdjustments: true,
+  includeMonthlyDetails: true,
   teamOrder: ["シンラボ", "SDGs"],
   ...override,
 });
@@ -240,7 +240,7 @@ describe("確定明細への変換と再構成（Issue #148）", () => {
           : {}),
       });
       const snapshot = snapshotOf(baseInput());
-      const live = buildMonthlyReport(input);
+      const live = buildMonthReport(input);
       const closed = buildMonthReport({
         ...input,
         closing: team ? visibleToTeamLeader(snapshot, team) : snapshot,
@@ -297,7 +297,7 @@ describe("確定明細への変換と再構成（Issue #148）", () => {
     expect(after.ordinaryProfit).toBe(before.ordinaryProfit);
     expect(after.byTeam).toEqual(before.byTeam);
     // ライブ集計は変わっている（確定値との差分は Issue #149 で検知する）
-    expect(buildMonthlyReport(changed).revenueTotal).not.toBe(
+    expect(buildMonthReport(changed).revenueTotal).not.toBe(
       before.revenueTotal,
     );
   });
@@ -362,7 +362,7 @@ describe("確定明細への変換と再構成（Issue #148）", () => {
     ]);
     // ライブの月では付けない
     expect(
-      buildMonthlyReport(moved).orphanedAdjustments?.[0].includedInClosing,
+      buildMonthReport(moved).orphanedAdjustments?.[0].includedInClosing,
     ).toBeUndefined();
   });
 
@@ -435,7 +435,7 @@ describe("確定済みの月の判定と編集可否（Issue #148）", () => {
     expect(canWriteExtraEntry(closed, undefined, "2026-10-01")).toBe(false); // 確定済みの月への追加
   });
 
-  it("一括保存の対象から編集ロックに抵触する行を抽出する（編集していない行は対象外）", () => {
+  it("一括保存で送る行（編集した行のみ）から編集ロックに抵触する行を抽出する", () => {
     const saved = (id: number, entryDate: string | null, description: string) =>
       extraEntry({ id, entry_date: entryDate, description });
     const originals = new Map(
@@ -451,21 +451,22 @@ describe("確定済みの月の判定と編集可否（Issue #148）", () => {
       entry: ExtraEntryType,
       flags: { isNew?: boolean; isRemoved?: boolean } = {},
     ) => ({ ...entry, isNew: false, isRemoved: false, ...flags });
+    const rows = [
+      row({ ...originals.get(1)!, billing_amount: 99999 }),
+      row({ ...originals.get(2)!, entry_date: "2026-09-15" }),
+      row({ ...originals.get(3)!, entry_date: "2026-10-15" }),
+      row(originals.get(4)!, { isRemoved: true }),
+      // 確定済みの月の行でも編集していなければ送らない（違反にならない）
+      row(originals.get(8)!),
+      row(saved(5, "2026-08-01", "確定月に追加"), { isNew: true }),
+      row(saved(6, "2026-08-01", "追加して取り消し"), {
+        isNew: true,
+        isRemoved: true,
+      }),
+      row(saved(7, null, ""), { isNew: true }),
+    ];
     const violations = findExtraEntryLockViolations(
-      [
-        row({ ...originals.get(1)!, billing_amount: 99999 }),
-        row({ ...originals.get(2)!, entry_date: "2026-09-15" }),
-        row({ ...originals.get(3)!, entry_date: "2026-10-15" }),
-        row(originals.get(4)!, { isRemoved: true }),
-        // 画面は全行を送る。確定済みの月の行でも編集していなければ違反にしない
-        row(originals.get(8)!),
-        row(saved(5, "2026-08-01", "確定月に追加"), { isNew: true }),
-        row(saved(6, "2026-08-01", "追加して取り消し"), {
-          isNew: true,
-          isRemoved: true,
-        }),
-        row(saved(7, null, ""), { isNew: true }),
-      ],
+      selectChangedExtraEntries(rows, originals),
       originals,
       closed,
     );

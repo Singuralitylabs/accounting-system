@@ -43,10 +43,8 @@ export const toExtraEntryDbRow = (entry: ExtraEntryInListType) => {
   };
 };
 
-// 保存済みの行が編集されていないか（DB に書き込む項目がすべて保存済みの値と同じか）。
-// 一括保存は画面の全行を送るため、未変更の行は UPDATE せず、確定済みの月の
-// 編集ロック（Issue #148）の判定対象からも外す（確定済みの月の行を触っていないのに
-// 他の月の行を保存できなくなることを防ぐ）
+// 保存済みの行が編集されていないか（DB に書き込む項目がすべて読み込み時の値と同じか）。
+// 比較する項目は toExtraEntryDbRow が書き込む項目から導くため、列を追加しても比較から漏れない
 export const isExtraEntryUnchanged = (
   original: ExtraEntryType,
   entry: ExtraEntryInListType,
@@ -65,6 +63,21 @@ export const isExtraEntryUnchanged = (
     return (before ?? null) === (after ?? null);
   });
 };
+
+// 一括保存でサーバへ送る行（追加・削除・編集した行）を選ぶ。
+// baseline は画面に読み込んだ時点の保存済みの行（id → 行）。編集していない行は送らない
+// （他の利用者がその後に保存した内容を、読み込み時点の値で上書きしない。確定済みの月の
+// 行を触っていなければ、その行は確定中の編集ロック（Issue #148）の判定対象にもならない）
+export const selectChangedExtraEntries = (
+  rows: ExtraEntryInListType[],
+  baseline: ReadonlyMap<number, ExtraEntryType>,
+): ExtraEntryInListType[] =>
+  rows.filter((row) => {
+    if (row.isNew) return !row.isRemoved; // 未保存の行の取り消しは送らない
+    if (row.isRemoved) return true;
+    const base = baseline.get(row.id);
+    return !base || !isExtraEntryUnchanged(base, row);
+  });
 
 // ===== 前月の経理追加収支コピー（損益計算書 月次タブ「前月の経理追加収支をコピー」用） =====
 // Supabase アクセス（app/utils/supabase/extraEntries.ts）から切り離しているのは、

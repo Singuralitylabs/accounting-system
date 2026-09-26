@@ -2,23 +2,36 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BusinessRow, CostRow } from "@/app/utils/profitLossLogic";
 import type { ReportSourceRows } from "@/app/utils/supabase/profitLossSource";
 
-const { createServerSupabase, getAuthorizedViewer, fetchReportSourceRows } =
-  vi.hoisted(() => ({
-    createServerSupabase: vi.fn(),
-    getAuthorizedViewer: vi.fn(),
-    fetchReportSourceRows: vi.fn(),
-  }));
+const {
+  createServerSupabase,
+  getAuthorizedViewer,
+  fetchReportSourceRows,
+  fetchLiveSourceRows,
+  getClosedMonths,
+} = vi.hoisted(() => ({
+  createServerSupabase: vi.fn(),
+  getAuthorizedViewer: vi.fn(),
+  fetchReportSourceRows: vi.fn(),
+  fetchLiveSourceRows: vi.fn(),
+  getClosedMonths: vi.fn(),
+}));
 
 vi.mock("@/app/utils/supabase/clients", () => ({ createServerSupabase }));
 vi.mock("@/app/utils/supabase/viewerAccess", () => ({ getAuthorizedViewer }));
 vi.mock("@/app/utils/supabase/profitLossSource", () => ({
   fetchReportSourceRows,
+  fetchLiveSourceRows,
+}));
+vi.mock("@/app/utils/supabase/profitLossClosedMonths", () => ({
+  getClosedMonths,
 }));
 
 import {
   applyClosingDiffs,
   closeProfitLossMonth,
   dismissClosingDiffs,
+  getClosingDiffSummary,
+  reopenProfitLossMonth,
 } from "@/app/utils/supabase/profitLossClosings";
 
 const matter = (id: number) => ({
@@ -108,6 +121,11 @@ describe("profitLossClosings の Server Action（Issue #148 / #149）", () => {
       profileInfo: { id: 1, class: "accounting", team: null },
     });
     fetchReportSourceRows.mockReset().mockResolvedValue(rows());
+    // 確定はライブ集計の行だけを取得する（テストでは同じ行を返す）
+    fetchLiveSourceRows
+      .mockReset()
+      .mockImplementation((period) => fetchReportSourceRows(period));
+    getClosedMonths.mockReset().mockResolvedValue({ months: [] });
   });
 
   it("反映はクライアントから受け取ったキーだけを対象に、サーバで集計し直した値で upsert / delete を組み立てる", async () => {
@@ -314,5 +332,37 @@ describe("profitLossClosings の Server Action（Issue #148 / #149）", () => {
     expect(await closeProfitLossMonth("2026-08")).toEqual({});
     expect(rpc).toHaveBeenCalledTimes(1);
     expect(rpc.mock.calls[0][0]).toBe("save_profit_loss_closing");
+    // 確定はライブ集計の行だけを取得する（確定前と確定直後の 2 回）
+    expect(fetchLiveSourceRows).toHaveBeenCalledTimes(2);
+  });
+
+  it("確定解除で何も削除されなければ（既に解除済み・RLS で拒否）成功扱いにしない", async () => {
+    const deleteResult = (data: { id: number }[]) => ({
+      from: () => ({
+        delete: () => ({
+          eq: () => ({
+            select: () => Promise.resolve({ data, error: null }),
+          }),
+        }),
+      }),
+    });
+    createServerSupabase.mockReturnValue(deleteResult([]));
+    const rejected = await reopenProfitLossMonth("2026-08");
+    expect(rejected.error?.kind).toBe("validationFailed");
+    expect(rejected.error?.message).toContain("再読み込み");
+    createServerSupabase.mockReturnValue(deleteResult([{ id: 1 }]));
+    expect(await reopenProfitLossMonth("2026-08")).toEqual({});
+  });
+
+  it("未反映件数は連続する確定済みの月ごとに取得する（離れた月の間は取得しない）", async () => {
+    getClosedMonths.mockResolvedValue({
+      months: ["2026-07", "2026-08", "2027-06"],
+    });
+    const summary = await getClosingDiffSummary();
+    expect(summary.error).toBeUndefined();
+    expect(fetchReportSourceRows.mock.calls.map((call) => call[0])).toEqual([
+      { startMonth: "2026-07", endMonth: "2026-08" },
+      { startMonth: "2027-06", endMonth: "2027-06" },
+    ]);
   });
 });

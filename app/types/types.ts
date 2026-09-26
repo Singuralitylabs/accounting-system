@@ -522,6 +522,9 @@ export type ClosingDiff = {
 export type ClosingDiffResult = {
   pending: ClosingDiff[]; // 未処理（反映も見送りもしていない）
   dismissed: ClosingDiff[]; // 見送り済み（見送った時点から変化していないもの）
+  // 他の月との移動の情報を取得できなかった（相手側の月も確定済みかが分からないため、
+  // 画面で注意を出し反映を止める）
+  moveInfoUnavailable?: boolean;
 };
 
 // ページ上部のバナー用（未処理の差分がある確定済みの月と件数）

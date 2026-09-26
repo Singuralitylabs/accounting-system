@@ -3,7 +3,6 @@ import {
   BusinessRow,
   CostRow,
   MonthlyReportInput,
-  buildMonthlyReport,
   fiscalYearMonths,
   isDraftMatter,
   isRecurringCostChargedInMonth,
@@ -12,6 +11,7 @@ import {
   reportFlags,
   resolveTitle,
 } from "@/app/utils/profitLossLogic";
+import { buildMonthReport } from "@/app/utils/profitLossClosing";
 import {
   ExtraEntryType,
   ProfitLossAdjustmentType,
@@ -147,7 +147,7 @@ const buildInput = (
   adjustments: [],
   isTeamLeader: false,
   includeTeamBreakdown: false,
-  includeOrphanedAdjustments: true,
+  includeMonthlyDetails: true,
   ...override,
 });
 
@@ -310,9 +310,9 @@ describe("reportFlags", () => {
   });
 });
 
-describe("buildMonthlyReport: 売上総利益（粗利）の分類別集計", () => {
+describe("buildMonthReport: 売上総利益（粗利）の分類別集計", () => {
   it("案件費用を案件の分類へ振り分け、分類別に 売上 − 案件費用 を集計する", () => {
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         businessRows: [
           business(500000, "2026-07-31", "受託案件"),
@@ -342,7 +342,7 @@ describe("buildMonthlyReport: 売上総利益（粗利）の分類別集計", ()
   });
 
   it("粗利の降順で並ぶ", () => {
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         businessRows: [
           business(100000, "2026-07-01", "会員費"),
@@ -360,7 +360,7 @@ describe("buildMonthlyReport: 売上総利益（粗利）の分類別集計", ()
   });
 
   it("売上のない分類の費用は粗利がマイナスの行として現れる", () => {
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         businessRows: [business(100000, "2026-07-01", "会員費")],
         costRows: [cost(80000, "2026-07-01", "外注費", "受託案件")],
@@ -376,7 +376,7 @@ describe("buildMonthlyReport: 売上総利益（粗利）の分類別集計", ()
   });
 
   it("経理追加収支の請求額・経費をエントリの分類の粗利へ算入する", () => {
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         extraEntries: [
           extraEntry({
@@ -413,7 +413,7 @@ describe("buildMonthlyReport: 売上総利益（粗利）の分類別集計", ()
   });
 
   it("分類別粗利の合計は 売上合計 − 案件費用合計 と一致する", () => {
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         businessRows: [
           business(500000, "2026-07-31", "受託案件"),
@@ -447,7 +447,7 @@ describe("buildMonthlyReport: 売上総利益（粗利）の分類別集計", ()
   });
 
   it("対象月以外の売上・費用は粗利に含めない", () => {
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         businessRows: [business(500000, "2026-08-01", "受託案件")],
         costRows: [cost(300000, "2026-06-30", "外注費", "受託案件")],
@@ -459,9 +459,9 @@ describe("buildMonthlyReport: 売上総利益（粗利）の分類別集計", ()
   });
 });
 
-describe("buildMonthlyReport: 管理費の費目別集計", () => {
+describe("buildMonthReport: 管理費の費目別集計", () => {
   it("同一費目の定期費用をまとめ、明細を保持する", () => {
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         recurringCosts: [
           recurringCost({ id: 1, item: "システム料", price: 10000 }),
@@ -488,7 +488,7 @@ describe("buildMonthlyReport: 管理費の費目別集計", () => {
   });
 
   it("費目別内訳の合計は管理費合計と一致する", () => {
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         recurringCosts: [
           recurringCost({ id: 1, item: "システム料", price: 10000 }),
@@ -520,7 +520,7 @@ describe("buildMonthlyReport: 管理費の費目別集計", () => {
   });
 
   it("teamleader では全体共通の管理費が費目別内訳に含まれない", () => {
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         isTeamLeader: true,
         recurringCosts: [
@@ -545,9 +545,9 @@ describe("buildMonthlyReport: 管理費の費目別集計", () => {
   });
 });
 
-describe("buildMonthlyReport: 経常利益", () => {
+describe("buildMonthReport: 経常利益", () => {
   it("経常利益 = 粗利合計 − 管理費合計", () => {
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         businessRows: [business(1000000, "2026-07-31", "受託案件")],
         costRows: [cost(400000, "2026-07-31", "外注費", "受託案件")],
@@ -565,7 +565,7 @@ describe("buildMonthlyReport: 経常利益", () => {
 });
 
 // 要件4の回帰テスト（表示構造の変更で最終損益の値を変えない）
-describe("buildMonthlyReport: 経常利益が刷新前の営業損益と一致する", () => {
+describe("buildMonthReport: 経常利益が刷新前の営業損益と一致する", () => {
   const cases: { name: string; input: MonthlyReportInput }[] = [
     {
       name: "売上・案件費用・管理費がすべて存在する月",
@@ -701,7 +701,7 @@ describe("buildMonthlyReport: 経常利益が刷新前の営業損益と一致�
   ];
 
   it.each(cases)("$name", ({ input }) => {
-    const report = buildMonthlyReport(input);
+    const report = buildMonthReport(input);
     const legacy = legacyOperatingProfit(input);
     // 「0 === 0」の自明な一致で通ってしまわないよう、各ケースが非ゼロであることも確認する
     expect(legacy).not.toBe(0);
@@ -710,16 +710,16 @@ describe("buildMonthlyReport: 経常利益が刷新前の営業損益と一致�
 
   it("刷新前の計算式（売上 − 案件費用 − 管理費）と一致する", () => {
     const input = cases[0].input;
-    const report = buildMonthlyReport(input);
+    const report = buildMonthReport(input);
     expect(report.ordinaryProfit).toBe(
       report.revenueTotal - report.matterCostTotal - report.recurringCostTotal,
     );
   });
 });
 
-describe("buildMonthlyReport: チーム別内訳", () => {
+describe("buildMonthReport: チーム別内訳", () => {
   it("accounting / admin ではチームごとの粗利と経常利益を算出する", () => {
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         includeTeamBreakdown: true,
         businessRows: [
@@ -756,13 +756,13 @@ describe("buildMonthlyReport: チーム別内訳", () => {
   });
 
   it("teamleader ではチーム別内訳を返さない", () => {
-    const report = buildMonthlyReport(buildInput({ isTeamLeader: true }));
+    const report = buildMonthReport(buildInput({ isTeamLeader: true }));
     expect(report.byTeam).toBeUndefined();
   });
 });
 
 // 全体共通（team IS NULL）の扱いはロールで異なる（docs/specification.md §4.16.4）
-describe("buildMonthlyReport: ロール別の表示スコープ", () => {
+describe("buildMonthReport: ロール別の表示スコープ", () => {
   // teamleader は全体共通を損益に算入せず参考表示へ、accounting / admin は算入する
   const orgWideInput = (isTeamLeader: boolean) =>
     buildInput({
@@ -801,7 +801,7 @@ describe("buildMonthlyReport: ロール別の表示スコープ", () => {
     });
 
   it("teamleader: 全体共通の経理追加収支を売上・粗利・費用内訳から除外し参考表示へ分離する", () => {
-    const report = buildMonthlyReport(orgWideInput(true));
+    const report = buildMonthReport(orgWideInput(true));
 
     // 全体共通の収入エントリ（協賛金）は案件別収支・分類別収支のどちらにも現れない
     expect(report.teamMatterGroups.map((group) => group.team)).not.toContain(
@@ -840,7 +840,7 @@ describe("buildMonthlyReport: ロール別の表示スコープ", () => {
   });
 
   it("accounting / admin: 全体共通も損益に算入し、参考表示セクションを持たない", () => {
-    const report = buildMonthlyReport(orgWideInput(false));
+    const report = buildMonthReport(orgWideInput(false));
 
     // 全体共通の収入エントリも売上・粗利に算入される
     expect(report.revenueTotal).toBe(400000);
@@ -869,9 +869,9 @@ describe("buildMonthlyReport: ロール別の表示スコープ", () => {
   });
 });
 
-describe("buildMonthlyReport: 案件別収支（Issue #147）", () => {
+describe("buildMonthReport: 案件別収支（Issue #147）", () => {
   it("チーム → 案件 → 案件内訳の階層で、案件の売上・費用・粗利を集計する", () => {
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         businessRows: [
           business(1000000, "2026-07-01", "受託案件", "チームA", 12),
@@ -925,7 +925,7 @@ describe("buildMonthlyReport: 案件別収支（Issue #147）", () => {
   });
 
   it("チームはマスタの並び順、マスタに無いチームは名称順で後ろ、全体共通は最後に並ぶ", () => {
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         teamOrder: ["シンラボ", "SDGs"],
         businessRows: [
@@ -947,7 +947,7 @@ describe("buildMonthlyReport: 案件別収支（Issue #147）", () => {
   });
 
   it("案件は ID の昇順に並ぶ", () => {
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         businessRows: [
           business(1, "2026-07-01", "会員費", "チームA", 30),
@@ -962,7 +962,7 @@ describe("buildMonthlyReport: 案件別収支（Issue #147）", () => {
   });
 
   it("売上のみ・費用のみの案件も片方を 0 として表示する", () => {
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         businessRows: [business(100000, "2026-07-01", "会員費", "チームA", 1)],
         costRows: [cost(40000, "2026-07-01", "外注費", "イベント", 2)],
@@ -982,7 +982,7 @@ describe("buildMonthlyReport: 案件別収支（Issue #147）", () => {
   });
 
   it("経理追加収支はエントリのチームの「案件外」行にまとめ、チーム未指定は全体共通に入れる", () => {
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         businessRows: [business(100000, "2026-07-01", "会員費", "チームA", 1)],
         extraEntries: [
@@ -1024,7 +1024,7 @@ describe("buildMonthlyReport: 案件別収支（Issue #147）", () => {
   });
 
   it("チーム小計の合計・分類別収支の合計・サマリー（売上 − 案件費用）がすべて一致する", () => {
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         businessRows: [
           business(100000, "2026-07-01", "会員費", "チームA", 1),
@@ -1074,9 +1074,9 @@ describe("buildMonthlyReport: 案件別収支（Issue #147）", () => {
   });
 });
 
-describe("buildMonthlyReport: 月未確定（日付未入力）", () => {
+describe("buildMonthReport: 月未確定（日付未入力）", () => {
   it("日付未入力の売上・費用を別枠で集計し、月次の集計には含めない", () => {
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         businessRows: [
           business(100000, "2026-07-01", "会員費"),
@@ -1109,7 +1109,7 @@ describe("buildMonthlyReport: 月未確定（日付未入力）", () => {
   });
 
   it("月未確定のデータがない場合は 0 になる", () => {
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         businessRows: [business(100000, "2026-07-01", "会員費")],
       }),
@@ -1119,10 +1119,10 @@ describe("buildMonthlyReport: 月未確定（日付未入力）", () => {
 });
 
 // 損益調整（profit_loss_adjustments）: 元データ + 調整 = 実績（Issue #108）
-describe("buildMonthlyReport: 損益調整（実績額修正）", () => {
+describe("buildMonthReport: 損益調整（実績額修正）", () => {
   it("調整が無い場合は元データ金額のまま実績額になる", () => {
     const row = business(100000, "2026-07-01", "受託案件");
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         businessRows: [row],
       }),
@@ -1144,7 +1144,7 @@ describe("buildMonthlyReport: 損益調整（実績額修正）", () => {
     const costRow1 = cost(30000, "2026-07-01", "外注費", "受託案件", 1);
     const costRow2 = cost(20000, "2026-07-01", "外注費", "受託案件", 1);
 
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         businessRows: [row1, row2],
         costRows: [costRow1, costRow2],
@@ -1161,7 +1161,7 @@ describe("buildMonthlyReport: 損益調整（実績額修正）", () => {
 
   it("案件の売上（business）の調整が実績額・案件の売上・売上合計に反映される", () => {
     const row = business(100000, "2026-07-01", "受託案件");
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         businessRows: [row],
         adjustments: [
@@ -1184,7 +1184,7 @@ describe("buildMonthlyReport: 損益調整（実績額修正）", () => {
 
   it("案件費用（cost）の調整が実績額・案件の費用・案件費用合計に反映される", () => {
     const row = cost(30000, "2026-07-01", "外注費", "受託案件");
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         costRows: [row],
         adjustments: [
@@ -1206,7 +1206,7 @@ describe("buildMonthlyReport: 損益調整（実績額修正）", () => {
 
   it("管理費（recurring_cost）の調整が実績額・費目別内訳・管理費合計に反映される", () => {
     const rc = recurringCost({ id: 1, price: 10000 });
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         recurringCosts: [rc],
         adjustments: [
@@ -1227,7 +1227,7 @@ describe("buildMonthlyReport: 損益調整（実績額修正）", () => {
 
   it("対象月が異なる調整は適用されない", () => {
     const row = business(100000, "2026-07-01", "受託案件");
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         businessRows: [row],
         adjustments: [
@@ -1251,7 +1251,7 @@ describe("buildMonthlyReport: 損益調整（実績額修正）", () => {
     // 調整保存時点（source_amount_snapshot）は 100000 円だったが、
     // その後元データ（business.amount）が 150000 円に変更された想定
     const row = business(150000, "2026-07-01", "受託案件");
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         businessRows: [row],
         adjustments: [
@@ -1275,7 +1275,7 @@ describe("buildMonthlyReport: 損益調整（実績額修正）", () => {
     // 案件の請求日が翌月へ変更される等で、調整の対象行（business_id=99）が当月の
     // 集計対象（monthlyBusiness）から外れたケース。対象行自体は削除されていないため
     // CASCADE では消えず、調整だけが「対象行が当月に存在しない」状態で残る
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         includeTeamBreakdown: true,
         businessRows: [business(100000, "2026-08-01", "受託案件")], // 対象行は8月分として存在
@@ -1300,7 +1300,7 @@ describe("buildMonthlyReport: 損益調整（実績額修正）", () => {
   });
 
   it("cost / recurring_cost が対象の場合も対象種別が正しく判定される", () => {
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         includeTeamBreakdown: true,
         adjustments: [
@@ -1320,7 +1320,7 @@ describe("buildMonthlyReport: 損益調整（実績額修正）", () => {
   });
 
   it("includeTeamBreakdown が false（teamleader）では orphanedAdjustments を返さない", () => {
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         includeTeamBreakdown: false,
         adjustments: [
@@ -1332,11 +1332,11 @@ describe("buildMonthlyReport: 損益調整（実績額修正）", () => {
     expect(report.orphanedAdjustments).toBeUndefined();
   });
 
-  it("includeOrphanedAdjustments が false（年間推移）では orphanedAdjustments を返さない", () => {
-    const report = buildMonthlyReport(
+  it("includeMonthlyDetails が false（年間推移）では orphanedAdjustments を返さない", () => {
+    const report = buildMonthReport(
       buildInput({
         includeTeamBreakdown: true,
-        includeOrphanedAdjustments: false,
+        includeMonthlyDetails: false,
         businessRows: [business(100000, "2026-08-01", "受託案件")],
         adjustments: [
           adjustment({
@@ -1355,7 +1355,7 @@ describe("buildMonthlyReport: 損益調整（実績額修正）", () => {
     // 対象行（business_id）自体は月をまたいで存在するが、対象月（7月）の集計対象からは
     // 外れているケース。ラベル解決は month でフィルタする前の全件から行う
     const businessRow = business(100000, "2026-08-01", "受託案件");
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         includeTeamBreakdown: true,
         businessRows: [businessRow],
@@ -1390,7 +1390,7 @@ describe("buildMonthlyReport: 損益調整（実績額修正）", () => {
       team: "チームA",
     });
 
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         includeTeamBreakdown: true,
         businessRows: [businessRow],
@@ -1443,7 +1443,7 @@ describe("isDraftMatter", () => {
   });
 });
 
-describe("buildMonthlyReport: 案件開始日基準の計上（Issue #146）", () => {
+describe("buildMonthReport: 案件開始日基準の計上（Issue #146）", () => {
   // 1 案件の売上・費用。旧基準（請求日・支払期限）では別の月に分かれていたケースでも、
   // 行が持つ案件開始日だけで計上月が決まる
   const matterRows = (
@@ -1462,10 +1462,8 @@ describe("buildMonthlyReport: 案件開始日基準の計上（Issue #146）", (
 
   it("売上・費用ともに案件開始日の月に全額計上し、他の月には計上しない", () => {
     const rows = matterRows("2026-07-20");
-    const july = buildMonthlyReport(buildInput({ ...rows }));
-    const august = buildMonthlyReport(
-      buildInput({ ...rows, month: "2026-08" }),
-    );
+    const july = buildMonthReport(buildInput({ ...rows }));
+    const august = buildMonthReport(buildInput({ ...rows, month: "2026-08" }));
     expect(july.revenueTotal).toBe(100000);
     expect(july.matterCostTotal).toBe(30000);
     expect(july.grossProfitTotal).toBe(70000);
@@ -1474,14 +1472,14 @@ describe("buildMonthlyReport: 案件開始日基準の計上（Issue #146）", (
   });
 
   it("下書きの案件はどの月にも月未確定にも計上しない", () => {
-    const dated = buildMonthlyReport(
+    const dated = buildMonthReport(
       buildInput(
         matterRows("2026-07-01", { is_fixed: false, is_completed: false }),
       ),
     );
     expect(dated.revenueTotal).toBe(0);
     expect(dated.matterCostTotal).toBe(0);
-    const undated = buildMonthlyReport(
+    const undated = buildMonthReport(
       buildInput(matterRows(null, { is_fixed: null, is_completed: null })),
     );
     expect(undated.undated).toEqual({ revenue: 0, matterCost: 0 });
@@ -1491,7 +1489,7 @@ describe("buildMonthlyReport: 案件開始日基準の計上（Issue #146）", (
     ["経理申請中", { is_fixed: true, is_completed: false }],
     ["経理確認完了・完了", { is_fixed: true, is_completed: true }],
   ])("%s の案件は計上する", (_label, state) => {
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput(matterRows("2026-07-01", state)),
     );
     expect(report.revenueTotal).toBe(100000);
@@ -1499,7 +1497,7 @@ describe("buildMonthlyReport: 案件開始日基準の計上（Issue #146）", (
   });
 
   it("案件開始日が未入力の案件（下書き以外）は売上・費用とも月未確定に計上する", () => {
-    const report = buildMonthlyReport(buildInput(matterRows(null)));
+    const report = buildMonthReport(buildInput(matterRows(null)));
     expect(report.revenueTotal).toBe(0);
     expect(report.undated).toEqual({ revenue: 100000, matterCost: 30000 });
   });
@@ -1515,12 +1513,12 @@ describe("buildMonthlyReport: 案件開始日基準の計上（Issue #146）", (
         source_amount_snapshot: 100000,
       }),
     ];
-    const july = buildMonthlyReport(
+    const july = buildMonthReport(
       buildInput({ ...rows, adjustments, includeTeamBreakdown: true }),
     );
     expect(july.revenueTotal).toBe(0);
     expect(july.orphanedAdjustments?.map((o) => o.adjustment.id)).toEqual([1]);
-    const august = buildMonthlyReport(
+    const august = buildMonthReport(
       buildInput({ ...rows, adjustments, month: "2026-08" }),
     );
     // 調整は 7 月に留まるため 8 月の実績額は元データのまま
@@ -1535,12 +1533,10 @@ describe("buildMonthlyReport: 案件開始日基準の計上（Issue #146）", (
       costRows: [...june.costRows, ...july.costRows],
     };
     expect(
-      buildMonthlyReport(buildInput({ ...input, month: "2026-06" }))
-        .revenueTotal,
+      buildMonthReport(buildInput({ ...input, month: "2026-06" })).revenueTotal,
     ).toBe(100000);
     expect(
-      buildMonthlyReport(buildInput({ ...input, month: "2026-07" }))
-        .revenueTotal,
+      buildMonthReport(buildInput({ ...input, month: "2026-07" })).revenueTotal,
     ).toBe(100000);
   });
 });
@@ -1583,7 +1579,7 @@ describe("表示タイトル（Issue #150）", () => {
   it("案件・売上明細・費用明細・定期費用ごとに上書きタイトルを解決し、元の名称は保持する", () => {
     const b = business(100000, "2026-07-01", "受託案件", "チームA", 7);
     const c = cost(30000, "2026-07-01", "外注費", "受託案件", 7);
-    const report = buildMonthlyReport(
+    const report = buildMonthReport(
       buildInput({
         businessRows: [b],
         costRows: [c],

@@ -53,7 +53,8 @@ export const useReopenProfitLossMonth = () => {
       }
     },
     retry: 0,
-    onSuccess: invalidate,
+    // 既に解除済みだった場合も最新の状態を表示するため、失敗時もキャッシュを無効化する
+    onSettled: invalidate,
     onError: (error) => {
       console.error("月次収支の確定解除エラー:", error);
     },

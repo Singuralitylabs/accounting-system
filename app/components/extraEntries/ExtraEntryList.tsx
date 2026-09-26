@@ -13,6 +13,7 @@ import {
   isClosedMonth,
 } from "@/app/utils/profitLossClosing";
 import { ORG_WIDE_TEAM_LABEL } from "@/app/utils/constants";
+import { selectChangedExtraEntries } from "@/app/utils/extraEntry";
 import { notifyError, notifySuccess } from "@/app/utils/notify";
 import { confirmAction } from "@/app/utils/confirmAction";
 import {
@@ -44,6 +45,9 @@ type Props = {
 const toListRows = (extraEntries: ExtraEntryType[]): ExtraEntryInListType[] =>
   extraEntries.map((entry) => ({ ...entry, isNew: false, isRemoved: false }));
 
+const toRowMap = (extraEntries: ExtraEntryType[]) =>
+  new Map(extraEntries.map((entry) => [entry.id, entry]));
+
 // 入力済みの値から重複なしのサジェスト候補を作る（内容・請求先の入力補助用）
 const toSuggestions = (values: (string | null)[]): string[] =>
   Array.from(new Set(values.filter((value): value is string => !!value)));
@@ -61,12 +65,9 @@ const ExtraEntryList = ({
   // 確定済みの月（損益計算書の月次収支確定。Issue #148）のエントリは編集・削除できず、
   // 確定済みの月の日付も選べない（DB の RLS でも拒否される）
   const { closedMonths } = useClosedMonths();
-  // 保存済みの行（編集ロックは変更前の日付で判定し、編集していない行は対象外にする）
+  // 最新の保存済みの行（編集ロックは変更前の日付で判定する）
   const originals = useMemo(
-    () =>
-      new Map(
-        (extraEntryList ?? initialData).map((entry) => [entry.id, entry]),
-      ),
+    () => toRowMap(extraEntryList ?? initialData),
     [extraEntryList, initialData],
   );
   const isRowLocked = (row: ExtraEntryInListType) =>
@@ -76,6 +77,9 @@ const ExtraEntryList = ({
   const [rows, setRows] = useState<ExtraEntryInListType[]>(
     toListRows(initialData),
   );
+  // 編集を始めた時点（画面に読み込んだ時点）の保存済みの行。保存時は、これと比べて
+  // 追加・削除・編集した行だけを送る（編集していない行を読み込み時点の値で上書きしない）
+  const [baseline, setBaseline] = useState(() => toRowMap(initialData));
   // 編集中フラグ。バックグラウンド再取得（再接続時など）で
   // 保存前の編集内容が黙って破棄されるのを防ぐ
   const [isDirty, setIsDirty] = useState(false);
@@ -85,6 +89,7 @@ const ExtraEntryList = ({
   useEffect(() => {
     if (extraEntryList && !isDirty) {
       setRows(toListRows(extraEntryList));
+      setBaseline(toRowMap(extraEntryList));
     }
   }, [extraEntryList, isDirty]);
 
@@ -187,8 +192,15 @@ const ExtraEntryList = ({
       }
     }
 
+    const changedRows = selectChangedExtraEntries(rows, baseline);
+    if (changedRows.length === 0) {
+      setIsDirty(false);
+      notifySuccess("変更された項目はありません。");
+      return;
+    }
+
     const lockViolations = findExtraEntryLockViolations(
-      rows,
+      changedRows,
       originals,
       closedMonths,
     );
@@ -203,7 +215,7 @@ const ExtraEntryList = ({
     if (!confirmed) return;
 
     try {
-      await upsertMutation.mutateAsync(rows);
+      await upsertMutation.mutateAsync(changedRows);
       setIsDirty(false); // 保存成功後は再取得結果との同期を再開する
       notifySuccess("経理追加収支情報を更新しました。");
     } catch (error) {

@@ -27,6 +27,7 @@ import {
   TitledRecurringCostLine,
 } from "../types/types";
 import { ORG_WIDE_TEAM_LABEL } from "./constants";
+import { addMonths } from "./formatter";
 import { hasClassAccess } from "./permissions";
 
 // 集計対象の行が属する案件の属性。
@@ -132,6 +133,19 @@ export type ReportPeriod = {
 export const isMonthKey = (value: string): boolean =>
   /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
 
+// 月キーの一覧（昇順・重複なし）を、連続する月ごとの取得期間にまとめる
+// （例: 2026-07, 2026-08, 2027-01 → 2026-07〜08 と 2027-01）
+export const groupConsecutiveMonths = (months: string[]): ReportPeriod[] =>
+  months.reduce<ReportPeriod[]>((periods, month) => {
+    const last = periods[periods.length - 1];
+    if (last && addMonths(last.endMonth, 1) === month) {
+      last.endMonth = month;
+    } else {
+      periods.push({ startMonth: month, endMonth: month });
+    }
+    return periods;
+  }, []);
+
 export type ReportRangeBounds = {
   // 期間開始月の月初日（"YYYY-MM-01"。以上条件に使う）
   startDate: string;
@@ -175,7 +189,7 @@ export const isMatterInRangeOrUndated = (
   !isDraftMatter(matter) && isDateInRangeOrUndated(matter.start_date, bounds);
 
 // 定期費用マスタの適用期間が取得期間と重なるか。
-// 支払サイクルによる計上月の判定は行わない（buildMonthlyReport 側で行う）。
+// 支払サイクルによる計上月の判定は行わない（集計側 buildLiveMonthLines で行う）。
 // 適用期間が取得期間と重ならない行だけを除外するための条件。
 export const doesRecurringCostOverlapRange = (
   recurringCost: Pick<RecurringCostType, "start_month" | "end_month">,
@@ -193,7 +207,7 @@ export const isAdjustmentInRange = (
   targetMonth >= bounds.startDate && targetMonth < bounds.endExclusive;
 
 // 調整の対象行のうち取得済み ID に無いもの（取得期間外へ移動した行）を集める。
-// orphanedAdjustments のラベル解決用。対象は buildMonthlyReport と同じく
+// orphanedAdjustments のラベル解決用。対象は月次の集計（buildMonthReport）と同じく
 // target_month が当月の調整のみ。追加取得した行は月振り分け（厳密な月一致・
 // undated は NULL のみ・定期費用は計上月判定）で集計から除外されるため集計値は不変。
 export const collectMissingAdjustmentTargetIds = (
@@ -259,7 +273,7 @@ export const matterPeriodFilter = (bounds: ReportRangeBounds): string => {
 export const recurringOverlapEndFilter = (bounds: ReportRangeBounds): string =>
   `end_month.gte.${bounds.startDate},end_month.is.null`;
 
-// buildMonthlyReport の入力。
+// 月次の集計（buildMonthReport。app/utils/profitLossClosing.ts）の入力。
 // boolean フラグが複数あるため、呼び出し側での取り違えを防ぐ目的で
 // 位置引数ではなくオブジェクトで受ける。
 export type MonthlyReportInput = {
@@ -271,10 +285,10 @@ export type MonthlyReportInput = {
   adjustments: ProfitLossAdjustmentType[];
   isTeamLeader: boolean;
   includeTeamBreakdown: boolean; // チーム別内訳を含めるか（accounting / admin）
-  // 対象行が当月に存在しない調整（orphanedAdjustments）を計算するか。
-  // 年間推移（12ヶ月分を一括計算）は表示に使わないため false を渡し、
-  // 12ヶ月分の無駄な計算を避ける（月次タブの単月表示でのみ true）
-  includeOrphanedAdjustments: boolean;
+  // 月次タブの単月表示でだけ使う明細（対象行が当月に存在しない調整 orphanedAdjustments・
+  // 確定後の変更 closingDiffs）を計算するか。年間推移（12ヶ月分を一括計算）は表示に
+  // 使わないため false を渡し、12ヶ月分の無駄な計算を避ける（月次タブの単月表示でのみ true）
+  includeMonthlyDetails: boolean;
   // 案件別収支のチームの並び順（項目管理のチームマスタの display_order 順）。
   // マスタに無いチーム（無効化・削除済み）は後ろに名称順で並ぶ
   teamOrder?: string[];
@@ -915,42 +929,6 @@ export const computeOrphanedAdjustments = (
           : `管理費（ID: ${adjustment.recurring_cost_id}）`,
       };
     });
-};
-
-// 取得済みの行から指定月の損益レポートを組み立てる（ライブ集計）
-export const buildMonthlyReport = (input: MonthlyReportInput): PLReportType => {
-  const lines = buildLiveMonthLines(input);
-  const report = aggregateMonthLines({
-    month: input.month,
-    lines,
-    isTeamLeader: input.isTeamLeader,
-    includeTeamBreakdown: input.includeTeamBreakdown,
-    teamOrder: input.teamOrder,
-    labels: input.labels,
-  });
-  return {
-    ...report,
-    undated: computeUndated(
-      input.businessRows,
-      input.costRows,
-      input.extraEntries,
-    ),
-    // 削除を促す表示に使うため、実績額修正の操作を持つロール（includeTeamBreakdown =
-    // accounting / admin）にのみ含める。年間推移（includeOrphanedAdjustments=false）
-    // では表示に使わないため計算しない
-    orphanedAdjustments:
-      input.includeTeamBreakdown && input.includeOrphanedAdjustments
-        ? computeOrphanedAdjustments(
-            input.month,
-            lines,
-            input.adjustments,
-            input.businessRows,
-            input.costRows,
-            input.recurringCosts,
-            buildLabelIndex(input.labels),
-          )
-        : undefined,
-  };
 };
 
 // 年度（7月〜翌6月）の月キー一覧を生成する

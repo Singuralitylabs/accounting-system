@@ -18,7 +18,6 @@ import {
 } from "../types/types";
 import { diffClosingLines } from "./profitLossDiff";
 import { formatMonthLabel } from "./formatter";
-import { isExtraEntryUnchanged } from "./extraEntry";
 import {
   BusinessRow,
   CostRow,
@@ -289,8 +288,7 @@ export const canWriteExtraEntry = (
 
 // 経理追加収支の一括保存で、確定中の編集ロックに抵触する行の内容（表示用）を返す。
 // 新規行は変更後の日付、削除行は変更前の日付、更新行は変更前・変更後の両方を判定する。
-// 一括保存は画面の全行を送るため、保存済みで編集していない行は対象外にする
-// （確定済みの月の行を触らずに他の月の行を保存できるようにする）。
+// entries は保存する行（追加・削除・編集した行のみ。selectChangedExtraEntries で選ぶ）。
 // originals は保存前の DB 上の行（id → 行）
 export const findExtraEntryLockViolations = (
   entries: ExtraEntryInListType[],
@@ -306,9 +304,6 @@ export const findExtraEntryLockViolations = (
       const original = originals.get(entry.id);
       if (entry.isRemoved) {
         return isClosedMonth(closedMonths, original?.entry_date);
-      }
-      if (original && isExtraEntryUnchanged(original, entry)) {
-        return false; // 編集していない行
       }
       return !canWriteExtraEntry(
         closedMonths,
@@ -421,6 +416,11 @@ export const buildMonthReport = (
     teamOrder: input.teamOrder,
     labels: input.labels,
   });
+  // 対象行なし調整・確定後の変更は、経理担当者・管理者（includeTeamBreakdown）の
+  // 月次タブの単月表示（includeMonthlyDetails）でのみ計算する（年間推移では使わない）
+  const monthlyDetails =
+    input.includeTeamBreakdown && input.includeMonthlyDetails;
+  const labelIndex = monthlyDetails ? buildLabelIndex(input.labels) : undefined;
   return {
     ...report,
     undated: computeUndated(
@@ -428,31 +428,30 @@ export const buildMonthReport = (
       input.costRows,
       input.extraEntries,
     ),
-    orphanedAdjustments:
-      input.includeTeamBreakdown && input.includeOrphanedAdjustments
-        ? markIncludedInClosing(
-            computeOrphanedAdjustments(
-              input.month,
-              liveLines,
-              input.adjustments,
-              input.businessRows,
-              input.costRows,
-              input.recurringCosts,
-              buildLabelIndex(input.labels),
-            ),
-            input.closing?.lines,
-          )
-        : undefined,
+    orphanedAdjustments: labelIndex
+      ? markIncludedInClosing(
+          computeOrphanedAdjustments(
+            input.month,
+            liveLines,
+            input.adjustments,
+            input.businessRows,
+            input.costRows,
+            input.recurringCosts,
+            labelIndex,
+          ),
+          input.closing?.lines,
+        )
+      : undefined,
     closing: input.closing ? toClosingInfo(input.closing.header) : null,
     // 確定後の案件の変更（Issue #149）。差分・反映・見送りを操作するロール
     // （includeTeamBreakdown = accounting / admin）にのみ含める
     closingDiffs:
-      input.closing && input.includeTeamBreakdown
+      input.closing && labelIndex
         ? diffClosingLines({
             liveLines,
             closedLines: input.closing.lines,
             dismissals: input.closing.dismissals,
-            labelIndex: buildLabelIndex(input.labels),
+            labelIndex,
           })
         : undefined,
   };

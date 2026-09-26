@@ -155,6 +155,9 @@ const ClosingDiffPanel = ({ report, loadingMatterId, onShowMatter }: Props) => {
   );
   const hasMoveWarning = (list: ClosingDiff[]) =>
     list.some((diff) => diff.movedMonthClosed);
+  // 他の月との移動の情報を取得できなかった場合は、片方の月だけ反映して両月の合計が
+  // ずれることを警告できないため、反映を止めて再読み込みを促す（見送りは確定値を変えない）
+  const moveInfoUnavailable = !!diffs.moveInfoUnavailable;
 
   const handleApply = async (targets: ClosingDiff[]) => {
     if (targets.length === 0) return;
@@ -387,6 +390,11 @@ const ClosingDiffPanel = ({ report, loadingMatterId, onShowMatter }: Props) => {
           <Text size="sm" className="mb-2">
             確定後に案件が変更されました。損益計算書（確定値）にはまだ反映されていません。反映する変更、または見送る変更を選んでください。
           </Text>
+          {moveInfoUnavailable && (
+            <Text size="sm" c="red" className="mb-2">
+              他の確定済みの月との間で移動した明細かどうかを確認できませんでした。反映すると両月の合計がずれるおそれがあるため、画面を再読み込みしてから反映してください。
+            </Text>
+          )}
           {diffTable(diffs.pending, selected, setSelected, false)}
           {selectedDiffs.length > 0 && (
             <div className="mt-3">
@@ -404,7 +412,9 @@ const ClosingDiffPanel = ({ report, loadingMatterId, onShowMatter }: Props) => {
           <Group gap="xs" className="mt-3">
             <Button
               size="xs"
-              disabled={selectedDiffs.length === 0 || isPending}
+              disabled={
+                selectedDiffs.length === 0 || isPending || moveInfoUnavailable
+              }
               loading={applyMutation.isPending}
               onClick={() => handleApply(selectedDiffs)}
             >
@@ -413,7 +423,7 @@ const ClosingDiffPanel = ({ report, loadingMatterId, onShowMatter }: Props) => {
             <Button
               size="xs"
               variant="light"
-              disabled={isPending}
+              disabled={isPending || moveInfoUnavailable}
               onClick={() => handleApply(diffs.pending)}
             >
               すべて反映
