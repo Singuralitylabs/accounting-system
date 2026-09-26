@@ -19,7 +19,7 @@ import { notifyError, notifySuccess } from "@/app/utils/notify";
 import { confirmAction } from "@/app/utils/confirmAction";
 import { PAYMENT_CYCLE_OPTIONS } from "@/app/utils/paymentCycle";
 import { CustomMonthPicker } from "../CustomMonthPicker";
-import { useClosedMonths } from "@/app/hooks/useProfitLossClosing";
+import { useClosedMonths } from "@/app/hooks/useClosedMonths";
 import { closedMonthsInRecurringRange } from "@/app/utils/profitLossClosing";
 import { formatMonthLabel } from "@/app/utils/formatter";
 

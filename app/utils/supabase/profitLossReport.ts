@@ -10,9 +10,11 @@ import { createServerSupabase } from "./clients";
 import { fiscalYearMonths, isMonthKey, reportFlags } from "../profitLossLogic";
 import { buildMonthReport } from "../profitLossClosing";
 import {
+  fetchDiffMoveContext,
   fetchReportSourceRows,
   supplementAdjustmentTargets,
 } from "./profitLossSource";
+import { annotateDiffMoves } from "../profitLossDiff";
 import { getAuthorizedViewer } from "./viewerAccess";
 
 // 月次損益レポートの取得（month: "YYYY-MM"）
@@ -43,13 +45,25 @@ export const getProfitLossReport = async (
   await supplementAdjustmentTargets(month, rows);
 
   // 確定済みの月は確定明細から、未確定の月はライブ集計から組み立てる（Issue #148）
-  return buildMonthReport({
+  const report = buildMonthReport({
     month,
     ...rows,
     closing: rows.closings.get(month) ?? null,
     includeOrphanedAdjustments: true,
     ...reportFlags(profileInfo.class),
   });
+
+  // 確定後の差分（Issue #149）の追加・削除に、他の月との移動の情報を付ける
+  if (report.closingDiffs) {
+    const context = await fetchDiffMoveContext(month, [
+      ...report.closingDiffs.pending,
+      ...report.closingDiffs.dismissed,
+    ]);
+    if (context) {
+      report.closingDiffs = annotateDiffMoves(report.closingDiffs, context);
+    }
+  }
+  return report;
 };
 
 // 年間推移の取得（fiscalYear: 年度の開始年。2026 = 2026/7〜2027/6）

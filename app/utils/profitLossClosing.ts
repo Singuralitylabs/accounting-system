@@ -8,10 +8,12 @@ import {
   ClosingLineInput,
   PLMonthLines,
   PLReportType,
+  ProfitLossClosingDismissalType,
   ProfitLossClosingLineType,
   ProfitLossClosingType,
   RecurringCostType,
 } from "../types/types";
+import { diffClosingLines } from "./profitLossDiff";
 import { formatMonthLabel } from "./formatter";
 import {
   BusinessRow,
@@ -306,6 +308,20 @@ export const closedMonthsInRecurringRange = (
     .sort();
 };
 
+// 案件の開始日（保存済み・入力中）のうち、確定済みの月に当たるもの（重複なし・昇順）。
+// 案件詳細モーダルの注意表示（Issue #149）に使う
+export const closedMonthsForMatter = (
+  closedMonths: ReadonlySet<string>,
+  startDates: (string | null | undefined)[],
+): string[] =>
+  Array.from(
+    new Set(
+      startDates
+        .filter((date): date is string => isClosedMonth(closedMonths, date))
+        .map(toMonthKey),
+    ),
+  ).sort();
+
 // 確定中の編集ロックの案内（損益計算書・経理追加収支画面のツールチップ共通）
 export const CLOSED_MONTH_LOCK_MESSAGE =
   "確定済みの月です。編集するには損益計算書で『確定済み』をオフにしてください";
@@ -334,6 +350,8 @@ export type MonthClosingSnapshot = {
     | "refreshed_by_name"
   >;
   lines: ClosingLineInput[];
+  // 見送り記録（Issue #149。RLS により accounting / admin のみ取得できる）
+  dismissals: ProfitLossClosingDismissalType[];
 };
 
 // 指定月の損益レポートを組み立てる。確定済みの月（closing あり）は確定明細から、
@@ -375,5 +393,16 @@ export const buildMonthReport = (
           )
         : undefined,
     closing: input.closing ? toClosingInfo(input.closing.header) : null,
+    // 確定後の案件の変更（Issue #149）。差分・反映・見送りを操作するロール
+    // （includeTeamBreakdown = accounting / admin）にのみ含める
+    closingDiffs:
+      input.closing && input.includeTeamBreakdown
+        ? diffClosingLines({
+            liveLines,
+            closedLines: input.closing.lines,
+            dismissals: input.closing.dismissals,
+            labelIndex: buildLabelIndex(input.labels),
+          })
+        : undefined,
   };
 };

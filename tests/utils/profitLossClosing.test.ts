@@ -177,6 +177,7 @@ const snapshotOf = (input: MonthlyReportInput): MonthClosingSnapshot => ({
     refreshed_by_name: null,
   },
   lines: monthLinesToClosingRows(buildLiveMonthLines(input)),
+  dismissals: [],
 });
 
 // スナップショットをチームリーダーが読む（RLS: 自チーム＋全体共通の明細のみ）
@@ -246,6 +247,7 @@ describe("確定明細への変換と再構成（Issue #148）", () => {
       const strip = (report: typeof live) => ({
         ...report,
         closing: undefined,
+        closingDiffs: undefined,
         orphanedAdjustments: undefined,
         teamMatterGroups: report.teamMatterGroups.map((group) => ({
           ...group,

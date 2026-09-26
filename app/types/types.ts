@@ -266,6 +266,9 @@ export type PLReportType = {
   // 月次収支確定の情報（Issue #148）。確定済みの月は確定明細（スナップショット）から
   // 集計した値を返す。未確定の月は null（ライブ集計）
   closing?: ClosingInfo | null;
+  // 確定後の案件の変更（確定明細とライブ集計の差分。Issue #149）。
+  // 確定済みの月かつ accounting / admin のみ（チームリーダーには見せない）
+  closingDiffs?: ClosingDiffResult;
 };
 
 // ===== 月次収支確定（profit_loss_closings / profit_loss_closing_lines）関連 =====
@@ -451,3 +454,59 @@ export type ActiveBudgetRecurringItemsResult =
   // 前月コピーの items: null（前月申告そのものが無い）とは区別して常に配列を返す
   | { items: BudgetDeclarationPreviousItem[]; error?: undefined }
   | { items?: undefined; error: AccessFailure };
+
+// ===== 確定後の変更検知・反映・見送り（Issue #149） =====
+
+type ProfitLossClosingDismissalsTable =
+  Database["public"]["Tables"]["profit_loss_closing_dismissals"];
+export type ProfitLossClosingDismissalType =
+  ProfitLossClosingDismissalsTable["Row"];
+
+// 変更検知の対象（案件の売上・費用の明細のみ）
+export type DiffSourceType = "business" | "cost";
+
+// 明細の特定キー（反映・見送りの Server Action に渡す）
+export type ClosingDiffKey = { sourceType: DiffSourceType; sourceId: number };
+
+// 差分の種類。金額変更・区分変更（分類・チーム）は同時に起こりうるため changed に
+// フラグで持つ
+export type ClosingDiffKind = "added" | "removed" | "changed";
+
+// 差分の比較に使う明細の状態（金額・区分）
+export type DiffLineState = {
+  actualAmount: number;
+  team: string;
+  category: string;
+};
+
+// 確定明細から消えた（removed）理由。ライブの行を ID で引いて判定する
+export type RemovedReason = "moved" | "undated" | "draft" | "deleted";
+
+export type ClosingDiff = {
+  key: string; // "business:1" 形式（ClosingDiffKey の文字列表現）
+  sourceType: DiffSourceType;
+  sourceId: number;
+  kind: ClosingDiffKind;
+  amountChanged: boolean;
+  classificationChanged: boolean; // 分類・チームの変更
+  matterId: number;
+  matterTitle: string; // 表示タイトル（上書きタイトル → 最新の案件名 → 確定時点の案件名）
+  name: string; // 明細の表示タイトル（同上）
+  item: string | null; // 品目（費用明細のみ）
+  before: DiffLineState | null; // 確定値（追加は null）
+  after: DiffLineState | null; // 最新の値（削除は null）
+  delta: number; // 実績額の差（after − before。無い側は 0）
+  // 他の月との移動（案件開始日の変更）。added は移動元、removed は移動先の月（"YYYY-MM"）
+  movedMonth: string | null;
+  movedMonthClosed: boolean; // 移動の相手側の月も確定済みか（片方だけ反映すると両月の合計がずれる）
+  removedReason: RemovedReason | null;
+  dismissal: { dismissedAt: string; dismissedByName: string } | null; // 見送り済みのみ
+};
+
+export type ClosingDiffResult = {
+  pending: ClosingDiff[]; // 未処理（反映も見送りもしていない）
+  dismissed: ClosingDiff[]; // 見送り済み（見送った時点から変化していないもの）
+};
+
+// ページ上部のバナー用（未処理の差分がある確定済みの月と件数）
+export type ClosingDiffSummary = { month: string; count: number }[];

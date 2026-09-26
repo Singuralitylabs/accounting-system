@@ -6,7 +6,7 @@ import {
   useExtraEntryList,
   useUpsertExtraEntry,
 } from "@/app/hooks/useExtraEntryData";
-import { useClosedMonths } from "@/app/hooks/useProfitLossClosing";
+import { useClosedMonths } from "@/app/hooks/useClosedMonths";
 import {
   CLOSED_MONTH_LOCK_MESSAGE,
   findExtraEntryLockViolations,

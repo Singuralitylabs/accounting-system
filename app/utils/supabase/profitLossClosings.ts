@@ -1,38 +1,24 @@
 "use server";
 
-import { AccessFailure } from "../../types/types";
+import {
+  AccessFailure,
+  ClosingDiffKey,
+  ClosingDiffSummary,
+} from "../../types/types";
 import { PL_CLOSING_WRITE_CLASSES } from "../permissions";
 import { toFirstOfMonth } from "../formatter";
 import { buildLiveMonthLines, isMonthKey } from "../profitLossLogic";
 import { monthLinesToClosingRows } from "../profitLossClosing";
+import {
+  buildApplyPayload,
+  diffClosingLines,
+  liveDiffStates,
+  sanitizeDiffKeys,
+} from "../profitLossDiff";
 import { createServerSupabase } from "./clients";
 import { fetchReportSourceRows } from "./profitLossSource";
 import { getAuthorizedViewer } from "./viewerAccess";
-
-export type ClosedMonthsResult =
-  | { months: string[]; error?: undefined }
-  | { months?: undefined; error: AccessFailure };
-
-// 確定済みの月の一覧（"YYYY-MM" の昇順）。profit_loss_closings の SELECT は
-// ログインユーザー全員に許可しているため、ロールを問わず取得できる
-// （経理追加収支画面・定期費用マスタ画面の編集ロック / 注記、案件詳細モーダルの注意表示に使う）
-export const getClosedMonths = async (): Promise<ClosedMonthsResult> => {
-  const supabase = createServerSupabase();
-  const { data, error } = await supabase
-    .from("profit_loss_closings")
-    .select("target_month")
-    .order("target_month", { ascending: true });
-  if (error) {
-    console.error("確定済みの月の取得に失敗しました:", error);
-    return {
-      error: {
-        kind: "fetchFailed",
-        message: "確定済みの月の取得に失敗しました。",
-      },
-    };
-  }
-  return { months: (data ?? []).map((row) => row.target_month.slice(0, 7)) };
-};
+import { getClosedMonths } from "./profitLossClosedMonths";
 
 export type ProfitLossClosingWriteResult = { error?: AccessFailure };
 
@@ -116,6 +102,205 @@ export const reopenProfitLossMonth = async (
         kind: "fetchFailed",
         message: "月次収支の確定解除に失敗しました。",
       },
+    };
+  }
+  return {};
+};
+
+// ===== 確定後の変更の検知・反映・見送り（Issue #149） =====
+
+export type ClosingDiffSummaryResult =
+  | { summary: ClosingDiffSummary; error?: undefined }
+  | { summary?: undefined; error: AccessFailure };
+
+// 未処理の差分がある確定済みの月と件数（損益計算書ページ上部のバナー・月ピッカー・
+// 年間推移のアイコン用。accounting / admin のみ）。
+// 確定済みの月の一覧を取得したうえで、その範囲のライブの行・確定明細・見送り記録を
+// 1 回の一括取得（fetchReportSourceRows の Promise.all）で取得し、月別に差分を数える
+export const getClosingDiffSummary =
+  async (): Promise<ClosingDiffSummaryResult> => {
+    const { profileInfo, error } = await getAuthorizedViewer(
+      PL_CLOSING_WRITE_CLASSES,
+      "確定後の変更",
+    );
+    if (!profileInfo) {
+      return { error };
+    }
+    const closedMonthsResult = await getClosedMonths();
+    if (closedMonthsResult.error) {
+      return { error: closedMonthsResult.error };
+    }
+    const months = closedMonthsResult.months;
+    if (months.length === 0) {
+      return { summary: [] };
+    }
+    const rows = await fetchReportSourceRows({
+      startMonth: months[0],
+      endMonth: months[months.length - 1],
+    });
+    if (!rows) {
+      return {
+        error: {
+          kind: "fetchFailed",
+          message: "確定後の変更の確認に失敗しました。",
+        },
+      };
+    }
+    const summary: ClosingDiffSummary = [];
+    rows.closings.forEach((closing, month) => {
+      const { pending } = diffClosingLines({
+        liveLines: buildLiveMonthLines({ month, ...rows }),
+        closedLines: closing.lines,
+        dismissals: closing.dismissals,
+      });
+      if (pending.length > 0) {
+        summary.push({ month, count: pending.length });
+      }
+    });
+    return { summary: summary.sort((a, b) => a.month.localeCompare(b.month)) };
+  };
+
+// 反映・見送りの共通の前処理（入力検証・権限確認・当月のライブ集計）
+const prepareDiffOperation = async (
+  month: string,
+  keys: ClosingDiffKey[],
+  subject: string,
+) => {
+  const validKeys = sanitizeDiffKeys(keys);
+  if (!isMonthKey(month) || !validKeys) {
+    return {
+      error: {
+        kind: "validationFailed" as const,
+        message: "対象の指定が不正です。",
+      },
+    };
+  }
+  const { profileInfo, error } = await getAuthorizedViewer(
+    PL_CLOSING_WRITE_CLASSES,
+    subject,
+  );
+  if (!profileInfo) {
+    return { error };
+  }
+  const rows = await fetchReportSourceRows({
+    startMonth: month,
+    endMonth: month,
+  });
+  if (!rows) {
+    return {
+      error: {
+        kind: "fetchFailed" as const,
+        message: `${subject}のためのデータ取得に失敗しました。`,
+      },
+    };
+  }
+  if (!rows.closings.has(month)) {
+    return {
+      error: {
+        kind: "validationFailed" as const,
+        message: "この月は確定されていません。画面を再読み込みしてください。",
+      },
+    };
+  }
+  return { keys: validKeys, liveLines: buildLiveMonthLines({ month, ...rows }) };
+};
+
+// 選択した差分の反映。クライアントからは対象の明細（source_type, source_id）だけを
+// 受け取り、値はサーバ側でライブ集計し直したものを使う（ライブにある明細は最新の値で
+// upsert、無い明細は確定明細から削除）。反映者・反映日時を記録する
+export const applyClosingDiffs = async (
+  month: string,
+  keys: ClosingDiffKey[],
+): Promise<ProfitLossClosingWriteResult> => {
+  const prepared = await prepareDiffOperation(month, keys, "変更の反映");
+  if (prepared.error) {
+    return { error: prepared.error };
+  }
+  const { upsertLines, deleteKeys } = buildApplyPayload(
+    prepared.liveLines,
+    prepared.keys,
+  );
+  const supabase = createServerSupabase();
+  const { error } = await supabase.rpc("apply_profit_loss_closing_diffs", {
+    p_target_month: toFirstOfMonth(month),
+    p_upsert_lines: monthLinesToClosingRows(upsertLines),
+    p_delete_keys: deleteKeys,
+  });
+  if (error) {
+    console.error("確定後の変更の反映に失敗しました:", error);
+    return {
+      error: { kind: "fetchFailed", message: "変更の反映に失敗しました。" },
+    };
+  }
+  return {};
+};
+
+// 選択した差分の見送り。その時点のライブの状態（サーバ側で集計し直した値）を記録し、
+// 以後その状態のままならアラート・件数から外す
+export const dismissClosingDiffs = async (
+  month: string,
+  keys: ClosingDiffKey[],
+): Promise<ProfitLossClosingWriteResult> => {
+  const prepared = await prepareDiffOperation(month, keys, "変更の見送り");
+  if (prepared.error) {
+    return { error: prepared.error };
+  }
+  const supabase = createServerSupabase();
+  const { error } = await supabase.rpc("dismiss_profit_loss_closing_diffs", {
+    p_target_month: toFirstOfMonth(month),
+    p_dismissals: liveDiffStates(prepared.liveLines, prepared.keys).map(
+      (state) => ({
+        source_type: state.sourceType,
+        source_id: state.sourceId,
+        live_present: state.present,
+        live_actual_amount: state.actualAmount,
+        live_team: state.team,
+        live_category: state.category,
+      }),
+    ),
+  });
+  if (error) {
+    console.error("確定後の変更の見送りに失敗しました:", error);
+    return {
+      error: { kind: "fetchFailed", message: "変更の見送りに失敗しました。" },
+    };
+  }
+  return {};
+};
+
+// 見送りの取り消し（未処理の差分に戻す）
+export const undoClosingDismissals = async (
+  month: string,
+  keys: ClosingDiffKey[],
+): Promise<ProfitLossClosingWriteResult> => {
+  const validKeys = sanitizeDiffKeys(keys);
+  if (!isMonthKey(month) || !validKeys) {
+    return {
+      error: { kind: "validationFailed", message: "対象の指定が不正です。" },
+    };
+  }
+  const { profileInfo, error } = await getAuthorizedViewer(
+    PL_CLOSING_WRITE_CLASSES,
+    "見送りの取り消し",
+  );
+  if (!profileInfo) {
+    return { error };
+  }
+  const supabase = createServerSupabase();
+  const { error: rpcError } = await supabase.rpc(
+    "undo_profit_loss_closing_dismissals",
+    {
+      p_target_month: toFirstOfMonth(month),
+      p_keys: validKeys.map((key) => ({
+        source_type: key.sourceType,
+        source_id: key.sourceId,
+      })),
+    },
+  );
+  if (rpcError) {
+    console.error("見送りの取り消しに失敗しました:", rpcError);
+    return {
+      error: { kind: "fetchFailed", message: "見送りの取り消しに失敗しました。" },
     };
   }
   return {};

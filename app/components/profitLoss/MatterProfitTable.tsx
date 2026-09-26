@@ -12,7 +12,16 @@ import {
 import { formatCurrency } from "@/app/utils/formatter";
 import { formatEntryType } from "@/app/utils/extraEntry";
 import { ORG_WIDE_TEAM_LABEL } from "@/app/utils/constants";
-import { Badge, Button, Group, Paper, Table, Text } from "@mantine/core";
+import {
+  Badge,
+  Button,
+  Group,
+  Paper,
+  Table,
+  Text,
+  Tooltip,
+} from "@mantine/core";
+import { FaExclamationCircle } from "react-icons/fa";
 import { Fragment } from "react";
 import {
   AdjustmentButton,
@@ -33,6 +42,9 @@ type Props = {
   grossProfitTotal: number;
   canEditAdjustments: boolean; // 実績額修正の操作を表示するか（accounting / admin）
   isClosed?: boolean; // 確定済みの月か（Issue #148。実績額修正を無効化する）
+  // 確定後に未処理の変更がある明細（"business:1" 形式）・案件（Issue #149。変更アイコンを付ける）
+  changedKeys?: ReadonlySet<string>;
+  changedMatterIds?: ReadonlySet<number>;
   loadingMatterId: number | null;
   onShowMatter: (matterId: number) => void;
   onEditAdjustment: (
@@ -49,6 +61,20 @@ type Props = {
 };
 
 const teamLabel = (team: string | null) => team ?? ORG_WIDE_TEAM_LABEL;
+
+// 確定後に未処理の変更がある行の目印（Issue #149）
+const ChangedIcon = ({ label }: { label: string }) => (
+  <Tooltip label={label}>
+    <span
+      className="inline-flex ml-1 text-orange-600 align-middle"
+      role="img"
+      aria-label={label}
+      tabIndex={0}
+    >
+      <FaExclamationCircle size="0.75rem" />
+    </span>
+  </Tooltip>
+);
 
 // 金額 3 列（売上 / 案件費用 / 粗利）。null の列は空欄にする（明細行は該当列のみ）
 const AmountCells = ({
@@ -89,6 +115,8 @@ const MatterProfitTable = ({
   grossProfitTotal,
   canEditAdjustments,
   isClosed = false,
+  changedKeys = new Set<string>(),
+  changedMatterIds = new Set<number>(),
   loadingMatterId,
   onShowMatter,
   onEditAdjustment,
@@ -128,6 +156,9 @@ const MatterProfitTable = ({
           >
             {isBusiness ? "売上" : "費用"}
           </Badge>
+          {changedKeys.has(`${kind}:${id}`) && (
+            <ChangedIcon label="確定後に変更があります（未反映）" />
+          )}
           <EditableTitle
             title={line}
             originalTitle={line.name}
@@ -252,6 +283,9 @@ const MatterProfitTable = ({
                                 </span>
                                 {matter.displayTitle}
                               </ExpandToggle>
+                              {changedMatterIds.has(matter.matterId) && (
+                                <ChangedIcon label="この案件は確定後に変更があります（未反映）" />
+                              )}
                               <TitleExtras
                                 title={matter}
                                 originalTitle={matter.matterTitle}

@@ -544,6 +544,63 @@ export type Database = {
           },
         ]
       }
+      profit_loss_closing_dismissals: {
+        Row: {
+          closing_id: number
+          dismissed_at: string
+          dismissed_by: number
+          dismissed_by_name: string
+          id: number
+          live_actual_amount: number | null
+          live_category: string | null
+          live_present: boolean
+          live_team: string | null
+          source_id: number
+          source_type: string
+        }
+        Insert: {
+          closing_id: number
+          dismissed_at?: string
+          dismissed_by: number
+          dismissed_by_name: string
+          id?: never
+          live_actual_amount?: number | null
+          live_category?: string | null
+          live_present: boolean
+          live_team?: string | null
+          source_id: number
+          source_type: string
+        }
+        Update: {
+          closing_id?: number
+          dismissed_at?: string
+          dismissed_by?: number
+          dismissed_by_name?: string
+          id?: never
+          live_actual_amount?: number | null
+          live_category?: string | null
+          live_present?: boolean
+          live_team?: string | null
+          source_id?: number
+          source_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profit_loss_closing_dismissals_closing_id_fkey"
+            columns: ["closing_id"]
+            isOneToOne: false
+            referencedRelation: "profit_loss_closings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profit_loss_closing_dismissals_dismissed_by_fkey"
+            columns: ["dismissed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profit_loss_closing_lines: {
         Row: {
           actual_amount: number | null
@@ -862,6 +919,16 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      apply_profit_loss_closing_diffs: {
+        Args: {
+          p_target_month: string
+          p_upsert_lines: Json
+          p_delete_keys: Json
+        }
+        Returns: {
+          applied_count: number
+        }[]
+      }
       auth_user_class: { Args: never; Returns: string }
       auth_user_team: { Args: never; Returns: string }
       can_access_team_budget: {
@@ -869,6 +936,15 @@ export type Database = {
         Returns: boolean
       }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
+      dismiss_profit_loss_closing_diffs: {
+        Args: {
+          p_target_month: string
+          p_dismissals: Json
+        }
+        Returns: {
+          dismissed_count: number
+        }[]
+      }
       get_member_options: {
         Args: never
         Returns: {
@@ -926,6 +1002,15 @@ export type Database = {
         }
         Returns: {
           deleted: boolean
+        }[]
+      }
+      undo_profit_loss_closing_dismissals: {
+        Args: {
+          p_target_month: string
+          p_keys: Json
+        }
+        Returns: {
+          undone_count: number
         }[]
       }
       validate_member_ids: {

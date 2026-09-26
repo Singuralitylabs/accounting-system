@@ -3,17 +3,22 @@
 import { AnnualTrendType } from "@/app/types/types";
 import { formatCurrency, formatMonthHeader } from "@/app/utils/formatter";
 import { Paper, Table, Tooltip } from "@mantine/core";
-import { FaLock } from "react-icons/fa";
+import { FaExclamationTriangle, FaLock } from "react-icons/fa";
 
 type Props = {
   trend: AnnualTrendType;
+  // 確定後に未反映の変更がある月 → 件数（Issue #149。経理担当者・管理者のみ渡される）
+  diffCountByMonth?: ReadonlyMap<string, number>;
 };
 
 // 損益の符号に応じた文字色（0 は黒字扱い）。月次の損益計算書と表示を揃える。
 const amountColor = (value: number) =>
   value < 0 ? "text-red-600" : "text-green-700";
 
-const AnnualTrendTable = ({ trend }: Props) => {
+const AnnualTrendTable = ({
+  trend,
+  diffCountByMonth = new Map<string, number>(),
+}: Props) => {
   const rows: {
     label: string;
     getValue: (month: AnnualTrendType["months"][number]) => number;
@@ -59,6 +64,19 @@ const AnnualTrendTable = ({ trend }: Props) => {
                       role="img"
                     >
                       <FaLock size="0.65rem" />
+                    </span>
+                  </Tooltip>
+                )}
+                {diffCountByMonth.has(month.month) && (
+                  <Tooltip
+                    label={`確定後に未反映の変更があります（${diffCountByMonth.get(month.month)}件）`}
+                  >
+                    <span
+                      className="inline-flex mr-1 text-orange-600 align-middle"
+                      aria-label="確定後に未反映の変更があります"
+                      role="img"
+                    >
+                      <FaExclamationTriangle size="0.65rem" />
                     </span>
                   </Tooltip>
                 )}

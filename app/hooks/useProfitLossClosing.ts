@@ -1,32 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo } from "react";
+// 確定済みの月の一覧は他画面からも使うため useClosedMonths.ts に分けている（再エクスポート）
+export { useClosedMonths } from "./useClosedMonths";
 import {
+  applyClosingDiffs,
   closeProfitLossMonth,
-  getClosedMonths,
+  dismissClosingDiffs,
+  getClosingDiffSummary,
   reopenProfitLossMonth,
+  undoClosingDismissals,
 } from "../utils/supabase/profitLossClosings";
-
-// 確定済みの月（"YYYY-MM"）の一覧（Issue #148）。
-// 損益計算書のキャッシュ（["profitLoss"]）と一緒に無効化されるよう、キーの先頭を揃える
-export const useClosedMonths = (enabled = true) => {
-  const query = useQuery({
-    queryKey: ["profitLoss", "closedMonths"],
-    queryFn: async () => {
-      const result = await getClosedMonths();
-      if (result.error) {
-        throw new Error(result.error.message);
-      }
-      return result.months;
-    },
-    enabled,
-    staleTime: 60 * 1000,
-  });
-  const closedMonths = useMemo(
-    () => new Set<string>(query.data ?? []),
-    [query.data],
-  );
-  return { ...query, closedMonths };
-};
+import { ClosingDiffKey } from "../types/types";
 
 // 確定・確定解除の後は、損益計算書（月次・年間推移・確定済みの月の一覧）と、
 // 編集ロックが変わる経理追加収支のキャッシュを無効化する
@@ -74,3 +57,54 @@ export const useReopenProfitLossMonth = () => {
     },
   });
 };
+
+// 未処理の差分がある確定済みの月と件数（Issue #149。accounting / admin のみ有効化する）
+export const useClosingDiffSummary = (enabled: boolean) =>
+  useQuery({
+    queryKey: ["profitLoss", "diffSummary"],
+    queryFn: async () => {
+      const result = await getClosingDiffSummary();
+      if (result.error) {
+        throw new Error(result.error.message);
+      }
+      return result.summary;
+    },
+    enabled,
+    staleTime: 60 * 1000,
+  });
+
+type DiffOperationInput = { month: string; keys: ClosingDiffKey[] };
+
+// 反映・見送り・見送り取り消しの共通のミューテーション。
+// 完了後は損益計算書（月次・年間推移・バナーの件数）のキャッシュを無効化する
+const useDiffOperation = (
+  action: (
+    month: string,
+    keys: ClosingDiffKey[],
+  ) => Promise<{ error?: { message: string } }>,
+  label: string,
+) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ month, keys }: DiffOperationInput) => {
+      const { error } = await action(month, keys);
+      if (error) {
+        throw new Error(error.message);
+      }
+    },
+    retry: 0,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["profitLoss"] });
+    },
+    onError: (error) => {
+      console.error(`${label}エラー:`, error);
+    },
+  });
+};
+
+export const useApplyClosingDiffs = () =>
+  useDiffOperation(applyClosingDiffs, "確定後の変更の反映");
+export const useDismissClosingDiffs = () =>
+  useDiffOperation(dismissClosingDiffs, "確定後の変更の見送り");
+export const useUndoClosingDismissals = () =>
+  useDiffOperation(undoClosingDismissals, "見送りの取り消し");

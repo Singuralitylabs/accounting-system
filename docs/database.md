@@ -74,6 +74,7 @@
 | profit_loss_labels                   | 損益計算書上の表示タイトル（案件・明細の名称の上書き）を管理するテーブル       |
 | profit_loss_closings                 | 損益計算書の月次収支確定のヘッダ（確定済みの月）を管理するテーブル             |
 | profit_loss_closing_lines            | 損益計算書の月次収支確定の明細（確定時点のスナップショット）を管理するテーブル |
+| profit_loss_closing_dismissals       | 損益計算書の確定後の変更の見送り記録を管理するテーブル                         |
 
 ## 3. テーブル詳細
 
@@ -535,6 +536,33 @@ CHECK 制約: `target_month = date_trunc('month', target_month)::date`、`num_nu
 - JSON 1 カラムにまとめず正規化している理由: チームリーダー向けの行単位 RLS（自チーム＋全体共通のみ）と、確定後の変更検知（Issue #149）の明細単位の突き合わせ・反映のため
 - 明細の算出（集計）は TypeScript（`app/utils/profitLossLogic.ts` の `buildLiveMonthLines`）で行い、`save_profit_loss_closing`（5.14）で保存する。SQL 側に集計ロジックを二重実装しない
 - 名称（matter_title / name）は確定時点の値だが、表示では元の行が存在する限り最新の名称（と上書きタイトル）を使う（名称は金額・集計に影響しないため）。元の行が削除された場合のフォールバックにのみ使う
+
+### 3.17 profit_loss_closing_dismissals テーブル
+
+確定後の案件の変更（確定明細とライブ集計の差分）のうち、経理が「見送る」とした明細ごとの見送り記録（Issue #149）。見送った時点のライブの状態を保持し、現在のライブの状態と一致する間は「見送り済み」としてアラート・件数から外す（一致しなくなれば未処理の差分に戻す）。差分の算出自体はアプリ側の純粋関数（`app/utils/profitLossDiff.ts`）で行い、DB には見送り記録だけを持つ。
+
+| カラム名           | データ型                 | 制約                                                              | 説明                                                                   |
+| ------------------ | ------------------------ | ----------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| id                 | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                         | 主キー                                                                 |
+| closing_id         | bigint                   | NOT NULL, FOREIGN KEY (profit_loss_closings.id) ON DELETE CASCADE | 確定ヘッダ（確定解除で CASCADE 削除）                                  |
+| source_type        | text                     | NOT NULL, CHECK (`business` / `cost`)                             | 明細の種別（変更検知の対象は案件の売上・費用のみ）                     |
+| source_id          | bigint                   | NOT NULL（FK なし）                                               | 明細の id                                                              |
+| live_present       | boolean                  | NOT NULL                                                          | 見送った時点でライブに存在したか                                       |
+| live_actual_amount | numeric(15,2)            | NULL                                                              | 見送った時点の実績額（存在しない場合は NULL）                          |
+| live_team          | text                     | NULL                                                              | 見送った時点のチーム                                                   |
+| live_category      | text                     | NULL                                                              | 見送った時点の分類                                                     |
+| dismissed_by       | bigint                   | NOT NULL, FOREIGN KEY (profiles.id)                               | 見送った経理担当者・管理者                                             |
+| dismissed_by_name  | text                     | NOT NULL                                                          | 見送った人の氏名（見送り時点。確定ヘッダの closed_by_name と同じ理由） |
+| dismissed_at       | timestamp with time zone | NOT NULL, DEFAULT now()                                           | 見送った日時                                                           |
+
+制約: UNIQUE (closing_id, source_type, source_id)（再見送りは upsert）、CHECK（live_present が true なら実績額・チーム・分類が NOT NULL、false なら 3 列とも NULL）
+
+インデックス: dismissed_by（FK 側の索引）。closing_id は UNIQUE の先頭列で兼ねる
+
+運用上の注意:
+
+- 見送り記録は、その明細を反映したとき（`apply_profit_loss_closing_diffs`）・確定解除（CASCADE）・再確定（`save_profit_loss_closing`）で削除される
+- 差分が解消した（元データが確定値と同じに戻った）明細の見送り記録は残るが、差分でなくなるため表示には使われない
 
 ## 4. 列挙型
 
@@ -1689,6 +1717,30 @@ CREATE POLICY "profit_loss_closing_lines_select_policy" ON profit_loss_closing_l
 
 `save_profit_loss_closing(p_target_month date, p_lines jsonb)` は、ヘッダの upsert（`ON CONFLICT (target_month)`。再確定では確定者・確定日時を更新し、反映者・反映日時をクリア）と明細の全置換（既存明細の DELETE → `jsonb_to_recordset(p_lines)` の INSERT）を 1 回の関数呼び出し（= 1 トランザクション）で行う。途中で失敗（明細の CHECK 違反など）すると確定前の状態に完全にロールバックされる。closed_by / closed_by_name は `auth.uid()` から解決し、クライアントからは受け取らない。SECURITY INVOKER のため書き込み可否は上記 RLS がそのまま適用される。明細はサーバ（`app/utils/supabase/profitLossClosings.ts` の `closeProfitLossMonth`）が当月をライブ集計し直して組み立てる（クライアントから送られた金額は使わない）。確定解除はヘッダの DELETE（明細・見送り記録は CASCADE）。
 
+### 5.15 profit_loss_closing_dismissals テーブルと反映・見送りの関数
+
+> 確定後の変更の反映・見送り（Issue #149）。見送り記録の SELECT / INSERT / UPDATE / DELETE は経理担当者・管理者のみ（チームリーダーには確定値のみ表示し、アラート・差分は見せない）。INSERT / UPDATE の WITH CHECK で dismissed_by が呼び出し本人であることを要求する。
+
+```sql
+CREATE POLICY "profit_loss_closing_dismissals_select_policy" ON profit_loss_closing_dismissals
+    FOR SELECT TO authenticated
+    USING (public.auth_user_class() IN ('admin', 'accounting'));
+CREATE POLICY "profit_loss_closing_dismissals_insert_policy" ON profit_loss_closing_dismissals
+    FOR INSERT TO authenticated
+    WITH CHECK (
+      public.auth_user_class() IN ('admin', 'accounting')
+      AND EXISTS (SELECT 1 FROM profiles p WHERE p.id = profit_loss_closing_dismissals.dismissed_by AND p.user_id = (select auth.uid()))
+    );
+-- UPDATE は USING = accounting / admin、WITH CHECK = INSERT と同じ。DELETE は USING = accounting / admin
+```
+
+関数（いずれも SECURITY INVOKER・`SET search_path = ''`。書き込み可否は RLS がそのまま適用される。値は Server Action（`app/utils/supabase/profitLossClosings.ts`）がサーバ側でライブ集計し直したものを渡し、クライアントの値は使わない）:
+
+- `apply_profit_loss_closing_diffs(p_target_month date, p_upsert_lines jsonb, p_delete_keys jsonb)`: 反映。確定ヘッダを `FOR UPDATE` でロックし（未確定なら `NOT_CLOSED`）、`p_upsert_lines`（ライブにある明細の最新の値。`save_profit_loss_closing` の明細と同じ形）を `ON CONFLICT (closing_id, source_type, source_id) DO UPDATE` で upsert、`p_delete_keys`（ライブに無い明細の `{source_type, source_id}`）を確定明細から削除、両方のキーの見送り記録を削除し、反映者（refreshed_by / refreshed_by_name）・反映日時を更新する（確定者・確定日時は保持）。source_type は business / cost のみ受け付ける。1 トランザクション
+- `dismiss_profit_loss_closing_diffs(p_target_month date, p_dismissals jsonb)`: 見送り。`{source_type, source_id, live_present, live_actual_amount, live_team, live_category}` の配列を、見送った人（auth.uid() から解決）・日時とともに upsert する（再見送りは見送った時点の状態・日時・人を更新）
+- `undo_profit_loss_closing_dismissals(p_target_month date, p_keys jsonb)`: 見送りの取り消し（見送り記録を削除して未処理の差分に戻す）
+- `save_profit_loss_closing`（5.14）は migration 28 で見送り記録の全削除を加えている（再確定ではそれまでの見送りを破棄する）
+
 ## 6. トリガー
 
 ### 6.1 updated_at 更新トリガー
@@ -1899,6 +1951,15 @@ erDiagram
     business ||--o{ profit_loss_adjustments : "adjusted by"
     costs ||--o{ profit_loss_adjustments : "adjusted by"
     recurring_costs ||--o{ profit_loss_adjustments : "adjusted by"
+    profiles ||--o{ profit_loss_labels : "labels"
+    matters ||--o| profit_loss_labels : "titled by"
+    business ||--o| profit_loss_labels : "titled by"
+    costs ||--o| profit_loss_labels : "titled by"
+    recurring_costs ||--o| profit_loss_labels : "titled by"
+    profiles ||--o{ profit_loss_closings : "closes"
+    profit_loss_closings ||--o{ profit_loss_closing_lines : "contains"
+    profit_loss_closings ||--o{ profit_loss_closing_dismissals : "has"
+    profiles ||--o{ profit_loss_closing_dismissals : "dismisses"
 
     profiles {
         bigint id PK
@@ -2064,6 +2125,67 @@ erDiagram
         bigint adjusted_by FK
         timestamp inserted_at
         timestamp updated_at
+    }
+
+    profit_loss_labels {
+        bigint id PK
+        bigint matter_id FK
+        bigint business_id FK
+        bigint cost_id FK
+        bigint recurring_cost_id FK
+        text label
+        bigint updated_by FK
+        timestamp inserted_at
+        timestamp updated_at
+    }
+
+    profit_loss_closings {
+        bigint id PK
+        date target_month
+        bigint closed_by FK
+        text closed_by_name
+        timestamp closed_at
+        bigint refreshed_by FK
+        text refreshed_by_name
+        timestamp refreshed_at
+        timestamp inserted_at
+        timestamp updated_at
+    }
+
+    profit_loss_closing_lines {
+        bigint id PK
+        bigint closing_id FK
+        text source_type
+        bigint source_id
+        bigint matter_id
+        text matter_title
+        text name
+        text category
+        text item
+        text team
+        text entry_type
+        date entry_date
+        text payment_cycle
+        numeric source_amount
+        numeric adjustment_amount
+        numeric actual_amount
+        text adjustment_reason
+        numeric billing_amount
+        numeric expense_amount
+    }
+
+    profit_loss_closing_dismissals {
+        bigint id PK
+        bigint closing_id FK
+        text source_type
+        bigint source_id
+        boolean live_present
+        numeric live_actual_amount
+        text live_team
+        text live_category
+        bigint dismissed_by FK
+        text dismissed_by_name
+        timestamp dismissed_at
     }
 ```
 

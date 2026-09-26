@@ -28,6 +28,7 @@ import ProfitLossAdjustmentModal from "./ProfitLossAdjustmentModal";
 import ProfitLossLabelModal from "./ProfitLossLabelModal";
 import MatterProfitTable from "./MatterProfitTable";
 import CategoryProfitTable from "./CategoryProfitTable";
+import ClosingDiffPanel from "./ClosingDiffPanel";
 import {
   AdjustmentButton,
   AdjustmentIndicators,
@@ -218,8 +219,20 @@ const ProfitLossStatement = ({
     },
   ];
 
+  // 確定後の未処理の変更（Issue #149）がある明細・案件。案件別収支に変更アイコンを付ける
+  const pendingDiffs = report.closingDiffs?.pending ?? [];
+  const changedKeys = new Set(pendingDiffs.map((diff) => diff.key));
+  const changedMatterIds = new Set(pendingDiffs.map((diff) => diff.matterId));
+
   return (
     <div>
+      {/* 確定後の案件の変更（差分一覧・反映・見送り。経理担当者・管理者のみ） */}
+      <ClosingDiffPanel
+        report={report}
+        loadingMatterId={loadingMatterId}
+        onShowMatter={handleShowMatter}
+      />
+
       {/* サマリーカード */}
       <SimpleGrid cols={{ base: 2, md: 5 }} className="mb-6">
         {summaryCards.map((card) => (
@@ -242,6 +255,8 @@ const ProfitLossStatement = ({
         grossProfitTotal={report.grossProfitTotal}
         canEditAdjustments={canEditAdjustments}
         isClosed={isClosed}
+        changedKeys={changedKeys}
+        changedMatterIds={changedMatterIds}
         loadingMatterId={loadingMatterId}
         onShowMatter={handleShowMatter}
         onEditAdjustment={openAdjustmentModal}

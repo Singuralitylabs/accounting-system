@@ -14,6 +14,11 @@ import AnnualTrendTable from "./AnnualTrendTable";
 import AccountingMasterActions from "./AccountingMasterActions";
 import CopyPreviousExtraEntriesButton from "./CopyPreviousExtraEntriesButton";
 import ClosingControl from "./ClosingControl";
+import ClosingDiffBanner from "./ClosingDiffBanner";
+import {
+  useClosedMonths,
+  useClosingDiffSummary,
+} from "@/app/hooks/useProfitLossClosing";
 
 type Props = {
   initialMonth: string; // "YYYY-MM"
@@ -60,6 +65,13 @@ const ProfitLossView = ({
     isLoading: isTrendLoading,
     isError: isTrendError,
   } = useAnnualTrend(fiscalYear, undefined, activeTab === "annual");
+  // 確定済みの月（月ピッカーの目印）と、確定後に未反映の変更がある月（Issue #149。
+  // ページ上部のバナー・月ピッカー・年間推移の目印。経理担当者・管理者のみ）
+  const { closedMonths } = useClosedMonths();
+  const { data: diffSummary } = useClosingDiffSummary(canClose);
+  const diffCountByMonth = new Map(
+    (diffSummary ?? []).map(({ month: m, count }) => [m, count]),
+  );
 
   // 年度の選択肢（当年度+1 〜 当年度-4）
   const fiscalYearOptions = Array.from({ length: 6 }, (_, i) => {
@@ -76,6 +88,15 @@ const ProfitLossView = ({
         canEditRecurringCosts={canEditRecurringCosts}
         canEditExtraEntries={canEditExtraEntries}
       />
+      {canClose && (
+        <ClosingDiffBanner
+          summary={diffSummary ?? []}
+          onSelectMonth={(selected) => {
+            setActiveTab("monthly");
+            setMonth(selected);
+          }}
+        />
+      )}
       <Tabs value={activeTab} onChange={setActiveTab}>
         <Tabs.List>
           <Tabs.Tab value="monthly">月次</Tabs.Tab>
@@ -93,6 +114,13 @@ const ProfitLossView = ({
                   setMonth(selected);
                 }
               }}
+              getMonthIndicator={(m) =>
+                diffCountByMonth.has(m)
+                  ? "alert"
+                  : closedMonths.has(m)
+                    ? "closed"
+                    : null
+              }
             />
           </div>
           {isReportError ? (
@@ -155,7 +183,10 @@ const ProfitLossView = ({
               年度を変えるか、時間をおいて再読み込みしてください。
             </Alert>
           ) : (
-            <AnnualTrendTable trend={trend} />
+            <AnnualTrendTable
+              trend={trend}
+              diffCountByMonth={diffCountByMonth}
+            />
           )}
         </Tabs.Panel>
       </Tabs>

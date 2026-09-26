@@ -5,6 +5,8 @@
 // 公開しないため（requestCache.ts / viewerAccess.ts と同じ）。サーバ専用モジュールからのみ import する。
 
 import {
+  ClosingDiff,
+  DiffSourceType,
   ProfitLossAdjustmentType,
   ProfitLossLabelType,
   RecurringCostType,
@@ -16,6 +18,8 @@ import {
   ReportPeriod,
   collectMissingAdjustmentTargetIds,
   datedOrUndatedFilter,
+  isDraftMatter,
+  matterMonthKey,
   matterPeriodFilter,
   recurringOverlapEndFilter,
   reportRangeBounds,
@@ -23,7 +27,10 @@ import {
 import {
   MonthClosingSnapshot,
   stripClosingLineIds,
+  toClosedMonthSet,
 } from "../profitLossClosing";
+import { annotateDiffMoves, diffKeyOf } from "../profitLossDiff";
+import { toFirstOfMonth } from "../formatter";
 import { createServerSupabase } from "./clients";
 import { getActiveSelectOptionsByType } from "./selectOptionsCache";
 
@@ -93,10 +100,11 @@ export const fetchReportSourceRows = async (
     .from("profit_loss_labels")
     .select("*")
     .order("id", { ascending: true });
-  // 確定ヘッダ＋明細（Issue #148）。明細は RLS によりチームリーダーは自チーム＋全体共通のみ
+  // 確定ヘッダ＋明細（Issue #148）＋見送り記録（Issue #149）。明細は RLS により
+  // チームリーダーは自チーム＋全体共通のみ、見送り記録は accounting / admin のみ返る
   const closingQuery = supabase
     .from("profit_loss_closings")
-    .select("*, profit_loss_closing_lines(*)")
+    .select("*, profit_loss_closing_lines(*), profit_loss_closing_dismissals(*)")
     .gte("target_month", bounds.startDate)
     .lt("target_month", bounds.endExclusive);
 
@@ -143,10 +151,15 @@ export const fetchReportSourceRows = async (
 
   const closings = new Map<string, MonthClosingSnapshot>();
   (closingResult.data ?? []).forEach(
-    ({ profit_loss_closing_lines: lines, ...header }) => {
+    ({
+      profit_loss_closing_lines: lines,
+      profit_loss_closing_dismissals: dismissals,
+      ...header
+    }) => {
       closings.set(header.target_month.slice(0, 7), {
         header,
         lines: stripClosingLineIds(lines ?? []),
+        dismissals: dismissals ?? [],
       });
     },
   );
@@ -215,4 +228,99 @@ export const supplementAdjustmentTargets = async (
   rows.businessRows.push(...((missingBusiness.data ?? []) as BusinessRow[]));
   rows.costRows.push(...((missingCosts.data ?? []) as CostRow[]));
   rows.recurringCosts.push(...(missingRecurring.data ?? []));
+};
+
+// 確定後の差分（Issue #149）の追加・削除に付ける、他の月との移動の情報を取得する。
+// - 削除の差分: 明細の現在の所在（案件開始日の月・下書きか。行が無ければ削除済み）
+// - 追加の差分: その明細を確定明細に持つ他の確定済みの月（移動元）
+// 追加・削除の差分が無ければクエリを発行しない（あっても 1 往復にまとめる）
+export const fetchDiffMoveContext = async (
+  month: string,
+  diffs: ClosingDiff[],
+): Promise<Parameters<typeof annotateDiffMoves>[1] | null> => {
+  const removed = diffs.filter((diff) => diff.kind === "removed");
+  const added = diffs.filter((diff) => diff.kind === "added");
+  if (removed.length === 0 && added.length === 0) {
+    return null;
+  }
+  const idsOf = (list: ClosingDiff[], type: DiffSourceType) =>
+    list.filter((diff) => diff.sourceType === type).map((d) => d.sourceId);
+  const supabase = createServerSupabase();
+  const matterColumns = "matter_id, matters!inner(start_date, is_fixed, is_completed)";
+  const removedBusinessIds = idsOf(removed, "business");
+  const removedCostIds = idsOf(removed, "cost");
+  const addedIds = added.map((diff) => diff.sourceId);
+  const [businessResult, costResult, otherLinesResult, closingsResult] =
+    await Promise.all([
+      removedBusinessIds.length > 0
+        ? supabase
+            .from("business")
+            .select(`id, ${matterColumns}`)
+            .in("id", removedBusinessIds)
+        : Promise.resolve({ data: [], error: null }),
+      removedCostIds.length > 0
+        ? supabase
+            .from("costs")
+            .select(`id, ${matterColumns}`)
+            .in("id", removedCostIds)
+        : Promise.resolve({ data: [], error: null }),
+      addedIds.length > 0
+        ? supabase
+            .from("profit_loss_closing_lines")
+            .select("source_type, source_id, profit_loss_closings!inner(target_month)")
+            .in("source_type", ["business", "cost"])
+            .in("source_id", addedIds)
+            .neq("profit_loss_closings.target_month", toFirstOfMonth(month))
+        : Promise.resolve({ data: [], error: null }),
+      supabase.from("profit_loss_closings").select("target_month"),
+    ]);
+  const error =
+    businessResult.error ??
+    costResult.error ??
+    otherLinesResult.error ??
+    closingsResult.error;
+  if (error) {
+    console.error(
+      "確定後の差分の移動元・移動先の取得に失敗しました（移動の表示を省略します）:",
+      error,
+    );
+    return null;
+  }
+
+  type LocatedRow = {
+    id: number;
+    matters: { start_date: string | null; is_fixed: boolean | null; is_completed: boolean | null };
+  };
+  const liveLocations = new Map<string, { month: string | null; isDraft: boolean }>();
+  const locate = (type: DiffSourceType, rows: LocatedRow[]) =>
+    rows.forEach((row) =>
+      liveLocations.set(diffKeyOf(type, row.id), {
+        month: matterMonthKey(row.matters),
+        isDraft: isDraftMatter(row.matters),
+      }),
+    );
+  locate("business", (businessResult.data ?? []) as LocatedRow[]);
+  locate("cost", (costResult.data ?? []) as LocatedRow[]);
+
+  const addedKeys = new Set(added.map((diff) => diff.key));
+  const otherClosedMonths = new Map<string, string[]>();
+  (
+    (otherLinesResult.data ?? []) as {
+      source_type: string;
+      source_id: number;
+      profit_loss_closings: { target_month: string };
+    }[]
+  ).forEach((row) => {
+    const key = diffKeyOf(row.source_type as DiffSourceType, row.source_id);
+    if (!addedKeys.has(key)) return; // business / cost の ID が重なる別種別の行を除く
+    const months = otherClosedMonths.get(key) ?? [];
+    months.push(row.profit_loss_closings.target_month.slice(0, 7));
+    otherClosedMonths.set(key, months.sort());
+  });
+
+  return {
+    liveLocations,
+    otherClosedMonths,
+    closedMonths: toClosedMonthSet(closingsResult.data ?? []),
+  };
 };
