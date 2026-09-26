@@ -31,6 +31,7 @@ import {
 } from "../profitLossClosing";
 import { annotateDiffMoves, diffKeyOf } from "../profitLossDiff";
 import { toFirstOfMonth } from "../formatter";
+import type { PostgrestError } from "@supabase/supabase-js";
 import { createServerSupabase } from "./clients";
 import { getActiveSelectOptionsByType } from "./selectOptionsCache";
 
@@ -39,9 +40,34 @@ import { getActiveSelectOptionsByType } from "./selectOptionsCache";
 // matters は !inner（inner join）にし、埋め込み側の絞り込み（matterPeriodFilter）で
 // 親の business / costs 行を絞れるようにする。
 const MATTER_COLUMNS =
-  "matters!inner(id, title, team, category, start_date, is_fixed, is_completed)";
+  "matters!inner(id, user_id, title, team, category, start_date, is_fixed, is_completed)";
 export const BUSINESS_SELECT = `id, name, amount, matter_id, ${MATTER_COLUMNS}`;
 export const COST_SELECT = `id, name, price, item, matter_id, ${MATTER_COLUMNS}`;
+
+// PostgREST は 1 リクエストで返す行数を max_rows（supabase/config.toml・本番とも既定 1000）で
+// 黙って打ち切る。集計の取りこぼしを防ぐため、行数が増えうる取得は id 順にページングして
+// 全件を集める（通常は 1 ページ = 1 往復で終わる）。ページサイズは max_rows 以下にすること
+// （上回ると 1 ページ目が max_rows 件で打ち切られ、最終ページと誤判定して取りこぼす）
+export const PAGE_SIZE = 1000;
+
+export const fetchAllPages = async <T>(
+  fetchPage: (
+    from: number,
+    to: number,
+  ) => PromiseLike<{ data: T[] | null; error: PostgrestError | null }>,
+): Promise<{ data: T[] | null; error: PostgrestError | null }> => {
+  const rows: T[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await fetchPage(from, from + PAGE_SIZE - 1);
+    if (error) {
+      return { data: null, error };
+    }
+    rows.push(...(data ?? []));
+    if (!data || data.length < PAGE_SIZE) {
+      return { data: rows, error: null };
+    }
+  }
+};
 
 export type ReportSourceRows = {
   teamOrder: string[];
@@ -67,46 +93,88 @@ export const fetchReportSourceRows = async (
 
   // 案件の売上・費用は案件開始日の月に計上し、下書きの案件は除外する（Issue #146）。
   // 条件は埋め込みリソース（matters!inner）側に掛ける
-  const businessQuery = supabase
-    .from("business")
-    .select(BUSINESS_SELECT)
-    .or(matterPeriodFilter(bounds), { referencedTable: "matters" });
-  const costQuery = supabase
-    .from("costs")
-    .select(COST_SELECT)
-    .or(matterPeriodFilter(bounds), { referencedTable: "matters" });
+  // 行数が増えうるため fetchAllPages で id 順にページングする（年間推移・確定後の変更の集計は
+  // 複数月をまとめて取得するため、max_rows を超えうる）
+  const businessQuery = fetchAllPages((from, to) =>
+    supabase
+      .from("business")
+      .select(BUSINESS_SELECT)
+      .or(matterPeriodFilter(bounds), { referencedTable: "matters" })
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
+  const costQuery = fetchAllPages((from, to) =>
+    supabase
+      .from("costs")
+      .select(COST_SELECT)
+      .or(matterPeriodFilter(bounds), { referencedTable: "matters" })
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
   // 定期費用は適用期間の重なりで絞る（支払サイクルの計上判定は集計側で行う）。
   // 適用期間が取得期間と重ならない行だけを除外する。
-  const recurringQuery = supabase
-    .from("recurring_costs")
-    .select("*")
-    .lt("start_month", bounds.endExclusive)
-    .or(recurringOverlapEndFilter(bounds))
-    .order("id", { ascending: true });
-  const extraQuery = supabase
-    .from("extra_entries")
-    .select("*")
-    .or(datedOrUndatedFilter("entry_date", bounds))
-    .order("id", { ascending: true });
+  const recurringQuery = fetchAllPages((from, to) =>
+    supabase
+      .from("recurring_costs")
+      .select("*")
+      .lt("start_month", bounds.endExclusive)
+      .or(recurringOverlapEndFilter(bounds))
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
+  const extraQuery = fetchAllPages((from, to) =>
+    supabase
+      .from("extra_entries")
+      .select("*")
+      .or(datedOrUndatedFilter("entry_date", bounds))
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
   // 調整は対象月で絞る（target_month は NOT NULL）。
-  const adjustmentQuery = supabase
-    .from("profit_loss_adjustments")
-    .select("*")
-    .gte("target_month", bounds.startDate)
-    .lt("target_month", bounds.endExclusive)
-    .order("id", { ascending: true });
+  const adjustmentQuery = fetchAllPages((from, to) =>
+    supabase
+      .from("profit_loss_adjustments")
+      .select("*")
+      .gte("target_month", bounds.startDate)
+      .lt("target_month", bounds.endExclusive)
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
   // 表示タイトル（Issue #150）は全月共通のため期間で絞らない（件数は対象行数以下）
-  const labelQuery = supabase
-    .from("profit_loss_labels")
-    .select("*")
-    .order("id", { ascending: true });
-  // 確定ヘッダ＋明細（Issue #148）＋見送り記録（Issue #149）。明細は RLS により
-  // チームリーダーは自チーム＋全体共通のみ、見送り記録は accounting / admin のみ返る
+  const labelQuery = fetchAllPages((from, to) =>
+    supabase
+      .from("profit_loss_labels")
+      .select("*")
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
+  // 確定ヘッダ（Issue #148）・確定明細・見送り記録（Issue #149）。PostgREST の max_rows は
+  // 埋め込みリソースの配列にも掛かるため、明細・見送り記録は埋め込まずに別クエリで
+  // ページングし、ヘッダの月範囲で絞る（!inner の埋め込み側に条件を掛ける）。
+  // 明細は RLS によりチームリーダーは自チーム＋全体共通のみ、見送り記録は accounting / admin のみ返る
   const closingQuery = supabase
     .from("profit_loss_closings")
-    .select("*, profit_loss_closing_lines(*), profit_loss_closing_dismissals(*)")
+    .select("*")
     .gte("target_month", bounds.startDate)
     .lt("target_month", bounds.endExclusive);
+  const closingLineQuery = fetchAllPages((from, to) =>
+    supabase
+      .from("profit_loss_closing_lines")
+      .select("*, profit_loss_closings!inner(target_month)")
+      .gte("profit_loss_closings.target_month", bounds.startDate)
+      .lt("profit_loss_closings.target_month", bounds.endExclusive)
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
+  const dismissalQuery = fetchAllPages((from, to) =>
+    supabase
+      .from("profit_loss_closing_dismissals")
+      .select("*, profit_loss_closings!inner(target_month)")
+      .gte("profit_loss_closings.target_month", bounds.startDate)
+      .lt("profit_loss_closings.target_month", bounds.endExclusive)
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
 
   const [
     businessResult,
@@ -116,6 +184,8 @@ export const fetchReportSourceRows = async (
     adjustmentResult,
     labelResult,
     closingResult,
+    closingLineResult,
+    dismissalResult,
     teamOptions,
   ] = await Promise.all([
     businessQuery,
@@ -125,6 +195,8 @@ export const fetchReportSourceRows = async (
     adjustmentQuery,
     labelQuery,
     closingQuery,
+    closingLineQuery,
+    dismissalQuery,
     // 案件別収支のチームの並び順（項目管理のチームマスタの display_order 順）
     getActiveSelectOptionsByType(["team"]),
   ]);
@@ -136,7 +208,9 @@ export const fetchReportSourceRows = async (
     extraResult.error ??
     adjustmentResult.error ??
     labelResult.error ??
-    closingResult.error;
+    closingResult.error ??
+    closingLineResult.error ??
+    dismissalResult.error;
   if (error) {
     console.error("損益レポートのデータ取得に失敗しました:", error);
     return null;
@@ -149,20 +223,25 @@ export const fetchReportSourceRows = async (
     );
   }
 
+  // 明細・見送り記録を確定ヘッダごとにまとめる（埋め込みの target_month は使わない）
+  const stripJoin = <T extends { profit_loss_closings: unknown }>({
+    profit_loss_closings: _closing,
+    ...row
+  }: T) => row;
   const closings = new Map<string, MonthClosingSnapshot>();
-  (closingResult.data ?? []).forEach(
-    ({
-      profit_loss_closing_lines: lines,
-      profit_loss_closing_dismissals: dismissals,
-      ...header
-    }) => {
-      closings.set(header.target_month.slice(0, 7), {
-        header,
-        lines: stripClosingLineIds(lines ?? []),
-        dismissals: dismissals ?? [],
-      });
-    },
-  );
+  (closingResult.data ?? []).forEach((header) => {
+    closings.set(header.target_month.slice(0, 7), {
+      header,
+      lines: stripClosingLineIds(
+        (closingLineResult.data ?? [])
+          .filter((line) => line.closing_id === header.id)
+          .map(stripJoin),
+      ),
+      dismissals: (dismissalResult.data ?? [])
+        .filter((dismissal) => dismissal.closing_id === header.id)
+        .map(stripJoin),
+    });
+  });
 
   return {
     teamOrder: (teamOptions.optionsByType.team ?? []).map(

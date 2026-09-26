@@ -6,6 +6,8 @@
 import {
   ClosingInfo,
   ClosingLineInput,
+  ExtraEntryInListType,
+  ExtraEntryType,
   PLMonthLines,
   PLReportType,
   ProfitLossClosingDismissalType,
@@ -15,6 +17,7 @@ import {
 } from "../types/types";
 import { diffClosingLines } from "./profitLossDiff";
 import { formatMonthLabel } from "./formatter";
+import { isExtraEntryUnchanged } from "./extraEntry";
 import {
   BusinessRow,
   CostRow,
@@ -36,6 +39,7 @@ export const monthLinesToClosingRows = (
 ): ClosingLineInput[] => {
   const empty = {
     matter_id: null,
+    matter_user_id: null,
     matter_title: null,
     category: null,
     item: null,
@@ -56,6 +60,7 @@ export const monthLinesToClosingRows = (
       source_type: "business",
       source_id: line.businessId,
       matter_id: line.matterId,
+      matter_user_id: line.matterUserId,
       matter_title: line.matterTitle,
       name: line.name,
       category: line.category,
@@ -70,6 +75,7 @@ export const monthLinesToClosingRows = (
       source_type: "cost",
       source_id: line.costId,
       matter_id: line.matterId,
+      matter_user_id: line.matterUserId,
       matter_title: line.matterTitle,
       name: line.name,
       category: line.category,
@@ -108,6 +114,19 @@ export const monthLinesToClosingRows = (
   ];
 };
 
+// 2 つの確定明細の集合が同じか（確定直後の再検証に使う。並び順には依存しない）
+export const sameClosingRows = (
+  a: ClosingLineInput[],
+  b: ClosingLineInput[],
+): boolean => {
+  const normalize = (rows: ClosingLineInput[]) =>
+    rows
+      .map((row) => JSON.stringify(row))
+      .sort()
+      .join("\n");
+  return a.length === b.length && normalize(a) === normalize(b);
+};
+
 // 確定明細の金額（numeric）は PostgREST から number で返るが、NULL 許容の列のため
 // 種別ごとに必須の列は CHECK 制約で NOT NULL が担保されている
 const amount = (value: number | null): number => Number(value ?? 0);
@@ -140,6 +159,7 @@ export const closingRowsToMonthLines = (
         businessId: row.source_id,
         name: row.name,
         matterId: row.matter_id ?? 0,
+        matterUserId: row.matter_user_id ?? 0,
         matterTitle: row.matter_title ?? "",
         category: row.category ?? "",
         team: row.team ?? "",
@@ -152,6 +172,7 @@ export const closingRowsToMonthLines = (
         name: row.name,
         item: row.item ?? "",
         matterId: row.matter_id ?? 0,
+        matterUserId: row.matter_user_id ?? 0,
         matterTitle: row.matter_title ?? "",
         category: row.category ?? "",
         team: row.team ?? "",
@@ -267,16 +288,12 @@ export const canWriteExtraEntry = (
 
 // 経理追加収支の一括保存で、確定中の編集ロックに抵触する行の内容（表示用）を返す。
 // 新規行は変更後の日付、削除行は変更前の日付、更新行は変更前・変更後の両方を判定する。
-// originalDates は保存前の DB 上の entry_date（id → 日付）
+// 一括保存は画面の全行を送るため、保存済みで編集していない行は対象外にする
+// （確定済みの月の行を触らずに他の月の行を保存できるようにする）。
+// originals は保存前の DB 上の行（id → 行）
 export const findExtraEntryLockViolations = (
-  entries: {
-    id: number;
-    isNew?: boolean;
-    isRemoved?: boolean;
-    entry_date: string | null;
-    description: string;
-  }[],
-  originalDates: ReadonlyMap<number, string | null>,
+  entries: ExtraEntryInListType[],
+  originals: ReadonlyMap<number, ExtraEntryType>,
   closedMonths: ReadonlySet<string>,
 ): string[] =>
   entries
@@ -285,11 +302,18 @@ export const findExtraEntryLockViolations = (
       if (entry.isNew) {
         return !canWriteExtraEntry(closedMonths, undefined, entry.entry_date);
       }
-      const originalDate = originalDates.get(entry.id);
+      const original = originals.get(entry.id);
       if (entry.isRemoved) {
-        return isClosedMonth(closedMonths, originalDate);
+        return isClosedMonth(closedMonths, original?.entry_date);
       }
-      return !canWriteExtraEntry(closedMonths, originalDate, entry.entry_date);
+      if (original && isExtraEntryUnchanged(original, entry)) {
+        return false; // 編集していない行
+      }
+      return !canWriteExtraEntry(
+        closedMonths,
+        original?.entry_date,
+        entry.entry_date,
+      );
     })
     .map((entry) => entry.description || "（内容未入力の行）");
 

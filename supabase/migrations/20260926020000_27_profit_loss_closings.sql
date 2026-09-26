@@ -61,6 +61,10 @@ CREATE TABLE profit_loss_closing_lines (
   -- 削除されても確定値を残すため FK は張らない
   source_id         bigint NOT NULL,
   matter_id         bigint,
+  -- 案件の作成者（matters.user_id）。ライブ集計では matters / business / costs の RLS により
+  -- チームリーダーが自分で作成した他チームの案件も見えるため、確定値でも同じ範囲を
+  -- 見せる（下の SELECT ポリシー）ために保持する。FK は張らない（source_id と同じ理由）
+  matter_user_id    bigint,
   matter_title      text,
   name              text NOT NULL,       -- 取引先名 / コスト名 / 定期費用名 / 経理追加収支の内容
   category          text,                -- 案件の分類 / 経理追加収支の分類
@@ -80,7 +84,8 @@ CREATE TABLE profit_loss_closing_lines (
   -- 種別ごとに集計・表示に必要な列が揃っていることを担保する
   CONSTRAINT profit_loss_closing_lines_fields_check CHECK (
     (source_type IN ('business', 'cost')
-      AND matter_id IS NOT NULL AND matter_title IS NOT NULL
+      AND matter_id IS NOT NULL AND matter_user_id IS NOT NULL
+      AND matter_title IS NOT NULL
       AND category IS NOT NULL AND team IS NOT NULL
       AND (source_type = 'business' OR item IS NOT NULL)
       AND source_amount IS NOT NULL AND adjustment_amount IS NOT NULL
@@ -168,18 +173,28 @@ CREATE POLICY "profit_loss_closings_delete_policy" ON profit_loss_closings
 -- ===== RLS: profit_loss_closing_lines =====
 ALTER TABLE profit_loss_closing_lines ENABLE ROW LEVEL SECURITY;
 
--- 経理担当者・管理者は全行、チームリーダーは自チームの行＋全体共通（team IS NULL）の行のみ
--- （ライブ集計時の matters / recurring_costs / extra_entries の RLS と同じ範囲）
+-- 経理担当者・管理者は全行、チームリーダーは自チームの行＋全体共通（team IS NULL）の行＋
+-- 自分が作成した案件の行（ライブ集計時の matters / business / costs / recurring_costs /
+-- extra_entries の RLS と同じ範囲。確定の前後でチームリーダーの表示範囲を変えない）
 CREATE POLICY "profit_loss_closing_lines_select_policy" ON profit_loss_closing_lines
   FOR SELECT TO authenticated
   USING (
     public.auth_user_class() IN ('admin', 'accounting')
     OR (
       public.auth_user_class() = 'teamleader'
-      AND public.auth_user_team() IS NOT NULL
       AND (
-        profit_loss_closing_lines.team IS NULL
-        OR profit_loss_closing_lines.team = public.auth_user_team()
+        (
+          public.auth_user_team() IS NOT NULL
+          AND (
+            profit_loss_closing_lines.team IS NULL
+            OR profit_loss_closing_lines.team = public.auth_user_team()
+          )
+        )
+        OR EXISTS (
+          SELECT 1 FROM profiles p
+          WHERE p.id = profit_loss_closing_lines.matter_user_id
+          AND p.user_id = (select auth.uid())
+        )
       )
     )
   );
@@ -440,17 +455,17 @@ BEGIN
   WHERE closing_id = v_closing_id;
 
   INSERT INTO public.profit_loss_closing_lines
-    (closing_id, source_type, source_id, matter_id, matter_title, name, category,
+    (closing_id, source_type, source_id, matter_id, matter_user_id, matter_title, name, category,
      item, team, entry_type, entry_date, payment_cycle, source_amount,
      adjustment_amount, actual_amount, adjustment_reason, billing_amount,
      expense_amount)
   SELECT
-    v_closing_id, l.source_type, l.source_id, l.matter_id, l.matter_title, l.name,
+    v_closing_id, l.source_type, l.source_id, l.matter_id, l.matter_user_id, l.matter_title, l.name,
     l.category, l.item, l.team, l.entry_type, l.entry_date, l.payment_cycle,
     l.source_amount, l.adjustment_amount, l.actual_amount, l.adjustment_reason,
     l.billing_amount, l.expense_amount
   FROM jsonb_to_recordset(p_lines) AS l(
-    source_type text, source_id bigint, matter_id bigint, matter_title text,
+    source_type text, source_id bigint, matter_id bigint, matter_user_id bigint, matter_title text,
     name text, category text, item text, team text, entry_type text,
     entry_date date, payment_cycle text, source_amount numeric,
     adjustment_amount numeric, actual_amount numeric, adjustment_reason text,

@@ -142,6 +142,7 @@ export type BusinessLine = AdjustableAmount & {
   businessId: number;
   name: string; // 取引先名（同一案件に複数の business 行がある場合の識別用）
   matterId: number;
+  matterUserId: number; // 案件の作成者（matters.user_id。確定明細の RLS 用）
   matterTitle: string;
   category: string; // 案件の分類（matters.category）
   team: string; // 案件のチーム（matters.team）
@@ -153,6 +154,7 @@ export type CostLine = AdjustableAmount & {
   name: string; // コスト名（同一案件・同一品目に複数の costs 行がある場合の識別用）
   item: string; // 品目
   matterId: number;
+  matterUserId: number; // 案件の作成者（matters.user_id。確定明細の RLS 用）
   matterTitle: string;
   category: string;
   team: string;

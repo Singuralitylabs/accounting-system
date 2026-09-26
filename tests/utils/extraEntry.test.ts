@@ -5,6 +5,7 @@ import {
   extraEntryDuplicateKey,
   formatEntryType,
   shiftDateToMonth,
+  isExtraEntryUnchanged,
 } from "@/app/utils/extraEntry";
 import { ExtraEntryType } from "@/app/types/types";
 
@@ -197,5 +198,50 @@ describe("excludeDuplicateExtraEntries", () => {
   it("当月に既存明細が無ければ全件そのまま返す", () => {
     const rows = buildCopiedExtraEntries([entry()], "2026-09");
     expect(excludeDuplicateExtraEntries(rows, [])).toEqual(rows);
+  });
+});
+
+describe("isExtraEntryUnchanged", () => {
+  const original = {
+    id: 1,
+    entry_type: "expense",
+    category: "交通費",
+    entry_date: "2026-08-10",
+    invoice_number: null,
+    description: "出張",
+    billing_target: null,
+    manager_id: 1,
+    team: "シンラボ",
+    billing_amount: null,
+    expense_amount: 5000,
+    payment_method: "現金",
+    inserted_at: "",
+    updated_at: "",
+  };
+  const asRow = (override = {}) => ({
+    ...original,
+    isNew: false,
+    isRemoved: false,
+    ...override,
+  });
+
+  it("DB に書き込む項目がすべて同じなら未変更", () => {
+    expect(isExtraEntryUnchanged(original, asRow())).toBe(true);
+    // updated_at など書き込まない項目の違いは無視する
+    expect(isExtraEntryUnchanged(original, asRow({ updated_at: "x" }))).toBe(
+      true,
+    );
+  });
+
+  it("日付・金額・内容などが変われば変更あり", () => {
+    expect(
+      isExtraEntryUnchanged(original, asRow({ entry_date: "2026-08-11" })),
+    ).toBe(false);
+    expect(
+      isExtraEntryUnchanged(original, asRow({ expense_amount: 5001 })),
+    ).toBe(false);
+    expect(
+      isExtraEntryUnchanged(original, asRow({ description: "出張2" })),
+    ).toBe(false);
   });
 });

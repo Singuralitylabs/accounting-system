@@ -33,6 +33,7 @@ const matter = (
   startDate: string | null = "2026-08-10",
 ) => ({
   id,
+  user_id: 1,
   title: `案件${id}`,
   team,
   category,
@@ -396,38 +397,36 @@ describe("確定済みの月の判定と編集可否（Issue #148）", () => {
     expect(canWriteExtraEntry(closed, undefined, "2026-10-01")).toBe(false); // 確定済みの月への追加
   });
 
-  it("一括保存の対象から編集ロックに抵触する行を抽出する", () => {
-    const originals = new Map<number, string | null>([
-      [1, "2026-08-10"],
-      [2, "2026-09-10"],
-      [3, "2026-09-10"],
-      [4, "2026-08-10"],
-    ]);
+  it("一括保存の対象から編集ロックに抵触する行を抽出する（編集していない行は対象外）", () => {
+    const saved = (id: number, entryDate: string | null, description: string) =>
+      extraEntry({ id, entry_date: entryDate, description });
+    const originals = new Map(
+      [
+        saved(1, "2026-08-10", "確定月の更新"),
+        saved(2, "2026-09-10", "未確定月の更新"),
+        saved(3, "2026-09-10", "確定月へ移動"),
+        saved(4, "2026-08-10", "確定月の削除"),
+        saved(8, "2026-08-20", "確定月の未変更行"),
+      ].map((entry) => [entry.id, entry]),
+    );
+    const row = (
+      entry: ExtraEntryType,
+      flags: { isNew?: boolean; isRemoved?: boolean } = {},
+    ) => ({ ...entry, isNew: false, isRemoved: false, ...flags });
     const violations = findExtraEntryLockViolations(
       [
-        { id: 1, entry_date: "2026-08-10", description: "確定月の更新" },
-        { id: 2, entry_date: "2026-09-15", description: "未確定月の更新" },
-        { id: 3, entry_date: "2026-10-15", description: "確定月へ移動" },
-        {
-          id: 4,
-          entry_date: "2026-08-10",
-          description: "確定月の削除",
-          isRemoved: true,
-        },
-        {
-          id: 5,
-          entry_date: "2026-08-01",
-          description: "確定月に追加",
-          isNew: true,
-        },
-        {
-          id: 6,
-          entry_date: "2026-08-01",
-          description: "追加して取り消し",
+        row({ ...originals.get(1)!, billing_amount: 99999 }),
+        row({ ...originals.get(2)!, entry_date: "2026-09-15" }),
+        row({ ...originals.get(3)!, entry_date: "2026-10-15" }),
+        row(originals.get(4)!, { isRemoved: true }),
+        // 画面は全行を送る。確定済みの月の行でも編集していなければ違反にしない
+        row(originals.get(8)!),
+        row(saved(5, "2026-08-01", "確定月に追加"), { isNew: true }),
+        row(saved(6, "2026-08-01", "追加して取り消し"), {
           isNew: true,
           isRemoved: true,
-        },
-        { id: 7, entry_date: null, description: "", isNew: true },
+        }),
+        row(saved(7, null, ""), { isNew: true }),
       ],
       originals,
       closed,

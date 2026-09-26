@@ -34,6 +34,7 @@ import { hasClassAccess } from "./permissions";
 // category は案件費用を売上分類（大分類）別の粗利へ振り分けるために使う
 export type MatterOfRow = {
   id: number;
+  user_id: number; // 案件の作成者（確定明細のチームリーダー向け RLS に使う）
   title: string;
   team: string;
   category: string;
@@ -447,6 +448,7 @@ export const buildLiveMonthLines = ({
       businessId: row.id,
       name: row.name,
       matterId: row.matter_id,
+      matterUserId: row.matters.user_id,
       matterTitle: row.matters.title,
       category: row.matters.category,
       team: row.matters.team,
@@ -464,6 +466,7 @@ export const buildLiveMonthLines = ({
       name: row.name,
       item: row.item,
       matterId: row.matter_id,
+      matterUserId: row.matters.user_id,
       matterTitle: row.matters.title,
       category: row.matters.category,
       team: row.matters.team,

@@ -149,7 +149,11 @@ const ProfitLossView = ({
                   />
                 </Group>
               )}
+              {/* 月ごとに作り直し、展開状態・差分一覧の選択を別の月へ持ち越さない
+                  （他の月へ移動した明細は両月で同じキーになるため、選択が残ると
+                  選んでいない月で反映してしまう） */}
               <ProfitLossStatement
+                key={report.month}
                 report={report}
                 canEditAdjustments={canEditAdjustments}
                 canEditLabels={canEditLabels}

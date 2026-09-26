@@ -45,6 +45,7 @@ const business = (
     matter_id: matterId,
     matters: {
       id: matterId,
+      user_id: 1,
       title: `案件${matterId}`,
       team,
       category,
@@ -72,6 +73,7 @@ const cost = (
     matter_id: matterId,
     matters: {
       id: matterId,
+      user_id: 1,
       title: `案件${matterId}`,
       team,
       category,

@@ -4,11 +4,15 @@ import {
   AccessFailure,
   ClosingDiffKey,
   ClosingDiffSummary,
+  ClosingLineInput,
 } from "../../types/types";
 import { PL_CLOSING_WRITE_CLASSES } from "../permissions";
 import { toFirstOfMonth } from "../formatter";
 import { buildLiveMonthLines, isMonthKey } from "../profitLossLogic";
-import { monthLinesToClosingRows } from "../profitLossClosing";
+import {
+  monthLinesToClosingRows,
+  sameClosingRows,
+} from "../profitLossClosing";
 import {
   buildApplyPayload,
   diffClosingLines,
@@ -44,11 +48,29 @@ export const closeProfitLossMonth = async (
     return { error };
   }
 
-  const rows = await fetchReportSourceRows({
-    startMonth: month,
-    endMonth: month,
-  });
-  if (!rows) {
+  const supabase = createServerSupabase();
+  const liveClosingRows = async () => {
+    const rows = await fetchReportSourceRows({
+      startMonth: month,
+      endMonth: month,
+    });
+    return rows
+      ? monthLinesToClosingRows(buildLiveMonthLines({ month, ...rows }))
+      : null;
+  };
+  const save = async (lines: ClosingLineInput[]) => {
+    const { error: rpcError } = await supabase.rpc("save_profit_loss_closing", {
+      p_target_month: toFirstOfMonth(month),
+      p_lines: lines,
+    });
+    if (rpcError) {
+      console.error("月次収支の確定に失敗しました:", rpcError);
+    }
+    return !rpcError;
+  };
+
+  const lines = await liveClosingRows();
+  if (!lines) {
     return {
       error: {
         kind: "fetchFailed",
@@ -56,18 +78,27 @@ export const closeProfitLossMonth = async (
       },
     };
   }
-  const lines = buildLiveMonthLines({ month, ...rows });
-
-  const supabase = createServerSupabase();
-  const { error: rpcError } = await supabase.rpc("save_profit_loss_closing", {
-    p_target_month: toFirstOfMonth(month),
-    p_lines: monthLinesToClosingRows(lines),
-  });
-  if (rpcError) {
-    console.error("月次収支の確定に失敗しました:", rpcError);
+  if (!(await save(lines))) {
     return {
       error: { kind: "fetchFailed", message: "月次収支の確定に失敗しました。" },
     };
+  }
+
+  // 集計（上の取得）から確定のコミットまでの間は、まだ編集ロックが掛かっていないため、
+  // 他の経理担当者が当月の損益調整・経理追加収支を保存するとスナップショットから漏れる
+  // （しかも以後ロックされ、定期費用・経理追加収支は変更検知の対象外で気付けない）。
+  // 確定のコミット後（= ロック後）にもう一度集計し、違いがあれば取り直して確定値に含める
+  const verified = await liveClosingRows();
+  if (verified && !sameClosingRows(lines, verified)) {
+    if (!(await save(verified))) {
+      return {
+        error: {
+          kind: "fetchFailed",
+          message:
+            "確定中に他の変更があったため確定値を取り直そうとしましたが失敗しました。「確定済み」をオフにしてから再度オンにしてください。",
+        },
+      };
+    }
   }
   return {};
 };

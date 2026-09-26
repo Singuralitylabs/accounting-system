@@ -61,19 +61,17 @@ const ExtraEntryList = ({
   // 確定済みの月（損益計算書の月次収支確定。Issue #148）のエントリは編集・削除できず、
   // 確定済みの月の日付も選べない（DB の RLS でも拒否される）
   const { closedMonths } = useClosedMonths();
-  // 保存済みの行の DB 上の日付（編集ロックは変更前の日付で判定する）
-  const originalDates = useMemo(
+  // 保存済みの行（編集ロックは変更前の日付で判定し、編集していない行は対象外にする）
+  const originals = useMemo(
     () =>
       new Map(
-        (extraEntryList ?? initialData).map((entry) => [
-          entry.id,
-          entry.entry_date,
-        ]),
+        (extraEntryList ?? initialData).map((entry) => [entry.id, entry]),
       ),
     [extraEntryList, initialData],
   );
   const isRowLocked = (row: ExtraEntryInListType) =>
-    !row.isNew && isClosedMonth(closedMonths, originalDates.get(row.id));
+    !row.isNew &&
+    isClosedMonth(closedMonths, originals.get(row.id)?.entry_date);
 
   const [rows, setRows] = useState<ExtraEntryInListType[]>(
     toListRows(initialData),
@@ -191,7 +189,7 @@ const ExtraEntryList = ({
 
     const lockViolations = findExtraEntryLockViolations(
       rows,
-      originalDates,
+      originals,
       closedMonths,
     );
     if (lockViolations.length > 0) {

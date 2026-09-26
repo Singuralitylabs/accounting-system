@@ -35,6 +35,7 @@ const business = (
     matter_id: 1,
     matters: {
       id: 1,
+      user_id: 1,
       title: "案件1",
       team: "チームA",
       category: "受託案件",
@@ -55,6 +56,7 @@ const cost = (price: number, startDate: string | null): CostRow => {
     matter_id: 1,
     matters: {
       id: 1,
+      user_id: 1,
       title: "案件1",
       team: "チームA",
       category: "受託案件",

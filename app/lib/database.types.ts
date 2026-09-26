@@ -616,6 +616,7 @@ export type Database = {
           item: string | null
           matter_id: number | null
           matter_title: string | null
+          matter_user_id: number | null
           name: string
           payment_cycle: string | null
           source_amount: number | null
@@ -637,6 +638,7 @@ export type Database = {
           item?: string | null
           matter_id?: number | null
           matter_title?: string | null
+          matter_user_id?: number | null
           name: string
           payment_cycle?: string | null
           source_amount?: number | null
@@ -658,6 +660,7 @@ export type Database = {
           item?: string | null
           matter_id?: number | null
           matter_title?: string | null
+          matter_user_id?: number | null
           name?: string
           payment_cycle?: string | null
           source_amount?: number | null

@@ -1,4 +1,8 @@
-import { ExtraEntryInsertType, ExtraEntryType } from "../types/types";
+import {
+  ExtraEntryInListType,
+  ExtraEntryInsertType,
+  ExtraEntryType,
+} from "../types/types";
 
 // 経理追加収支の種別定義（extra_entries.entry_type の値域）
 const ENTRY_TYPE_LABELS: Record<string, string> = {
@@ -15,6 +19,52 @@ export const ENTRY_TYPE_OPTIONS = [
   { value: "income", label: formatEntryType("income") },
   { value: "expense", label: formatEntryType("expense") },
 ];
+
+// 一覧の行データを DB 書き込み用の形に変換する（INSERT / UPDATE 共通）
+// 種別ごとの項目の整合性（収入=請求額あり・決済方法なし / 支出=経費・決済方法あり、
+// 収入専用項目なし）はここで揃え、DB の CHECK 制約
+// （extra_entries_type_fields_check）でも担保する。
+// updated_at は DB トリガー（update_extra_entries_updated_at）が now() で設定する
+export const toExtraEntryDbRow = (entry: ExtraEntryInListType) => {
+  const isIncome = entry.entry_type === "income";
+  return {
+    entry_type: entry.entry_type,
+    category: entry.category,
+    entry_date: entry.entry_date,
+    invoice_number: isIncome ? entry.invoice_number : null,
+    description: entry.description,
+    billing_target: isIncome ? entry.billing_target : null,
+    manager_id: entry.manager_id,
+    team: entry.team,
+    billing_amount: isIncome ? entry.billing_amount : null,
+    // 経費は収入時は任意（未入力 = null）、支出時は必須
+    expense_amount: entry.expense_amount,
+    payment_method: isIncome ? null : entry.payment_method,
+  };
+};
+
+// 保存済みの行が編集されていないか（DB に書き込む項目がすべて保存済みの値と同じか）。
+// 一括保存は画面の全行を送るため、未変更の行は UPDATE せず、確定済みの月の
+// 編集ロック（Issue #148）の判定対象からも外す（確定済みの月の行を触っていないのに
+// 他の月の行を保存できなくなることを防ぐ）
+export const isExtraEntryUnchanged = (
+  original: ExtraEntryType,
+  entry: ExtraEntryInListType,
+): boolean => {
+  const next = toExtraEntryDbRow(entry);
+  return (Object.keys(next) as (keyof typeof next)[]).every((key) => {
+    const before = original[key];
+    const after = next[key];
+    // 金額は numeric のため、数値として比較する（"100.00" と 100 など）
+    if (typeof before === "number" || typeof after === "number") {
+      return (
+        (before === null && after === null) ||
+        (before !== null && after !== null && Number(before) === Number(after))
+      );
+    }
+    return (before ?? null) === (after ?? null);
+  });
+};
 
 // ===== 前月の経理追加収支コピー（損益計算書 月次タブ「前月の経理追加収支をコピー」用） =====
 // Supabase アクセス（app/utils/supabase/extraEntries.ts）から切り離しているのは、

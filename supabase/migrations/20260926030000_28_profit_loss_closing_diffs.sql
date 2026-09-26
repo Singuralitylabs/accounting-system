@@ -125,17 +125,17 @@ BEGIN
   WHERE closing_id = v_closing_id;
 
   INSERT INTO public.profit_loss_closing_lines
-    (closing_id, source_type, source_id, matter_id, matter_title, name, category,
+    (closing_id, source_type, source_id, matter_id, matter_user_id, matter_title, name, category,
      item, team, entry_type, entry_date, payment_cycle, source_amount,
      adjustment_amount, actual_amount, adjustment_reason, billing_amount,
      expense_amount)
   SELECT
-    v_closing_id, l.source_type, l.source_id, l.matter_id, l.matter_title, l.name,
+    v_closing_id, l.source_type, l.source_id, l.matter_id, l.matter_user_id, l.matter_title, l.name,
     l.category, l.item, l.team, l.entry_type, l.entry_date, l.payment_cycle,
     l.source_amount, l.adjustment_amount, l.actual_amount, l.adjustment_reason,
     l.billing_amount, l.expense_amount
   FROM jsonb_to_recordset(p_lines) AS l(
-    source_type text, source_id bigint, matter_id bigint, matter_title text,
+    source_type text, source_id bigint, matter_id bigint, matter_user_id bigint, matter_title text,
     name text, category text, item text, team text, entry_type text,
     entry_date date, payment_cycle text, source_amount numeric,
     adjustment_amount numeric, actual_amount numeric, adjustment_reason text,
@@ -195,17 +195,17 @@ BEGIN
   END IF;
 
   INSERT INTO public.profit_loss_closing_lines
-    (closing_id, source_type, source_id, matter_id, matter_title, name, category,
+    (closing_id, source_type, source_id, matter_id, matter_user_id, matter_title, name, category,
      item, team, entry_type, entry_date, payment_cycle, source_amount,
      adjustment_amount, actual_amount, adjustment_reason, billing_amount,
      expense_amount)
   SELECT
-    v_closing_id, l.source_type, l.source_id, l.matter_id, l.matter_title, l.name,
+    v_closing_id, l.source_type, l.source_id, l.matter_id, l.matter_user_id, l.matter_title, l.name,
     l.category, l.item, l.team, l.entry_type, l.entry_date, l.payment_cycle,
     l.source_amount, l.adjustment_amount, l.actual_amount, l.adjustment_reason,
     l.billing_amount, l.expense_amount
   FROM jsonb_to_recordset(p_upsert_lines) AS l(
-    source_type text, source_id bigint, matter_id bigint, matter_title text,
+    source_type text, source_id bigint, matter_id bigint, matter_user_id bigint, matter_title text,
     name text, category text, item text, team text, entry_type text,
     entry_date date, payment_cycle text, source_amount numeric,
     adjustment_amount numeric, actual_amount numeric, adjustment_reason text,
@@ -213,6 +213,7 @@ BEGIN
   )
   ON CONFLICT (closing_id, source_type, source_id) DO UPDATE SET
     matter_id = EXCLUDED.matter_id,
+    matter_user_id = EXCLUDED.matter_user_id,
     matter_title = EXCLUDED.matter_title,
     name = EXCLUDED.name,
     category = EXCLUDED.category,

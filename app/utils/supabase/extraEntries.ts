@@ -4,6 +4,8 @@ import { AccessFailure, ExtraEntryInListType } from "../../types/types";
 import {
   buildCopiedExtraEntries,
   excludeDuplicateExtraEntries,
+  isExtraEntryUnchanged,
+  toExtraEntryDbRow as toDbRow,
 } from "../extraEntry";
 import { addMonths, toFirstOfMonth } from "../formatter";
 import {
@@ -13,29 +15,6 @@ import {
   toClosedMonthSet,
 } from "../profitLossClosing";
 import { createServerSupabase } from "./clients";
-
-// 一覧の行データを DB 書き込み用の形に変換する（INSERT / UPDATE 共通）
-// 種別ごとの項目の整合性（収入=請求額あり・決済方法なし / 支出=経費・決済方法あり、
-// 収入専用項目なし）はここで揃え、DB の CHECK 制約
-// （extra_entries_type_fields_check）でも担保する。
-// updated_at は DB トリガー（update_extra_entries_updated_at）が now() で設定する
-const toDbRow = (entry: ExtraEntryInListType) => {
-  const isIncome = entry.entry_type === "income";
-  return {
-    entry_type: entry.entry_type,
-    category: entry.category,
-    entry_date: entry.entry_date,
-    invoice_number: isIncome ? entry.invoice_number : null,
-    description: entry.description,
-    billing_target: isIncome ? entry.billing_target : null,
-    manager_id: entry.manager_id,
-    team: entry.team,
-    billing_amount: isIncome ? entry.billing_amount : null,
-    // 経費は収入時は任意（未入力 = null）、支出時は必須
-    expense_amount: entry.expense_amount,
-    payment_method: isIncome ? null : entry.payment_method,
-  };
-};
 
 // 経理追加収支一覧の取得（RLS により権限に応じた行のみ返る）
 export const getExtraEntryList = async () => {
@@ -83,10 +62,7 @@ export const bulkUpsertExtraEntry = async (
     await Promise.all([
       fetchClosedMonths(),
       existingIds.length > 0
-        ? supabase
-            .from("extra_entries")
-            .select("id, entry_date")
-            .in("id", existingIds)
+        ? supabase.from("extra_entries").select("*").in("id", existingIds)
         : Promise.resolve({ data: [], error: null }),
     ]);
   if (closingError || originalResult.error) {
@@ -96,11 +72,12 @@ export const bulkUpsertExtraEntry = async (
     );
     throw new Error("経理追加収支情報の更新に失敗しました");
   }
+  const originals = new Map(
+    (originalResult.data ?? []).map((row) => [row.id, row])
+  );
   const violations = findExtraEntryLockViolations(
     extraEntries,
-    new Map(
-      (originalResult.data ?? []).map((row) => [row.id, row.entry_date])
-    ),
+    originals,
     closedMonths
   );
   if (violations.length > 0) {
@@ -114,8 +91,12 @@ export const bulkUpsertExtraEntry = async (
 
   // 新規作成用
   const newEntries = extraEntries.filter((ee) => ee.isNew && !ee.isRemoved);
-  // 更新用
-  const updateEntries = extraEntries.filter((ee) => !ee.isNew && !ee.isRemoved);
+  // 更新用（編集していない行は UPDATE しない。画面は全行を送るため）
+  const updateEntries = extraEntries.filter((ee) => {
+    if (ee.isNew || ee.isRemoved) return false;
+    const original = originals.get(ee.id);
+    return !original || !isExtraEntryUnchanged(original, ee);
+  });
   // 削除用
   const deleteEntries = extraEntries.filter((ee) => ee.isRemoved && !ee.isNew);
 

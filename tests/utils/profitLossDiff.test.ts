@@ -30,6 +30,7 @@ type MatterOverride = Partial<BusinessRow["matters"]>;
 
 const matter = (id: number, override: MatterOverride = {}) => ({
   id,
+  user_id: 1,
   title: `案件${id}`,
   team: "シンラボ",
   category: "受託案件",

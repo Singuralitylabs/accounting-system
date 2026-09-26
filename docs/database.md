@@ -510,6 +510,7 @@ CHECK 制約: `target_month = date_trunc('month', target_month)::date`、`num_nu
 | source_type       | text          | NOT NULL, CHECK (`business` / `cost` / `recurring_cost` / `extra_entry`) | 元の行の種別                                                                       |
 | source_id         | bigint        | NOT NULL（FK なし）                                                      | 元の行の id                                                                        |
 | matter_id         | bigint        | NULL（FK なし）                                                          | 案件 ID（business / cost）                                                         |
+| matter_user_id    | bigint        | NULL（FK なし）                                                          | 案件の作成者（matters.user_id。business / cost）。チームリーダー向け RLS に使う    |
 | matter_title      | text          | NULL                                                                     | 案件名（確定時点）                                                                 |
 | name              | text          | NOT NULL                                                                 | 取引先名 / コスト名 / 定期費用名 / 経理追加収支の内容（確定時点）                  |
 | category          | text          | NULL                                                                     | 案件の分類 / 経理追加収支の分類                                                    |
@@ -528,7 +529,7 @@ CHECK 制約: `target_month = date_trunc('month', target_month)::date`、`num_nu
 制約:
 
 - UNIQUE (closing_id, source_type, source_id)（closing_id の索引を兼ねる）
-- CHECK（種別ごとに集計・表示に必要な列が揃っていること）: business / cost は matter_id・matter_title・category・team・source_amount・adjustment_amount・actual_amount（cost は item も）が NOT NULL、recurring_cost は item・payment_cycle・金額 3 列が NOT NULL、extra_entry は entry_type（income / expense）・category が NOT NULL
+- CHECK（種別ごとに集計・表示に必要な列が揃っていること）: business / cost は matter_id・matter_user_id・matter_title・category・team・source_amount・adjustment_amount・actual_amount（cost は item も）が NOT NULL、recurring_cost は item・payment_cycle・金額 3 列が NOT NULL、extra_entry は entry_type（income / expense）・category が NOT NULL
 
 設計上の注意:
 
@@ -1658,7 +1659,7 @@ REVOKE ALL ON TABLE profit_loss_labels FROM anon;
 
 ### 5.14 profit_loss_closings / profit_loss_closing_lines テーブル
 
-> 月次収支確定（Issue #148）。ヘッダ（profit_loss_closings）の SELECT はログインユーザー全員（担当者の案件編集時に「確定済みの月」の注意表示を出すため。金額を持たない）、書き込みは経理担当者・管理者のみ。明細（profit_loss_closing_lines）の SELECT は経理担当者・管理者が全行、チームリーダーは `team = 自チーム OR team IS NULL`（ライブ集計時の matters / recurring_costs / extra_entries の RLS と同じ範囲）、書き込みは経理担当者・管理者のみ。public ロールは明細を読めない。anon は両テーブルとも権限なし。
+> 月次収支確定（Issue #148）。ヘッダ（profit_loss_closings）の SELECT はログインユーザー全員（担当者の案件編集時に「確定済みの月」の注意表示を出すため。金額を持たない）、書き込みは経理担当者・管理者のみ。明細（profit_loss_closing_lines）の SELECT は経理担当者・管理者が全行、チームリーダーは `team = 自チーム OR team IS NULL`、または自分が作成した案件の明細（`matter_user_id` = 自分の profiles.id）（ライブ集計時の matters / business / costs / recurring_costs / extra_entries の RLS と同じ範囲。確定の前後でチームリーダーの表示範囲を変えない）、書き込みは経理担当者・管理者のみ。public ロールは明細を読めない。anon は両テーブルとも権限なし。
 
 ```sql
 -- 確定済み判定（RLS の編集ロックから呼ぶ。private スキーマ・SECURITY DEFINER）
@@ -1698,8 +1699,11 @@ CREATE POLICY "profit_loss_closing_lines_select_policy" ON profit_loss_closing_l
       public.auth_user_class() IN ('admin', 'accounting')
       OR (
         public.auth_user_class() = 'teamleader'
-        AND public.auth_user_team() IS NOT NULL
-        AND (profit_loss_closing_lines.team IS NULL OR profit_loss_closing_lines.team = public.auth_user_team())
+        AND (
+          (public.auth_user_team() IS NOT NULL
+           AND (profit_loss_closing_lines.team IS NULL OR profit_loss_closing_lines.team = public.auth_user_team()))
+          OR EXISTS (SELECT 1 FROM profiles p WHERE p.id = profit_loss_closing_lines.matter_user_id AND p.user_id = (select auth.uid()))
+        )
       )
     );
 -- INSERT / UPDATE / DELETE は accounting / admin のみ（USING / WITH CHECK とも auth_user_class() で判定）
@@ -1711,11 +1715,11 @@ CREATE POLICY "profit_loss_closing_lines_select_policy" ON profit_loss_closing_l
 - extra_entries（5.7）: INSERT の WITH CHECK（新しい entry_date の月）、UPDATE の USING（変更前の月）と WITH CHECK（変更後の月。従来 WITH CHECK は未指定で USING と同じだったため、経理担当者・管理者の条件も併せて明示）、DELETE の USING に `NOT private.is_pl_month_closed(entry_date)` を追加（entry_date が NULL の行は対象外）
 - recurring_costs のポリシーは変更しない（定期費用マスタは確定済みの月があっても編集できる。確定済みの月の表示は確定明細から行うため影響しない）
 - 案件の明細・定期費用の削除に伴う損益調整の CASCADE 削除は参照整合性のアクションで、RLS は適用されないため妨げられない
-- UPDATE / DELETE は RLS で拒否されても 0 行更新になるだけでエラーにならないため、アプリ側（`bulkUpsertExtraEntry` / `deleteProfitLossAdjustment`）は書き込み前の判定・削除件数の確認で利用者にエラーを返す
+- UPDATE / DELETE は RLS で拒否されても 0 行更新になるだけでエラーにならないため、アプリ側（`bulkUpsertExtraEntry` / `deleteProfitLossAdjustment`）は書き込み前の判定・削除件数の確認で利用者にエラーを返す。経理追加収支画面は全行をまとめて保存するため、保存済みで編集していない行は UPDATE せず、ロックの判定からも外す（確定済みの月の行を触らずに他の月の行を保存できる）
 
 #### 確定（`save_profit_loss_closing`）
 
-`save_profit_loss_closing(p_target_month date, p_lines jsonb)` は、ヘッダの upsert（`ON CONFLICT (target_month)`。再確定では確定者・確定日時を更新し、反映者・反映日時をクリア）と明細の全置換（既存明細の DELETE → `jsonb_to_recordset(p_lines)` の INSERT）を 1 回の関数呼び出し（= 1 トランザクション）で行う。途中で失敗（明細の CHECK 違反など）すると確定前の状態に完全にロールバックされる。closed_by / closed_by_name は `auth.uid()` から解決し、クライアントからは受け取らない。SECURITY INVOKER のため書き込み可否は上記 RLS がそのまま適用される。明細はサーバ（`app/utils/supabase/profitLossClosings.ts` の `closeProfitLossMonth`）が当月をライブ集計し直して組み立てる（クライアントから送られた金額は使わない）。確定解除はヘッダの DELETE（明細・見送り記録は CASCADE）。
+`save_profit_loss_closing(p_target_month date, p_lines jsonb)` は、ヘッダの upsert（`ON CONFLICT (target_month)`。再確定では確定者・確定日時を更新し、反映者・反映日時をクリア）と明細の全置換（既存明細の DELETE → `jsonb_to_recordset(p_lines)` の INSERT）を 1 回の関数呼び出し（= 1 トランザクション）で行う。途中で失敗（明細の CHECK 違反など）すると確定前の状態に完全にロールバックされる。closed_by / closed_by_name は `auth.uid()` から解決し、クライアントからは受け取らない。SECURITY INVOKER のため書き込み可否は上記 RLS がそのまま適用される。明細はサーバ（`app/utils/supabase/profitLossClosings.ts` の `closeProfitLossMonth`）が当月をライブ集計し直して組み立てる（クライアントから送られた金額は使わない）。集計から確定のコミットまでの間はまだ編集ロックが掛かっていないため、コミット後（= ロック後）にもう一度集計し、違いがあれば同じ関数で取り直す（その間に他の経理担当者が保存した損益調整・経理追加収支が、確定値から漏れたままロックされるのを防ぐ）。確定解除はヘッダの DELETE（明細・見送り記録は CASCADE）。
 
 ### 5.15 profit_loss_closing_dismissals テーブルと反映・見送りの関数
 
@@ -2158,6 +2162,7 @@ erDiagram
         text source_type
         bigint source_id
         bigint matter_id
+        bigint matter_user_id
         text matter_title
         text name
         text category
