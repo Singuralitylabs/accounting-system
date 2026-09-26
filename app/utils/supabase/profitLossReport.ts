@@ -21,6 +21,7 @@ import {
   reportFlags,
   reportRangeBounds,
 } from "../profitLossLogic";
+import { getActiveSelectOptionsByType } from "./selectOptionsCache";
 import { getAuthorizedViewer } from "./viewerAccess";
 
 // business / costs の取得列。計上月（案件開始日）・下書き判定・ラベル解決に
@@ -35,7 +36,7 @@ const COST_SELECT = `id, name, price, item, matter_id, ${MATTER_COLUMNS}`;
 // 集計に必要な行をまとめて取得する（RLS により権限に応じた行のみ返る）
 // セッション Cookie は @supabase/ssr 形式。createServerSupabase() 以外のクライアントを混ぜない
 // period を渡すと対象期間＋月未確定（NULL）行に絞る。月次は単月、年間推移は年度12ヶ月を渡し、
-// いずれも5テーブルの一括取得（Promise.all）のままクエリ往復を増やさない。
+// いずれも一括取得（Promise.all）のままクエリ往復を増やさない。
 // 省略時は全件取得（後方互換。呼び出し側は原則として期間を渡す）。
 const fetchReportSourceRows = async (period?: ReportPeriod) => {
   const supabase = createServerSupabase();
@@ -83,12 +84,15 @@ const fetchReportSourceRows = async (period?: ReportPeriod) => {
     recurringResult,
     extraResult,
     adjustmentResult,
+    teamOptions,
   ] = await Promise.all([
     businessQuery,
     costQuery,
     recurringQuery,
     extraQuery,
     adjustmentQuery,
+    // 案件別収支のチームの並び順（項目管理のチームマスタの display_order 順）
+    getActiveSelectOptionsByType(["team"]),
   ]);
 
   if (
@@ -108,8 +112,18 @@ const fetchReportSourceRows = async (period?: ReportPeriod) => {
     );
     return null;
   }
+  // 並び順の取得失敗は集計値に影響しないため致命的にはしない（チーム名順で表示する）
+  if (teamOptions.error) {
+    console.error(
+      "損益レポートのチーム並び順の取得に失敗しました（チーム名順で表示します）:",
+      teamOptions.error,
+    );
+  }
 
   return {
+    teamOrder: (teamOptions.optionsByType.team ?? []).map(
+      (option) => option.value,
+    ),
     businessRows: (businessResult.data ?? []) as BusinessRow[],
     costRows: (costResult.data ?? []) as CostRow[],
     recurringCosts: recurringResult.data ?? [],
@@ -202,6 +216,7 @@ export const getProfitLossReport = async (
     recurringCosts: rows.recurringCosts,
     extraEntries: rows.extraEntries,
     adjustments: rows.adjustments,
+    teamOrder: rows.teamOrder,
     includeOrphanedAdjustments: true,
     ...reportFlags(profileInfo.class),
   });
@@ -243,6 +258,7 @@ export const getAnnualTrend = async (
       recurringCosts: rows.recurringCosts,
       extraEntries: rows.extraEntries,
       adjustments: rows.adjustments,
+      teamOrder: rows.teamOrder,
       // 年間推移は orphanedAdjustments を表示に使わないため 12ヶ月分の
       // 無駄な計算を避ける（AnnualTrendTable は参照しない）
       includeOrphanedAdjustments: false,

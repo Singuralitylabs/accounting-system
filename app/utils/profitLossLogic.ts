@@ -5,19 +5,21 @@
 
 import {
   AdjustableAmount,
-  BusinessDetail,
-  CategoryBreakdown,
-  CostDetail,
+  BusinessLine,
+  CostLine,
+  ExtraEntryLine,
   ExtraEntryType,
   GrossProfitBreakdown,
-  ItemBreakdown,
+  MatterBreakdown,
   OrphanedAdjustmentType,
+  PLMonthLines,
   PLReportType,
   ProfitLossAdjustmentType,
-  RecurringCostDetail,
   RecurringCostItemBreakdown,
+  RecurringCostLine,
   RecurringCostType,
   TeamBreakdown,
+  TeamMatterGroup,
 } from "../types/types";
 import { ORG_WIDE_TEAM_LABEL } from "./constants";
 import { hasClassAccess } from "./permissions";
@@ -267,13 +269,16 @@ export type MonthlyReportInput = {
   // 年間推移（12ヶ月分を一括計算）は表示に使わないため false を渡し、
   // 12ヶ月分の無駄な計算を避ける（月次タブの単月表示でのみ true）
   includeOrphanedAdjustments: boolean;
+  // 案件別収支のチームの並び順（項目管理のチームマスタの display_order 順）。
+  // マスタに無いチーム（無効化・削除済み）は後ろに名称順で並ぶ
+  teamOrder?: string[];
 };
 
 type AdjustmentKey = "business_id" | "cost_id" | "recurring_cost_id";
 
 // adjustments 配列から「対象列 + id + 対象月」で引ける索引を作る。
 // 明細行数 × 調整件数の総当たりだと調整が積み上がるほど遅くなるため、
-// buildMonthlyReport の呼び出しごとに一度だけ Map 化して O(1) 参照にする
+// 呼び出しごとに一度だけ Map 化して O(1) 参照にする
 const buildAdjustmentIndex = (
   adjustments: ProfitLossAdjustmentType[],
   month: string,
@@ -314,241 +319,329 @@ const toAdjustable = (
       ? adjustment.source_amount_snapshot !== sourceAmount
       : false,
     adjustment: adjustment ?? null,
+    adjustmentReason: adjustment?.reason ?? null,
   };
 };
 
-// 取得済みの行から指定月の損益レポートを組み立てる
-export const buildMonthlyReport = ({
+const byNumber =
+  <T>(key: (value: T) => number) =>
+  (a: T, b: T) =>
+    key(a) - key(b);
+
+// 経理追加収支の行を明細行へ変換する
+export const toExtraEntryLine = (entry: ExtraEntryType): ExtraEntryLine => ({
+  extraEntryId: entry.id,
+  entryType: entry.entry_type,
+  category: entry.category,
+  description: entry.description,
+  team: entry.team,
+  entryDate: entry.entry_date,
+  billingAmount: entry.billing_amount,
+  expenseAmount: entry.expense_amount,
+});
+
+// 経理追加収支 1 件が売上・案件費用へ算入する額
+// （収入の請求額 → 売上。経費（収入・支出共通）→ 案件費用）
+const extraEntryRevenue = (entry: ExtraEntryLine): number =>
+  entry.entryType === "income" ? (entry.billingAmount ?? 0) : 0;
+const extraEntryCost = (entry: ExtraEntryLine): number =>
+  entry.expenseAmount ?? 0;
+
+// 取得済みの行から、指定月に計上される明細行（ライブ集計）を組み立てる。
+// ロールによる算入 / 参考表示の振り分けは行わない（aggregateMonthLines 側で行う）。
+// 確定（Issue #148）のスナップショットもこの結果をそのまま保存する。
+export const buildLiveMonthLines = ({
   month,
   businessRows,
   costRows,
   recurringCosts,
   extraEntries,
   adjustments,
-  isTeamLeader,
-  includeTeamBreakdown,
-  includeOrphanedAdjustments,
-}: MonthlyReportInput): PLReportType => {
-  // 対象月分の調整を1度だけ索引化する（findAdjustment の呼び出しごとに
-  // 全件走査しない）
+}: Pick<
+  MonthlyReportInput,
+  | "month"
+  | "businessRows"
+  | "costRows"
+  | "recurringCosts"
+  | "extraEntries"
+  | "adjustments"
+>): PLMonthLines => {
+  // 対象月分の調整を1度だけ索引化する（明細行ごとに全件走査しない）
   const adjustmentIndex = buildAdjustmentIndex(adjustments, month);
-
-  // ===== 経理追加収支 =====
-  // 計上月は entry_date の属する月（NULL は月未確定として別枠集計）
-  const monthlyExtraEntries = extraEntries.filter(
-    (entry) => toMonthKey(entry.entry_date) === month,
-  );
-
-  // teamleader の場合、全体共通（team IS NULL）は損益に算入せず参考表示に分離する
-  // （定期費用と同じルール）
-  const countedExtraEntries = isTeamLeader
-    ? monthlyExtraEntries.filter((entry) => entry.team !== null)
-    : monthlyExtraEntries;
-  const orgWideExtraEntries = isTeamLeader
-    ? monthlyExtraEntries.filter((entry) => entry.team === null)
-    : undefined;
-
-  // 収入エントリの請求額 → 売上。経費（収入・支出共通）→ 案件費用
-  const incomeEntries = countedExtraEntries.filter(
-    (entry) => entry.entry_type === "income",
-  );
-  const extraExpenseEntries = countedExtraEntries.filter(
-    (entry) => entry.expense_amount !== null,
-  );
 
   // 案件の売上・費用は案件開始日の月に計上し、下書きの案件は除外する（Issue #146）。
   // 取得側でも同じ条件で絞るが、orphanedAdjustments のラベル解決用の補完行
   // （期間外・下書きを含みうる）が混ざるため、ここでも判定する
-  const countedBusinessRows = businessRows.filter(
-    (row) => !isDraftMatter(row.matters),
-  );
-  const countedCostRows = costRows.filter((row) => !isDraftMatter(row.matters));
+  const isCountedInMonth = (matter: MatterOfRow) =>
+    !isDraftMatter(matter) && matterMonthKey(matter) === month;
 
-  // ===== 売上（分類別。案件別（business 行別）の明細＋経理追加収支の収入を合算） =====
-  const monthlyBusiness = countedBusinessRows.filter(
-    (row) => matterMonthKey(row.matters) === month,
-  );
+  const businesses: BusinessLine[] = businessRows
+    .filter((row) => isCountedInMonth(row.matters))
+    .map((row) => ({
+      ...toAdjustable(
+        row.amount ?? 0,
+        findAdjustment(adjustmentIndex, "business_id", row.id),
+      ),
+      businessId: row.id,
+      name: row.name,
+      matterId: row.matter_id,
+      matterTitle: row.matters.title,
+      category: row.matters.category,
+      team: row.matters.team,
+    }))
+    .sort(byNumber((line) => line.businessId));
 
-  const categoryMap = new Map<
-    string,
-    {
-      total: number;
-      businesses: BusinessDetail[];
-      extraEntries: ExtraEntryType[];
-    }
+  const costs: CostLine[] = costRows
+    .filter((row) => isCountedInMonth(row.matters))
+    .map((row) => ({
+      ...toAdjustable(
+        row.price,
+        findAdjustment(adjustmentIndex, "cost_id", row.id),
+      ),
+      costId: row.id,
+      name: row.name,
+      item: row.item,
+      matterId: row.matter_id,
+      matterTitle: row.matters.title,
+      category: row.matters.category,
+      team: row.matters.team,
+    }))
+    .sort(byNumber((line) => line.costId));
+
+  const recurringCostLines: RecurringCostLine[] = recurringCosts
+    .filter((rc) => isRecurringCostChargedInMonth(rc, month))
+    .map((rc) => ({
+      ...toAdjustable(
+        rc.price,
+        findAdjustment(adjustmentIndex, "recurring_cost_id", rc.id),
+      ),
+      recurringCostId: rc.id,
+      name: rc.name,
+      item: rc.item,
+      team: rc.team,
+      paymentCycle: rc.payment_cycle,
+    }))
+    .sort(byNumber((line) => line.recurringCostId));
+
+  // 計上月は entry_date の属する月（NULL は月未確定として別枠集計）
+  const extraEntryLines = extraEntries
+    .filter((entry) => toMonthKey(entry.entry_date) === month)
+    .map(toExtraEntryLine)
+    .sort(byNumber((line) => line.extraEntryId));
+
+  return {
+    businesses,
+    costs,
+    recurringCosts: recurringCostLines,
+    extraEntries: extraEntryLines,
+  };
+};
+
+// 案件別収支のチームの並び順。マスタ（teamOrder）の順 → マスタに無いチームは名称順 →
+// 全体共通（NULL）は最後
+export const compareTeams = (teamOrder: readonly string[]) => {
+  const rank = new Map(teamOrder.map((team, index) => [team, index]));
+  return (a: string | null, b: string | null): number => {
+    if (a === b) return 0;
+    if (a === null) return 1;
+    if (b === null) return -1;
+    const rankA = rank.get(a);
+    const rankB = rank.get(b);
+    if (rankA !== undefined && rankB !== undefined) return rankA - rankB;
+    if (rankA !== undefined) return -1;
+    if (rankB !== undefined) return 1;
+    return a.localeCompare(b, "ja");
+  };
+};
+
+// 案件別収支（チーム → 案件 → 案件内訳）を組み立てる。
+// 明細行はいずれもちょうど1つのチーム（経理追加収支のチーム未指定は全体共通）・
+// 1つの案件（経理追加収支は案件外）に属するため、チーム小計の合計は
+// 売上合計・案件費用合計と必ず一致する。
+export const buildTeamMatterGroups = (
+  businesses: BusinessLine[],
+  costs: CostLine[],
+  extraEntries: ExtraEntryLine[],
+  teamOrder: readonly string[] = [],
+): TeamMatterGroup[] => {
+  const groups = new Map<
+    string | null,
+    { matters: Map<number, MatterBreakdown>; extraEntries: ExtraEntryLine[] }
   >();
-  const getCategoryEntry = (category: string) => {
-    if (!categoryMap.has(category)) {
-      categoryMap.set(category, { total: 0, businesses: [], extraEntries: [] });
+  const getGroup = (team: string | null) => {
+    if (!groups.has(team)) {
+      groups.set(team, { matters: new Map(), extraEntries: [] });
     }
-    return categoryMap.get(category)!;
+    return groups.get(team)!;
+  };
+  const getMatter = (line: BusinessLine | CostLine) => {
+    const matters = getGroup(line.team).matters;
+    if (!matters.has(line.matterId)) {
+      matters.set(line.matterId, {
+        matterId: line.matterId,
+        matterTitle: line.matterTitle,
+        category: line.category,
+        team: line.team,
+        revenue: 0,
+        cost: 0,
+        grossProfit: 0,
+        businesses: [],
+        costs: [],
+      });
+    }
+    return matters.get(line.matterId)!;
   };
 
-  // チーム別内訳（後段）でも同じ実績額を使うため、business_id をキーに保持しておく
-  // （findAdjustment の再計算を避け、本表とチーム別内訳の実績額がズレないようにする）
-  const businessActualAmounts = new Map<number, number>();
-  monthlyBusiness.forEach((row) => {
-    const adjustment = findAdjustment(adjustmentIndex, "business_id", row.id);
-    const adjustable = toAdjustable(row.amount ?? 0, adjustment);
-    const detail: BusinessDetail = {
-      ...adjustable,
-      businessId: row.id,
-      businessName: row.name,
-      matterId: row.matter_id,
-      matterTitle: row.matters.title,
-    };
-    businessActualAmounts.set(row.id, adjustable.actualAmount);
-    const entry = getCategoryEntry(row.matters.category);
-    entry.total += adjustable.actualAmount;
-    entry.businesses.push(detail);
+  businesses.forEach((line) => {
+    const matter = getMatter(line);
+    matter.revenue += line.actualAmount;
+    matter.businesses.push(line);
   });
-  incomeEntries.forEach((entry) => {
-    // 収入エントリの billing_amount は CHECK 制約で NOT NULL（型上は nullable）
-    const categoryEntry = getCategoryEntry(entry.category);
-    categoryEntry.total += entry.billing_amount ?? 0;
-    categoryEntry.extraEntries.push(entry);
+  costs.forEach((line) => {
+    const matter = getMatter(line);
+    matter.cost += line.actualAmount;
+    matter.costs.push(line);
+  });
+  extraEntries.forEach((entry) => {
+    getGroup(entry.team).extraEntries.push(entry);
   });
 
-  const revenueByCategory: CategoryBreakdown[] = Array.from(
-    categoryMap.entries(),
-  )
-    .map(
-      ([
-        category,
-        { total, businesses, extraEntries: categoryExtraEntries },
-      ]) => ({
-        category,
-        amount: total,
-        businesses: businesses.sort((a, b) => b.actualAmount - a.actualAmount),
-        extraEntries: categoryExtraEntries,
-      }),
-    )
-    .sort((a, b) => b.amount - a.amount);
-
-  const revenueTotal = revenueByCategory.reduce((sum, c) => sum + c.amount, 0);
-
-  // ===== 案件費用（品目別 → 案件費用明細。経理追加収支の経費を合算） =====
-  const monthlyCosts = countedCostRows.filter(
-    (row) => matterMonthKey(row.matters) === month,
-  );
-
-  const itemMap = new Map<string, CostDetail[]>();
-  const categoryCostMap = new Map<string, number>();
-  // チーム別内訳（後段）でも同じ実績額を使うため、cost_id をキーに保持しておく
-  const costActualAmounts = new Map<number, number>();
-  monthlyCosts.forEach((row) => {
-    const adjustment = findAdjustment(adjustmentIndex, "cost_id", row.id);
-    const adjustable = toAdjustable(row.price, adjustment);
-    const detail: CostDetail = {
-      ...adjustable,
-      costId: row.id,
-      costName: row.name,
-      matterId: row.matter_id,
-      matterTitle: row.matters.title,
-    };
-    costActualAmounts.set(row.id, adjustable.actualAmount);
-    if (!itemMap.has(row.item)) {
-      itemMap.set(row.item, []);
-    }
-    itemMap.get(row.item)!.push(detail);
-    categoryCostMap.set(
-      row.matters.category,
-      (categoryCostMap.get(row.matters.category) ?? 0) +
-        adjustable.actualAmount,
-    );
-  });
-  // 経理追加収支の経費を分類別にまとめる（費用内訳ではエントリの分類を品目相当として扱う）
-  const extraCostByCategory = new Map<string, ExtraEntryType[]>();
-  extraExpenseEntries.forEach((entry) => {
-    if (!extraCostByCategory.has(entry.category)) {
-      extraCostByCategory.set(entry.category, []);
-    }
-    extraCostByCategory.get(entry.category)!.push(entry);
-    categoryCostMap.set(
-      entry.category,
-      (categoryCostMap.get(entry.category) ?? 0) + (entry.expense_amount ?? 0),
-    );
-  });
-  const allCostItems = new Set([
-    ...Array.from(itemMap.keys()),
-    ...Array.from(extraCostByCategory.keys()),
-  ]);
-  const matterCostByItem: ItemBreakdown[] = Array.from(allCostItems)
-    .map((item) => {
-      const costs = (itemMap.get(item) ?? []).sort(
-        (a, b) => b.actualAmount - a.actualAmount,
-      );
-      const itemExtraEntries = extraCostByCategory.get(item) ?? [];
-      return {
-        item,
-        amount:
-          costs.reduce((sum, c) => sum + c.actualAmount, 0) +
-          itemExtraEntries.reduce(
-            (sum, entry) => sum + (entry.expense_amount ?? 0),
-            0,
+  return Array.from(groups.entries())
+    .sort(([a], [b]) => compareTeams(teamOrder)(a, b))
+    .map(([team, group]) => {
+      const matters = Array.from(group.matters.values())
+        .map((matter) => ({
+          ...matter,
+          grossProfit: matter.revenue - matter.cost,
+          businesses: [...matter.businesses].sort(
+            byNumber((line) => line.businessId),
           ),
-        costs,
-        extraEntries: itemExtraEntries,
-      };
-    })
-    .sort((a, b) => b.amount - a.amount);
-
-  const matterCostTotal = matterCostByItem.reduce(
-    (sum, item) => sum + item.amount,
-    0,
-  );
-
-  // ===== 売上総利益（粗利）= 売上 − 案件費用（売上分類の大分類別） =====
-  // 案件費用は案件の分類（matters.category）へ、経理追加収支の経費はエントリの分類へ
-  // 振り分ける。売上・案件費用のいずれもちょうど1つの分類に属するため、
-  // 粗利合計は「売上合計 − 案件費用合計」と必ず一致する。
-  // 分類の値はマスタ（select_options）に追従するため、特定の分類名には依存しない。
-  const grossProfitByCategory: GrossProfitBreakdown[] = Array.from(
-    new Set([
-      ...Array.from(categoryMap.keys()),
-      ...Array.from(categoryCostMap.keys()),
-    ]),
-  )
-    .map((category) => {
-      const revenue = categoryMap.get(category)?.total ?? 0;
-      const cost = categoryCostMap.get(category) ?? 0;
-      return { category, revenue, cost, grossProfit: revenue - cost };
-    })
-    .sort((a, b) => b.grossProfit - a.grossProfit);
-
-  const grossProfitTotal = revenueTotal - matterCostTotal;
-
-  // ===== 管理費（定期費用） =====
-  const activeRecurringCosts = recurringCosts.filter((rc) =>
-    isRecurringCostChargedInMonth(rc, month),
-  );
-
-  // チーム別内訳（後段）でも同じ実績額（明細オブジェクト）を使うため、一度だけ計算する
-  const activeRecurringCostDetails: RecurringCostDetail[] =
-    activeRecurringCosts.map((rc) => {
-      const adjustment = findAdjustment(
-        adjustmentIndex,
-        "recurring_cost_id",
-        rc.id,
+          costs: [...matter.costs].sort(byNumber((line) => line.costId)),
+        }))
+        .sort(byNumber((matter) => matter.matterId));
+      const sortedExtraEntries = [...group.extraEntries].sort(
+        byNumber((line) => line.extraEntryId),
       );
-      return { ...toAdjustable(rc.price, adjustment), recurringCost: rc };
+      const extraRevenue = sortedExtraEntries.reduce(
+        (sum, entry) => sum + extraEntryRevenue(entry),
+        0,
+      );
+      const extraCost = sortedExtraEntries.reduce(
+        (sum, entry) => sum + extraEntryCost(entry),
+        0,
+      );
+      const revenue =
+        matters.reduce((sum, matter) => sum + matter.revenue, 0) + extraRevenue;
+      const cost =
+        matters.reduce((sum, matter) => sum + matter.cost, 0) + extraCost;
+      return {
+        team,
+        revenue,
+        cost,
+        grossProfit: revenue - cost,
+        matters,
+        extraEntries: sortedExtraEntries,
+        extraRevenue,
+        extraCost,
+      };
     });
+};
 
-  // teamleader の場合、全体共通（team IS NULL）は損益に算入せず参考表示に分離する
-  const countedRecurringCostDetails = isTeamLeader
-    ? activeRecurringCostDetails.filter((d) => d.recurringCost.team !== null)
-    : activeRecurringCostDetails;
+// 分類別収支（売上分類の大分類ごとに 売上 − 案件費用）。
+// 案件の売上・費用は案件の分類（matters.category）へ、経理追加収支の請求額・経費は
+// エントリの分類へ振り分ける。いずれもちょうど1つの分類に属するため、
+// 合計は「売上合計 − 案件費用合計」（= 案件別収支の合計）と必ず一致する。
+// 分類の値はマスタ（select_options）に追従するため、特定の分類名には依存しない。
+export const buildCategoryBreakdown = (
+  businesses: BusinessLine[],
+  costs: CostLine[],
+  extraEntries: ExtraEntryLine[],
+): GrossProfitBreakdown[] => {
+  const map = new Map<string, { revenue: number; cost: number }>();
+  const add = (category: string, revenue: number, cost: number) => {
+    const entry = map.get(category) ?? { revenue: 0, cost: 0 };
+    entry.revenue += revenue;
+    entry.cost += cost;
+    map.set(category, entry);
+  };
+  businesses.forEach((line) => add(line.category, line.actualAmount, 0));
+  costs.forEach((line) => add(line.category, 0, line.actualAmount));
+  extraEntries.forEach((entry) =>
+    add(entry.category, extraEntryRevenue(entry), extraEntryCost(entry)),
+  );
+  return Array.from(map.entries())
+    .map(([category, { revenue, cost }]) => ({
+      category,
+      revenue,
+      cost,
+      grossProfit: revenue - cost,
+    }))
+    .sort((a, b) => b.grossProfit - a.grossProfit);
+};
+
+// aggregateMonthLines の入力
+export type AggregateInput = {
+  month: string;
+  lines: PLMonthLines;
+  isTeamLeader: boolean;
+  includeTeamBreakdown: boolean;
+  teamOrder?: readonly string[];
+};
+
+// 明細行（ライブ集計・確定スナップショット共通）から損益計算書を集計する。
+// 月未確定（undated）・対象行が当月に存在しない調整（orphanedAdjustments）は
+// 取得した行から別途計算するため、ここでは空で返す（呼び出し側で上書きする）。
+export const aggregateMonthLines = ({
+  month,
+  lines,
+  isTeamLeader,
+  includeTeamBreakdown,
+  teamOrder = [],
+}: AggregateInput): PLReportType => {
+  // teamleader の場合、全体共通（team IS NULL）の経理追加収支・管理費は損益に算入せず
+  // 参考表示に分離する（案件は matters.team が NOT NULL のため常に算入）
+  const countedExtraEntries = isTeamLeader
+    ? lines.extraEntries.filter((entry) => entry.team !== null)
+    : lines.extraEntries;
+  const orgWideExtraEntries = isTeamLeader
+    ? lines.extraEntries.filter((entry) => entry.team === null)
+    : undefined;
+  const countedRecurringCosts = isTeamLeader
+    ? lines.recurringCosts.filter((line) => line.team !== null)
+    : lines.recurringCosts;
   const orgWideRecurringCosts = isTeamLeader
-    ? activeRecurringCostDetails.filter((d) => d.recurringCost.team === null)
+    ? lines.recurringCosts.filter((line) => line.team === null)
     : undefined;
 
-  // 費目（recurring_costs.item）別の管理費内訳。明細は展開表示に使う。
-  const recurringItemMap = new Map<string, RecurringCostDetail[]>();
-  countedRecurringCostDetails.forEach((detail) => {
-    if (!recurringItemMap.has(detail.recurringCost.item)) {
-      recurringItemMap.set(detail.recurringCost.item, []);
+  // ===== 案件別収支・分類別収支 =====
+  const teamMatterGroups = buildTeamMatterGroups(
+    lines.businesses,
+    lines.costs,
+    countedExtraEntries,
+    teamOrder,
+  );
+  const categoryBreakdown = buildCategoryBreakdown(
+    lines.businesses,
+    lines.costs,
+    countedExtraEntries,
+  );
+  const revenueTotal = teamMatterGroups.reduce(
+    (sum, group) => sum + group.revenue,
+    0,
+  );
+  const matterCostTotal = teamMatterGroups.reduce(
+    (sum, group) => sum + group.cost,
+    0,
+  );
+  const grossProfitTotal = revenueTotal - matterCostTotal;
+
+  // ===== 管理費（定期費用。費目別。明細は展開表示に使う） =====
+  const recurringItemMap = new Map<string, RecurringCostLine[]>();
+  countedRecurringCosts.forEach((line) => {
+    if (!recurringItemMap.has(line.item)) {
+      recurringItemMap.set(line.item, []);
     }
-    recurringItemMap.get(detail.recurringCost.item)!.push(detail);
+    recurringItemMap.get(line.item)!.push(line);
   });
   const recurringCostByItem: RecurringCostItemBreakdown[] = Array.from(
     recurringItemMap.entries(),
@@ -559,40 +652,20 @@ export const buildMonthlyReport = ({
       details,
     }))
     .sort((a, b) => b.amount - a.amount);
-
   const recurringCostTotal = recurringCostByItem.reduce(
     (sum, item) => sum + item.amount,
     0,
   );
 
-  // ===== 月未確定（案件開始日・日付未入力。下書きの案件は除く） =====
-  const undated = {
-    revenue:
-      countedBusinessRows
-        .filter((row) => row.matters.start_date === null)
-        .reduce((sum, row) => sum + (row.amount ?? 0), 0) +
-      extraEntries
-        .filter(
-          (entry) => entry.entry_date === null && entry.entry_type === "income",
-        )
-        .reduce((sum, entry) => sum + (entry.billing_amount ?? 0), 0),
-    matterCost:
-      countedCostRows
-        .filter((row) => row.matters.start_date === null)
-        .reduce((sum, row) => sum + row.price, 0) +
-      extraEntries
-        .filter((entry) => entry.entry_date === null)
-        .reduce((sum, entry) => sum + (entry.expense_amount ?? 0), 0),
-  };
-
   // ===== チーム別内訳（accounting / admin のみ） =====
   let byTeam: TeamBreakdown[] | undefined;
   if (includeTeamBreakdown) {
     const teamMap = new Map<string, TeamBreakdown>();
-    const getTeamEntry = (team: string): TeamBreakdown => {
-      if (!teamMap.has(team)) {
-        teamMap.set(team, {
-          team,
+    const getTeamEntry = (team: string | null): TeamBreakdown => {
+      const label = team ?? ORG_WIDE_TEAM_LABEL;
+      if (!teamMap.has(label)) {
+        teamMap.set(label, {
+          team: label,
           revenue: 0,
           matterCost: 0,
           grossProfit: 0,
@@ -600,33 +673,17 @@ export const buildMonthlyReport = ({
           profit: 0,
         });
       }
-      return teamMap.get(team)!;
+      return teamMap.get(label)!;
     };
-
-    monthlyBusiness.forEach((row) => {
-      getTeamEntry(row.matters.team).revenue += businessActualAmounts.get(
-        row.id,
-      )!;
+    // 案件別収支と同じ明細・実績額を使う（本表とチーム別内訳がズレないようにする）
+    teamMatterGroups.forEach((group) => {
+      const entry = getTeamEntry(group.team);
+      entry.revenue += group.revenue;
+      entry.matterCost += group.cost;
     });
-    monthlyCosts.forEach((row) => {
-      getTeamEntry(row.matters.team).matterCost += costActualAmounts.get(
-        row.id,
-      )!;
+    lines.recurringCosts.forEach((line) => {
+      getTeamEntry(line.team).recurringCost += line.actualAmount;
     });
-    activeRecurringCostDetails.forEach((detail) => {
-      getTeamEntry(
-        detail.recurringCost.team ?? ORG_WIDE_TEAM_LABEL,
-      ).recurringCost += detail.actualAmount;
-    });
-    // 経理追加収支は本表と同じく売上 / 案件費用へ算入する（チーム未指定は「全体共通」）
-    monthlyExtraEntries.forEach((entry) => {
-      const teamEntry = getTeamEntry(entry.team ?? ORG_WIDE_TEAM_LABEL);
-      if (entry.entry_type === "income") {
-        teamEntry.revenue += entry.billing_amount ?? 0;
-      }
-      teamEntry.matterCost += entry.expense_amount ?? 0;
-    });
-
     byTeam = Array.from(teamMap.values())
       .map((entry) => ({
         ...entry,
@@ -636,74 +693,13 @@ export const buildMonthlyReport = ({
       .sort((a, b) => b.profit - a.profit);
   }
 
-  // ===== 対象行が当月に存在しない調整（案件開始日の変更等で対象行が別の月に移動した・下書きに戻された） =====
-  // CASCADE により対象行そのものが削除された調整は存在しなくなるため、ここに現れるのは
-  // 「対象行は存在するが、当月の集計対象からは外れた」ケースのみ。削除を促す表示に使うため、
-  // 実績額修正の操作を持つロール（includeTeamBreakdown = accounting / admin）にのみ含める。
-  // 年間推移（includeOrphanedAdjustments=false）では表示に使わないため計算しない
-  let orphanedAdjustments: OrphanedAdjustmentType[] | undefined;
-  if (includeTeamBreakdown && includeOrphanedAdjustments) {
-    const monthlyBusinessIds = new Set(monthlyBusiness.map((row) => row.id));
-    const monthlyCostIds = new Set(monthlyCosts.map((row) => row.id));
-    const activeRecurringCostIds = new Set(
-      activeRecurringCosts.map((rc) => rc.id),
-    );
-
-    // 対象行を特定できるラベルを組み立てる。対象行自体は月に関わらず全件
-    // （businessRows / costRows / recurringCosts。month でフィルタする前）から探す
-    const businessById = new Map(businessRows.map((row) => [row.id, row]));
-    const costById = new Map(costRows.map((row) => [row.id, row]));
-    const recurringCostById = new Map(recurringCosts.map((rc) => [rc.id, rc]));
-
-    orphanedAdjustments = adjustments
-      .filter((adjustment) => toMonthKey(adjustment.target_month) === month)
-      .filter((adjustment) => {
-        if (adjustment.business_id !== null) {
-          return !monthlyBusinessIds.has(adjustment.business_id);
-        }
-        if (adjustment.cost_id !== null) {
-          return !monthlyCostIds.has(adjustment.cost_id);
-        }
-        return !activeRecurringCostIds.has(adjustment.recurring_cost_id!);
-      })
-      .map((adjustment) => {
-        if (adjustment.business_id !== null) {
-          const row = businessById.get(adjustment.business_id);
-          return {
-            adjustment,
-            targetType: "business" as const,
-            label: row
-              ? `${row.matters.title} - ${row.name}`
-              : `売上（ID: ${adjustment.business_id}）`,
-          };
-        }
-        if (adjustment.cost_id !== null) {
-          const row = costById.get(adjustment.cost_id);
-          return {
-            adjustment,
-            targetType: "cost" as const,
-            label: row
-              ? `${row.matters.title} - ${row.name}（${row.item}）`
-              : `案件費用（ID: ${adjustment.cost_id}）`,
-          };
-        }
-        const rc = recurringCostById.get(adjustment.recurring_cost_id!);
-        return {
-          adjustment,
-          targetType: "recurring_cost" as const,
-          label: rc ? rc.name : `管理費（ID: ${adjustment.recurring_cost_id}）`,
-        };
-      });
-  }
-
   return {
     month,
     revenueTotal,
-    revenueByCategory,
     matterCostTotal,
-    matterCostByItem,
     grossProfitTotal,
-    grossProfitByCategory,
+    teamMatterGroups,
+    categoryBreakdown,
     recurringCostTotal,
     recurringCostByItem,
     orgWideRecurringCosts,
@@ -711,8 +707,141 @@ export const buildMonthlyReport = ({
     orgWideExtraEntries,
     ordinaryProfit: grossProfitTotal - recurringCostTotal,
     byTeam,
-    undated,
-    orphanedAdjustments,
+    undated: { revenue: 0, matterCost: 0 },
+    orphanedAdjustments: undefined,
+  };
+};
+
+// 月未確定（案件開始日・日付未入力）の売上・費用。下書きの案件は除く。
+// 確定済みの月でも常にライブの値を表示する（Issue #148）
+export const computeUndated = (
+  businessRows: BusinessRow[],
+  costRows: CostRow[],
+  extraEntries: ExtraEntryType[],
+): PLReportType["undated"] => {
+  const isUndatedMatter = (matter: MatterOfRow) =>
+    !isDraftMatter(matter) && matter.start_date === null;
+  const undatedExtraEntries = extraEntries
+    .filter((entry) => entry.entry_date === null)
+    .map(toExtraEntryLine);
+  return {
+    revenue:
+      businessRows
+        .filter((row) => isUndatedMatter(row.matters))
+        .reduce((sum, row) => sum + (row.amount ?? 0), 0) +
+      undatedExtraEntries.reduce(
+        (sum, entry) => sum + extraEntryRevenue(entry),
+        0,
+      ),
+    matterCost:
+      costRows
+        .filter((row) => isUndatedMatter(row.matters))
+        .reduce((sum, row) => sum + row.price, 0) +
+      undatedExtraEntries.reduce(
+        (sum, entry) => sum + extraEntryCost(entry),
+        0,
+      ),
+  };
+};
+
+// 対象行が当月に存在しない調整（案件開始日の変更等で対象行が別の月に移動した・
+// 案件が下書きに戻された）。CASCADE により対象行そのものが削除された調整は存在しなく
+// なるため、ここに現れるのは「対象行は存在するが、当月の集計対象からは外れた」ケースのみ。
+// lines は当月のライブの明細行（buildLiveMonthLines の結果）。
+export const computeOrphanedAdjustments = (
+  month: string,
+  lines: PLMonthLines,
+  adjustments: ProfitLossAdjustmentType[],
+  businessRows: BusinessRow[],
+  costRows: CostRow[],
+  recurringCosts: RecurringCostType[],
+): OrphanedAdjustmentType[] => {
+  const monthlyBusinessIds = new Set(
+    lines.businesses.map((line) => line.businessId),
+  );
+  const monthlyCostIds = new Set(lines.costs.map((line) => line.costId));
+  const activeRecurringCostIds = new Set(
+    lines.recurringCosts.map((line) => line.recurringCostId),
+  );
+
+  // 対象行を特定できるラベルを組み立てる。対象行自体は月に関わらず全件
+  // （businessRows / costRows / recurringCosts。month でフィルタする前）から探す
+  const businessById = new Map(businessRows.map((row) => [row.id, row]));
+  const costById = new Map(costRows.map((row) => [row.id, row]));
+  const recurringCostById = new Map(recurringCosts.map((rc) => [rc.id, rc]));
+
+  return adjustments
+    .filter((adjustment) => toMonthKey(adjustment.target_month) === month)
+    .filter((adjustment) => {
+      if (adjustment.business_id !== null) {
+        return !monthlyBusinessIds.has(adjustment.business_id);
+      }
+      if (adjustment.cost_id !== null) {
+        return !monthlyCostIds.has(adjustment.cost_id);
+      }
+      return !activeRecurringCostIds.has(adjustment.recurring_cost_id!);
+    })
+    .map((adjustment) => {
+      if (adjustment.business_id !== null) {
+        const row = businessById.get(adjustment.business_id);
+        return {
+          adjustment,
+          targetType: "business" as const,
+          label: row
+            ? `${row.matters.title} - ${row.name}`
+            : `売上（ID: ${adjustment.business_id}）`,
+        };
+      }
+      if (adjustment.cost_id !== null) {
+        const row = costById.get(adjustment.cost_id);
+        return {
+          adjustment,
+          targetType: "cost" as const,
+          label: row
+            ? `${row.matters.title} - ${row.name}（${row.item}）`
+            : `案件費用（ID: ${adjustment.cost_id}）`,
+        };
+      }
+      const rc = recurringCostById.get(adjustment.recurring_cost_id!);
+      return {
+        adjustment,
+        targetType: "recurring_cost" as const,
+        label: rc ? rc.name : `管理費（ID: ${adjustment.recurring_cost_id}）`,
+      };
+    });
+};
+
+// 取得済みの行から指定月の損益レポートを組み立てる（ライブ集計）
+export const buildMonthlyReport = (input: MonthlyReportInput): PLReportType => {
+  const lines = buildLiveMonthLines(input);
+  const report = aggregateMonthLines({
+    month: input.month,
+    lines,
+    isTeamLeader: input.isTeamLeader,
+    includeTeamBreakdown: input.includeTeamBreakdown,
+    teamOrder: input.teamOrder,
+  });
+  return {
+    ...report,
+    undated: computeUndated(
+      input.businessRows,
+      input.costRows,
+      input.extraEntries,
+    ),
+    // 削除を促す表示に使うため、実績額修正の操作を持つロール（includeTeamBreakdown =
+    // accounting / admin）にのみ含める。年間推移（includeOrphanedAdjustments=false）
+    // では表示に使わないため計算しない
+    orphanedAdjustments:
+      input.includeTeamBreakdown && input.includeOrphanedAdjustments
+        ? computeOrphanedAdjustments(
+            input.month,
+            lines,
+            input.adjustments,
+            input.businessRows,
+            input.costRows,
+            input.recurringCosts,
+          )
+        : undefined,
   };
 };
 

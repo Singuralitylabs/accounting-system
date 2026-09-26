@@ -99,51 +99,100 @@ export type AdjustableAmount = {
   adjustmentAmount: number; // 調整の差分（調整が無ければ 0）
   actualAmount: number; // 実績額 = sourceAmount + adjustmentAmount
   sourceChanged: boolean; // 調整保存後に元データが変更されたか（画面に警告を出す）
-  adjustment: ProfitLossAdjustmentType | null; // 調整レコード（無ければ null）
+  adjustment: ProfitLossAdjustmentType | null; // 調整レコード（無ければ null。確定スナップショットでは常に null）
+  adjustmentReason: string | null; // 調整理由（調整が無ければ null。確定スナップショットにも保持する）
 };
 
-// 対象月に存在するが、対応する調整が「対象行が当月に存在しない」状態（案件の日付
+// 対象月に存在するが、対応する調整が「対象行が当月に存在しない」状態（案件開始日の
 // 変更等で対象行が別の月に移動した）になっている調整。削除を促す表示に使う
 export type OrphanedAdjustmentType = {
   adjustment: ProfitLossAdjustmentType;
   targetType: AdjustmentTargetType;
-  label: string; // 対象行を識別する表示名（案件名 - 取引先/支払先名、または定期費用名）
+  label: string; // 対象行を識別する表示名（案件名 - 取引先/コスト名、または定期費用名）
 };
 
-// 分類別売上内訳（matters.category ごと。案件別（business 行別）の実績額修正対象の明細＋
-// 経理追加収支の収入明細を含む。合計 amount は businesses と extraEntries の両方を含む）
-export type CategoryBreakdown = {
-  category: string;
-  amount: number;
-  businesses: BusinessDetail[];
-  extraEntries: ExtraEntryType[]; // 経理追加収支の収入（「経理追加」表示の明細行）
-};
+// ===== 損益計算書の明細行（ライブ集計・確定スナップショットの共通形） =====
+// 損益計算書は「取得した行（または確定明細）→ 明細行（*Line）→ 集計」の 2 段階で組み立てる。
+// 明細行は集計・表示に必要な属性と実績額を持ち、元テーブルの行そのものには依存しない。
 
 // 案件の売上明細（1 business 行 = 1 行。実績額修正の対象単位）
-export type BusinessDetail = AdjustableAmount & {
+export type BusinessLine = AdjustableAmount & {
   businessId: number;
-  businessName: string; // 取引先名（同一案件に複数の business 行がある場合の識別用）
+  name: string; // 取引先名（同一案件に複数の business 行がある場合の識別用）
   matterId: number;
   matterTitle: string;
+  category: string; // 案件の分類（matters.category）
+  team: string; // 案件のチーム（matters.team）
 };
 
 // 案件費用の明細（1 costs 行 = 1 行。実績額修正の対象単位）
-export type CostDetail = AdjustableAmount & {
+export type CostLine = AdjustableAmount & {
   costId: number;
-  costName: string; // 支払先名（同一案件・同一品目に複数の costs 行がある場合の識別用）
+  name: string; // コスト名（同一案件・同一品目に複数の costs 行がある場合の識別用）
+  item: string; // 品目
   matterId: number;
   matterTitle: string;
+  category: string;
+  team: string;
 };
 
-// 品目別費用内訳（展開時の案件費用明細＋経理追加収支の経費明細を含む）
-export type ItemBreakdown = {
-  item: string;
-  amount: number;
-  costs: CostDetail[];
-  extraEntries: ExtraEntryType[]; // 経理追加収支の経費（「経理追加」表示の明細行）
+// 定期費用（管理費）の明細（1 recurring_costs 行 = 1 行。実績額修正の対象単位）
+export type RecurringCostLine = AdjustableAmount & {
+  recurringCostId: number;
+  name: string;
+  item: string; // 費目（recurring_costs.item）
+  team: string | null; // NULL = 全体共通
+  paymentCycle: string;
 };
 
-// 分類別粗利内訳（売上分類の大分類ごとに 売上 − 案件費用 を集計）
+// 経理追加収支の明細（1 extra_entries 行 = 1 行）
+export type ExtraEntryLine = {
+  extraEntryId: number;
+  entryType: string; // "income" | "expense"
+  category: string;
+  description: string;
+  team: string | null; // NULL = 全体共通
+  entryDate: string | null;
+  billingAmount: number | null; // 請求額（収入のみ）→ 売上
+  expenseAmount: number | null; // 経費 → 案件費用
+};
+
+// 1 ヶ月分の明細行（ロールによる算入 / 参考表示の振り分け前）
+export type PLMonthLines = {
+  businesses: BusinessLine[];
+  costs: CostLine[];
+  recurringCosts: RecurringCostLine[];
+  extraEntries: ExtraEntryLine[];
+};
+
+// ===== 案件別収支（チーム → 案件 → 案件内訳） =====
+
+// 案件行（案件の売上・案件費用・粗利と、展開時の案件内訳）
+export type MatterBreakdown = {
+  matterId: number;
+  matterTitle: string;
+  category: string;
+  team: string;
+  revenue: number; // 売上明細の実績額合計
+  cost: number; // 費用明細の実績額合計
+  grossProfit: number; // revenue − cost
+  businesses: BusinessLine[]; // ID の昇順
+  costs: CostLine[]; // ID の昇順
+};
+
+// チーム行（チーム内の案件と、案件に紐づかない経理追加収支）
+export type TeamMatterGroup = {
+  team: string | null; // NULL = 全体共通（チーム未指定の経理追加収支。accounting / admin のみ）
+  revenue: number; // チーム小計（案件＋経理追加収支）
+  cost: number;
+  grossProfit: number;
+  matters: MatterBreakdown[]; // 案件 ID の昇順
+  extraEntries: ExtraEntryLine[]; // 経理追加収支（案件外）。ID の昇順
+  extraRevenue: number; // 経理追加収支（案件外）行の売上（収入の請求額）
+  extraCost: number; // 経理追加収支（案件外）行の案件費用（経費）
+};
+
+// 分類別収支（売上分類の大分類ごとに 売上 − 案件費用 を集計）
 export type GrossProfitBreakdown = {
   category: string;
   revenue: number;
@@ -151,16 +200,11 @@ export type GrossProfitBreakdown = {
   grossProfit: number;
 };
 
-// 定期費用の明細（1 recurring_costs 行 = 1 行。実績額修正の対象単位）
-export type RecurringCostDetail = AdjustableAmount & {
-  recurringCost: RecurringCostType;
-};
-
 // 費目別管理費内訳（recurring_costs.item ごと。展開時に定期費用の明細を表示）
 export type RecurringCostItemBreakdown = {
   item: string;
   amount: number;
-  details: RecurringCostDetail[];
+  details: RecurringCostLine[];
 };
 
 // チーム別内訳（accounting / admin のみ。全体共通の管理費は team = "全体共通"）
@@ -176,19 +220,18 @@ export type TeamBreakdown = {
 export type PLReportType = {
   month: string; // "YYYY-MM"
   revenueTotal: number; // 売上合計（経理追加収支の収入を含む）
-  revenueByCategory: CategoryBreakdown[]; // 分類別売上内訳（経理追加収支の収入を合算）
   matterCostTotal: number; // 案件費用合計（経理追加収支の経費を含む）
-  matterCostByItem: ItemBreakdown[]; // 品目別費用内訳（案件別明細＋経理追加明細を含む）
   grossProfitTotal: number; // 売上総利益（粗利）= 売上合計 − 案件費用合計
-  grossProfitByCategory: GrossProfitBreakdown[]; // 分類別粗利内訳（合計は grossProfitTotal と一致）
+  teamMatterGroups: TeamMatterGroup[]; // 案件別収支（チーム小計の合計は売上合計・案件費用合計と一致）
+  categoryBreakdown: GrossProfitBreakdown[]; // 分類別収支（合計は案件別収支の合計と一致）
   recurringCostTotal: number; // 管理費合計（teamleader は自チーム分のみ算入）
   recurringCostByItem: RecurringCostItemBreakdown[]; // 費目別管理費内訳（定期費用の明細を含む）
-  orgWideRecurringCosts?: RecurringCostDetail[]; // teamleader 向け「全体共通（参考）」（損益に算入しない）
-  extraEntries: ExtraEntryType[]; // 経理追加収支明細（teamleader は自チーム分のみ。損益に算入済み）
-  orgWideExtraEntries?: ExtraEntryType[]; // teamleader 向け「全体共通（参考）」（損益に算入しない）
+  orgWideRecurringCosts?: RecurringCostLine[]; // teamleader 向け「全体共通（参考）」（損益に算入しない）
+  extraEntries: ExtraEntryLine[]; // 経理追加収支明細（teamleader は自チーム分のみ。損益に算入済み）
+  orgWideExtraEntries?: ExtraEntryLine[]; // teamleader 向け「全体共通（参考）」（損益に算入しない）
   ordinaryProfit: number; // 経常利益 = 粗利合計 − 管理費合計（= 売上 − 案件費用 − 管理費）
   byTeam?: TeamBreakdown[]; // チーム別内訳（accounting / admin のみ）
-  undated: { revenue: number; matterCost: number }; // 月未確定（日付未入力。経理追加収支の日付未入力分を含む）
+  undated: { revenue: number; matterCost: number }; // 月未確定（案件開始日・日付未入力。下書きの案件は除く）
   // 対象月に調整はあるが対象行が当月に存在しない（案件開始日の変更等）ため、
   // 損益に反映されず削除待ちの調整（accounting / admin のみ。includeTeamBreakdown と同じロール判定）
   orphanedAdjustments?: OrphanedAdjustmentType[];
