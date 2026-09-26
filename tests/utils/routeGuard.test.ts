@@ -10,6 +10,7 @@ import {
   classifyPath,
   createTimeoutFetch,
   isAuthRoute,
+  isProfilesTimeoutError,
   isPublicSkipPath,
   isTransientAuthError,
   matchesRoute,
@@ -408,5 +409,41 @@ describe("classifyPath（public / protected / restricted）", () => {
       allowed: ["teamleader", "admin"],
     });
     expect(classifyPath("/teamX")).toEqual({ kind: "open" });
+  });
+});
+
+describe("isProfilesTimeoutError（Issue #137）", () => {
+  it("postgrest-js が包んだ TimeoutError をタイムアウトと判定する", () => {
+    // PostgrestBuilder.ts の catch 節は `${name}: ${message}` の形式で包む
+    expect(
+      isProfilesTimeoutError({
+        message: `TimeoutError: Supabase Auth request timed out after ${AUTH_FETCH_TIMEOUT_MS}ms`,
+        code: "",
+      }),
+    ).toBe(true);
+  });
+
+  it("AbortError 由来もタイムアウトと判定する", () => {
+    expect(
+      isProfilesTimeoutError({ message: "AbortError: aborted", code: "" }),
+    ).toBe(true);
+    expect(isProfilesTimeoutError({ name: "TimeoutError" })).toBe(true);
+    expect(isProfilesTimeoutError({ name: "AbortError" })).toBe(true);
+  });
+
+  it("通常の取得失敗（RLS 違反等）はタイムアウトではない", () => {
+    expect(
+      isProfilesTimeoutError({
+        message:
+          'new row violates row-level security policy for table "profiles"',
+        code: "42501",
+      }),
+    ).toBe(false);
+    expect(isProfilesTimeoutError({ message: "boom", code: "PGRST001" })).toBe(
+      false,
+    );
+    expect(isProfilesTimeoutError(null)).toBe(false);
+    expect(isProfilesTimeoutError(undefined)).toBe(false);
+    expect(isProfilesTimeoutError({})).toBe(false);
   });
 });

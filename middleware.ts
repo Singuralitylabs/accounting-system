@@ -10,6 +10,7 @@ import {
   AUTH_GET_USER_TIMEOUT_MS,
   classifyPath,
   createTimeoutFetch,
+  isProfilesTimeoutError,
   isTransientAuthError,
   withAuthTimeout,
 } from "./app/utils/routeGuard";
@@ -133,8 +134,11 @@ export async function middleware(req: NextRequest) {
 
         if (userClass === null) {
           // profiles 取得はボディ停滞でも Edge の 25 秒制限に掛からないよう
-          // 外側からも打ち切る。制限超過は throw で `catch` 節の 503 に落ちる。
-          // それ以外の取得失敗は既存どおり `/` へ転送する。
+          // 外側からも打ち切る。ボディ停滞の制限超過は throw で `catch` 節の
+          // 503 に落ちる。ヘッダ待ちの制限超過は内側の fetch 中断が postgrest-js
+          // に捕捉されて `{ error }` の戻り値になるため、タイムアウト由来か判定
+          // して 503 に落とす（Issue #137）。それ以外の取得失敗は既存どおり
+          // `/` へ転送する。
           // なお `global.fetch` の 5 秒タイムアウトは PostgREST にも適用される。
           const profileQuery = supabase
             .from("profiles")
@@ -147,6 +151,9 @@ export async function middleware(req: NextRequest) {
           );
 
           if (profileError) {
+            if (isProfilesTimeoutError(profileError)) {
+              return serviceUnavailable(profileError);
+            }
             console.error("Profile fetch error:", profileError);
           }
           userClass = profile?.class ?? null;
