@@ -562,7 +562,7 @@ CHECK 制約: `target_month = date_trunc('month', target_month)::date`、`num_nu
 
 運用上の注意:
 
-- 見送り記録は、その明細を反映したとき（`apply_profit_loss_closing_diffs`）・確定解除（CASCADE）・再確定（`save_profit_loss_closing`）で削除される
+- 見送り記録は、その明細を反映したとき（`apply_profit_loss_closing_diffs`）・確定解除（CASCADE）・確定直後の取り直し（`save_profit_loss_closing`）で削除される
 - 差分が解消した（元データが確定値と同じに戻った）明細の見送り記録は残るが、差分でなくなるため表示には使われない
 
 ## 4. 列挙型
@@ -1362,7 +1362,7 @@ REVOKE ALL ON TABLE budget_recurring_items FROM anon;
 
 ### 5.12 profit_loss_adjustments テーブル
 
-> 書き込み（INSERT / UPDATE / DELETE）は経理担当者・管理者のみ。SELECT は経理担当者・管理者が全行、チームリーダーは対象行のチームが自チーム、または全体共通（recurring_costs.team IS NULL）の行のみ（recurring_costs / extra_entries と同じ方針）。public ロールはアクセスできない。
+> 書き込み（INSERT / UPDATE / DELETE）は経理担当者・管理者のみ。SELECT は経理担当者・管理者が全行、チームリーダーは対象行のチームが自チーム、または全体共通（recurring_costs.team IS NULL）の行、または自分が作成した案件（matters.user_id = 自分の profiles.id）の売上・費用の行のみ（recurring_costs / extra_entries と同じ方針。作成者の分岐は migration 29 で追加。matters / business / costs の RLS でチームリーダーが読める範囲と揃える）。public ロールはアクセスできない。
 >
 > 調整行自体には team 列が無く、対象（business → matters.team / costs → matters.team / recurring_costs.team）を辿って判定する必要があるため、`public.can_access_team_budget`（5.8）と同じ理由でヘルパー関数へ切り出している。
 >
@@ -1423,6 +1423,14 @@ AS $$
         AND (
           private.pl_adjustment_team(p_business_id, p_cost_id, p_recurring_cost_id) IS NULL
           OR private.pl_adjustment_team(p_business_id, p_cost_id, p_recurring_cost_id) = public.auth_user_team()
+        )
+      )
+      -- migration 29 で追加: 自分が作成した案件の売上・費用の調整（作成者は
+      -- private.pl_label_matter_user（5.13）で取得。定期費用は NULL で該当しない）
+      OR (
+        public.auth_user_class() = 'teamleader'
+        AND private.pl_label_matter_user(NULL, p_business_id, p_cost_id) = (
+          SELECT p.id FROM public.profiles p WHERE p.user_id = auth.uid()
         )
       )
 $$;
@@ -1665,7 +1673,7 @@ REVOKE ALL ON TABLE profit_loss_labels FROM anon;
 
 ### 5.14 profit_loss_closings / profit_loss_closing_lines テーブル
 
-> 月次収支確定（Issue #148）。ヘッダ（profit_loss_closings）の SELECT はログインユーザー全員（担当者の案件編集時に「確定済みの月」の注意表示を出すため。金額を持たない）、DELETE（確定解除）は経理担当者・管理者のみ。**ヘッダ・明細の追加・更新はテーブルへの権限を authenticated に付与せず、確定用の RPC（`save_profit_loss_closing` / `apply_profit_loss_closing_diffs`。SECURITY DEFINER で関数内で経理担当者・管理者かを判定し、それ以外は `FORBIDDEN`）経由でのみ行う**。確定者・反映者（id と氏名）を RPC が auth.uid() から解決して書き込むため、PostgREST からの直接の書き込みで他人名義にしたり、サーバで集計し直していない値を保存したりできない。明細（profit_loss_closing_lines）の SELECT は経理担当者・管理者が全行、チームリーダーは `team = 自チーム OR team IS NULL`、または自分が作成した案件の明細（`matter_user_id` = 自分の profiles.id）（ライブ集計時の matters / business / costs / recurring_costs / extra_entries の RLS と同じ範囲。確定の前後でチームリーダーの表示範囲を変えない）、書き込みは RPC 経由のみ（確定解除時の削除はヘッダからの CASCADE）。public ロールは明細を読めない。anon は両テーブルとも権限なし。
+> 月次収支確定（Issue #148）。ヘッダ（profit_loss_closings）の SELECT はログインユーザー全員（担当者の案件編集時に「確定済みの月」の注意表示を出すため。金額を持たない）、DELETE（確定解除）は経理担当者・管理者のみ。**ヘッダ・明細の追加・更新はテーブルへの権限を authenticated に付与せず、確定用の RPC（`save_profit_loss_closing` / `apply_profit_loss_closing_diffs`。SECURITY DEFINER で関数内で経理担当者・管理者かを判定し、それ以外は `FORBIDDEN`）経由でのみ行う**。確定者・反映者（id と氏名）を RPC が auth.uid() から解決して書き込むため、PostgREST からの直接の書き込みで他人名義にしたり、経理担当者・管理者以外が書き込んだりできない。**ただし RPC は public スキーマにあり、経理担当者・管理者は PostgREST から直接呼べる。その場合の明細の値は検証しない**（集計し直した値を渡すのは Server Action の責務で、経理担当者・管理者は信頼する前提。損益調整の記録を残さずに確定値を変える操作まで防ぐには、RPC の EXECUTE を authenticated から外し service_role で呼ぶ構成に変える必要がある）。明細（profit_loss_closing_lines）の SELECT は経理担当者・管理者が全行、チームリーダーは `team = 自チーム OR team IS NULL`、または自分が作成した案件の明細（`matter_user_id` = 自分の profiles.id）（ライブ集計時の matters / business / costs / recurring_costs / extra_entries の RLS と同じ範囲。確定の前後でチームリーダーの表示範囲を変えない）、書き込みは RPC 経由のみ（確定解除時の削除はヘッダからの CASCADE）。public ロールは明細を読めない。anon は両テーブルとも権限なし。
 
 ```sql
 -- 確定済み判定（RLS の編集ロックから呼ぶ。private スキーマ・SECURITY DEFINER）
@@ -1714,11 +1722,11 @@ GRANT SELECT ON TABLE profit_loss_closing_lines TO authenticated;
 
 #### 確定（`save_profit_loss_closing`）
 
-`save_profit_loss_closing(p_target_month date, p_lines jsonb)`（SECURITY DEFINER。経理担当者・管理者以外は `FORBIDDEN`）は、ヘッダの upsert（`ON CONFLICT (target_month)`。再確定では確定者・確定日時を更新し、反映者・反映日時をクリア）と明細の全置換（既存明細の DELETE → `jsonb_to_recordset(p_lines)` の INSERT）を 1 回の関数呼び出し（= 1 トランザクション）で行う。途中で失敗（明細の CHECK 違反など）すると確定前の状態に完全にロールバックされる。closed_by / closed_by_name は `auth.uid()` から解決し、クライアントからは受け取らない。明細はサーバ（`app/utils/supabase/profitLossClosings.ts` の `closeProfitLossMonth`）が当月をライブ集計し直して組み立てる（クライアントから送られた金額は使わない）。集計から確定のコミットまでの間はまだ編集ロックが掛かっていないため、コミット後（= ロック後）にもう一度集計し、違いがあれば同じ関数で取り直す（その間に他の経理担当者が保存した損益調整・経理追加収支が、確定値から漏れたままロックされるのを防ぐ）。確定解除はヘッダの DELETE（明細・見送り記録は CASCADE）。
+`save_profit_loss_closing(p_target_month date, p_lines jsonb, p_closing_id bigint DEFAULT NULL)`（SECURITY DEFINER。経理担当者・管理者以外は `FORBIDDEN`）は、ヘッダの追加と明細の全置換（既存明細の DELETE → `jsonb_to_recordset(p_lines)` の INSERT）を 1 回の関数呼び出し（= 1 トランザクション）で行う。途中で失敗（明細の CHECK 違反など）すると確定前の状態に完全にロールバックされる。`p_closing_id` が NULL のときは新規の確定のみ受け付け（`INSERT ... ON CONFLICT (target_month) DO NOTHING`）、既に確定済みの月なら `ALREADY_CLOSED` を返す（未確定の表示のまま残った古い画面から確定し、他の経理担当者の確定・見送りを黙って上書きしないため。Server Action は再読み込みを促す）。`p_closing_id` を指定したときは、確定直後の再検証による取り直しに限り、同じ月・自分が確定したヘッダ（id 一致）の確定者・確定日時を更新して反映者・反映日時をクリアし、見送り記録・明細を置き換える。一致しなければ（確定の直後に解除・確定し直された）`CLOSING_CHANGED`。closed_by / closed_by_name は `auth.uid()` から解決し、クライアントからは受け取らない。明細はサーバ（`app/utils/supabase/profitLossClosings.ts` の `closeProfitLossMonth`）が当月をライブ集計し直して組み立てる（クライアントから送られた金額は使わない）。集計から確定のコミットまでの間はまだ編集ロックが掛かっていないため、コミット後（= ロック後）にもう一度集計し、違いがあれば同じ関数に自分の確定の id を渡して取り直す（その間に他の経理担当者が保存した損益調整・経理追加収支が、確定値から漏れたままロックされるのを防ぐ）。確定解除はヘッダの DELETE（明細・見送り記録は CASCADE）。
 
 ### 5.15 profit_loss_closing_dismissals テーブルと反映・見送りの関数
 
-> 確定後の変更の反映・見送り（Issue #149）。見送り記録の SELECT は経理担当者・管理者のみ（チームリーダーには確定値のみ表示し、アラート・差分は見せない）。追加・更新・削除はテーブルへの権限を authenticated に付与せず、見送り・取り消し・反映・再確定の RPC（SECURITY DEFINER で経理担当者・管理者かを判定）経由でのみ行う（見送った人と氏名を RPC が auth.uid() から解決するため、他人名義や集計し直していない状態を直接書き込めない）。
+> 確定後の変更の反映・見送り（Issue #149）。見送り記録の SELECT は経理担当者・管理者のみ（チームリーダーには確定値のみ表示し、アラート・差分は見せない）。追加・更新・削除はテーブルへの権限を authenticated に付与せず、見送り・取り消し・反映・確定の取り直しの RPC（SECURITY DEFINER で経理担当者・管理者かを判定）経由でのみ行う（見送った人と氏名を RPC が auth.uid() から解決するため、他人名義や経理担当者・管理者以外による書き込みはできない。経理担当者・管理者が RPC を直接呼んだ場合の値は検証しない。5.14 と同じ前提）。
 
 ```sql
 CREATE POLICY "profit_loss_closing_dismissals_select_policy" ON profit_loss_closing_dismissals
@@ -1733,7 +1741,7 @@ GRANT SELECT ON TABLE profit_loss_closing_dismissals TO authenticated;
 - `apply_profit_loss_closing_diffs(p_target_month date, p_upsert_lines jsonb, p_delete_keys jsonb)`: 反映。確定ヘッダを `FOR UPDATE` でロックし（未確定なら `NOT_CLOSED`）、`p_upsert_lines`（ライブにある明細の最新の値。`save_profit_loss_closing` の明細と同じ形）を `ON CONFLICT (closing_id, source_type, source_id) DO UPDATE` で upsert、`p_delete_keys`（ライブに無い明細の `{source_type, source_id}`）を確定明細から削除、両方のキーの見送り記録を削除し、反映者（refreshed_by / refreshed_by_name）・反映日時を更新する（確定者・確定日時は保持）。source_type は business / cost のみ受け付ける。1 トランザクション
 - `dismiss_profit_loss_closing_diffs(p_target_month date, p_dismissals jsonb)`: 見送り。`{source_type, source_id, live_present, live_actual_amount, live_team, live_category}` の配列を、見送った人（auth.uid() から解決）・日時とともに upsert する（再見送りは見送った時点の状態・日時・人を更新）
 - `undo_profit_loss_closing_dismissals(p_target_month date, p_keys jsonb)`: 見送りの取り消し（見送り記録を削除して未処理の差分に戻す）
-- `save_profit_loss_closing`（5.14）は migration 28 で見送り記録の全削除を加えている（再確定ではそれまでの見送りを破棄する）
+- `save_profit_loss_closing`（5.14）は migration 28 で見送り記録の全削除を加えている（確定直後の取り直しではそれまでの見送りを破棄する。新規の確定では見送り記録は存在せず、確定解除では CASCADE で消える）
 
 ## 6. トリガー
 

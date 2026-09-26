@@ -11,7 +11,7 @@
 --   - private.is_pl_month_closed(date): 確定済みの月か（RLS の編集ロックから呼ぶ）
 --   - 確定中の編集ロック: profit_loss_adjustments（target_month）・extra_entries（entry_date）
 --     の書き込みポリシーに「確定済みの月でないこと」を追加する
---   - public.save_profit_loss_closing: 確定（ヘッダの upsert + 明細の全置換）を 1 トランザクションで行う
+--   - public.save_profit_loss_closing: 確定（ヘッダの追加 + 明細の全置換）を 1 トランザクションで行う
 --
 -- 明細の算出（集計）は TypeScript 側（app/utils/profitLossLogic.ts の buildLiveMonthLines）で
 -- 行い、SQL 側に集計ロジックを二重実装しない（save_budget_declaration と同じ方式）。
@@ -142,8 +142,12 @@ CREATE POLICY "profit_loss_closings_select_policy" ON profit_loss_closings
 -- apply_profit_loss_closing_diffs。SECURITY DEFINER で経理担当者・管理者かを判定する）
 -- 経由でのみ行う。テーブルへの INSERT / UPDATE 権限は authenticated に付与しない
 -- （下の GRANT）。確定者・反映者（closed_by / refreshed_by と氏名）を RPC が auth.uid() から
--- 解決して書き込むため、PostgREST からの直接の書き込みで他人名義にしたり、サーバで
--- 集計し直していない値を保存したりできないようにする。
+-- 解決して書き込むため、PostgREST からの直接の書き込みで他人名義にしたり、経理担当者・
+-- 管理者以外が書き込んだりできないようにする。なお RPC は public スキーマにあり、経理担当者・
+-- 管理者は PostgREST から直接呼べる。その場合の明細の値（p_lines 等）は検証しない
+-- （集計し直した値を渡すのは Server Action の責務で、経理担当者・管理者は信頼する前提。
+-- 損益調整の記録を残さずに確定値を変える操作を完全に防ぐには、RPC の EXECUTE を
+-- authenticated から外して service_role で呼ぶ構成に変える必要がある）
 -- 確定解除（行の削除。明細・見送り記録は CASCADE）だけは直接の DELETE を許可する
 CREATE POLICY "profit_loss_closings_delete_policy" ON profit_loss_closings
   FOR DELETE TO authenticated
@@ -379,9 +383,14 @@ END;
 $$;
 
 -- ===== 確定（スナップショットの保存） =====
--- ヘッダの upsert（再確定では確定者・確定日時を更新し、反映者・反映日時をクリアする）と
--- 明細の全置換を 1 回の関数呼び出し（= 1 トランザクション）で行う。
+-- ヘッダの追加と明細の全置換を 1 回の関数呼び出し（= 1 トランザクション）で行う。
 -- 途中で失敗した場合は確定前の状態に完全にロールバックされる。
+-- p_closing_id が NULL のときは新規の確定のみ受け付け、既に確定済みの月なら
+-- ALREADY_CLOSED を返す（未確定の表示のまま残っていた古い画面から確定し直して、
+-- 他の経理担当者の確定・見送りを黙って上書きしないようにする）。
+-- p_closing_id を指定したときは、確定直後の再検証で自分の確定を取り直す場合に限り
+-- （同じ月・自分が確定したヘッダ）ヘッダを更新して明細を置き換える。
+-- 確定の後に解除・再確定されていれば id が変わるため CLOSING_CHANGED を返す。
 -- SECURITY DEFINER にし、関数内で経理担当者・管理者かを判定する（テーブルへの直接の
 -- 書き込み権限を authenticated に付与しないため）。closed_by / closed_by_name は
 -- auth.uid() から解決し、クライアントからは受け取らない。
@@ -389,7 +398,8 @@ $$;
 -- app/utils/profitLossClosing.ts の monthLinesToClosingRows が組み立てる）。
 CREATE OR REPLACE FUNCTION public.save_profit_loss_closing(
   p_target_month date,
-  p_lines jsonb
+  p_lines jsonb,
+  p_closing_id bigint DEFAULT NULL
 )
 RETURNS TABLE (id bigint)
 LANGUAGE plpgsql
@@ -412,18 +422,32 @@ BEGIN
     RAISE EXCEPTION 'プロフィールが見つかりません';
   END IF;
 
-  INSERT INTO public.profit_loss_closings
-    (target_month, closed_by, closed_by_name, closed_at,
-     refreshed_by, refreshed_by_name, refreshed_at)
-  VALUES (p_target_month, v_profile_id, v_profile_name, now(), NULL, NULL, NULL)
-  ON CONFLICT (target_month) DO UPDATE SET
-    closed_by = EXCLUDED.closed_by,
-    closed_by_name = EXCLUDED.closed_by_name,
-    closed_at = EXCLUDED.closed_at,
-    refreshed_by = NULL,
-    refreshed_by_name = NULL,
-    refreshed_at = NULL
-  RETURNING profit_loss_closings.id INTO v_closing_id;
+  IF p_closing_id IS NULL THEN
+    INSERT INTO public.profit_loss_closings
+      (target_month, closed_by, closed_by_name, closed_at,
+       refreshed_by, refreshed_by_name, refreshed_at)
+    VALUES (p_target_month, v_profile_id, v_profile_name, now(), NULL, NULL, NULL)
+    ON CONFLICT (target_month) DO NOTHING
+    RETURNING profit_loss_closings.id INTO v_closing_id;
+    IF v_closing_id IS NULL THEN
+      RAISE EXCEPTION 'ALREADY_CLOSED';
+    END IF;
+  ELSE
+    UPDATE public.profit_loss_closings c SET
+      closed_by = v_profile_id,
+      closed_by_name = v_profile_name,
+      closed_at = now(),
+      refreshed_by = NULL,
+      refreshed_by_name = NULL,
+      refreshed_at = NULL
+    WHERE c.id = p_closing_id
+      AND c.target_month = p_target_month
+      AND c.closed_by = v_profile_id
+    RETURNING c.id INTO v_closing_id;
+    IF v_closing_id IS NULL THEN
+      RAISE EXCEPTION 'CLOSING_CHANGED';
+    END IF;
+  END IF;
 
   DELETE FROM public.profit_loss_closing_lines
   WHERE closing_id = v_closing_id;
@@ -450,11 +474,11 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION public.save_profit_loss_closing(date, jsonb) IS
-  '損益計算書の月次収支確定（Issue #148）。ヘッダ（profit_loss_closings）の upsert と明細（profit_loss_closing_lines）の全置換を単一トランザクションで行う。再確定では確定者・確定日時を更新し、反映者・反映日時をクリアする。closed_by は auth.uid() から解決する。SECURITY DEFINER で関数内で経理担当者・管理者かを判定する（テーブルへの直接の書き込み権限は付与しない）。詳細: docs/database.md 5.15';
+COMMENT ON FUNCTION public.save_profit_loss_closing(date, jsonb, bigint) IS
+  '損益計算書の月次収支確定（Issue #148）。ヘッダ（profit_loss_closings）の追加と明細（profit_loss_closing_lines）の全置換を単一トランザクションで行う。p_closing_id が NULL なら新規の確定のみ（確定済みの月は ALREADY_CLOSED）、指定時は確定直後の再検証で自分の確定を取り直す場合のみ（一致しなければ CLOSING_CHANGED）。closed_by は auth.uid() から解決する。SECURITY DEFINER で関数内で経理担当者・管理者かを判定する（テーブルへの直接の書き込み権限は付与しない）。詳細: docs/database.md 5.15';
 
-REVOKE EXECUTE ON FUNCTION public.save_profit_loss_closing(date, jsonb) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.save_profit_loss_closing(date, jsonb) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.save_profit_loss_closing(date, jsonb, bigint) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.save_profit_loss_closing(date, jsonb, bigint) TO authenticated;
 
 -- ===== GRANT =====
 -- authenticated には読み取りと確定解除（ヘッダの DELETE）のみ。追加・更新は RPC 経由のみ。

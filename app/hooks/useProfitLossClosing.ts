@@ -31,9 +31,11 @@ export const useCloseProfitLossMonth = () => {
         throw new Error(error.message);
       }
     },
-    // 確定は再実行すると取り直しになるため、自動で再試行せず利用者に再操作を促す
+    // 確定は自動で再試行せず利用者に再操作を促す
     retry: 0,
-    onSuccess: invalidate,
+    // 既に他の経理担当者が確定していた（ALREADY_CLOSED）場合も最新の状態を表示するため、
+    // 失敗時もキャッシュを無効化する
+    onSettled: invalidate,
     onError: (error) => {
       console.error("月次収支の確定エラー:", error);
     },

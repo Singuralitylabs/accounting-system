@@ -56,14 +56,17 @@ CREATE POLICY "profit_loss_closing_dismissals_select_policy" ON profit_loss_clos
 -- 追加・更新・削除は見送り・反映・再確定の RPC（SECURITY DEFINER で経理担当者・管理者かを
 -- 判定する）経由でのみ行う。テーブルへの書き込み権限は authenticated に付与しない
 -- （見送った人 dismissed_by と氏名を RPC が auth.uid() から解決するため、他人名義の
--- 見送りや、サーバで集計し直していない状態の記録を直接書き込めないようにする）
+-- 見送りや、経理担当者・管理者以外による書き込みをできないようにする。経理担当者・
+-- 管理者が RPC を直接呼んだ場合の値は検証しない。migration 27 の確定の RPC と同じ前提）
 
--- ===== 再確定で見送り記録も削除する =====
+-- ===== 確定の取り直しで見送り記録も削除する =====
 -- save_profit_loss_closing（migration 27）に見送り記録の全削除を加える。
--- 再確定は最新のライブ集計でスナップショットを取り直すため、それまでの見送りは意味を失う
+-- 確定直後の再検証による取り直しは最新のライブ集計でスナップショットを取り直すため、
+-- それまでの見送りは意味を失う（新規の確定では見送り記録は存在しない。確定解除時は CASCADE）
 CREATE OR REPLACE FUNCTION public.save_profit_loss_closing(
   p_target_month date,
-  p_lines jsonb
+  p_lines jsonb,
+  p_closing_id bigint DEFAULT NULL
 )
 RETURNS TABLE (id bigint)
 LANGUAGE plpgsql
@@ -86,18 +89,32 @@ BEGIN
     RAISE EXCEPTION 'プロフィールが見つかりません';
   END IF;
 
-  INSERT INTO public.profit_loss_closings
-    (target_month, closed_by, closed_by_name, closed_at,
-     refreshed_by, refreshed_by_name, refreshed_at)
-  VALUES (p_target_month, v_profile_id, v_profile_name, now(), NULL, NULL, NULL)
-  ON CONFLICT (target_month) DO UPDATE SET
-    closed_by = EXCLUDED.closed_by,
-    closed_by_name = EXCLUDED.closed_by_name,
-    closed_at = EXCLUDED.closed_at,
-    refreshed_by = NULL,
-    refreshed_by_name = NULL,
-    refreshed_at = NULL
-  RETURNING profit_loss_closings.id INTO v_closing_id;
+  IF p_closing_id IS NULL THEN
+    INSERT INTO public.profit_loss_closings
+      (target_month, closed_by, closed_by_name, closed_at,
+       refreshed_by, refreshed_by_name, refreshed_at)
+    VALUES (p_target_month, v_profile_id, v_profile_name, now(), NULL, NULL, NULL)
+    ON CONFLICT (target_month) DO NOTHING
+    RETURNING profit_loss_closings.id INTO v_closing_id;
+    IF v_closing_id IS NULL THEN
+      RAISE EXCEPTION 'ALREADY_CLOSED';
+    END IF;
+  ELSE
+    UPDATE public.profit_loss_closings c SET
+      closed_by = v_profile_id,
+      closed_by_name = v_profile_name,
+      closed_at = now(),
+      refreshed_by = NULL,
+      refreshed_by_name = NULL,
+      refreshed_at = NULL
+    WHERE c.id = p_closing_id
+      AND c.target_month = p_target_month
+      AND c.closed_by = v_profile_id
+    RETURNING c.id INTO v_closing_id;
+    IF v_closing_id IS NULL THEN
+      RAISE EXCEPTION 'CLOSING_CHANGED';
+    END IF;
+  END IF;
 
   DELETE FROM public.profit_loss_closing_dismissals
   WHERE closing_id = v_closing_id;

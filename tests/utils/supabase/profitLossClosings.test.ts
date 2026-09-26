@@ -102,7 +102,7 @@ const absent = {
 
 describe("profitLossClosings の Server Action（Issue #148 / #149）", () => {
   beforeEach(() => {
-    rpc.mockReset().mockResolvedValue({ data: null, error: null });
+    rpc.mockReset().mockResolvedValue({ data: [{ id: 7 }], error: null });
     createServerSupabase.mockReset().mockReturnValue({ rpc });
     getAuthorizedViewer.mockReset().mockResolvedValue({
       profileInfo: { id: 1, class: "accounting", team: null },
@@ -242,10 +242,72 @@ describe("profitLossClosings の Server Action（Issue #148 / #149）", () => {
       );
     expect(await closeProfitLossMonth("2026-08")).toEqual({});
     expect(rpc).toHaveBeenCalledTimes(2);
+    // 1 回目は新規の確定（p_closing_id なし）、2 回目は自分の確定（id 7）の取り直し
+    expect(rpc.mock.calls[0][1]).not.toHaveProperty("p_closing_id");
+    expect(rpc.mock.calls[1][1].p_closing_id).toBe(7);
     const secondLines = rpc.mock.calls[1][1].p_lines;
     expect(
       secondLines.map((line: { source_type: string }) => line.source_type),
     ).toContain("extra_entry");
+  });
+
+  it("既に確定済みの月（古い画面からの確定）は上書きせずに再読み込みを促す", async () => {
+    rpc.mockResolvedValueOnce({
+      data: null,
+      error: { message: "ALREADY_CLOSED", code: "P0001", details: "", hint: "" },
+    });
+    const result = await closeProfitLossMonth("2026-08");
+    expect(result.error?.kind).toBe("validationFailed");
+    expect(result.error?.message).toContain("再読み込み");
+    // 確定済みの月には取り直し（2 回目の保存）もしない
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(fetchReportSourceRows).toHaveBeenCalledTimes(1);
+  });
+
+  it("確定直後に他の経理担当者が解除・確定し直していたら取り直さずに知らせる", async () => {
+    fetchReportSourceRows
+      .mockResolvedValueOnce(rows({}, false))
+      // 確定の保存と再検証の間に経理追加収支が追加された（取り直しが必要）
+      .mockResolvedValueOnce(
+        rows(
+          {
+            extraEntries: [
+              {
+                id: 3,
+                entry_type: "income",
+                category: "協賛金",
+                entry_date: "2026-08-20",
+                invoice_number: null,
+                description: "滑り込み",
+                billing_target: null,
+                manager_id: 1,
+                team: null,
+                billing_amount: 1000,
+                expense_amount: null,
+                payment_method: null,
+                inserted_at: "",
+                updated_at: "",
+              },
+            ],
+          },
+          true,
+        ),
+      );
+    rpc
+      .mockResolvedValueOnce({ data: [{ id: 7 }], error: null })
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          message: "CLOSING_CHANGED",
+          code: "P0001",
+          details: "",
+          hint: "",
+        },
+      });
+    const result = await closeProfitLossMonth("2026-08");
+    expect(result.error?.kind).toBe("validationFailed");
+    expect(result.error?.message).toContain("再読み込み");
+    expect(rpc).toHaveBeenCalledTimes(2);
   });
 
   it("確定後の再集計で変化が無ければ保存は 1 回だけ", async () => {

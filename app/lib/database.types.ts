@@ -990,6 +990,7 @@ export type Database = {
         Args: {
           p_target_month: string
           p_lines: Json
+          p_closing_id?: number
         }
         Returns: {
           id: number

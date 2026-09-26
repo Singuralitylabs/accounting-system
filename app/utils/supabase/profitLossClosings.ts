@@ -29,12 +29,14 @@ import { getClosedMonths } from "./profitLossClosedMonths";
 
 export type ProfitLossClosingWriteResult = { error?: AccessFailure };
 
-// 月次収支の確定（「確定済み」チェックのオン。再確定も同じ）。
+// 月次収支の確定（「確定済み」チェックのオン）。
 // クライアントから送られた金額は使わず、サーバ側で当月をライブ集計し直した明細を
 // スナップショットとして保存する（損益計算書の表示と同じ buildLiveMonthLines）。
-// 保存は DB 関数 save_profit_loss_closing（ヘッダの upsert + 明細の全置換）の
-// 単一トランザクション。書き込み権限（accounting / admin）は RLS でも担保される。
-// 経理担当者・管理者は RLS で全行を読めるため、明細は全チーム分になる
+// 保存は DB 関数 save_profit_loss_closing（ヘッダの追加 + 明細の全置換）の
+// 単一トランザクション。書き込み権限（accounting / admin）は DB 関数内でも判定される。
+// 経理担当者・管理者は RLS で全行を読めるため、明細は全チーム分になる。
+// 既に確定済みの月は DB 関数が ALREADY_CLOSED で拒否する（未確定の表示のまま残った
+// 古い画面から確定し、他の経理担当者の確定・見送りを黙って上書きしないため）
 export const closeProfitLossMonth = async (
   month: string,
 ): Promise<ProfitLossClosingWriteResult> => {
@@ -61,15 +63,38 @@ export const closeProfitLossMonth = async (
       ? monthLinesToClosingRows(buildLiveMonthLines({ month, ...rows }))
       : null;
   };
-  const save = async (lines: ClosingLineInput[]) => {
-    const { error: rpcError } = await supabase.rpc("save_profit_loss_closing", {
-      p_target_month: toFirstOfMonth(month),
-      p_lines: lines,
-    });
+  // closingId を渡すと、確定直後の再検証で自分の確定を取り直す（新規の確定は渡さない）
+  const save = async (
+    lines: ClosingLineInput[],
+    closingId?: number,
+  ): Promise<
+    | { closingId: number; failure?: undefined }
+    | { failure: "alreadyClosed" | "closingChanged" | "failed" }
+  > => {
+    const { data, error: rpcError } = await supabase.rpc(
+      "save_profit_loss_closing",
+      {
+        p_target_month: toFirstOfMonth(month),
+        p_lines: lines,
+        ...(closingId === undefined ? {} : { p_closing_id: closingId }),
+      },
+    );
     if (rpcError) {
+      if (rpcError.message.includes("ALREADY_CLOSED")) {
+        return { failure: "alreadyClosed" };
+      }
+      if (rpcError.message.includes("CLOSING_CHANGED")) {
+        return { failure: "closingChanged" };
+      }
       console.error("月次収支の確定に失敗しました:", rpcError);
+      return { failure: "failed" };
     }
-    return !rpcError;
+    const savedId = data?.[0]?.id;
+    if (typeof savedId !== "number") {
+      console.error("月次収支の確定結果を取得できませんでした:", data);
+      return { failure: "failed" };
+    }
+    return { closingId: savedId };
   };
 
   const lines = await liveClosingRows();
@@ -81,7 +106,17 @@ export const closeProfitLossMonth = async (
       },
     };
   }
-  if (!(await save(lines))) {
+  const saved = await save(lines);
+  if (saved.failure === "alreadyClosed") {
+    return {
+      error: {
+        kind: "validationFailed",
+        message:
+          "この月は既に確定されています（別の画面または他の経理担当者による確定）。画面を再読み込みして確定内容を確認してください。",
+      },
+    };
+  }
+  if (saved.failure) {
     return {
       error: { kind: "fetchFailed", message: "月次収支の確定に失敗しました。" },
     };
@@ -103,7 +138,18 @@ export const closeProfitLossMonth = async (
     };
   }
   if (!sameClosingRows(lines, verified)) {
-    if (!(await save(verified))) {
+    const retaken = await save(verified, saved.closingId);
+    if (retaken.failure === "closingChanged") {
+      // 確定の直後に他の経理担当者が解除・確定し直した。その確定を上書きしない
+      return {
+        error: {
+          kind: "validationFailed",
+          message:
+            "確定直後に他の経理担当者がこの月の確定を解除または確定し直しました。画面を再読み込みして確定内容を確認してください。",
+        },
+      };
+    }
+    if (retaken.failure) {
       return {
         error: {
           kind: "fetchFailed",
