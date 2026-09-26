@@ -26,6 +26,32 @@ export const isTransientAuthError = (error: AuthError) =>
   isAuthRetryableFetchError(error) ||
   (isAuthApiError(error) && error.status >= 500);
 
+// `profiles` 取得のエラーがタイムアウト由来かどうか（Issue #137）。
+// 内側の createTimeoutFetch（5 秒）が先に発火すると postgrest-js に捕捉され、
+// throw ではなく `{ error: { message: "TimeoutError: ...", code: "" } }` の
+// 戻り値になる（postgrest-js の PostgrestBuilder.ts の catch 節が
+// `${fetchError?.name}: ${fetchError?.message}` の形式で包むため）。
+// そのため withAuthTimeout の外側タイマーによる throw（catch 節の 503）には
+// 到達せず、middleware 側でこの判定により 503 に落とす。
+// ヘッダ到着後のボディ停滞は外側タイマーが throw するため、両経路で 503 になる。
+export const isProfilesTimeoutError = (
+  error:
+    | { message?: unknown; name?: unknown; code?: unknown }
+    | null
+    | undefined,
+): boolean => {
+  if (!error) return false;
+  const message = typeof error.message === "string" ? error.message : "";
+  const name = typeof error.name === "string" ? error.name : "";
+  return (
+    name === "TimeoutError" ||
+    name === "AbortError" ||
+    message.startsWith("TimeoutError:") ||
+    message.startsWith("AbortError:") ||
+    message.includes("timed out after")
+  );
+};
+
 // Supabase への 1 リクエストの打ち切り時間（`@supabase/ssr` の `global.fetch`
 // は auth-js と PostgREST の両方に注入されるため、Auth だけでなく後続の
 // `profiles` 取得のヘッダ待ちにも適用される。ヘッダ到着後のボディ停滞は
