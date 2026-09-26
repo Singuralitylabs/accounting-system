@@ -5,14 +5,9 @@ import { describe, expect, it, vi } from "vitest";
 import MatterProfitTable from "@/app/components/profitLoss/MatterProfitTable";
 import {
   buildLabelIndex,
-  buildTeamMatterGroups,
+  buildMatterBreakdowns,
 } from "@/app/utils/profitLossLogic";
-import {
-  AdjustableAmount,
-  BusinessLine,
-  CostLine,
-  ExtraEntryLine,
-} from "@/app/types/types";
+import { AdjustableAmount, BusinessLine, CostLine } from "@/app/types/types";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
 
 const amount = (value: number, adjustment = 0): AdjustableAmount => ({
@@ -36,6 +31,16 @@ const businesses: BusinessLine[] = [
     team: "シンラボ",
   },
 ];
+const otherTeamBusiness: BusinessLine = {
+  ...amount(200000),
+  businessId: 2,
+  name: "取引先B",
+  matterId: 15,
+  matterUserId: 4,
+  matterTitle: "案件Y",
+  category: "会員費",
+  team: "SDGs",
+};
 const costs: CostLine[] = [
   {
     ...amount(300000),
@@ -49,25 +54,14 @@ const costs: CostLine[] = [
     team: "シンラボ",
   },
 ];
-const extraEntries: ExtraEntryLine[] = [
-  {
-    extraEntryId: 3,
-    entryType: "income",
-    category: "協賛金",
-    description: "協賛金収入",
-    team: null,
-    entryDate: "2026-07-10",
-    billingAmount: 50000,
-    expenseAmount: null,
-  },
-];
-
-const renderTable = (canEditAdjustments = true, canEditLabels = true) => {
-  const groups = buildTeamMatterGroups(
-    businesses,
+const renderTable = (
+  canEditAdjustments = true,
+  canEditLabels = true,
+  hasExtraEntries = true,
+) => {
+  const matters = buildMatterBreakdowns(
+    [...businesses, otherTeamBusiness],
     costs,
-    extraEntries,
-    ["シンラボ"],
     buildLabelIndex([
       {
         matter_id: null,
@@ -83,10 +77,8 @@ const renderTable = (canEditAdjustments = true, canEditLabels = true) => {
   const onEditTitle = vi.fn();
   renderWithMantine(
     <MatterProfitTable
-      groups={groups}
-      revenueTotal={950000}
-      matterCostTotal={300000}
-      grossProfitTotal={650000}
+      matters={matters}
+      hasExtraEntries={hasExtraEntries}
       canEditAdjustments={canEditAdjustments}
       loadingMatterId={null}
       onShowMatter={onShowMatter}
@@ -98,27 +90,38 @@ const renderTable = (canEditAdjustments = true, canEditLabels = true) => {
   return { onShowMatter, onEditAdjustment, onEditTitle };
 };
 
+const matterToggle = (id: number, title: string) =>
+  screen.getByRole("button", { name: new RegExp(`^#${id}\\s*${title}$`) });
+
 describe("MatterProfitTable", () => {
-  it("チーム行 → 案件行 → 案件内訳の順に展開でき、案件の売上・費用・粗利を表示する", () => {
+  it("チームの階層なしで案件を ID 順に並べ、チーム列と案件の売上・費用・粗利を表示する（Issue #152）", () => {
     renderTable();
 
-    // 初期表示はチーム行と合計行のみ
-    expect(screen.getByRole("button", { name: /シンラボ/ })).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
-    expect(screen.queryByText("案件X")).not.toBeInTheDocument();
-    expect(screen.getByText("合計")).toBeInTheDocument();
+    const rows = screen.getAllByRole("row");
+    const matterRowX = screen.getByText("案件X").closest("tr")!;
+    const matterRowY = screen.getByText("案件Y").closest("tr")!;
+    expect(rows.indexOf(matterRowX)).toBeLessThan(rows.indexOf(matterRowY));
+    expect(within(matterRowX).getByText("シンラボ")).toBeInTheDocument();
+    expect(within(matterRowY).getByText("SDGs")).toBeInTheDocument();
+    expect(within(matterRowX).getByText("受託案件")).toBeInTheDocument();
+    expect(within(matterRowX).getByText("#12")).toBeInTheDocument();
+    expect(within(matterRowX).getByText("￥900,000")).toBeInTheDocument();
+    expect(within(matterRowX).getByText("￥300,000")).toBeInTheDocument();
+    expect(within(matterRowX).getByText("￥600,000")).toBeInTheDocument();
+    // チームの見出し行は無い
+    expect(
+      screen.queryByRole("button", { name: /^シンラボ/ }),
+    ).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /シンラボ/ }));
-    const matterRow = screen.getByText("案件X").closest("tr")!;
-    expect(within(matterRow).getByText("受託案件")).toBeInTheDocument();
-    expect(within(matterRow).getByText("#12")).toBeInTheDocument();
-    expect(within(matterRow).getByText("￥900,000")).toBeInTheDocument();
-    expect(within(matterRow).getByText("￥300,000")).toBeInTheDocument();
-    expect(within(matterRow).getByText("￥600,000")).toBeInTheDocument();
+    // 案件の合計（経理追加収支は含まない旨を注記する）
+    const totalRow = screen.getByText("案件の合計").closest("tr")!;
+    expect(within(totalRow).getByText("￥1,100,000")).toBeInTheDocument();
+    expect(within(totalRow).getByText("￥800,000")).toBeInTheDocument();
+    expect(
+      screen.getByText(/経理追加収支（案件外）はこの表に含みません/),
+    ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /^#12\s*案件X$/ }));
+    fireEvent.click(matterToggle(12, "案件X"));
     // 上書きタイトルを表示し、元の名称はバッジのツールチップで確認できる
     expect(screen.getByText("取引先A（経理表記）")).toBeInTheDocument();
     expect(
@@ -132,13 +135,43 @@ describe("MatterProfitTable", () => {
     expect(screen.getByText("調整あり")).toBeInTheDocument();
   });
 
+  it("経理追加収支が無い月は注記を出さない", () => {
+    renderTable(true, true, false);
+    expect(
+      screen.queryByText(/経理追加収支（案件外）はこの表に含みません/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("「すべて開く」「すべて閉じる」で全案件の内訳をまとめて開閉する（Issue #152）", () => {
+    renderTable();
+    expect(screen.queryByText("外注費用")).not.toBeInTheDocument();
+    expect(screen.queryByText("取引先B")).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "案件別収支をすべて開く" }),
+    );
+    expect(screen.getByText("外注費用")).toBeInTheDocument();
+    expect(screen.getByText("取引先B")).toBeInTheDocument();
+    expect(matterToggle(12, "案件X")).toHaveAttribute("aria-expanded", "true");
+    expect(matterToggle(15, "案件Y")).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "案件別収支をすべて閉じる" }),
+    );
+    expect(screen.queryByText("外注費用")).not.toBeInTheDocument();
+    expect(screen.queryByText("取引先B")).not.toBeInTheDocument();
+  });
+
   it("「案件を表示」「実績額を修正」で対象を呼び出し元へ渡す", () => {
     const { onShowMatter, onEditAdjustment } = renderTable();
-    fireEvent.click(screen.getByRole("button", { name: /シンラボ/ }));
-    fireEvent.click(screen.getByRole("button", { name: "案件を表示" }));
+    fireEvent.click(
+      within(screen.getByText("案件X").closest("tr")!).getByRole("button", {
+        name: "案件を表示",
+      }),
+    );
     expect(onShowMatter).toHaveBeenCalledWith(12);
 
-    fireEvent.click(screen.getByRole("button", { name: /^#12\s*案件X$/ }));
+    fireEvent.click(matterToggle(12, "案件X"));
     fireEvent.click(screen.getAllByRole("button", { name: "実績額を修正" })[0]);
     expect(onEditAdjustment).toHaveBeenCalledWith(
       { targetType: "business", businessId: 1 },
@@ -149,8 +182,7 @@ describe("MatterProfitTable", () => {
 
   it("実績額修正・タイトル変更の権限が無い場合は操作を表示しない（上書き後のタイトルは表示する）", () => {
     renderTable(false, false);
-    fireEvent.click(screen.getByRole("button", { name: /シンラボ/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^#12\s*案件X$/ }));
+    fireEvent.click(matterToggle(12, "案件X"));
     expect(
       screen.queryByRole("button", { name: "実績額を修正" }),
     ).not.toBeInTheDocument();
@@ -162,7 +194,6 @@ describe("MatterProfitTable", () => {
 
   it("案件行・明細行のタイトル変更で対象と元の名称・現在の上書きタイトルを渡す", () => {
     const { onEditTitle } = renderTable();
-    fireEvent.click(screen.getByRole("button", { name: /シンラボ/ }));
     fireEvent.click(
       screen.getByRole("button", { name: "案件Xのタイトルを変更" }),
     );
@@ -171,7 +202,7 @@ describe("MatterProfitTable", () => {
       "案件X",
       null,
     );
-    fireEvent.click(screen.getByRole("button", { name: /^#12\s*案件X$/ }));
+    fireEvent.click(matterToggle(12, "案件X"));
     fireEvent.click(
       screen.getByRole("button", {
         name: "取引先A（経理表記）のタイトルを変更",
@@ -182,25 +213,5 @@ describe("MatterProfitTable", () => {
       "取引先A",
       "取引先A（経理表記）",
     );
-    // 経理追加収支の行・チームの見出しにはタイトル変更の操作を出さない
-    fireEvent.click(screen.getByRole("button", { name: /全体共通/ }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "経理追加収支（案件外）" }),
-    );
-    expect(
-      screen.queryByRole("button", { name: /協賛金収入のタイトルを変更/ }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /シンラボのタイトルを変更/ }),
-    ).not.toBeInTheDocument();
-  });
-
-  it("チーム未指定の経理追加収支は全体共通グループの「経理追加収支（案件外）」行に入る", () => {
-    renderTable();
-    fireEvent.click(screen.getByRole("button", { name: /全体共通/ }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "経理追加収支（案件外）" }),
-    );
-    expect(screen.getByText("協賛金収入")).toBeInTheDocument();
   });
 });

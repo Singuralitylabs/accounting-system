@@ -164,7 +164,6 @@ const baseInput = (
   isTeamLeader: false,
   includeTeamBreakdown: true,
   includeMonthlyDetails: true,
-  teamOrder: ["シンラボ", "SDGs"],
   ...override,
 });
 
@@ -250,13 +249,10 @@ describe("確定明細への変換と再構成（Issue #148）", () => {
         closing: undefined,
         closingDiffs: undefined,
         orphanedAdjustments: undefined,
-        teamMatterGroups: report.teamMatterGroups.map((group) => ({
-          ...group,
-          matters: group.matters.map((m) => ({
-            ...m,
-            businesses: m.businesses.map((b) => ({ ...b, adjustment: null })),
-            costs: m.costs.map((c) => ({ ...c, adjustment: null })),
-          })),
+        matterBreakdowns: report.matterBreakdowns.map((m) => ({
+          ...m,
+          businesses: m.businesses.map((b) => ({ ...b, adjustment: null })),
+          costs: m.costs.map((c) => ({ ...c, adjustment: null })),
         })),
         recurringCostByItem: report.recurringCostByItem.map((item) => ({
           ...item,

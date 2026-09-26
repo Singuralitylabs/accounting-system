@@ -67,7 +67,6 @@ const rows = (
   override: Partial<ReportSourceRows> = {},
   closed = true,
 ): ReportSourceRows => ({
-  teamOrder: [],
   businessRows: [business(1, 120000)],
   costRows: [cost(1, 30000)],
   recurringCosts: [],

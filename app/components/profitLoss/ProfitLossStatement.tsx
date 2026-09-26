@@ -18,6 +18,7 @@ import {
   Paper,
   SimpleGrid,
   Table,
+  Tabs,
   Text,
   Tooltip,
 } from "@mantine/core";
@@ -33,6 +34,7 @@ import {
   AdjustmentButton,
   AdjustmentIndicators,
   EditableTitle,
+  ExpandAllButtons,
   ExpandToggle,
   INDENT,
   amountColor,
@@ -45,10 +47,21 @@ import { confirmAction } from "@/app/utils/confirmAction";
 import { useDeleteProfitLossAdjustment } from "@/app/hooks/useProfitLossAdjustments";
 import { CLOSED_MONTH_LOCK_MESSAGE } from "@/app/utils/profitLossClosing";
 
+// 収支の内訳タブ（Issue #152）
+export type BreakdownTab = "matter" | "category" | "team";
+export const DEFAULT_BREAKDOWN_TAB: BreakdownTab = "matter";
+
+// 管理費の費目行の展開キー
+const recurringRowKey = (item: string) => `recurring:${item}`;
+
 type Props = {
   report: PLReportType;
   canEditAdjustments: boolean; // 実績額修正の操作を表示するか（accounting / admin）
   canEditLabels: boolean; // 表示タイトルの変更操作を表示するか（accounting / admin）
+  // 選択中の内訳タブ。月を切り替えるとこのコンポーネントは作り直されるため、
+  // 選択は親（ProfitLossView）が持つ
+  breakdownTab?: BreakdownTab;
+  onBreakdownTabChange?: (tab: BreakdownTab) => void;
 };
 
 // 「タイトルを変更」モーダルに渡す対象の情報
@@ -110,9 +123,16 @@ const ProfitLossStatement = ({
   report,
   canEditAdjustments,
   canEditLabels,
+  breakdownTab = DEFAULT_BREAKDOWN_TAB,
+  onBreakdownTabChange = () => {},
 }: Props) => {
   // 管理費の費目行の展開状態（案件別収支の展開状態は MatterProfitTable が持つ）
-  const { expandedRows, toggleRow } = useExpandedRows();
+  const { expandedRows, toggleRow, expandAll, collapseAll } = useExpandedRows();
+  // チーム別タブはチーム別内訳のあるロール（accounting / admin）のみ。無ければ案件別を表示する
+  const activeBreakdownTab: BreakdownTab =
+    breakdownTab === "team" && !report.byTeam
+      ? DEFAULT_BREAKDOWN_TAB
+      : breakdownTab;
   const [selectedMatter, setSelectedMatter] =
     useState<MatterInfoWithUserNameType | null>(null);
   const [isModalOpened, setIsModalOpened] = useState(false);
@@ -248,31 +268,6 @@ const ProfitLossStatement = ({
         ))}
       </SimpleGrid>
 
-      {/* 案件別収支（チーム → 案件 → 案件内訳） */}
-      <MatterProfitTable
-        groups={report.teamMatterGroups}
-        revenueTotal={report.revenueTotal}
-        matterCostTotal={report.matterCostTotal}
-        grossProfitTotal={report.grossProfitTotal}
-        canEditAdjustments={canEditAdjustments}
-        isClosed={isClosed}
-        changedKeys={changedKeys}
-        changedMatterIds={changedMatterIds}
-        loadingMatterId={loadingMatterId}
-        onShowMatter={handleShowMatter}
-        onEditAdjustment={openAdjustmentModal}
-        canEditLabels={canEditLabels}
-        onEditTitle={openLabelModal}
-      />
-
-      {/* 分類別収支 */}
-      <CategoryProfitTable
-        breakdown={report.categoryBreakdown}
-        revenueTotal={report.revenueTotal}
-        matterCostTotal={report.matterCostTotal}
-        grossProfitTotal={report.grossProfitTotal}
-      />
-
       {/* 粗利 → 管理費 → 経常利益 */}
       <Paper withBorder radius="md" className="overflow-x-auto mb-6">
         <Table verticalSpacing="sm" highlightOnHover>
@@ -282,11 +277,24 @@ const ProfitLossStatement = ({
               <Table.Th className="text-right w-32">元データ</Table.Th>
               <Table.Th className="text-right w-32">調整</Table.Th>
               <Table.Th className="text-right w-32">実績</Table.Th>
-              <Table.Th className="w-36" />
+              <Table.Th className="w-36">
+                <ExpandAllButtons
+                  label="管理費の内訳"
+                  disabled={report.recurringCostByItem.length === 0}
+                  onExpandAll={() =>
+                    expandAll(
+                      report.recurringCostByItem.map((breakdown) =>
+                        recurringRowKey(breakdown.item),
+                      ),
+                    )
+                  }
+                  onCollapseAll={collapseAll}
+                />
+              </Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {/* 売上総利益（粗利）= 案件別収支の合計 */}
+            {/* 売上総利益（粗利）= 売上合計 − 案件費用合計（案件と経理追加収支） */}
             <Table.Tr className="bg-slate-50">
               <Table.Td className="font-bold">
                 売上総利益（粗利）
@@ -318,7 +326,7 @@ const ProfitLossStatement = ({
               <Table.Td />
             </Table.Tr>
             {report.recurringCostByItem.map((breakdown) => {
-              const rowKey = `recurring:${breakdown.item}`;
+              const rowKey = recurringRowKey(breakdown.item);
               const isExpanded = expandedRows.has(rowKey);
               return (
                 <Fragment key={rowKey}>
@@ -426,6 +434,105 @@ const ProfitLossStatement = ({
           </Table.Tbody>
         </Table>
       </Paper>
+
+      {/* 収支の内訳（Issue #152。案件別 / 分類別 / チーム別をタブで切り替える。
+          チーム別は accounting / admin のみデータが入る） */}
+      <Tabs
+        value={activeBreakdownTab}
+        onChange={(value) =>
+          onBreakdownTabChange(
+            (value as BreakdownTab | null) ?? DEFAULT_BREAKDOWN_TAB,
+          )
+        }
+        keepMounted
+        className="mb-6"
+      >
+        <Tabs.List>
+          <Tabs.Tab value="matter">案件別</Tabs.Tab>
+          <Tabs.Tab value="category">分類別</Tabs.Tab>
+          {report.byTeam && <Tabs.Tab value="team">チーム別</Tabs.Tab>}
+        </Tabs.List>
+
+        <Tabs.Panel value="matter" className="pt-4">
+          <MatterProfitTable
+            matters={report.matterBreakdowns}
+            hasExtraEntries={report.extraEntries.length > 0}
+            canEditAdjustments={canEditAdjustments}
+            isClosed={isClosed}
+            changedKeys={changedKeys}
+            changedMatterIds={changedMatterIds}
+            loadingMatterId={loadingMatterId}
+            onShowMatter={handleShowMatter}
+            onEditAdjustment={openAdjustmentModal}
+            canEditLabels={canEditLabels}
+            onEditTitle={openLabelModal}
+          />
+        </Tabs.Panel>
+
+        <Tabs.Panel value="category" className="pt-4">
+          <CategoryProfitTable
+            breakdown={report.categoryBreakdown}
+            revenueTotal={report.revenueTotal}
+            matterCostTotal={report.matterCostTotal}
+            grossProfitTotal={report.grossProfitTotal}
+          />
+        </Tabs.Panel>
+
+        {report.byTeam && (
+          <Tabs.Panel value="team" className="pt-4">
+            {report.byTeam.length === 0 ? (
+              <Text size="sm" c="dimmed">
+                この月に計上される収支はありません。
+              </Text>
+            ) : (
+              <Paper withBorder radius="md" className="overflow-x-auto mb-6">
+                <Table verticalSpacing="sm" highlightOnHover>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>チーム別収支</Table.Th>
+                      <Table.Th className="text-right">売上</Table.Th>
+                      <Table.Th className="text-right">案件費用</Table.Th>
+                      <Table.Th className="text-right">粗利</Table.Th>
+                      <Table.Th className="text-right">管理費</Table.Th>
+                      <Table.Th className="text-right">経常利益</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {report.byTeam.map((teamBreakdown) => (
+                      <Table.Tr key={`team-${teamBreakdown.team}`}>
+                        <Table.Td>{teamBreakdown.team}</Table.Td>
+                        <Table.Td className="text-right">
+                          {formatCurrency(teamBreakdown.revenue)}
+                        </Table.Td>
+                        <Table.Td className="text-right">
+                          {formatCurrency(teamBreakdown.matterCost)}
+                        </Table.Td>
+                        <Table.Td
+                          className={`text-right ${amountColor(
+                            teamBreakdown.grossProfit,
+                          )}`}
+                        >
+                          {formatCurrency(teamBreakdown.grossProfit)}
+                        </Table.Td>
+                        <Table.Td className="text-right">
+                          {formatCurrency(teamBreakdown.recurringCost)}
+                        </Table.Td>
+                        <Table.Td
+                          className={`text-right font-bold ${amountColor(
+                            teamBreakdown.profit,
+                          )}`}
+                        >
+                          {formatCurrency(teamBreakdown.profit)}
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              </Paper>
+            )}
+          </Tabs.Panel>
+        )}
+      </Tabs>
 
       {/* 対象行が当月に存在しない損益調整（案件開始日の変更等）。削除を促す */}
       {report.orphanedAdjustments && report.orphanedAdjustments.length > 0 && (
@@ -555,54 +662,6 @@ const ProfitLossStatement = ({
                     </Table.Td>
                   </Table.Tr>
                 ))}
-            </Table.Tbody>
-          </Table>
-        </Paper>
-      )}
-
-      {/* チーム別内訳: accounting / admin のみデータが入る */}
-      {report.byTeam && report.byTeam.length > 0 && (
-        <Paper withBorder radius="md" className="overflow-x-auto mb-6">
-          <Table verticalSpacing="sm" highlightOnHover>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>チーム別内訳</Table.Th>
-                <Table.Th className="text-right">売上</Table.Th>
-                <Table.Th className="text-right">案件費用</Table.Th>
-                <Table.Th className="text-right">粗利</Table.Th>
-                <Table.Th className="text-right">管理費</Table.Th>
-                <Table.Th className="text-right">経常利益</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {report.byTeam.map((teamBreakdown) => (
-                <Table.Tr key={`team-${teamBreakdown.team}`}>
-                  <Table.Td>{teamBreakdown.team}</Table.Td>
-                  <Table.Td className="text-right">
-                    {formatCurrency(teamBreakdown.revenue)}
-                  </Table.Td>
-                  <Table.Td className="text-right">
-                    {formatCurrency(teamBreakdown.matterCost)}
-                  </Table.Td>
-                  <Table.Td
-                    className={`text-right ${amountColor(
-                      teamBreakdown.grossProfit,
-                    )}`}
-                  >
-                    {formatCurrency(teamBreakdown.grossProfit)}
-                  </Table.Td>
-                  <Table.Td className="text-right">
-                    {formatCurrency(teamBreakdown.recurringCost)}
-                  </Table.Td>
-                  <Table.Td
-                    className={`text-right font-bold ${amountColor(
-                      teamBreakdown.profit,
-                    )}`}
-                  >
-                    {formatCurrency(teamBreakdown.profit)}
-                  </Table.Td>
-                </Table.Tr>
-              ))}
             </Table.Tbody>
           </Table>
         </Paper>

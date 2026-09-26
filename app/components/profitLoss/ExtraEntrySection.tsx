@@ -23,7 +23,7 @@ const ExtraEntrySection = ({ extraEntries }: Props) => {
         経理追加収支
       </Text>
       <Text size="xs" c="dimmed" className="mb-3">
-        案件に紐づかない収入・支出です。上の案件別収支（各チームの「経理追加収支（案件外）」）と売上合計・案件費用合計に算入されています。
+        案件に紐づかない収入・支出です。売上合計・案件費用合計（売上総利益）と、分類別・チーム別の収支に算入されています（案件別収支には含みません）。
       </Text>
       <Table verticalSpacing="xs">
         <Table.Thead>

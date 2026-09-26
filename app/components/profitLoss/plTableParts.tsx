@@ -6,7 +6,7 @@ import { AdjustableAmount, DisplayTitle } from "@/app/types/types";
 import { formatCurrency } from "@/app/utils/formatter";
 import { formatPaymentCycle } from "@/app/utils/paymentCycle";
 import { teamLabel } from "@/app/utils/constants";
-import { ActionIcon, Badge, Button, Tooltip } from "@mantine/core";
+import { ActionIcon, Badge, Button, Group, Tooltip } from "@mantine/core";
 import { CLOSED_MONTH_LOCK_MESSAGE } from "@/app/utils/profitLossClosing";
 import { ReactNode, useState } from "react";
 import {
@@ -42,8 +42,47 @@ export const useExpandedRows = () => {
       return next;
     });
   };
-  return { expandedRows, toggleRow };
+  // 一括で開く / 閉じる（Issue #152。表ごとの「すべて開く」「すべて閉じる」）
+  const expandAll = (keys: readonly string[]) => setExpandedRows(new Set(keys));
+  const collapseAll = () => setExpandedRows(new Set());
+  return { expandedRows, toggleRow, expandAll, collapseAll };
 };
+
+// 表の見出しに置く「すべて開く」「すべて閉じる」（Issue #152）。
+// label は支援技術向けに対象の表を示す（例: 「案件別収支」）
+export const ExpandAllButtons = ({
+  label,
+  onExpandAll,
+  onCollapseAll,
+  disabled = false,
+}: {
+  label: string;
+  onExpandAll: () => void;
+  onCollapseAll: () => void;
+  disabled?: boolean;
+}) => (
+  <Group gap={4} wrap="nowrap" justify="flex-end">
+    <Button
+      size="compact-xs"
+      variant="subtle"
+      disabled={disabled}
+      onClick={onExpandAll}
+      aria-label={`${label}をすべて開く`}
+    >
+      すべて開く
+    </Button>
+    <Button
+      size="compact-xs"
+      variant="subtle"
+      color="gray"
+      disabled={disabled}
+      onClick={onCollapseAll}
+      aria-label={`${label}をすべて閉じる`}
+    >
+      すべて閉じる
+    </Button>
+  </Group>
+);
 
 // 展開可能な見出し行に共通で付ける属性。
 // 行全体をクリックできる利便性は残す。キーボード・支援技術向けの操作点は
