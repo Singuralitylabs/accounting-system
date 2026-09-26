@@ -84,6 +84,23 @@ jobs:
             exit 1
           fi
 
+      # head ブランチの検証（pull_request 経路のみ）。作業ブランチ → release の
+      # 直接 PR に「リリース X.Y.Z」と付けてマージすると、main のどの時点とも
+      # 一致しないツリーにタグが打たれる。運用ルール（CLAUDE.md の「release へは
+      # main 経由のみ」）を自動化側で強制する。fork からの PR も同様に拒否する。
+      - name: head ブランチの検証（main のみ許可）
+        if: ${{ steps.extract.outputs.skip != 'true' && github.event_name == 'pull_request' }}
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          set -euo pipefail
+          if [ "$HEAD_REF" != "main" ] || [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]; then
+            echo "::error::リリース対象の head は同一リポジトリの main である必要があります（検出値: $HEAD_REPO:$HEAD_REF）。"
+            exit 1
+          fi
+          echo "head ブランチを確認しました（$HEAD_REPO:$HEAD_REF）。"
+
       # 承認ゲートの保護ルールを確認する。存在しない Environment を参照すると GitHub が
       # 保護ルールなしで自動作成し、承認なしでタグ・Release が作られる（フェイルオープン）。
       # Required reviewers が設定されていない場合はここで失敗させ、承認なしのリリースを防ぐ。
@@ -260,7 +277,13 @@ jobs:
           set -euo pipefail
           git fetch --tags --force
           if git rev-parse -q --verify "refs/tags/REL-TAG-${VERSION}" >/dev/null; then
-            # validate ジョブで同一 SHA の確認済みのため、ここでは再利用するのみ。
+            # validate から承認までの間に別コミットへ手動 push されたタグを
+            # 黙って採用しないよう、再利用前に指し先を再検証する。
+            EXISTING_SHA=$(git rev-list -n 1 "REL-TAG-${VERSION}^{commit}")
+            if [ "$EXISTING_SHA" != "$TARGET_SHA" ]; then
+              echo "::error::タグ \`REL-TAG-${VERSION}\` は既に別のコミット（${EXISTING_SHA}）を指しています。対象コミットは ${TARGET_SHA} です。バージョン番号を変更するか、タグの指し先を確認してください。"
+              exit 1
+            fi
             echo "タグ \`REL-TAG-${VERSION}\` は既に対象コミットを指しているため再利用します。"
           else
             # 注釈付きタグを確定済み SHA に対して作成する（承認待ち中の release 進行に影響されない）。
@@ -281,13 +304,31 @@ jobs:
             echo "Release \`REL-TAG-${VERSION}\` は既に存在するため作成をスキップします。"
             exit 0
           fi
-          AUTO_NOTES=$(gh api \
-            -X POST \
-            -H "Accept: application/vnd.github+json" \
-            "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
-            -f tag_name="REL-TAG-${VERSION}" \
-            -f target_commitish="${TARGET_SHA}" \
-            --jq .body)
+          # 自動生成ノートの起点は直前の既存 REL-TAG-* タグにする。本リポジトリには
+          # タグのみで Release が無い世代があるため、previous_tag_name を省略すると
+          # 初回実行で全履歴分のノートが生成される。マージコミットの第1親（main 側）
+          # から到達可能な最新タグを取り、無ければ省略する（= 全履歴。初回のみ）。
+          PREV_TAG=$(git describe --tags --abbrev=0 --match 'REL-TAG-*' "${TARGET_SHA}^1" 2>/dev/null || true)
+          if [ -n "$PREV_TAG" ]; then
+            echo "自動生成ノートの起点: $PREV_TAG"
+            AUTO_NOTES=$(gh api \
+              -X POST \
+              -H "Accept: application/vnd.github+json" \
+              "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+              -f tag_name="REL-TAG-${VERSION}" \
+              -f target_commitish="${TARGET_SHA}" \
+              -f previous_tag_name="$PREV_TAG" \
+              --jq .body)
+          else
+            echo "::warning::起点となる既存タグが無いため、全履歴分のノートを生成します。"
+            AUTO_NOTES=$(gh api \
+              -X POST \
+              -H "Accept: application/vnd.github+json" \
+              "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+              -f tag_name="REL-TAG-${VERSION}" \
+              -f target_commitish="${TARGET_SHA}" \
+              --jq .body)
+          fi
 
           NOTES_FILE=$(mktemp)
           if [ -n "$(printf '%s' "$SUMMARY" | tr -d '[:space:]')" ]; then

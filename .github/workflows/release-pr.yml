@@ -70,6 +70,22 @@ jobs:
           fi
           echo "タグ \`REL-TAG-${VERSION}\` は未使用です。続行します。"
 
+      # 既存の main→release オープン PR がある場合は二重作成しない。
+      # 品質ゲート 4 本を消費してから止めないよう、ここ（validate-input）で
+      # 先に中断する。create-pr 側では再掲しない。
+      - name: 既存リリース PR の存在確認
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          NUMBER=$(gh pr list --base release --head main --state open \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$NUMBER" ]; then
+            echo "::error::既存のリリース PR #${NUMBER} が open 状態です。先にこれをマージ／クローズしてください。"
+            exit 1
+          fi
+          echo "オープン中のリリース PR はありません。続行します。"
+
   # 品質ゲートは既存ワークフローの再利用にする。チェック内容の二重定義を作らない。
   # no-console / no-debugger は typecheck.yml の ESLint ジョブが兼ねるため、専用ゲートは設けない。
   # GITHUB_TOKEN で作成した PR は on: pull_request の他ワークフローを起動しないため、
@@ -400,23 +416,8 @@ jobs:
             } >> "$GITHUB_OUTPUT"
           fi
 
-      # 既存の main→release オープン PR がある場合は二重作成しない。
-      - name: 既存リリース PR の存在確認
-        id: existing
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          NUMBER=$(gh pr list --base release --head main --state open \
-            --json number --jq '.[0].number // empty')
-          echo "number=$NUMBER" >> "$GITHUB_OUTPUT"
-
-      - name: 既存 PR があれば中断
-        if: ${{ steps.existing.outputs.number != '' }}
-        run: |
-          echo "::error::既存のリリース PR #${{ steps.existing.outputs.number }} が open 状態です。先にこれをマージ／クローズしてください。"
-          exit 1
-
+      # 既存の main→release オープン PR の有無は validate-input で先に確認済み
+      # （品質ゲート実行後の二重チェックはしない）。
       - name: リリース PR を作成
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -480,7 +481,7 @@ jobs:
           **後方互換でない変更の可能性があるファイル（追加分が対象）:**
           ${BREAKING_LIST}
 
-          **新規環境変数（コード側の process.env 参照で追加。app/** と middleware.ts が対象）:**
+          **新規環境変数（コード側の process.env 参照で追加。対象は `app/` 配下と `middleware.ts`）:**
           ${ENV_ADDED_LIST}
 
           **コード側の環境変数参照（現行の一覧）:**
