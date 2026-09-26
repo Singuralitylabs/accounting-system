@@ -5,6 +5,7 @@ import {
   AdjustmentTarget,
   LabelTarget,
   MatterBreakdown,
+  MatterTotals,
   TitledBusinessLine,
   TitledCostLine,
 } from "@/app/types/types";
@@ -36,6 +37,7 @@ import {
 
 type Props = {
   matters: MatterBreakdown[];
+  totals: MatterTotals; // 案件の合計（集計側で計算した PLReportType.matterTotals）
   // 経理追加収支（案件外）があるか。この表には含めないため、売上総利益と一致しない旨を注記する
   hasExtraEntries: boolean;
   canEditAdjustments: boolean; // 実績額修正の操作を表示するか（accounting / admin）
@@ -72,11 +74,10 @@ const ChangedIcon = ({ label }: { label: string }) => (
   </Tooltip>
 );
 
-// 明細によってチームが異なる案件の目印（Issue #152。確定済みの月で一部の明細だけ
-// 反映した場合など。チーム別収支は明細ごとのチームで集計している）
-const MixedTeamsIcon = () => {
-  const label =
-    "明細によってチームが異なります（確定後に一部の明細だけ反映した場合など）。チーム別収支は明細ごとのチームで集計しています";
+// 明細によって分類・チームが異なる案件の目印（Issue #152。確定済みの月で一部の明細
+// だけ反映した場合など。分類別収支・チーム別収支は明細ごとの分類・チームで集計している）
+const MixedValuesIcon = ({ kind }: { kind: "分類" | "チーム" }) => {
+  const label = `明細によって${kind}が異なります（確定後に一部の明細だけ反映した場合など）。${kind}別収支は明細ごとの${kind}で集計しています`;
   return (
     <Tooltip label={label} multiline w={280}>
       <span
@@ -126,6 +127,7 @@ const AmountCells = ({
 // 経理追加収支は案件ではないため含めない（損益計算書の下の「経理追加収支」に表示する）
 const MatterProfitTable = ({
   matters,
+  totals,
   hasExtraEntries,
   canEditAdjustments,
   isClosed = false,
@@ -138,11 +140,6 @@ const MatterProfitTable = ({
   onEditTitle,
 }: Props) => {
   const { expandedRows, toggleRow, expandAll, collapseAll } = useExpandedRows();
-  const matterRevenueTotal = matters.reduce(
-    (sum, matter) => sum + matter.revenue,
-    0,
-  );
-  const matterCostTotal = matters.reduce((sum, matter) => sum + matter.cost, 0);
 
   const detailRow = (
     kind: "business" | "cost",
@@ -301,18 +298,26 @@ const MatterProfitTable = ({
                           : undefined
                       }
                     />
-                    <Badge
-                      size="xs"
-                      variant="light"
-                      color="gray"
-                      className="ml-2"
-                    >
-                      {matter.category}
-                    </Badge>
+                    {matter.categories.map((category) => (
+                      <Badge
+                        key={category}
+                        size="xs"
+                        variant="light"
+                        color="gray"
+                        className="ml-2"
+                      >
+                        {category}
+                      </Badge>
+                    ))}
+                    {matter.categories.length > 1 && (
+                      <MixedValuesIcon kind="分類" />
+                    )}
                   </Table.Td>
                   <Table.Td className="text-gray-700">
                     {matter.teams.join(" / ")}
-                    {matter.teams.length > 1 && <MixedTeamsIcon />}
+                    {matter.teams.length > 1 && (
+                      <MixedValuesIcon kind="チーム" />
+                    )}
                   </Table.Td>
                   <AmountCells
                     revenue={matter.revenue}
@@ -352,9 +357,9 @@ const MatterProfitTable = ({
             <Table.Td className="font-bold">案件の合計</Table.Td>
             <Table.Td />
             <AmountCells
-              revenue={matterRevenueTotal}
-              cost={matterCostTotal}
-              grossProfit={matterRevenueTotal - matterCostTotal}
+              revenue={totals.revenue}
+              cost={totals.cost}
+              grossProfit={totals.grossProfit}
               bold
             />
             <Table.Td />

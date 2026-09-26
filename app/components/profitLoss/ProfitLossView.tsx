@@ -12,6 +12,7 @@ import { LoadingSpinner } from "../LoadingSpinner";
 import ProfitLossStatement, {
   BreakdownTab,
   DEFAULT_BREAKDOWN_TAB,
+  resolveBreakdownTab,
 } from "./ProfitLossStatement";
 import AnnualTrendTable from "./AnnualTrendTable";
 import AccountingMasterActions from "./AccountingMasterActions";
@@ -164,7 +165,10 @@ const ProfitLossView = ({
                 report={report}
                 canEditAdjustments={canEditAdjustments}
                 canEditLabels={canEditLabels}
-                breakdownTab={breakdownTab}
+                breakdownTab={resolveBreakdownTab(
+                  breakdownTab,
+                  !!report.byTeam,
+                )}
                 onBreakdownTabChange={setBreakdownTab}
               />
             </>

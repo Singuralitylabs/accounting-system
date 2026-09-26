@@ -4,16 +4,14 @@ import { AnnualTrendType } from "@/app/types/types";
 import { formatCurrency, formatMonthHeader } from "@/app/utils/formatter";
 import { Paper, Table, Text, Tooltip } from "@mantine/core";
 import { FaExclamationTriangle, FaLock } from "react-icons/fa";
+// 損益の符号に応じた文字色（0 は黒字扱い）。月次の損益計算書と共通
+import { amountColor } from "./plTableParts";
 
 type Props = {
   trend: AnnualTrendType;
   // 確定後に未反映の変更がある月 → 件数（Issue #149。経理担当者・管理者のみ渡される）
   diffCountByMonth?: ReadonlyMap<string, number>;
 };
-
-// 損益の符号に応じた文字色（0 は黒字扱い）。月次の損益計算書と表示を揃える。
-const amountColor = (value: number) =>
-  value < 0 ? "text-red-600" : "text-green-700";
 
 // 確定済みの月（Issue #148）の列の背景色（Issue #152）。鍵アイコン（teal）と揃え、
 // 年度合計列（bg-slate-50）と見分けられる色にする。半透明にして、行のホバー時の背景

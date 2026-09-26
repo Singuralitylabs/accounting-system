@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { useState } from "react";
 import ProfitLossStatement, {
   BreakdownTab,
+  resolveBreakdownTab,
 } from "@/app/components/profitLoss/ProfitLossStatement";
 import { PLReportType } from "@/app/types/types";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
@@ -52,8 +53,7 @@ const report = (withTeamBreakdown: boolean): PLReportType => ({
       matterTitle: "案件X",
       displayTitle: "案件X",
       isCustomTitle: false,
-      category: "受託案件",
-      team: "シンラボ",
+      categories: ["受託案件"],
       teams: ["シンラボ"],
       revenue: 120000,
       cost: 30000,
@@ -62,6 +62,7 @@ const report = (withTeamBreakdown: boolean): PLReportType => ({
       costs: [],
     },
   ],
+  matterTotals: { revenue: 120000, cost: 30000, grossProfit: 90000 },
   categoryBreakdown: [
     { category: "受託案件", revenue: 120000, cost: 30000, grossProfit: 90000 },
   ],
@@ -110,7 +111,7 @@ const Controlled = ({ withTeamBreakdown }: { withTeamBreakdown: boolean }) => {
       report={report(withTeamBreakdown)}
       canEditAdjustments={withTeamBreakdown}
       canEditLabels={withTeamBreakdown}
-      breakdownTab={tab}
+      breakdownTab={resolveBreakdownTab(tab, withTeamBreakdown)}
       onBreakdownTabChange={setTab}
     />
   );
@@ -161,21 +162,6 @@ describe("ProfitLossStatement の表示順と収支の内訳タブ（Issue #152�
     expect(screen.getAllByRole("tab")).toHaveLength(2);
   });
 
-  it("チーム別を選んだ状態でチーム別内訳の無い表示に切り替わったら案件別を表示する", () => {
-    renderWithMantine(
-      <ProfitLossStatement
-        report={report(false)}
-        canEditAdjustments={false}
-        canEditLabels={false}
-        breakdownTab="team"
-      />,
-    );
-    expect(screen.getByRole("tab", { name: "案件別" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-  });
-
   it("管理費の内訳を「すべて開く」「すべて閉じる」でまとめて開閉する", () => {
     renderWithMantine(<Controlled withTeamBreakdown />);
     expect(screen.queryByText("回線")).not.toBeInTheDocument();
@@ -187,5 +173,13 @@ describe("ProfitLossStatement の表示順と収支の内訳タブ（Issue #152�
       screen.getByRole("button", { name: "管理費の内訳をすべて閉じる" }),
     );
     expect(screen.queryByText("回線")).not.toBeInTheDocument();
+  });
+});
+
+describe("resolveBreakdownTab（Issue #152）", () => {
+  it("チーム別を選んでいてもチーム別内訳が無ければ案件別を表示する", () => {
+    expect(resolveBreakdownTab("team", false)).toBe("matter");
+    expect(resolveBreakdownTab("team", true)).toBe("team");
+    expect(resolveBreakdownTab("category", false)).toBe("category");
   });
 });

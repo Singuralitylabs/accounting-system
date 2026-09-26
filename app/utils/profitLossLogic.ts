@@ -12,6 +12,7 @@ import {
   ExtraEntryType,
   GrossProfitBreakdown,
   MatterBreakdown,
+  MatterTotals,
   OrphanedAdjustmentType,
   PLMonthLines,
   PLReportType,
@@ -540,8 +541,10 @@ const titledRecurringCostLine = (
 // 案件別収支（案件 → 案件内訳）を組み立てる（Issue #152 でチームの階層を廃止）。
 // 案件は ID の昇順、案件内訳は売上明細 → 費用明細（各 ID の昇順）。
 // 経理追加収支は案件ではないため含めない（売上合計・案件費用合計には別途加算する）。
-// 案件のチームは最初の明細のチーム（通常は案件内で同じ。チーム別の集計は明細単位で行う）。
-// 明細によってチームが異なる場合に画面で示せるよう、明細のチームの一覧（teams）も持つ
+// 明細によって分類・チームが異なる場合に画面で示せるよう、明細の分類・チームの一覧
+// （categories / teams）を持つ（分類別・チーム別の集計は明細単位で行う）。
+// 取得順（ライブ / 確定明細）に依らず表示が揃うよう、明細を ID 順に並べてから組み立てる
+// （案件名も売上明細 → 費用明細の ID 順で最初の明細のものを使う）
 export const buildMatterBreakdowns = (
   businesses: BusinessLine[],
   costs: CostLine[],
@@ -554,8 +557,7 @@ export const buildMatterBreakdowns = (
         ...resolveTitle(line.matterTitle, labelIndex.matter.get(line.matterId)),
         matterId: line.matterId,
         matterTitle: line.matterTitle,
-        category: line.category,
-        team: line.team,
+        categories: [],
         teams: [],
         revenue: 0,
         cost: 0,
@@ -565,18 +567,21 @@ export const buildMatterBreakdowns = (
       });
     }
     const matter = matters.get(line.matterId)!;
+    if (!matter.categories.includes(line.category)) {
+      matter.categories.push(line.category);
+    }
     if (!matter.teams.includes(line.team)) {
       matter.teams.push(line.team);
     }
     return matter;
   };
 
-  businesses.forEach((line) => {
+  [...businesses].sort(byNumber((line) => line.businessId)).forEach((line) => {
     const matter = getMatter(line);
     matter.revenue += line.actualAmount;
     matter.businesses.push(titledBusinessLine(line, labelIndex));
   });
-  costs.forEach((line) => {
+  [...costs].sort(byNumber((line) => line.costId)).forEach((line) => {
     const matter = getMatter(line);
     matter.cost += line.actualAmount;
     matter.costs.push(titledCostLine(line, labelIndex));
@@ -586,12 +591,17 @@ export const buildMatterBreakdowns = (
     .map((matter) => ({
       ...matter,
       grossProfit: matter.revenue - matter.cost,
-      businesses: [...matter.businesses].sort(
-        byNumber((line) => line.businessId),
-      ),
-      costs: [...matter.costs].sort(byNumber((line) => line.costId)),
     }))
     .sort(byNumber((matter) => matter.matterId));
+};
+
+// 案件別収支の合計（案件の売上・費用のみ。経理追加収支は含まない）
+export const sumMatterBreakdowns = (
+  matters: readonly MatterBreakdown[],
+): MatterTotals => {
+  const revenue = matters.reduce((sum, matter) => sum + matter.revenue, 0);
+  const cost = matters.reduce((sum, matter) => sum + matter.cost, 0);
+  return { revenue, cost, grossProfit: revenue - cost };
 };
 
 // 分類別収支（売上分類の大分類ごとに 売上 − 案件費用）。
@@ -675,15 +685,16 @@ export const aggregateMonthLines = ({
     lines.costs,
     countedExtraEntries,
   );
+  const matterTotals = sumMatterBreakdowns(matterBreakdowns);
   // 売上合計・案件費用合計は、案件の売上・費用に経理追加収支の請求額・経費を加えたもの
   const revenueTotal =
-    matterBreakdowns.reduce((sum, matter) => sum + matter.revenue, 0) +
+    matterTotals.revenue +
     countedExtraEntries.reduce(
       (sum, entry) => sum + extraEntryRevenue(entry),
       0,
     );
   const matterCostTotal =
-    matterBreakdowns.reduce((sum, matter) => sum + matter.cost, 0) +
+    matterTotals.cost +
     countedExtraEntries.reduce((sum, entry) => sum + extraEntryCost(entry), 0);
   const grossProfitTotal = revenueTotal - matterCostTotal;
 
@@ -759,6 +770,7 @@ export const aggregateMonthLines = ({
     matterCostTotal,
     grossProfitTotal,
     matterBreakdowns,
+    matterTotals,
     categoryBreakdown,
     recurringCostTotal,
     recurringCostByItem,

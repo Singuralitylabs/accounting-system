@@ -6,6 +6,7 @@ import MatterProfitTable from "@/app/components/profitLoss/MatterProfitTable";
 import {
   buildLabelIndex,
   buildMatterBreakdowns,
+  sumMatterBreakdowns,
 } from "@/app/utils/profitLossLogic";
 import { AdjustableAmount, BusinessLine, CostLine } from "@/app/types/types";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
@@ -78,6 +79,7 @@ const renderTable = (
   renderWithMantine(
     <MatterProfitTable
       matters={matters}
+      totals={sumMatterBreakdowns(matters)}
       hasExtraEntries={hasExtraEntries}
       canEditAdjustments={canEditAdjustments}
       loadingMatterId={null}
@@ -135,14 +137,16 @@ describe("MatterProfitTable", () => {
     expect(screen.getByText("調整あり")).toBeInTheDocument();
   });
 
-  it("明細によってチームが異なる案件はチームを並べて注意アイコンを付ける（Issue #152）", () => {
+  it("明細によって分類・チームが異なる案件は分類・チームを並べて注意アイコンを付ける（Issue #152）", () => {
+    const matters = buildMatterBreakdowns(
+      businesses,
+      [{ ...costs[0], team: "SDGs", category: "会員費" }],
+      buildLabelIndex([]),
+    );
     renderWithMantine(
       <MatterProfitTable
-        matters={buildMatterBreakdowns(
-          businesses,
-          [{ ...costs[0], team: "SDGs" }],
-          buildLabelIndex([]),
-        )}
+        matters={matters}
+        totals={sumMatterBreakdowns(matters)}
         hasExtraEntries={false}
         canEditAdjustments={false}
         loadingMatterId={null}
@@ -159,12 +163,21 @@ describe("MatterProfitTable", () => {
         name: /明細によってチームが異なります/,
       }),
     ).toBeInTheDocument();
+    expect(within(matterRow).getByText("受託案件")).toBeInTheDocument();
+    expect(within(matterRow).getByText("会員費")).toBeInTheDocument();
+    expect(
+      within(matterRow).getByRole("img", {
+        name: /明細によって分類が異なります/,
+      }),
+    ).toBeInTheDocument();
   });
 
-  it("チームが 1 つの案件には注意アイコンを出さず、操作列の見出しに名前を付ける", () => {
+  it("分類・チームが 1 つの案件には注意アイコンを出さず、操作列の見出しに名前を付ける", () => {
     renderTable();
     expect(
-      screen.queryByRole("img", { name: /明細によってチームが異なります/ }),
+      screen.queryByRole("img", {
+        name: /明細によって(分類|チーム)が異なります/,
+      }),
     ).not.toBeInTheDocument();
     expect(
       screen.getByRole("columnheader", { name: "操作" }),

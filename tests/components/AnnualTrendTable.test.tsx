@@ -14,6 +14,7 @@ const monthReport = (month: string, closed: boolean): PLReportType => ({
   matterCostTotal: 30000,
   grossProfitTotal: 70000,
   matterBreakdowns: [],
+  matterTotals: { revenue: 0, cost: 0, grossProfit: 0 },
   categoryBreakdown: [],
   recurringCostTotal: 20000,
   recurringCostByItem: [],

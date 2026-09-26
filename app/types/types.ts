@@ -203,16 +203,24 @@ export type TitledRecurringCostLine = RecurringCostLine & DisplayTitle;
 export type MatterBreakdown = DisplayTitle & {
   matterId: number;
   matterTitle: string;
-  category: string;
-  team: string; // 最初の明細のチーム（通常は案件内で同じ）
-  // 明細のチーム（重複なし・出現順）。確定済みの月で一部の明細だけ反映した場合など、
-  // 同じ案件でも明細によってチームが異なることがある（その場合は 2 件以上）
+  // 明細の分類・チーム（重複なし。売上明細 → 費用明細の各 ID 昇順で最初に現れた順）。
+  // 通常は案件内で 1 件だが、確定済みの月で一部の明細だけ反映した場合など、
+  // 同じ案件でも明細によって分類・チームが異なることがある（その場合は 2 件以上）。
+  // 分類別収支・チーム別収支は明細ごとの分類・チームで振り分ける
+  categories: string[];
   teams: string[];
   revenue: number; // 売上明細の実績額合計
   cost: number; // 費用明細の実績額合計
   grossProfit: number; // revenue − cost
   businesses: TitledBusinessLine[]; // ID の昇順
   costs: TitledCostLine[]; // ID の昇順
+};
+
+// 案件別収支の合計（案件の売上・費用のみ。売上合計・案件費用合計は経理追加収支を加えたもの）
+export type MatterTotals = {
+  revenue: number;
+  cost: number;
+  grossProfit: number;
 };
 
 // 分類別収支（売上分類の大分類ごとに 売上 − 案件費用 を集計）
@@ -246,6 +254,7 @@ export type PLReportType = {
   matterCostTotal: number; // 案件費用合計（経理追加収支の経費を含む）
   grossProfitTotal: number; // 売上総利益（粗利）= 売上合計 − 案件費用合計
   matterBreakdowns: MatterBreakdown[]; // 案件別収支（案件 ID の昇順。経理追加収支は含まない。Issue #152）
+  matterTotals: MatterTotals; // 案件別収支の合計（経理追加収支を含まない。Issue #152）
   categoryBreakdown: GrossProfitBreakdown[]; // 分類別収支（経理追加収支を含む。合計は売上総利益と一致）
   recurringCostTotal: number; // 管理費合計（teamleader は自チーム分のみ算入）
   recurringCostByItem: RecurringCostItemBreakdown[]; // 費目別管理費内訳（定期費用の明細を含む）

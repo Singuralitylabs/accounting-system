@@ -59,6 +59,7 @@ const report = (diffs: PLReportType["closingDiffs"]): PLReportType => ({
   matterCostTotal: 30000,
   grossProfitTotal: 120000,
   matterBreakdowns: [],
+  matterTotals: { revenue: 0, cost: 0, grossProfit: 0 },
   categoryBreakdown: [],
   recurringCostTotal: 100000,
   recurringCostByItem: [],

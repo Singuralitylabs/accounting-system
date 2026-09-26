@@ -51,6 +51,13 @@ import { CLOSED_MONTH_LOCK_MESSAGE } from "@/app/utils/profitLossClosing";
 // 収支の内訳タブ（Issue #152）
 export type BreakdownTab = "matter" | "category" | "team";
 export const DEFAULT_BREAKDOWN_TAB: BreakdownTab = "matter";
+// 表示するタブ。チーム別タブはチーム別内訳のあるロール（accounting / admin）のみのため、
+// 内訳が無ければ案件別を表示する（選択は親の ProfitLossView が持ち、ここで解決して渡す）
+export const resolveBreakdownTab = (
+  tab: BreakdownTab,
+  hasTeamBreakdown: boolean,
+): BreakdownTab =>
+  tab === "team" && !hasTeamBreakdown ? DEFAULT_BREAKDOWN_TAB : tab;
 
 // 管理費の費目行の展開キー
 const recurringRowKey = (item: string) => `recurring:${item}`;
@@ -132,11 +139,6 @@ const ProfitLossStatement = ({
   const recurringKeys = report.recurringCostByItem.map((breakdown) =>
     recurringRowKey(breakdown.item),
   );
-  // チーム別タブはチーム別内訳のあるロール（accounting / admin）のみ。無ければ案件別を表示する
-  const activeBreakdownTab: BreakdownTab =
-    breakdownTab === "team" && !report.byTeam
-      ? DEFAULT_BREAKDOWN_TAB
-      : breakdownTab;
   const [selectedMatter, setSelectedMatter] =
     useState<MatterInfoWithUserNameType | null>(null);
   const [isModalOpened, setIsModalOpened] = useState(false);
@@ -435,15 +437,15 @@ const ProfitLossStatement = ({
       </Paper>
 
       {/* 収支の内訳（Issue #152。案件別 / 分類別 / チーム別をタブで切り替える。
-          チーム別は accounting / admin のみデータが入る） */}
+          チーム別は accounting / admin のみデータが入る。非表示のタブも描画したままにする
+          Mantine v7 の既定（keepMounted）で、タブを切り替えても案件別収支の展開状態を保つ） */}
       <Tabs
-        value={activeBreakdownTab}
+        value={breakdownTab}
         onChange={(value) =>
           onBreakdownTabChange(
             (value as BreakdownTab | null) ?? DEFAULT_BREAKDOWN_TAB,
           )
         }
-        keepMounted
         className="mb-6"
       >
         <Tabs.List>
@@ -455,6 +457,7 @@ const ProfitLossStatement = ({
         <Tabs.Panel value="matter" className="pt-4">
           <MatterProfitTable
             matters={report.matterBreakdowns}
+            totals={report.matterTotals}
             hasExtraEntries={report.extraEntries.length > 0}
             canEditAdjustments={canEditAdjustments}
             isClosed={isClosed}
