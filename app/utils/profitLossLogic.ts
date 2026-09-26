@@ -27,7 +27,7 @@ import {
   TitledRecurringCostLine,
 } from "../types/types";
 import { teamLabel } from "./constants";
-import { addMonths } from "./formatter";
+import { addMonths, toFirstOfMonth } from "./formatter";
 import { hasClassAccess } from "./permissions";
 
 // 集計対象の行が属する案件の属性。
@@ -119,6 +119,17 @@ export const reportFlags = (profileClass: string | null | undefined) => ({
   includeTeamBreakdown: hasClassAccess(["accounting", "admin"], profileClass),
 });
 
+// 対象行なし調整・確定後の変更の明細（orphanedAdjustments / closingDiffs）の
+// ラベル解決に必要な行を計算・取得するか。月次タブの単月表示で、チーム別内訳を
+// 持つロール（accounting / admin）の場合のみ true になる（Issue #142）。
+// buildMonthReport（表示側）と supplementAdjustmentTargets（取得側）で同じ判定を
+// 使うための単一の定義。どちらか片方だけを変えると、不要な取得が復活するか、
+// ラベルが未解決（「売上（ID: X）」）のまま残るため、条件変更時はここを変える。
+export const needsMonthlyAdjustmentDetails = (flags: {
+  includeTeamBreakdown: boolean;
+  includeMonthlyDetails: boolean;
+}): boolean => flags.includeTeamBreakdown && flags.includeMonthlyDetails;
+
 // 損益レポートの取得期間（両端を含む月キー "YYYY-MM"）。
 // 月次は { startMonth: month, endMonth: month }、年間推移は年度12ヶ月の両端を渡す。
 // 月単位まで絞ると年間推移が12回クエリになるため、年度範囲で1回取得する。
@@ -127,11 +138,9 @@ export type ReportPeriod = {
   endMonth: string;
 };
 
-// 月キー（"YYYY-MM"）の形式検証。
-// Server Action 経由でクライアント到達可能な取得期間の入口で使い、
-// 不正な値は呼び出し側で取得失敗（再取得を促す表示）として扱う。
-export const isMonthKey = (value: string): boolean =>
-  /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+// formatter.ts からの再エクスポート。既存の呼び出し元（profitLossReport.ts /
+// profitLossClosings.ts / tests）はこのパスでの import を継続できる。
+export { isMonthKey } from "./formatter";
 
 // 月キーの一覧（昇順・重複なし）を、連続する月ごとの取得期間にまとめる
 // （例: 2026-07, 2026-08, 2027-01 → 2026-07〜08 と 2027-01）
@@ -154,14 +163,10 @@ export type ReportRangeBounds = {
 };
 
 // 月キー（"YYYY-MM"）の翌月の月初日を返す。
-// 日付の月ズレを避けるため Date オブジェクトは使わない。
-const firstDayOfNextMonth = (monthKey: string): string => {
-  const year = parseInt(monthKey.slice(0, 4), 10);
-  const monthNumber = parseInt(monthKey.slice(5, 7), 10);
-  const nextYear = monthNumber === 12 ? year + 1 : year;
-  const nextMonthNumber = monthNumber === 12 ? 1 : monthNumber + 1;
-  return `${nextYear}-${String(nextMonthNumber).padStart(2, "0")}-01`;
-};
+// extraEntries.ts の monthDateRange と同じく formatter.ts のヘルパーで組み立てる
+// （日付の月ズレを避けるため Date オブジェクトは使わない）。
+const firstDayOfNextMonth = (monthKey: string): string =>
+  toFirstOfMonth(addMonths(monthKey, 1));
 
 // 取得期間から日付範囲（[startDate, endExclusive)）を求める。
 // SQL の WHERE 句とインメモリのフィルタで同じ境界を使うための単一の定義。

@@ -143,14 +143,23 @@ export const bulkSaveBudgetRecurringItems = async (
     };
   }
 
-  // display_order はステージング編集中の並び（rows の配列順）から採番し直す。
+  // display_order はステージング編集中の並びからチームごとに 0 から採番し直す。
   // handleAddRow はクライアント側で常に display_order: 0 のまま新規行を追加する
   // ため、渡された値をそのまま使うと新規行が「先頭」扱いになり、team で絞って
   // display_order 順に取得する getActiveBudgetRecurringItems / 一覧取得で並びが
-  // 崩れる（saveBudgetDeclaration が明細差し替え時に index で採番し直すのと同じ理由）
+  // 崩れる（saveBudgetDeclaration が明細差し替え時に index で採番し直すのと同じ理由）。
+  // 全チーム通し（rows の配列 index）で採番すると、他チームの行に触れていない保存でも
+  // 他チームの全行が「変更あり」と判定され、変更行だけを UPDATE する lost update 抑止が
+  // 無効化される（Issue #136）。チームごとに採番することで、触っていないチームの行は
+  // UPDATE 対象にならない。
+  const orderByTeam = new Map<string, number>();
   const activeRows = rows
     .filter((row) => !row.isRemoved)
-    .map((row, index) => ({ ...row, display_order: index }));
+    .map((row) => {
+      const order = orderByTeam.get(row.team) ?? 0;
+      orderByTeam.set(row.team, order + 1);
+      return { ...row, display_order: order };
+    });
   const newRows = activeRows.filter((row) => row.isNew);
   const updateRows = activeRows.filter((row) => !row.isNew);
   const deleteRows = rows.filter((row) => row.isRemoved && !row.isNew);

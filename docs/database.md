@@ -356,20 +356,20 @@ CHECK (1 <= ALL(target_days) AND 31 >= ALL(target_days))
 
 事前収支申告の定期明細マスタ。毎月固定で発生する収入・支出（例: 保守契約の月額収入、固定の外注費・ツール利用料）を登録し、対象月が適用期間内であれば新規の事前収支申告を作成したときに `budget_declaration_items` として展開する（Issue #109）。`recurring_costs`（損益計算書の集計時に計算で算入する）と異なり、本テーブル自体は集計に使わない。展開後の行は通常の申告明細と同じく個別に編集・削除でき、本テーブルの内容は変更されない。
 
-| カラム名      | データ型                 | 制約                                                                  | 説明                                                                                                                                                                                                                      |
-| ------------- | ------------------------ | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| id            | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                             | 主キー                                                                                                                                                                                                                    |
-| team          | text                     | NOT NULL                                                              | 対象チーム（select_options の team と同じ値域。budget_declarations と同じ運用上の注意が当てはまる）                                                                                                                       |
-| entry_type    | text                     | NOT NULL, CHECK (entry_type IN ('income', 'expense'))                 | 種別（income = 収入 / expense = 支出。budget_declaration_items と同じ値域）                                                                                                                                               |
-| category      | text                     | NOT NULL                                                              | 分類（収入時は案件分類 category、支出時は品目 item マスタの値域を想定。budget_declaration_items と同じ）                                                                                                                  |
-| description   | text                     | NOT NULL                                                              | 内容（例: ○○保守契約、外注費）                                                                                                                                                                                            |
-| amount        | numeric(15,2)            | NOT NULL, CHECK (amount > 0)                                          | 毎月の金額（円・税別。正の値のみ）                                                                                                                                                                                        |
-| manager_id    | bigint                   | NULL, FOREIGN KEY (profiles.id)（参照アクション指定なし = NO ACTION） | 明細の担当者。budget_declaration_items.manager_id と同じ方針（任意選択・NULL 許容。担当者に設定された profiles を削除するとこの FK でエラーになるため、先に manager_id を別のメンバーに付け替えるか NULL に解除すること） |
-| start_month   | date                     | NOT NULL, CHECK (月初日であること)                                    | 適用開始月（月初日で格納。recurring_costs.start_month / budget_declarations.target_month と同方式）                                                                                                                       |
-| end_month     | date                     | NULL, CHECK (月初日であること), CHECK (start_month 以降であること)    | 適用終了月（その月を含む。NULL = 継続中。recurring_costs.end_month と同方式）                                                                                                                                             |
-| display_order | integer                  | NOT NULL, DEFAULT 0                                                   | 表示順。新規申告への展開時、この順で `budget_declaration_items.display_order` に引き継がれる                                                                                                                              |
-| inserted_at   | timestamp with time zone | NOT NULL, DEFAULT now()                                               | 作成日時                                                                                                                                                                                                                  |
-| updated_at    | timestamp with time zone | NOT NULL, DEFAULT now()                                               | 更新日時                                                                                                                                                                                                                  |
+| カラム名      | データ型                 | 制約                                                                  | 説明                                                                                                                                                                                                                                                                    |
+| ------------- | ------------------------ | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| id            | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                             | 主キー                                                                                                                                                                                                                                                                  |
+| team          | text                     | NOT NULL                                                              | 対象チーム（select_options の team と同じ値域。budget_declarations と同じ運用上の注意が当てはまる）                                                                                                                                                                     |
+| entry_type    | text                     | NOT NULL, CHECK (entry_type IN ('income', 'expense'))                 | 種別（income = 収入 / expense = 支出。budget_declaration_items と同じ値域）                                                                                                                                                                                             |
+| category      | text                     | NOT NULL                                                              | 分類（収入時は案件分類 category、支出時は品目 item マスタの値域を想定。budget_declaration_items と同じ）                                                                                                                                                                |
+| description   | text                     | NOT NULL                                                              | 内容（例: ○○保守契約、外注費）                                                                                                                                                                                                                                          |
+| amount        | numeric(15,2)            | NOT NULL, CHECK (amount > 0)                                          | 毎月の金額（円・税別。正の値のみ）                                                                                                                                                                                                                                      |
+| manager_id    | bigint                   | NULL, FOREIGN KEY (profiles.id)（参照アクション指定なし = NO ACTION） | 明細の担当者。budget_declaration_items.manager_id と同じ方針（任意選択・NULL 許容。担当者に設定された profiles を削除するとこの FK でエラーになるため、先に manager_id を別のメンバーに付け替えるか NULL に解除すること）                                               |
+| start_month   | date                     | NOT NULL, CHECK (月初日であること)                                    | 適用開始月（月初日で格納。recurring_costs.start_month / budget_declarations.target_month と同方式）                                                                                                                                                                     |
+| end_month     | date                     | NULL, CHECK (月初日であること), CHECK (start_month 以降であること)    | 適用終了月（その月を含む。NULL = 継続中。recurring_costs.end_month と同方式）                                                                                                                                                                                           |
+| display_order | integer                  | NOT NULL, DEFAULT 0                                                   | 表示順（チーム内で 0 から採番。新規申告への展開時、この順で `budget_declaration_items.display_order` に引き継がれる。保存処理もチームごとに採番し直すため、他チームの行は UPDATE 対象にならない。旧方式の全チーム通し採番で残っていた行は migration 32 で振り直し済み） |
+| inserted_at   | timestamp with time zone | NOT NULL, DEFAULT now()                                               | 作成日時                                                                                                                                                                                                                                                                |
+| updated_at    | timestamp with time zone | NOT NULL, DEFAULT now()                                               | 更新日時                                                                                                                                                                                                                                                                |
 
 CHECK 制約（適用期間の正規化・整合性）:
 
@@ -1506,6 +1506,8 @@ SECURITY DEFINER にはしない（既定の SECURITY INVOKER のまま）。対
 
 `p_actual_amount` は `adjustment_amount` / `source_amount_snapshot` の列精度（`numeric(15,2)`）に合わせて差分計算の直前に `round(…, 2)` する。画面側の `NumberInput`（`app/components/profitLoss/ProfitLossAdjustmentModal.tsx`）も `decimalScale={2}` で入力を小数第2位までに制限しており、両者を揃えることで「確認ダイアログの表示額」と「実際に保存される `adjustment_amount`」がずれる、または丸めにより差分が 0 になり `profit_loss_adjustments_amount_check` に想定外に抵触するケースを防ぐ。
 
+差分 0 で削除対象が無い場合（既存調整が無い行に元データと同額を入力した場合。Issue #139）は `deleted = false`・`adjustment_amount = 0` を返す。呼び出し側は `!deleted` を一律「保存しました」にせず、`adjustment_amount` とあわせて「変更なし」（`app/utils/profitLossAdjustmentToast.ts` の `resolveSaveAdjustmentOutcome`）として扱う。
+
 ```sql
 CREATE OR REPLACE FUNCTION public.save_profit_loss_adjustment(
   p_business_id bigint,
@@ -1524,6 +1526,7 @@ DECLARE
   v_actual_amount numeric;
   v_adjustment_amount numeric;
   v_adjusted_by bigint;
+  v_deleted_count integer;
 BEGIN
   -- 対象は必ずちょうど1つ
   IF num_nonnulls(p_business_id, p_cost_id, p_recurring_cost_id) <> 1 THEN
@@ -1556,14 +1559,16 @@ BEGIN
 
   v_adjustment_amount := v_actual_amount - v_source_amount;
 
-  -- 差分 0（実績額 = 元データ）なら既存の調整を削除する
+  -- 差分 0（実績額 = 元データ）なら既存の調整を削除する。対象が無ければ
+  -- deleted = false を返し、呼び出し側が「変更なし」として扱えるようにする（Issue #139）
   IF v_adjustment_amount = 0 THEN
     DELETE FROM public.profit_loss_adjustments
     WHERE target_month = p_target_month
       AND business_id IS NOT DISTINCT FROM p_business_id
       AND cost_id IS NOT DISTINCT FROM p_cost_id
       AND recurring_cost_id IS NOT DISTINCT FROM p_recurring_cost_id;
-    RETURN QUERY SELECT true, v_source_amount, 0::numeric;
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RETURN QUERY SELECT (v_deleted_count > 0), v_source_amount, 0::numeric;
     RETURN;
   END IF;
 

@@ -7,6 +7,7 @@ import {
   isDraftMatter,
   isRecurringCostChargedInMonth,
   monthDiff,
+  needsMonthlyAdjustmentDetails,
   normalizeLabelInput,
   reportFlags,
   resolveTitle,
@@ -307,6 +308,35 @@ describe("reportFlags", () => {
     expect(reportFlags(null)).toEqual(expected);
     expect(reportFlags(undefined)).toEqual(expected);
     expect(reportFlags("")).toEqual(expected);
+  });
+});
+
+describe("needsMonthlyAdjustmentDetails（Issue #142）", () => {
+  it("月次表示かつチーム別内訳ありの場合のみ true", () => {
+    expect(
+      needsMonthlyAdjustmentDetails({
+        includeTeamBreakdown: true,
+        includeMonthlyDetails: true,
+      }),
+    ).toBe(true);
+    expect(
+      needsMonthlyAdjustmentDetails({
+        includeTeamBreakdown: false,
+        includeMonthlyDetails: true,
+      }),
+    ).toBe(false);
+    expect(
+      needsMonthlyAdjustmentDetails({
+        includeTeamBreakdown: true,
+        includeMonthlyDetails: false,
+      }),
+    ).toBe(false);
+    expect(
+      needsMonthlyAdjustmentDetails({
+        includeTeamBreakdown: false,
+        includeMonthlyDetails: false,
+      }),
+    ).toBe(false);
   });
 });
 

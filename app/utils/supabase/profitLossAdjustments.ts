@@ -8,8 +8,8 @@ import { createServerSupabase } from "./clients";
 import { getAuthorizedViewer } from "./viewerAccess";
 
 export type SaveProfitLossAdjustmentResult =
-  | { deleted: boolean; error?: undefined }
-  | { deleted?: undefined; error: AccessFailure };
+  | { deleted: boolean; adjustmentAmount: number; error?: undefined }
+  | { deleted?: undefined; adjustmentAmount?: undefined; error: AccessFailure };
 
 // 実績額修正の保存（1件ずつ即時保存）。元データ金額の取得・差分計算・保存を
 // DB 関数（public.save_profit_loss_adjustment）内の単一トランザクションで
@@ -71,8 +71,14 @@ export const saveProfitLossAdjustment = async (
     };
   }
 
-  return { deleted: data?.deleted ?? false };
-};
+  // 差分 0 で削除対象が無い場合（Issue #139）は deleted=false・
+  // adjustment_amount=0 が返る。呼び出し側は adjustmentAmount とあわせて
+  // 「変更なし」を判定する（app/utils/profitLossAdjustmentToast.ts）
+  return {
+    deleted: data?.deleted ?? false,
+    adjustmentAmount: Number(data?.adjustment_amount ?? 0),
+  };
+}
 
 export type DeleteProfitLossAdjustmentResult = { error?: AccessFailure };
 
