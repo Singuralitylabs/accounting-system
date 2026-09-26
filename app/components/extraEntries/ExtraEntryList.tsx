@@ -12,7 +12,11 @@ import {
   findExtraEntryLockViolations,
   isClosedMonth,
 } from "@/app/utils/profitLossClosing";
-import { ORG_WIDE_TEAM_LABEL } from "@/app/utils/constants";
+import {
+  ORG_WIDE_TEAM_LABEL,
+  teamFromLabel,
+  teamLabel,
+} from "@/app/utils/constants";
 import { selectChangedExtraEntries } from "@/app/utils/extraEntry";
 import { notifyError, notifySuccess } from "@/app/utils/notify";
 import { confirmAction } from "@/app/utils/confirmAction";
@@ -150,7 +154,15 @@ const ExtraEntryList = ({
   };
 
   const handleSave = async () => {
-    const activeRows = rows.filter((row) => !row.isRemoved);
+    // 送るのは追加・削除・編集した行だけ。必須・金額のチェックも送る行（削除以外）に限る
+    // （編集していない行・確定済みの月でロックされた行の既存の値で保存が止まらないように）
+    const changedRows = selectChangedExtraEntries(rows, baseline);
+    if (changedRows.length === 0) {
+      setIsDirty(false);
+      notifySuccess("変更された項目はありません。");
+      return;
+    }
+    const activeRows = changedRows.filter((row) => !row.isRemoved);
     for (const row of activeRows) {
       const label = row.description || "（内容未入力の行）";
       if (!row.description) {
@@ -192,13 +204,6 @@ const ExtraEntryList = ({
       }
     }
 
-    const changedRows = selectChangedExtraEntries(rows, baseline);
-    if (changedRows.length === 0) {
-      setIsDirty(false);
-      notifySuccess("変更された項目はありません。");
-      return;
-    }
-
     const lockViolations = findExtraEntryLockViolations(
       changedRows,
       originals,
@@ -221,12 +226,14 @@ const ExtraEntryList = ({
     } catch (error) {
       console.error("経理追加収支情報の保存に失敗しました。", error);
       if (error instanceof ExtraEntryValidationError) {
-        // 保存前の検証で拒否された（何も書き込まれていない）
+        // サーバが拒否・失敗を返した（何も書き込まれていない）
         notifyError(error.message);
         return;
       }
+      // 通信の失敗などで保存できたかどうか分からない（保存は 1 トランザクションのため、
+      // 保存されていればすべて、されていなければ何も反映されていない）
       notifyError(
-        "経理追加収支情報の更新に失敗しました。一部のみ反映されている可能性があるため、画面を再読み込みして内容を確認してください。",
+        "経理追加収支情報の更新結果を確認できませんでした。画面を再読み込みして内容を確認してください。",
       );
     }
   };
@@ -301,12 +308,12 @@ const ExtraEntryList = ({
 
   const renderTeamSelect = (row: ExtraEntryInListType) => (
     <Select
-      value={row.team ?? ORG_WIDE_TEAM_LABEL}
+      value={teamLabel(row.team)}
       data={[ORG_WIDE_TEAM_LABEL, ...teamList]}
       disabled={isRowLocked(row)}
       onChange={(selected) =>
         handleUpdateRow(row.id, {
-          team: selected === ORG_WIDE_TEAM_LABEL ? null : selected,
+          team: teamFromLabel(selected),
         })
       }
       allowDeselect={false}

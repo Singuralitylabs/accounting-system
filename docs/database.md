@@ -1126,6 +1126,16 @@ CREATE POLICY "extra_entries_delete_policy" ON extra_entries
 
 > **確定中の編集ロック（Issue #148、migration 27）**: 上記の INSERT / UPDATE / DELETE ポリシーには、損益計算書で確定済みの月のエントリを変更できないよう `NOT private.is_pl_month_closed(entry_date)` が追加されている（UPDATE は USING = 変更前の月、WITH CHECK = 変更後の月）。詳細は 5.14。
 
+#### 一括保存の原子的な書き込み（`save_extra_entries`。migration 30）
+
+経理追加収支画面（/extra-entries）の一括保存は `save_extra_entries(p_inserts jsonb, p_updates jsonb, p_delete_ids bigint[])` を 1 回呼ぶだけで行う（関数呼び出し = 1 トランザクション）。削除 → 更新 → 追加の順に実行し、途中で 1 つでも失敗すればすべてロールバックされるため、一部だけ保存された状態は残らない。
+
+- SECURITY INVOKER（既定）。上記の RLS（書き込みは経理担当者・管理者のみ・確定済みの月の編集ロック）がそのまま適用される
+- RLS の USING で弾かれた UPDATE / DELETE はエラーにならず 0 行になるだけのため、更新・削除した行数が指定した（重複を除いた）件数に満たなければ例外 `NOT_APPLIED` で全体をロールバックする（保存前の確認の後に月が確定された、行が他の利用者に削除された等）。追加・日付の変更が確定済みの月に当たる場合は RLS の WITH CHECK 違反（42501）で全体がロールバックされる
+- 各列の値（収入 / 支出ごとの項目の整合）はアプリ側（`app/utils/extraEntry.ts` の `toExtraEntryDbRow`）で揃え、`extra_entries_type_fields_check` でも担保する。`updated_at` は既存のトリガーが設定する
+- EXECUTE は authenticated のみ（`REVOKE ... FROM PUBLIC, anon`）
+- 呼び出し側（`app/utils/supabase/extraEntries.ts` の `bulkUpsertExtraEntry`）は、分かりやすいエラーを出すために書き込み前に確定済みの月・削除済みの行を確認し、該当すれば RPC を呼ばない。画面からは追加・削除・編集した行だけが送られる
+
 ### 5.8 budget_declarations テーブル
 
 > recurring_costs / extra_entries と異なり、**チームリーダーに自チーム分の書き込みを許可する**（事前収支申告はチームリーダー自身が入力するため）。経理担当者・管理者は全行、チームリーダーは自チームの行のみ SELECT / INSERT / UPDATE / DELETE でき、public ロールはアクセスできない。UPDATE は `WITH CHECK` でも team を制約し、他チームへの付け替えを防ぐ。
@@ -1673,7 +1683,7 @@ REVOKE ALL ON TABLE profit_loss_labels FROM anon;
 
 ### 5.14 profit_loss_closings / profit_loss_closing_lines テーブル
 
-> 月次収支確定（Issue #148）。ヘッダ（profit_loss_closings）の SELECT はログインユーザー全員（担当者の案件編集時に「確定済みの月」の注意表示を出すため。金額を持たない）、DELETE（確定解除）は経理担当者・管理者のみ。**ヘッダ・明細の追加・更新はテーブルへの権限を authenticated に付与せず、確定用の RPC（`save_profit_loss_closing` / `apply_profit_loss_closing_diffs`。SECURITY DEFINER で関数内で経理担当者・管理者かを判定し、それ以外は `FORBIDDEN`）経由でのみ行う**。確定者・反映者（id と氏名）を RPC が auth.uid() から解決して書き込むため、PostgREST からの直接の書き込みで他人名義にしたり、経理担当者・管理者以外が書き込んだりできない。**ただし RPC は public スキーマにあり、経理担当者・管理者は PostgREST から直接呼べる。その場合の明細の値は検証しない**（集計し直した値を渡すのは Server Action の責務で、経理担当者・管理者は信頼する前提。損益調整の記録を残さずに確定値を変える操作まで防ぐには、RPC の EXECUTE を authenticated から外し service_role で呼ぶ構成に変える必要がある）。明細（profit_loss_closing_lines）の SELECT は経理担当者・管理者が全行、チームリーダーは `team = 自チーム OR team IS NULL`、または自分が作成した案件の明細（`matter_user_id` = 自分の profiles.id）（ライブ集計時の matters / business / costs / recurring_costs / extra_entries の RLS と同じ範囲。確定の前後でチームリーダーの表示範囲を変えない）、書き込みは RPC 経由のみ（確定解除時の削除はヘッダからの CASCADE）。public ロールは明細を読めない。anon は両テーブルとも権限なし。
+> 月次収支確定（Issue #148）。ヘッダ（profit_loss_closings）の SELECT はログインユーザー全員（担当者の案件編集時に「確定済みの月」の注意表示を出すため。金額を持たない）、DELETE（確定解除）は経理担当者・管理者のみ。**ヘッダ・明細の追加・更新はテーブルへの権限を authenticated に付与せず、確定用の RPC（`save_profit_loss_closing` / `apply_profit_loss_closing_diffs`。SECURITY DEFINER で関数内で経理担当者・管理者かを判定し、それ以外は `FORBIDDEN`）経由でのみ行う**。確定者・反映者（id と氏名）を RPC が auth.uid() から解決して書き込むため、PostgREST からの直接の書き込みで他人名義にしたり、経理担当者・管理者以外が書き込んだりできない。**ただし RPC は public スキーマにあり、経理担当者・管理者は PostgREST から直接呼べる。その場合の明細の値は検証しない**（集計し直した値を渡すのは Server Action の責務で、経理担当者・管理者は信頼する前提。損益調整の記録を残さずに確定値を変える操作まで防ぐには、RPC の EXECUTE を authenticated から外し service_role で呼ぶ構成に変える必要がある）。明細（profit_loss_closing_lines）の SELECT は経理担当者・管理者が全行、チームリーダーは `team = 自チーム OR team IS NULL`、または自分が作成した案件の明細（`matter_user_id` = 自分の profiles.id）（ライブ集計時の matters / business / costs / recurring_costs / extra_entries の RLS と同じ範囲。確定の前後でチームリーダーの表示範囲を変えない）、書き込みは RPC 経由のみ（確定解除時の削除はヘッダからの CASCADE）。public ロールは明細を読めない。anon は両テーブルとも権限なし。損益計算書改修（Issue #145）で追加した RPC（`save_profit_loss_label` / `save_profit_loss_closing` / `apply_profit_loss_closing_diffs` / `dismiss_profit_loss_closing_diffs` / `undo_profit_loss_closing_dismissals` / `save_extra_entries`）の EXECUTE は authenticated のみ（Supabase の既定で anon にも付く EXECUTE を `REVOKE ... FROM PUBLIC, anon` で外す）。
 
 ```sql
 -- 確定済み判定（RLS の編集ロックから呼ぶ。private スキーマ・SECURITY DEFINER）

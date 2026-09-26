@@ -261,7 +261,7 @@ $$;
 COMMENT ON FUNCTION public.apply_profit_loss_closing_diffs(date, jsonb, jsonb) IS
   '確定後の案件変更の反映（Issue #149）。選択された明細だけ確定明細を最新の値に置き換え（upsert / delete）、該当する見送り記録を削除し、反映者・反映日時を記録する（確定者・確定日時は保持）。値はサーバ側でライブ集計し直したものを渡す。SECURITY DEFINER で関数内で経理担当者・管理者かを判定する（テーブルへの直接の書き込み権限は付与しない）。詳細: docs/database.md 5.15';
 
-REVOKE EXECUTE ON FUNCTION public.apply_profit_loss_closing_diffs(date, jsonb, jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.apply_profit_loss_closing_diffs(date, jsonb, jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.apply_profit_loss_closing_diffs(date, jsonb, jsonb) TO authenticated;
 
 -- ===== 見送り（選択した差分をその時点のライブの状態で見送る） =====
@@ -326,7 +326,7 @@ $$;
 COMMENT ON FUNCTION public.dismiss_profit_loss_closing_diffs(date, jsonb) IS
   '確定後の案件変更の見送り（Issue #149）。選択された明細の見送り記録を、その時点のライブの状態で upsert する。値はサーバ側でライブ集計し直したものを渡す。dismissed_by は auth.uid() から解決する。SECURITY DEFINER で関数内で経理担当者・管理者かを判定する（テーブルへの直接の書き込み権限は付与しない）。詳細: docs/database.md 5.15';
 
-REVOKE EXECUTE ON FUNCTION public.dismiss_profit_loss_closing_diffs(date, jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.dismiss_profit_loss_closing_diffs(date, jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.dismiss_profit_loss_closing_diffs(date, jsonb) TO authenticated;
 
 -- ===== 見送りの取り消し（未処理の差分に戻す） =====
@@ -363,7 +363,7 @@ $$;
 COMMENT ON FUNCTION public.undo_profit_loss_closing_dismissals(date, jsonb) IS
   '確定後の案件変更の見送りの取り消し（Issue #149）。選択された明細の見送り記録を削除し、未処理の差分に戻す。SECURITY DEFINER で関数内で経理担当者・管理者かを判定する（テーブルへの直接の書き込み権限は付与しない）。詳細: docs/database.md 5.15';
 
-REVOKE EXECUTE ON FUNCTION public.undo_profit_loss_closing_dismissals(date, jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.undo_profit_loss_closing_dismissals(date, jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.undo_profit_loss_closing_dismissals(date, jsonb) TO authenticated;
 
 -- ===== GRANT =====

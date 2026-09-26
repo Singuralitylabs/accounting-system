@@ -26,7 +26,7 @@ import {
   TitledCostLine,
   TitledRecurringCostLine,
 } from "../types/types";
-import { ORG_WIDE_TEAM_LABEL } from "./constants";
+import { teamLabel } from "./constants";
 import { addMonths } from "./formatter";
 import { hasClassAccess } from "./permissions";
 
@@ -775,7 +775,7 @@ export const aggregateMonthLines = ({
   if (includeTeamBreakdown) {
     const teamMap = new Map<string, TeamBreakdown>();
     const getTeamEntry = (team: string | null): TeamBreakdown => {
-      const label = team ?? ORG_WIDE_TEAM_LABEL;
+      const label = teamLabel(team);
       if (!teamMap.has(label)) {
         teamMap.set(label, {
           team: label,

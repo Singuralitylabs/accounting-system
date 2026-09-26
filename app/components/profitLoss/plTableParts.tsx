@@ -5,7 +5,7 @@
 import { AdjustableAmount, DisplayTitle } from "@/app/types/types";
 import { formatCurrency } from "@/app/utils/formatter";
 import { formatPaymentCycle } from "@/app/utils/paymentCycle";
-import { ORG_WIDE_TEAM_LABEL } from "@/app/utils/constants";
+import { teamLabel } from "@/app/utils/constants";
 import { ActionIcon, Badge, Button, Tooltip } from "@mantine/core";
 import { CLOSED_MONTH_LOCK_MESSAGE } from "@/app/utils/profitLossClosing";
 import { ReactNode, useState } from "react";
@@ -149,7 +149,7 @@ export const formatRecurringCostNote = (
     parts.push(formatPaymentCycle(recurringCost.paymentCycle));
   }
   if (includeTeam) {
-    parts.push(recurringCost.team ?? ORG_WIDE_TEAM_LABEL);
+    parts.push(teamLabel(recurringCost.team));
   }
   return parts.length > 0 ? `（${parts.join(" / ")}）` : "";
 };

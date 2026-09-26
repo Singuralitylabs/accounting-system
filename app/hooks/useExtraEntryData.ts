@@ -23,8 +23,9 @@ export const useExtraEntryList = (initialData?: ExtraEntryType[] | null) => {
   });
 };
 
-// 保存前の検証で拒否されたことを表すエラー（何も書き込まれていない）。
-// 書き込み途中の失敗（一部のみ反映の可能性がある）と画面の案内を分けるために区別する
+// サーバが保存を拒否・失敗として返したことを表すエラー（何も書き込まれていない。
+// 保存は 1 トランザクションのため一部だけ保存されることはない）。
+// 通信の失敗など結果が分からない場合と画面の案内を分けるために区別する
 export class ExtraEntryValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -40,7 +41,8 @@ export const useUpsertExtraEntry = () => {
     mutationFn: async (extraEntries: ExtraEntryInListType[]) => {
       const result = await bulkUpsertExtraEntry(extraEntries);
       if (result.error) {
-        // 保存前の検証（確定済みの月の編集ロック等）で拒否された。何も書き込んでいない
+        // 保存前の検証（確定済みの月の編集ロック等）で拒否された、または保存に失敗した。
+        // いずれも何も書き込まれていない
         throw new ExtraEntryValidationError(result.error.message);
       }
     },

@@ -971,6 +971,14 @@ export type Database = {
           id: number
         }[]
       }
+      save_extra_entries: {
+        Args: {
+          p_delete_ids: number[]
+          p_inserts: Json
+          p_updates: Json
+        }
+        Returns: undefined
+      }
       save_profit_loss_adjustment: {
         Args: {
           p_business_id: number | null

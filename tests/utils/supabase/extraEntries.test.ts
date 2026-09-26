@@ -39,13 +39,18 @@ const row = (
   ...flags,
 });
 
-// supabase.from(table) のモック。select（保存前確認）と update / insert / delete を記録する
+// supabase のモック。from（保存前確認の select）と rpc（save_extra_entries）を記録する
+type RpcArgs = {
+  p_inserts: Record<string, unknown>[];
+  p_updates: Record<string, unknown>[];
+  p_delete_ids: number[];
+};
 const setup = (
   closedMonths: string[],
   originals: ExtraEntryType[],
-  rlsBlockedIds: unknown[] = [],
+  rpcError: { message: string; code?: string } | null = null,
 ) => {
-  const writes: { op: string; payload?: unknown; id?: unknown }[] = [];
+  const calls: RpcArgs[] = [];
   const from = vi.fn((table: string) => {
     if (table === "profit_loss_closings") {
       return {
@@ -58,69 +63,57 @@ const setup = (
         }),
       };
     }
-    return {
-      select: () => ({
-        in: () => Promise.resolve({ data: originals, error: null }),
-      }),
-      update: (payload: unknown) => ({
-        eq: (_col: string, id: unknown) => ({
-          select: () => {
-            writes.push({ op: "update", payload, id });
-            return Promise.resolve({
-              data: rlsBlockedIds.includes(id) ? [] : [{ id }],
-              error: null,
-            });
-          },
-        }),
-      }),
-      insert: (payload: unknown) => {
-        writes.push({ op: "insert", payload });
-        return Promise.resolve({ error: null });
-      },
-      delete: () => ({
-        in: (_col: string, ids: unknown[]) => ({
-          select: () => {
-            writes.push({ op: "delete", id: ids });
-            return Promise.resolve({
-              data: ids.map((id) => ({ id })),
-              error: null,
-            });
-          },
-        }),
-      }),
+    // extra_entries の保存前確認（id 指定・ページング）
+    const query = {
+      select: () => query,
+      in: () => query,
+      gt: () => query,
+      order: () => query,
+      limit: () => Promise.resolve({ data: originals, error: null }),
     };
+    return query;
   });
-  createServerSupabase.mockReturnValue({ from });
-  return writes;
+  const rpc = vi.fn((name: string, args: RpcArgs) => {
+    expect(name).toBe("save_extra_entries");
+    calls.push(args);
+    return Promise.resolve({ data: null, error: rpcError });
+  });
+  createServerSupabase.mockReturnValue({ from, rpc });
+  return calls;
 };
 
-describe("bulkUpsertExtraEntry の確定済みの月の編集ロック（Issue #148）", () => {
+describe("bulkUpsertExtraEntry（確定済みの月の編集ロック・1 トランザクションの保存）", () => {
   beforeEach(() => {
     createServerSupabase.mockReset();
   });
 
-  it("確定済みの月の行を送らなければ（画面で編集していなければ）、他の月の行を保存できる", async () => {
+  it("追加・更新・削除を 1 回の save_extra_entries にまとめる（確定済みの月の行を送らなければ他の月は保存できる）", async () => {
     const august = saved(1, "2026-08-10");
     const september = saved(2, "2026-09-10");
-    const writes = setup(["2026-08"], [august, september]);
+    const october = saved(4, "2026-10-10");
+    const calls = setup(["2026-08"], [august, september, october]);
     // 画面は追加・削除・編集した行だけを送る（selectChangedExtraEntries）
     const result = await bulkUpsertExtraEntry([
-      row({ ...september, billing_amount: 20000 }), // 未確定の月・変更あり
+      row({ ...september, billing_amount: 20000 }),
+      row(saved(3, "2026-09-01"), { isNew: true }),
+      row(october, { isRemoved: true }),
     ]);
     expect(result).toEqual({});
-    expect(writes).toEqual([
-      {
-        op: "update",
-        payload: expect.objectContaining({ billing_amount: 20000 }),
-        id: 2,
-      },
+    expect(calls).toHaveLength(1);
+    expect(calls[0].p_updates).toEqual([
+      expect.objectContaining({ id: 2, billing_amount: 20000 }),
     ]);
+    expect(calls[0].p_inserts).toEqual([
+      expect.objectContaining({ description: "経理追加3" }),
+    ]);
+    expect(calls[0].p_inserts[0]).not.toHaveProperty("id");
+    expect(calls[0].p_delete_ids).toEqual([4]);
   });
 
   it("編集した行が読み込み後に他の利用者に削除されていたら、何も書き込まずに再読み込みを促す", async () => {
     const september = saved(2, "2026-09-10");
     // DB には id 2 が無い
-    const writes = setup([], []);
+    const calls = setup([], []);
     const result = await bulkUpsertExtraEntry([
       row(saved(10, "2026-09-01"), { isNew: true }),
       row({ ...september, billing_amount: 1 }),
@@ -128,26 +121,49 @@ describe("bulkUpsertExtraEntry の確定済みの月の編集ロック（Issue #
     expect(result.error?.kind).toBe("validationFailed");
     expect(result.error?.message).toContain("他の利用者に削除された行");
     expect(result.error?.message).toContain("経理追加2");
-    expect(writes).toEqual([]); // 追加も含めて何も書き込まない
+    expect(calls).toEqual([]); // 追加も含めて何も書き込まない
   });
 
   it("削除した行が既に削除されていた場合は、その削除だけを省いて他の行を保存する", async () => {
     const september = saved(2, "2026-09-10");
-    const writes = setup([], [september]);
+    const calls = setup([], [september]);
     const result = await bulkUpsertExtraEntry([
       row(saved(3, "2026-09-10"), { isRemoved: true }), // DB に無い
       row(september, { isRemoved: true }),
     ]);
     expect(result).toEqual({});
-    expect(writes).toEqual([{ op: "delete", id: [2] }]);
+    expect(calls[0].p_delete_ids).toEqual([2]);
+    // すべて既に削除済みなら RPC を呼ばない
+    const none = setup([], []);
+    expect(
+      await bulkUpsertExtraEntry([row(september, { isRemoved: true })]),
+    ).toEqual({});
+    expect(none).toEqual([]);
   });
 
-  it("保存前の確認の後に月が確定され RLS で 0 行更新になった場合は、成功扱いにせずエラーにする", async () => {
+  it("保存前の確認の後に月が確定された（RPC が NOT_APPLIED / RLS 違反）場合は、何も保存されていないことを伝える", async () => {
     const september = saved(2, "2026-09-10");
-    setup([], [september], [2]);
-    await expect(
-      bulkUpsertExtraEntry([row({ ...september, billing_amount: 1 })]),
-    ).rejects.toThrow("一部が更新されませんでした");
+    for (const rpcError of [
+      { message: "NOT_APPLIED" },
+      {
+        message: 'new row violates row-level security policy for table "extra_entries"',
+        code: "42501",
+      },
+    ]) {
+      setup([], [september], rpcError);
+      const result = await bulkUpsertExtraEntry([
+        row({ ...september, billing_amount: 1 }),
+      ]);
+      expect(result.error?.kind).toBe("validationFailed");
+      expect(result.error?.message).toContain("何も保存しませんでした");
+    }
+    // それ以外の失敗も例外にせず、何も保存されていないことを返す
+    setup([], [september], { message: "boom" });
+    const failed = await bulkUpsertExtraEntry([
+      row({ ...september, billing_amount: 1 }),
+    ]);
+    expect(failed.error?.kind).toBe("fetchFailed");
+    expect(failed.error?.message).toContain("何も保存されていません");
   });
 
   it("確定済みの月の行を変更・削除・確定済みの月へ移動しようとすると、何も書き込まずにエラーを返す", async () => {
@@ -159,11 +175,11 @@ describe("bulkUpsertExtraEntry の確定済みの月の編集ロック（Issue #
       [row({ ...september, entry_date: "2026-08-31" })],
       [row(saved(3, "2026-08-01"), { isNew: true })],
     ]) {
-      const writes = setup(["2026-08"], [august, september]);
+      const calls = setup(["2026-08"], [august, september]);
       const result = await bulkUpsertExtraEntry(entries);
       expect(result.error?.kind).toBe("validationFailed");
       expect(result.error?.message).toContain("確定済みの月です");
-      expect(writes).toEqual([]);
+      expect(calls).toEqual([]);
     }
   });
 });

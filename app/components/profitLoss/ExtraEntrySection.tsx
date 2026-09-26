@@ -1,7 +1,7 @@
 "use client";
 
 import { ExtraEntryLine } from "@/app/types/types";
-import { ORG_WIDE_TEAM_LABEL } from "@/app/utils/constants";
+import { teamLabel } from "@/app/utils/constants";
 import { formatEntryType } from "@/app/utils/extraEntry";
 import { formatCurrency, formatDateToJp } from "@/app/utils/formatter";
 import { Badge, Paper, Table, Text } from "@mantine/core";
@@ -48,7 +48,7 @@ const ExtraEntrySection = ({ extraEntries }: Props) => {
               <Table.Td className="text-gray-700">
                 {entry.description}
                 <span className="text-xs text-gray-500 ml-2">
-                  （{entry.category} / {entry.team ?? ORG_WIDE_TEAM_LABEL} /{" "}
+                  （{entry.category} / {teamLabel(entry.team)} /{" "}
                   {formatDateToJp(entry.entryDate)}）
                 </span>
               </Table.Td>

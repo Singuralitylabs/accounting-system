@@ -477,7 +477,7 @@ $$;
 COMMENT ON FUNCTION public.save_profit_loss_closing(date, jsonb, bigint) IS
   '損益計算書の月次収支確定（Issue #148）。ヘッダ（profit_loss_closings）の追加と明細（profit_loss_closing_lines）の全置換を単一トランザクションで行う。p_closing_id が NULL なら新規の確定のみ（確定済みの月は ALREADY_CLOSED）、指定時は確定直後の再検証で自分の確定を取り直す場合のみ（一致しなければ CLOSING_CHANGED）。closed_by は auth.uid() から解決する。SECURITY DEFINER で関数内で経理担当者・管理者かを判定する（テーブルへの直接の書き込み権限は付与しない）。詳細: docs/database.md 5.15';
 
-REVOKE EXECUTE ON FUNCTION public.save_profit_loss_closing(date, jsonb, bigint) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.save_profit_loss_closing(date, jsonb, bigint) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.save_profit_loss_closing(date, jsonb, bigint) TO authenticated;
 
 -- ===== GRANT =====

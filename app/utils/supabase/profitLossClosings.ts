@@ -28,9 +28,9 @@ import {
 } from "../profitLossDiff";
 import { createServerSupabase } from "./clients";
 import {
+  ClosingSourceRows,
+  fetchClosingSourceRows,
   fetchLiveSourceRows,
-  fetchReportSourceRows,
-  ReportSourceRows,
 } from "./profitLossSource";
 import { getAuthorizedViewer } from "./viewerAccess";
 import { getClosedMonths } from "./profitLossClosedMonths";
@@ -248,7 +248,7 @@ export const getClosingDiffSummary =
     }
     const rangeRows = await Promise.all(
       groupConsecutiveMonths(months).map((period) =>
-        fetchReportSourceRows(period),
+        fetchClosingSourceRows(period),
       ),
     );
     if (rangeRows.some((rows) => !rows)) {
@@ -260,7 +260,7 @@ export const getClosingDiffSummary =
       };
     }
     const summary: ClosingDiffSummary = [];
-    (rangeRows as ReportSourceRows[]).forEach((rows) => {
+    (rangeRows as ClosingSourceRows[]).forEach((rows) => {
       rows.closings.forEach((closing, month) => {
         const { pending } = diffClosingLines({
           liveLines: buildLiveMonthLines({ month, ...rows }),
@@ -297,7 +297,7 @@ const prepareDiffOperation = async (
   if (!profileInfo) {
     return { error };
   }
-  const rows = await fetchReportSourceRows({
+  const rows = await fetchClosingSourceRows({
     startMonth: month,
     endMonth: month,
   });

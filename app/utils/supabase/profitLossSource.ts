@@ -30,9 +30,9 @@ import {
 } from "../profitLossClosing";
 import { annotateDiffMoves, diffKeyOf } from "../profitLossDiff";
 import { toFirstOfMonth } from "../formatter";
-import type { PostgrestError } from "@supabase/supabase-js";
 import { createServerSupabase } from "./clients";
 import { fetchClosedMonthKeys } from "./closedMonthsQuery";
+import { fetchAllByIds, fetchAllPages } from "./paging";
 import { getActiveSelectOptionsByType } from "./selectOptionsCache";
 
 // business / costs の取得列。計上月（案件開始日）・下書き判定・ラベル解決に
@@ -43,36 +43,6 @@ const MATTER_COLUMNS =
   "matters!inner(id, user_id, title, team, category, start_date, is_fixed, is_completed)";
 export const BUSINESS_SELECT = `id, name, amount, matter_id, ${MATTER_COLUMNS}`;
 export const COST_SELECT = `id, name, price, item, matter_id, ${MATTER_COLUMNS}`;
-
-// PostgREST は 1 リクエストで返す行数を max_rows（supabase/config.toml・本番とも既定 1000。
-// 埋め込みリソースの配列にも掛かる）で黙って打ち切る。集計の取りこぼしを防ぐため、
-// 行数が増えうる取得は id のキーセット方式（id > 直前の最大 id を id 順に PAGE_SIZE 件ずつ）で
-// ページングして全件を集める（通常は 1 ページ = 1 往復で終わる）。offset 方式と違い、
-// 取得の途中で前の行が削除されても後ろの行を読み飛ばさない。
-// ページサイズは max_rows 以下にすること（上回ると 1 ページ目が max_rows 件で打ち切られ、
-// 最終ページと誤判定して取りこぼす）
-export const PAGE_SIZE = 1000;
-
-export const fetchAllPages = async <T extends { id: number }>(
-  fetchPage: (
-    afterId: number,
-    limit: number,
-  ) => PromiseLike<{ data: T[] | null; error: PostgrestError | null }>,
-): Promise<{ data: T[] | null; error: PostgrestError | null }> => {
-  const rows: T[] = [];
-  let afterId = 0; // id は 1 以上（GENERATED ... AS IDENTITY）
-  for (;;) {
-    const { data, error } = await fetchPage(afterId, PAGE_SIZE);
-    if (error) {
-      return { data: null, error };
-    }
-    rows.push(...(data ?? []));
-    if (!data || data.length < PAGE_SIZE) {
-      return { data: rows, error: null };
-    }
-    afterId = data[data.length - 1].id;
-  }
-};
 
 // ライブ集計（buildLiveMonthLines）に必要な行
 export type LiveSourceRows = {
@@ -187,90 +157,48 @@ export const fetchLiveSourceRows = async (
   };
 };
 
-// 集計・表示に必要な行をまとめて取得する（RLS により権限に応じた行のみ返る）
-// セッション Cookie は @supabase/ssr 形式。createServerSupabase() 以外のクライアントを混ぜない
-// 対象期間＋月未確定（NULL）行に絞る。月次は単月、年間推移は年度12ヶ月を渡し、
-// いずれも一括取得（Promise.all）のままクエリ往復を増やさない。
-export const fetchReportSourceRows = async (
+// 確定スナップショット（Issue #148 / #149）: 確定済みの月（"YYYY-MM"）→ ヘッダ・確定明細・見送り記録。
+// PostgREST の max_rows は埋め込みリソースの配列にも掛かるため、明細・見送り記録は埋め込まずに
+// 別クエリでページングし、ヘッダの月範囲で絞る（!inner の埋め込み側に条件を掛ける）。
+// 明細は RLS によりチームリーダーは自チーム＋全体共通（＋自分が作成した案件）のみ、
+// 見送り記録は accounting / admin のみ返る
+const fetchClosingSnapshots = async (
   period: ReportPeriod,
-): Promise<ReportSourceRows | null> => {
+): Promise<Map<string, MonthClosingSnapshot> | null> => {
   const supabase = createServerSupabase();
   const bounds = reportRangeBounds(period);
-
-  // 表示タイトル（Issue #150）は全月共通のため期間で絞らない（件数は対象行数以下）
-  const labelQuery = fetchAllPages((afterId, limit) =>
+  const [closingResult, closingLineResult, dismissalResult] = await Promise.all([
     supabase
-      .from("profit_loss_labels")
+      .from("profit_loss_closings")
       .select("*")
-      .gt("id", afterId)
-      .order("id", { ascending: true })
-      .limit(limit),
-  );
-  // 確定ヘッダ（Issue #148）・確定明細・見送り記録（Issue #149）。PostgREST の max_rows は
-  // 埋め込みリソースの配列にも掛かるため、明細・見送り記録は埋め込まずに別クエリで
-  // ページングし、ヘッダの月範囲で絞る（!inner の埋め込み側に条件を掛ける）。
-  // 明細は RLS によりチームリーダーは自チーム＋全体共通のみ、見送り記録は accounting / admin のみ返る
-  const closingQuery = supabase
-    .from("profit_loss_closings")
-    .select("*")
-    .gte("target_month", bounds.startDate)
-    .lt("target_month", bounds.endExclusive);
-  const closingLineQuery = fetchAllPages((afterId, limit) =>
-    supabase
-      .from("profit_loss_closing_lines")
-      .select("*, profit_loss_closings!inner(target_month)")
-      .gte("profit_loss_closings.target_month", bounds.startDate)
-      .lt("profit_loss_closings.target_month", bounds.endExclusive)
-      .gt("id", afterId)
-      .order("id", { ascending: true })
-      .limit(limit),
-  );
-  const dismissalQuery = fetchAllPages((afterId, limit) =>
-    supabase
-      .from("profit_loss_closing_dismissals")
-      .select("*, profit_loss_closings!inner(target_month)")
-      .gte("profit_loss_closings.target_month", bounds.startDate)
-      .lt("profit_loss_closings.target_month", bounds.endExclusive)
-      .gt("id", afterId)
-      .order("id", { ascending: true })
-      .limit(limit),
-  );
-
-  const [
-    liveRows,
-    labelResult,
-    closingResult,
-    closingLineResult,
-    dismissalResult,
-    teamOptions,
-  ] = await Promise.all([
-    fetchLiveSourceRows(period),
-    labelQuery,
-    closingQuery,
-    closingLineQuery,
-    dismissalQuery,
-    // 案件別収支のチームの並び順（項目管理のチームマスタの display_order 順）
-    getActiveSelectOptionsByType(["team"]),
+      .gte("target_month", bounds.startDate)
+      .lt("target_month", bounds.endExclusive),
+    fetchAllPages((afterId, limit) =>
+      supabase
+        .from("profit_loss_closing_lines")
+        .select("*, profit_loss_closings!inner(target_month)")
+        .gte("profit_loss_closings.target_month", bounds.startDate)
+        .lt("profit_loss_closings.target_month", bounds.endExclusive)
+        .gt("id", afterId)
+        .order("id", { ascending: true })
+        .limit(limit),
+    ),
+    fetchAllPages((afterId, limit) =>
+      supabase
+        .from("profit_loss_closing_dismissals")
+        .select("*, profit_loss_closings!inner(target_month)")
+        .gte("profit_loss_closings.target_month", bounds.startDate)
+        .lt("profit_loss_closings.target_month", bounds.endExclusive)
+        .gt("id", afterId)
+        .order("id", { ascending: true })
+        .limit(limit),
+    ),
   ]);
-  if (!liveRows) {
-    return null;
-  }
-
   const error =
-    labelResult.error ??
-    closingResult.error ??
-    closingLineResult.error ??
-    dismissalResult.error;
+    closingResult.error ?? closingLineResult.error ?? dismissalResult.error;
   if (error) {
-    console.error("損益レポートのデータ取得に失敗しました:", error);
+    console.error("損益レポートの確定スナップショットの取得に失敗しました:", error);
     return null;
-  }
-  // 並び順の取得失敗は集計値に影響しないため致命的にはしない（チーム名順で表示する）
-  if (teamOptions.error) {
-    console.error(
-      "損益レポートのチーム並び順の取得に失敗しました（チーム名順で表示します）:",
-      teamOptions.error,
-    );
   }
 
   // 明細・見送り記録を確定ヘッダごとにまとめる（埋め込みの target_month は使わない）
@@ -292,14 +220,72 @@ export const fetchReportSourceRows = async (
         .map(stripJoin),
     });
   });
+  return closings;
+};
+
+export type ClosingSourceRows = LiveSourceRows & {
+  // 確定済みの月（"YYYY-MM"）→ 確定スナップショット（Issue #148）
+  closings: Map<string, MonthClosingSnapshot>;
+};
+
+// ライブの行と確定スナップショットだけを取得する（確定後の差分の件数集計・反映・見送り用。
+// 表示タイトル・チームマスタは使わないため取得しない）
+export const fetchClosingSourceRows = async (
+  period: ReportPeriod,
+): Promise<ClosingSourceRows | null> => {
+  const [liveRows, closings] = await Promise.all([
+    fetchLiveSourceRows(period),
+    fetchClosingSnapshots(period),
+  ]);
+  return liveRows && closings ? { ...liveRows, closings } : null;
+};
+
+// 集計・表示に必要な行をまとめて取得する（RLS により権限に応じた行のみ返る）
+// セッション Cookie は @supabase/ssr 形式。createServerSupabase() 以外のクライアントを混ぜない
+// 対象期間＋月未確定（NULL）行に絞る。月次は単月、年間推移は年度12ヶ月を渡し、
+// いずれも一括取得（Promise.all）のままクエリ往復を増やさない。
+export const fetchReportSourceRows = async (
+  period: ReportPeriod,
+): Promise<ReportSourceRows | null> => {
+  const supabase = createServerSupabase();
+
+  // 表示タイトル（Issue #150）は全月共通のため期間で絞らない（件数は対象行数以下）
+  const labelQuery = fetchAllPages((afterId, limit) =>
+    supabase
+      .from("profit_loss_labels")
+      .select("*")
+      .gt("id", afterId)
+      .order("id", { ascending: true })
+      .limit(limit),
+  );
+
+  const [sourceRows, labelResult, teamOptions] = await Promise.all([
+    fetchClosingSourceRows(period),
+    labelQuery,
+    // 案件別収支のチームの並び順（項目管理のチームマスタの display_order 順）
+    getActiveSelectOptionsByType(["team"]),
+  ]);
+  if (!sourceRows) {
+    return null;
+  }
+  if (labelResult.error) {
+    console.error("損益レポートのデータ取得に失敗しました:", labelResult.error);
+    return null;
+  }
+  // 並び順の取得失敗は集計値に影響しないため致命的にはしない（チーム名順で表示する）
+  if (teamOptions.error) {
+    console.error(
+      "損益レポートのチーム並び順の取得に失敗しました（チーム名順で表示します）:",
+      teamOptions.error,
+    );
+  }
 
   return {
-    ...liveRows,
+    ...sourceRows,
     teamOrder: (teamOptions.optionsByType.team ?? []).map(
       (option) => option.value,
     ),
     labels: labelResult.data ?? [],
-    closings,
   };
 };
 
@@ -327,21 +313,33 @@ export const supplementAdjustmentTargets = async (
   }
   const supabase = createServerSupabase();
   const [missingBusiness, missingCosts, missingRecurring] = await Promise.all([
-    missingIds.businessIds.length > 0
-      ? supabase
-          .from("business")
-          .select(BUSINESS_SELECT)
-          .in("id", missingIds.businessIds)
-      : Promise.resolve({ data: [], error: null }),
-    missingIds.costIds.length > 0
-      ? supabase.from("costs").select(COST_SELECT).in("id", missingIds.costIds)
-      : Promise.resolve({ data: [], error: null }),
-    missingIds.recurringCostIds.length > 0
-      ? supabase
-          .from("recurring_costs")
-          .select("*")
-          .in("id", missingIds.recurringCostIds)
-      : Promise.resolve({ data: [], error: null }),
+    fetchAllByIds(missingIds.businessIds, (chunk, afterId, limit) =>
+      supabase
+        .from("business")
+        .select(BUSINESS_SELECT)
+        .in("id", chunk)
+        .gt("id", afterId)
+        .order("id", { ascending: true })
+        .limit(limit),
+    ),
+    fetchAllByIds(missingIds.costIds, (chunk, afterId, limit) =>
+      supabase
+        .from("costs")
+        .select(COST_SELECT)
+        .in("id", chunk)
+        .gt("id", afterId)
+        .order("id", { ascending: true })
+        .limit(limit),
+    ),
+    fetchAllByIds(missingIds.recurringCostIds, (chunk, afterId, limit) =>
+      supabase
+        .from("recurring_costs")
+        .select("*")
+        .in("id", chunk)
+        .gt("id", afterId)
+        .order("id", { ascending: true })
+        .limit(limit),
+    ),
   ]);
   if (missingBusiness.error || missingCosts.error || missingRecurring.error) {
     console.error(
@@ -381,28 +379,41 @@ export const fetchDiffMoveContext = async (
   const removedBusinessIds = idsOf(removed, "business");
   const removedCostIds = idsOf(removed, "cost");
   const addedIds = added.map((diff) => diff.sourceId);
+  // 追加・削除の差分が多い月（案件の一括差し戻し等）でも max_rows で打ち切られないよう、
+  // ID を分割してページングする（fetchAllByIds。ID が無ければ問い合わせない）
   const [businessResult, costResult, otherLinesResult, closingsResult] =
     await Promise.all([
-      removedBusinessIds.length > 0
-        ? supabase
-            .from("business")
-            .select(`id, ${matterColumns}`)
-            .in("id", removedBusinessIds)
-        : Promise.resolve({ data: [], error: null }),
-      removedCostIds.length > 0
-        ? supabase
-            .from("costs")
-            .select(`id, ${matterColumns}`)
-            .in("id", removedCostIds)
-        : Promise.resolve({ data: [], error: null }),
-      addedIds.length > 0
-        ? supabase
-            .from("profit_loss_closing_lines")
-            .select("source_type, source_id, profit_loss_closings!inner(target_month)")
-            .in("source_type", ["business", "cost"])
-            .in("source_id", addedIds)
-            .neq("profit_loss_closings.target_month", toFirstOfMonth(month))
-        : Promise.resolve({ data: [], error: null }),
+      fetchAllByIds(removedBusinessIds, (chunk, afterId, limit) =>
+        supabase
+          .from("business")
+          .select(`id, ${matterColumns}`)
+          .in("id", chunk)
+          .gt("id", afterId)
+          .order("id", { ascending: true })
+          .limit(limit),
+      ),
+      fetchAllByIds(removedCostIds, (chunk, afterId, limit) =>
+        supabase
+          .from("costs")
+          .select(`id, ${matterColumns}`)
+          .in("id", chunk)
+          .gt("id", afterId)
+          .order("id", { ascending: true })
+          .limit(limit),
+      ),
+      fetchAllByIds(addedIds, (chunk, afterId, limit) =>
+        supabase
+          .from("profit_loss_closing_lines")
+          .select(
+            "id, source_type, source_id, profit_loss_closings!inner(target_month)",
+          )
+          .in("source_type", ["business", "cost"])
+          .in("source_id", chunk)
+          .neq("profit_loss_closings.target_month", toFirstOfMonth(month))
+          .gt("id", afterId)
+          .order("id", { ascending: true })
+          .limit(limit),
+      ),
       fetchClosedMonthKeys(),
     ]);
   const error =

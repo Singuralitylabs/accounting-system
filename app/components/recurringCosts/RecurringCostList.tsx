@@ -14,7 +14,11 @@ import {
 import { useEffect, useState } from "react";
 import { CiSquarePlus } from "react-icons/ci";
 import { RiDeleteBin6Line } from "react-icons/ri";
-import { ORG_WIDE_TEAM_LABEL } from "@/app/utils/constants";
+import {
+  ORG_WIDE_TEAM_LABEL,
+  teamFromLabel,
+  teamLabel,
+} from "@/app/utils/constants";
 import { notifyError, notifySuccess } from "@/app/utils/notify";
 import { confirmAction } from "@/app/utils/confirmAction";
 import { PAYMENT_CYCLE_OPTIONS } from "@/app/utils/paymentCycle";
@@ -230,12 +234,11 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
                   </Table.Td>
                   <Table.Td>
                     <Select
-                      value={row.team ?? ORG_WIDE_TEAM_LABEL}
+                      value={teamLabel(row.team)}
                       data={[ORG_WIDE_TEAM_LABEL, ...teamList]}
                       onChange={(selected) =>
                         handleUpdateRow(row.id, {
-                          team:
-                            selected === ORG_WIDE_TEAM_LABEL ? null : selected,
+                          team: teamFromLabel(selected),
                         })
                       }
                       allowDeselect={false}

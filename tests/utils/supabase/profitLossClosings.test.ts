@@ -7,12 +7,14 @@ const {
   getAuthorizedViewer,
   fetchReportSourceRows,
   fetchLiveSourceRows,
+  fetchClosingSourceRows,
   getClosedMonths,
 } = vi.hoisted(() => ({
   createServerSupabase: vi.fn(),
   getAuthorizedViewer: vi.fn(),
   fetchReportSourceRows: vi.fn(),
   fetchLiveSourceRows: vi.fn(),
+  fetchClosingSourceRows: vi.fn(),
   getClosedMonths: vi.fn(),
 }));
 
@@ -21,6 +23,7 @@ vi.mock("@/app/utils/supabase/viewerAccess", () => ({ getAuthorizedViewer }));
 vi.mock("@/app/utils/supabase/profitLossSource", () => ({
   fetchReportSourceRows,
   fetchLiveSourceRows,
+  fetchClosingSourceRows,
 }));
 vi.mock("@/app/utils/supabase/profitLossClosedMonths", () => ({
   getClosedMonths,
@@ -123,6 +126,10 @@ describe("profitLossClosings の Server Action（Issue #148 / #149）", () => {
     fetchReportSourceRows.mockReset().mockResolvedValue(rows());
     // 確定はライブ集計の行だけを取得する（テストでは同じ行を返す）
     fetchLiveSourceRows
+      .mockReset()
+      .mockImplementation((period) => fetchReportSourceRows(period));
+    // 差分の集計・反映・見送りはライブの行と確定スナップショットだけを取得する
+    fetchClosingSourceRows
       .mockReset()
       .mockImplementation((period) => fetchReportSourceRows(period));
     getClosedMonths.mockReset().mockResolvedValue({ months: [] });
@@ -360,7 +367,7 @@ describe("profitLossClosings の Server Action（Issue #148 / #149）", () => {
     });
     const summary = await getClosingDiffSummary();
     expect(summary.error).toBeUndefined();
-    expect(fetchReportSourceRows.mock.calls.map((call) => call[0])).toEqual([
+    expect(fetchClosingSourceRows.mock.calls.map((call) => call[0])).toEqual([
       { startMonth: "2026-07", endMonth: "2026-08" },
       { startMonth: "2027-06", endMonth: "2027-06" },
     ]);

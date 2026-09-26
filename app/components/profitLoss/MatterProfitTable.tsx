@@ -11,7 +11,7 @@ import {
 } from "@/app/types/types";
 import { formatCurrency } from "@/app/utils/formatter";
 import { formatEntryType } from "@/app/utils/extraEntry";
-import { ORG_WIDE_TEAM_LABEL } from "@/app/utils/constants";
+import { teamLabel } from "@/app/utils/constants";
 import {
   Badge,
   Button,
@@ -60,8 +60,6 @@ type Props = {
     currentTitle: string | null,
   ) => void;
 };
-
-const teamLabel = (team: string | null) => team ?? ORG_WIDE_TEAM_LABEL;
 
 // 確定後に未処理の変更がある行の目印（Issue #149）
 const ChangedIcon = ({ label }: { label: string }) => (

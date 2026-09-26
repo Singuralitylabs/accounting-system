@@ -269,7 +269,7 @@ $$;
 COMMENT ON FUNCTION public.save_profit_loss_label(text, bigint, bigint, bigint, bigint) IS
   '損益計算書の表示タイトルの保存（Issue #150）。対象（案件 / 売上明細 / 費用明細 / 定期費用のいずれか1つ）のタイトルを upsert し、空欄（空白のみ）なら削除して元の名称に戻す。updated_by は auth.uid() から解決する。書き込みの可否は呼び出し元ロールに対する profit_loss_labels の RLS がそのまま適用される（SECURITY INVOKER）。詳細: docs/database.md 5.13';
 
-REVOKE EXECUTE ON FUNCTION public.save_profit_loss_label(text, bigint, bigint, bigint, bigint) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.save_profit_loss_label(text, bigint, bigint, bigint, bigint) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.save_profit_loss_label(text, bigint, bigint, bigint, bigint) TO authenticated;
 
 -- ===== GRANT =====

@@ -155,12 +155,22 @@ describe("ClosingDiffPanel", () => {
     );
   });
 
-  it("移動の情報を取得できなかった場合は注意を出し、反映できない（見送りはできる）", () => {
+  it("移動の情報を取得できなかった場合は注意を出し、未処理・見送り済みのどちらからも反映できない（見送り・取り消しはできる）", () => {
+    const dismissed = baseDiff({
+      key: "cost:5",
+      sourceType: "cost",
+      sourceId: 5,
+      name: "コストB",
+      dismissal: {
+        dismissedAt: "2026-09-02T10:00:00+09:00",
+        dismissedByName: "経理太郎",
+      },
+    });
     renderWithMantine(
       <ClosingDiffPanel
         report={report({
           pending: [baseDiff({})],
-          dismissed: [],
+          dismissed: [dismissed],
           moveInfoUnavailable: true,
         })}
         loadingMatterId={null}
@@ -173,12 +183,26 @@ describe("ClosingDiffPanel", () => {
     fireEvent.click(
       screen.getByRole("checkbox", { name: "案件X 取引先Aを選択" }),
     );
-    expect(
-      screen.getByRole("button", { name: "選択した変更を反映" }),
-    ).toBeDisabled();
+    const applyButtons = screen.getAllByRole("button", {
+      name: "選択した変更を反映",
+    });
+    expect(applyButtons[0]).toBeDisabled();
     expect(screen.getByRole("button", { name: "すべて反映" })).toBeDisabled();
     expect(
       screen.getByRole("button", { name: "選択した変更を見送る" }),
+    ).toBeEnabled();
+
+    // 見送り済み一覧
+    fireEvent.click(screen.getByRole("button", { name: /見送り済み/ }));
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "案件X コストBを選択" }),
+    );
+    const dismissedApply = screen.getAllByRole("button", {
+      name: "選択した変更を反映",
+    })[1];
+    expect(dismissedApply).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "見送りを取り消す" }),
     ).toBeEnabled();
   });
 

@@ -13,6 +13,7 @@ import {
   isClosedMonth,
 } from "../profitLossClosing";
 import { fetchClosedMonthKeys } from "./closedMonthsQuery";
+import { fetchAllByIds } from "./paging";
 import { createServerSupabase } from "./clients";
 
 // 経理追加収支一覧の取得（RLS により権限に応じた行のみ返る）
@@ -40,6 +41,11 @@ const fetchClosedMonths = async () => {
 
 export type BulkUpsertExtraEntryResult = { error?: AccessFailure };
 
+const SAVE_FAILED: AccessFailure = {
+  kind: "fetchFailed",
+  message: "経理追加収支情報の更新に失敗しました。何も保存されていません。",
+};
+
 // 経理追加収支の一括登録・更新・削除。
 // extraEntries は追加・削除・編集した行のみ（画面側で selectChangedExtraEntries により選ぶ）。
 // 送られた保存済みの行はすべて更新対象として扱う。
@@ -49,7 +55,8 @@ export type BulkUpsertExtraEntryResult = { error?: AccessFailure };
 // なるだけでエラーにならない（黙って保存されない）ため、書き込み前にここで判定し、
 // 1 件でも該当すれば何も書き込まずに分かりやすいエラーを返す。
 // 更新する行が既に削除されていた（画面の読み込み後に他の利用者が削除した）場合も、
-// 書き込み前に拒否する（UPDATE が 0 行になって一部だけ保存されるのを防ぐ）
+// 書き込み前に拒否する。書き込みは save_extra_entries（1 トランザクション）で行うため、
+// 確認の後に状況が変わって失敗しても、一部だけ保存された状態は残らない
 export const bulkUpsertExtraEntry = async (
   extraEntries: ExtraEntryInListType[]
 ): Promise<BulkUpsertExtraEntryResult> => {
@@ -61,16 +68,22 @@ export const bulkUpsertExtraEntry = async (
   const [{ closedMonths, error: closingError }, originalResult] =
     await Promise.all([
       fetchClosedMonths(),
-      existingIds.length > 0
-        ? supabase.from("extra_entries").select("*").in("id", existingIds)
-        : Promise.resolve({ data: [], error: null }),
+      fetchAllByIds(existingIds, (chunk, afterId, limit) =>
+        supabase
+          .from("extra_entries")
+          .select("*")
+          .in("id", chunk)
+          .gt("id", afterId)
+          .order("id", { ascending: true })
+          .limit(limit)
+      ),
     ]);
   if (closingError || originalResult.error) {
     console.error(
       "経理追加収支の保存前確認に失敗しました:",
       closingError ?? originalResult.error
     );
-    throw new Error("経理追加収支情報の更新に失敗しました");
+    return { error: SAVE_FAILED };
   }
   const originals = new Map(
     (originalResult.data ?? []).map((row) => [row.id, row])
@@ -112,79 +125,39 @@ export const bulkUpsertExtraEntry = async (
   const deleteEntries = extraEntries.filter(
     (ee) => ee.isRemoved && !ee.isNew && originals.has(ee.id)
   );
-
-  const operations = [];
-
-  // バルクINSERT
-  if (newEntries.length > 0) {
-    operations.push(
-      supabase.from("extra_entries").insert(newEntries.map(toDbRow))
-    );
+  if (
+    newEntries.length === 0 &&
+    updateEntries.length === 0 &&
+    deleteEntries.length === 0
+  ) {
+    return {};
   }
 
-  // バルクUPDATE
-  if (updateEntries.length > 0) {
-    const updatePromises = updateEntries.map((ee) => {
-      if (!ee.id) {
-        throw new Error("更新対象の経理追加収支IDが見つかりません");
-      }
-
-      // RLS（確定済みの月の編集ロック等）で拒否された UPDATE はエラーにならず 0 行に
-      // なるだけのため、更新した行を返させて件数を確かめる（下の expectedCount）
-      return supabase
-        .from("extra_entries")
-        .update(toDbRow(ee))
-        .eq("id", ee.id)
-        .select("id")
-        .then((result) => ({ ...result, expectedCount: 1 }));
-    });
-    operations.push(...updatePromises);
-  }
-
-  // バルクDELETE
-  if (deleteEntries.length > 0) {
-    const deleteIds = deleteEntries
-      .map((ee) => ee.id)
-      .filter((id) => id !== undefined);
-    if (deleteIds.length > 0) {
-      operations.push(
-        supabase
-          .from("extra_entries")
-          .delete()
-          .in("id", deleteIds)
-          .select("id")
-          .then((result) => ({ ...result, expectedCount: deleteIds.length }))
-      );
+  // 追加・更新・削除を 1 回の RPC（= 1 トランザクション）で行う。途中で 1 件でも失敗すれば
+  // すべてロールバックされ、一部だけ保存された状態は残らない。
+  // RLS はそのまま効く（SECURITY INVOKER）。保存前の確認の後に月が確定された・行が削除された
+  // 等で更新・削除が指定件数に満たない場合は NOT_APPLIED、追加・日付の変更が確定済みの月に
+  // 当たる場合は RLS 違反（42501）になる
+  const { error: rpcError } = await supabase.rpc("save_extra_entries", {
+    p_inserts: newEntries.map(toDbRow),
+    p_updates: updateEntries.map((ee) => ({ id: ee.id, ...toDbRow(ee) })),
+    p_delete_ids: deleteEntries.map((ee) => ee.id),
+  });
+  if (rpcError) {
+    if (
+      rpcError.message.includes("NOT_APPLIED") ||
+      rpcError.code === "42501"
+    ) {
+      return {
+        error: {
+          kind: "validationFailed",
+          message:
+            "保存の途中で対象の月が確定されたか、行が他の利用者に変更・削除されたため、何も保存しませんでした。画面を再読み込みしてから保存し直してください。",
+        },
+      };
     }
-  }
-
-  // 全て並列実行
-  if (operations.length > 0) {
-    const results = await Promise.all(operations);
-    const errors = results
-      .filter((result) => result.error)
-      .map((result) => result.error);
-
-    if (errors.length > 0) {
-      console.error(
-        "経理追加収支情報のバルク操作でエラーが発生しました:",
-        errors
-      );
-      throw new Error("経理追加収支情報の更新に失敗しました");
-    }
-    // 保存前の確認の後に月が確定された等で、RLS により一部の更新・削除が 0 行になった
-    const skipped = results.filter(
-      (result) =>
-        "expectedCount" in result &&
-        (result.data?.length ?? 0) < (result.expectedCount as number)
-    );
-    if (skipped.length > 0) {
-      console.error(
-        "経理追加収支情報の一部が更新・削除されませんでした（確定済みの月の可能性）:",
-        skipped
-      );
-      throw new Error("経理追加収支情報の一部が更新されませんでした");
-    }
+    console.error("経理追加収支情報の保存に失敗しました:", rpcError);
+    return { error: SAVE_FAILED };
   }
 
   return {};

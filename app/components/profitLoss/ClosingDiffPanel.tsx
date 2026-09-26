@@ -160,7 +160,7 @@ const ClosingDiffPanel = ({ report, loadingMatterId, onShowMatter }: Props) => {
   const moveInfoUnavailable = !!diffs.moveInfoUnavailable;
 
   const handleApply = async (targets: ClosingDiff[]) => {
-    if (targets.length === 0) return;
+    if (targets.length === 0 || moveInfoUnavailable) return;
     const impact = computeDiffImpact(report, targets);
     const moveWarning = hasMoveWarning(targets)
       ? "\n※ 他の確定済みの月との間で移動した明細を含みます。移動先・移動元の月でも反映しないと、両月の合計がずれます。"
@@ -380,6 +380,11 @@ const ClosingDiffPanel = ({ report, loadingMatterId, onShowMatter }: Props) => {
 
   return (
     <div className="mb-6">
+      {moveInfoUnavailable && (
+        <Text size="sm" c="red" className="mb-2">
+          他の確定済みの月との間で移動した明細かどうかを確認できませんでした。反映すると両月の合計がずれるおそれがあるため、画面を再読み込みしてから反映してください。
+        </Text>
+      )}
       {diffs.pending.length > 0 && (
         <Alert
           color="orange"
@@ -390,11 +395,6 @@ const ClosingDiffPanel = ({ report, loadingMatterId, onShowMatter }: Props) => {
           <Text size="sm" className="mb-2">
             確定後に案件が変更されました。損益計算書（確定値）にはまだ反映されていません。反映する変更、または見送る変更を選んでください。
           </Text>
-          {moveInfoUnavailable && (
-            <Text size="sm" c="red" className="mb-2">
-              他の確定済みの月との間で移動した明細かどうかを確認できませんでした。反映すると両月の合計がずれるおそれがあるため、画面を再読み込みしてから反映してください。
-            </Text>
-          )}
           {diffTable(diffs.pending, selected, setSelected, false)}
           {selectedDiffs.length > 0 && (
             <div className="mt-3">
@@ -477,7 +477,11 @@ const ClosingDiffPanel = ({ report, loadingMatterId, onShowMatter }: Props) => {
                 <Button
                   size="xs"
                   variant="light"
-                  disabled={selectedDismissedDiffs.length === 0 || isPending}
+                  disabled={
+                    selectedDismissedDiffs.length === 0 ||
+                    isPending ||
+                    moveInfoUnavailable
+                  }
                   onClick={() => handleApply(selectedDismissedDiffs)}
                 >
                   選択した変更を反映
