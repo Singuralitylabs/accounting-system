@@ -544,6 +544,266 @@ export type Database = {
           },
         ]
       }
+      profit_loss_closing_dismissals: {
+        Row: {
+          closing_id: number
+          dismissed_at: string
+          dismissed_by: number
+          dismissed_by_name: string
+          id: number
+          live_actual_amount: number | null
+          live_category: string | null
+          live_present: boolean
+          live_team: string | null
+          source_id: number
+          source_type: string
+        }
+        Insert: {
+          closing_id: number
+          dismissed_at?: string
+          dismissed_by: number
+          dismissed_by_name: string
+          id?: never
+          live_actual_amount?: number | null
+          live_category?: string | null
+          live_present: boolean
+          live_team?: string | null
+          source_id: number
+          source_type: string
+        }
+        Update: {
+          closing_id?: number
+          dismissed_at?: string
+          dismissed_by?: number
+          dismissed_by_name?: string
+          id?: never
+          live_actual_amount?: number | null
+          live_category?: string | null
+          live_present?: boolean
+          live_team?: string | null
+          source_id?: number
+          source_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profit_loss_closing_dismissals_closing_id_fkey"
+            columns: ["closing_id"]
+            isOneToOne: false
+            referencedRelation: "profit_loss_closings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profit_loss_closing_dismissals_dismissed_by_fkey"
+            columns: ["dismissed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profit_loss_closing_lines: {
+        Row: {
+          actual_amount: number | null
+          adjustment_amount: number | null
+          adjustment_reason: string | null
+          billing_amount: number | null
+          category: string | null
+          closing_id: number
+          entry_date: string | null
+          entry_type: string | null
+          expense_amount: number | null
+          id: number
+          item: string | null
+          matter_id: number | null
+          matter_title: string | null
+          matter_user_id: number | null
+          name: string
+          payment_cycle: string | null
+          source_amount: number | null
+          source_id: number
+          source_type: string
+          team: string | null
+        }
+        Insert: {
+          actual_amount?: number | null
+          adjustment_amount?: number | null
+          adjustment_reason?: string | null
+          billing_amount?: number | null
+          category?: string | null
+          closing_id: number
+          entry_date?: string | null
+          entry_type?: string | null
+          expense_amount?: number | null
+          id?: never
+          item?: string | null
+          matter_id?: number | null
+          matter_title?: string | null
+          matter_user_id?: number | null
+          name: string
+          payment_cycle?: string | null
+          source_amount?: number | null
+          source_id: number
+          source_type: string
+          team?: string | null
+        }
+        Update: {
+          actual_amount?: number | null
+          adjustment_amount?: number | null
+          adjustment_reason?: string | null
+          billing_amount?: number | null
+          category?: string | null
+          closing_id?: number
+          entry_date?: string | null
+          entry_type?: string | null
+          expense_amount?: number | null
+          id?: never
+          item?: string | null
+          matter_id?: number | null
+          matter_title?: string | null
+          matter_user_id?: number | null
+          name?: string
+          payment_cycle?: string | null
+          source_amount?: number | null
+          source_id?: number
+          source_type?: string
+          team?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profit_loss_closing_lines_closing_id_fkey"
+            columns: ["closing_id"]
+            isOneToOne: false
+            referencedRelation: "profit_loss_closings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profit_loss_closings: {
+        Row: {
+          closed_at: string
+          closed_by: number
+          closed_by_name: string
+          id: number
+          inserted_at: string
+          refreshed_at: string | null
+          refreshed_by: number | null
+          refreshed_by_name: string | null
+          target_month: string
+          updated_at: string
+        }
+        Insert: {
+          closed_at?: string
+          closed_by: number
+          closed_by_name: string
+          id?: never
+          inserted_at?: string
+          refreshed_at?: string | null
+          refreshed_by?: number | null
+          refreshed_by_name?: string | null
+          target_month: string
+          updated_at?: string
+        }
+        Update: {
+          closed_at?: string
+          closed_by?: number
+          closed_by_name?: string
+          id?: never
+          inserted_at?: string
+          refreshed_at?: string | null
+          refreshed_by?: number | null
+          refreshed_by_name?: string | null
+          target_month?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profit_loss_closings_closed_by_fkey"
+            columns: ["closed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profit_loss_closings_refreshed_by_fkey"
+            columns: ["refreshed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profit_loss_labels: {
+        Row: {
+          business_id: number | null
+          cost_id: number | null
+          id: number
+          inserted_at: string
+          label: string
+          matter_id: number | null
+          recurring_cost_id: number | null
+          updated_at: string
+          updated_by: number
+        }
+        Insert: {
+          business_id?: number | null
+          cost_id?: number | null
+          id?: never
+          inserted_at?: string
+          label: string
+          matter_id?: number | null
+          recurring_cost_id?: number | null
+          updated_at?: string
+          updated_by: number
+        }
+        Update: {
+          business_id?: number | null
+          cost_id?: number | null
+          id?: never
+          inserted_at?: string
+          label?: string
+          matter_id?: number | null
+          recurring_cost_id?: number | null
+          updated_at?: string
+          updated_by?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profit_loss_labels_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "business"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profit_loss_labels_cost_id_fkey"
+            columns: ["cost_id"]
+            isOneToOne: false
+            referencedRelation: "costs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profit_loss_labels_matter_id_fkey"
+            columns: ["matter_id"]
+            isOneToOne: false
+            referencedRelation: "matters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profit_loss_labels_recurring_cost_id_fkey"
+            columns: ["recurring_cost_id"]
+            isOneToOne: false
+            referencedRelation: "recurring_costs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profit_loss_labels_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       recurring_costs: {
         Row: {
           comment: string | null
@@ -662,6 +922,16 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      apply_profit_loss_closing_diffs: {
+        Args: {
+          p_delete_keys: Json
+          p_target_month: string
+          p_upsert_lines: Json
+        }
+        Returns: {
+          applied_count: number
+        }[]
+      }
       auth_user_class: { Args: never; Returns: string }
       auth_user_team: { Args: never; Returns: string }
       can_access_team_budget: {
@@ -669,6 +939,15 @@ export type Database = {
         Returns: boolean
       }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
+      dismiss_profit_loss_closing_diffs: {
+        Args: {
+          p_dismissals: Json
+          p_target_month: string
+        }
+        Returns: {
+          dismissed_count: number
+        }[]
+      }
       get_member_options: {
         Args: never
         Returns: {
@@ -692,6 +971,14 @@ export type Database = {
           id: number
         }[]
       }
+      save_extra_entries: {
+        Args: {
+          p_delete_ids: number[]
+          p_inserts: Json
+          p_updates: Json
+        }
+        Returns: undefined
+      }
       save_profit_loss_adjustment: {
         Args: {
           p_business_id: number | null
@@ -705,6 +992,37 @@ export type Database = {
           deleted: boolean
           source_amount: number
           adjustment_amount: number
+        }[]
+      }
+      save_profit_loss_closing: {
+        Args: {
+          p_closing_id?: number
+          p_lines: Json
+          p_target_month: string
+        }
+        Returns: {
+          id: number
+        }[]
+      }
+      save_profit_loss_label: {
+        Args: {
+          p_business_id?: number
+          p_cost_id?: number
+          p_label: string
+          p_matter_id?: number
+          p_recurring_cost_id?: number
+        }
+        Returns: {
+          deleted: boolean
+        }[]
+      }
+      undo_profit_loss_closing_dismissals: {
+        Args: {
+          p_keys: Json
+          p_target_month: string
+        }
+        Returns: {
+          undone_count: number
         }[]
       }
       validate_member_ids: {

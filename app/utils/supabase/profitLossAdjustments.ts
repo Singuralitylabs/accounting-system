@@ -3,6 +3,7 @@
 import { AccessFailure, AdjustmentTarget } from "../../types/types";
 import { PL_ADJUSTMENT_WRITE_CLASSES } from "../permissions";
 import { toFirstOfMonth } from "../formatter";
+import { CLOSED_MONTH_LOCK_MESSAGE } from "../profitLossClosing";
 import { createServerSupabase } from "./clients";
 import { getAuthorizedViewer } from "./viewerAccess";
 
@@ -50,6 +51,12 @@ export const saveProfitLossAdjustment = async (
     // DB 関数内の RAISE EXCEPTION 'REASON_REQUIRED'（実績額が元データと異なるのに
     // 理由が空の場合）を判別できるようにする。クライアント側でも同じ検証を行うため
     // 通常はここに到達しないが、直接の呼び出しに備える
+    // 確定済みの月（Issue #148）は DB 関数が MONTH_CLOSED を返す（RLS でも拒否される）
+    if (rpcError.message.includes("MONTH_CLOSED")) {
+      return {
+        error: { kind: "validationFailed", message: CLOSED_MONTH_LOCK_MESSAGE },
+      };
+    }
     if (rpcError.message.includes("REASON_REQUIRED")) {
       return {
         error: {
@@ -83,15 +90,26 @@ export const deleteProfitLossAdjustment = async (
   }
 
   const supabase = createServerSupabase();
-  const { error: deleteError } = await supabase
+  // 確定済みの月（Issue #148）の調整は RLS で削除が拒否される。DELETE は RLS で
+  // 拒否されてもエラーにならず 0 行削除になるだけのため、削除された行を返させて判定する
+  const { data, error: deleteError } = await supabase
     .from("profit_loss_adjustments")
     .delete()
-    .eq("id", adjustmentId);
+    .eq("id", adjustmentId)
+    .select("id");
 
   if (deleteError) {
     console.error("損益調整の削除に失敗しました:", deleteError);
     return {
       error: { kind: "fetchFailed", message: "損益調整の削除に失敗しました。" },
+    };
+  }
+  if (!data || data.length === 0) {
+    return {
+      error: {
+        kind: "validationFailed",
+        message: `損益調整を削除できませんでした。${CLOSED_MONTH_LOCK_MESSAGE}（既に削除されている場合は再読み込みしてください）`,
+      },
     };
   }
 

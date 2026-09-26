@@ -32,6 +32,7 @@ import {
   getUpdateMatterConfirmMessage,
 } from "@/app/utils/confirmAction";
 import { createEmptyMatter } from "@/app/utils/matterValidation";
+import ClosedMonthMatterNotice from "./ClosedMonthMatterNotice";
 
 type Props = {
   matterInfo: MatterType;
@@ -305,6 +306,11 @@ export function UserMatterDetail({
             ※全て税抜金額でご記入ください。
           </span>
         )}
+        <ClosedMonthMatterNotice
+          savedStartDate={isNew ? null : matterInfo.start_date}
+          currentStartDate={form.values.start_date}
+          isDraft={isNew || (!matterInfo.is_fixed && !matterInfo.is_completed)}
+        />
         <h2>基本情報</h2>
         <MatterInfoBlock
           form={form}

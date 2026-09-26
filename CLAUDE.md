@@ -88,6 +88,7 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 - `app/layout.tsx` — Provider スタック / `force-dynamic`
 - `app/components/providers/` — `SupabaseProvider`, `QueryProvider`, `DatesLocaleProvider`, `InitialOptionalLoader`
 - `app/utils/matterCalc.ts` / `app/utils/matterValidation.ts` — 案件の金額集計と必須・日付バリデーション
+- `app/utils/profitLossLogic.ts` / `profitLossClosing.ts` / `profitLossDiff.ts` — 損益計算書の集計・月次収支確定・確定後の変更検知（純粋関数）。取得は `app/utils/supabase/profitLossSource.ts`（Server Action として公開しない）
 - `app/utils/supabase/editMatterInfo.ts` — 案件 CRUD のコア
 - `app/utils/supabase/profiles.ts` / `matters.ts` / `costs.ts` / `businesses.ts` / `selectOptions.ts` — ドメイン別 DB ヘルパ
 - `app/hooks/useMatterData.ts` — TanStack Query フック群

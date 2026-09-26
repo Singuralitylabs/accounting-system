@@ -7,109 +7,15 @@ import {
 } from "../../types/types";
 import { PL_ALLOWED_CLASSES } from "../permissions";
 import { createServerSupabase } from "./clients";
+import { fiscalYearMonths, isMonthKey, reportFlags } from "../profitLossLogic";
+import { buildMonthReport } from "../profitLossClosing";
 import {
-  BusinessRow,
-  CostRow,
-  ReportPeriod,
-  buildMonthlyReport,
-  collectMissingAdjustmentTargetIds,
-  datedOrUndatedFilter,
-  fiscalYearMonths,
-  isMonthKey,
-  recurringOverlapEndFilter,
-  reportFlags,
-  reportRangeBounds,
-} from "../profitLossLogic";
+  fetchDiffMoveContext,
+  fetchReportSourceRows,
+  supplementAdjustmentTargets,
+} from "./profitLossSource";
+import { annotateDiffMoves } from "../profitLossDiff";
 import { getAuthorizedViewer } from "./viewerAccess";
-
-// business / costs の取得列。ラベル解決に matters.title を使うため join を含む。
-// 通常取得と orphanedAdjustments 用の補完取得で同じ形を使う。
-const BUSINESS_SELECT =
-  "id, name, amount, invoice_date, matter_id, matters!inner(id, title, team, category)";
-const COST_SELECT =
-  "id, name, price, item, period, matter_id, matters!inner(id, title, team, category)";
-
-// 集計に必要な行をまとめて取得する（RLS により権限に応じた行のみ返る）
-// セッション Cookie は @supabase/ssr 形式。createServerSupabase() 以外のクライアントを混ぜない
-// period を渡すと対象期間＋月未確定（NULL）行に絞る。月次は単月、年間推移は年度12ヶ月を渡し、
-// いずれも5テーブルの一括取得（Promise.all）のままクエリ往復を増やさない。
-// 省略時は全件取得（後方互換。呼び出し側は原則として期間を渡す）。
-const fetchReportSourceRows = async (period?: ReportPeriod) => {
-  const supabase = createServerSupabase();
-  const bounds = period ? reportRangeBounds(period) : null;
-
-  let businessQuery = supabase.from("business").select(BUSINESS_SELECT);
-  let costQuery = supabase.from("costs").select(COST_SELECT);
-  let recurringQuery = supabase
-    .from("recurring_costs")
-    .select("*")
-    .order("id", { ascending: true });
-  let extraQuery = supabase
-    .from("extra_entries")
-    .select("*")
-    .order("id", { ascending: true });
-  let adjustmentQuery = supabase
-    .from("profit_loss_adjustments")
-    .select("*")
-    .order("id", { ascending: true });
-
-  if (bounds) {
-    businessQuery = businessQuery.or(
-      datedOrUndatedFilter("invoice_date", bounds),
-    );
-    costQuery = costQuery.or(datedOrUndatedFilter("period", bounds));
-    extraQuery = extraQuery.or(datedOrUndatedFilter("entry_date", bounds));
-    // 定期費用は適用期間の重なりで絞る（支払サイクルの計上判定は集計側で行う）。
-    // 適用期間が取得期間と重ならない行だけを除外する。
-    recurringQuery = recurringQuery
-      .lt("start_month", bounds.endExclusive)
-      .or(recurringOverlapEndFilter(bounds));
-    // 調整は対象月で絞る（target_month は NOT NULL）。
-    adjustmentQuery = adjustmentQuery
-      .gte("target_month", bounds.startDate)
-      .lt("target_month", bounds.endExclusive);
-  }
-
-  const [
-    businessResult,
-    costResult,
-    recurringResult,
-    extraResult,
-    adjustmentResult,
-  ] = await Promise.all([
-    businessQuery,
-    costQuery,
-    recurringQuery,
-    extraQuery,
-    adjustmentQuery,
-  ]);
-
-  if (
-    businessResult.error ||
-    costResult.error ||
-    recurringResult.error ||
-    extraResult.error ||
-    adjustmentResult.error
-  ) {
-    console.error(
-      "損益レポートのデータ取得に失敗しました:",
-      businessResult.error ??
-        costResult.error ??
-        recurringResult.error ??
-        extraResult.error ??
-        adjustmentResult.error,
-    );
-    return null;
-  }
-
-  return {
-    businessRows: (businessResult.data ?? []) as BusinessRow[],
-    costRows: (costResult.data ?? []) as CostRow[],
-    recurringCosts: recurringResult.data ?? [],
-    extraEntries: extraResult.data ?? [],
-    adjustments: adjustmentResult.data ?? [],
-  };
-};
 
 // 月次損益レポートの取得（month: "YYYY-MM"）
 export const getProfitLossReport = async (
@@ -136,68 +42,35 @@ export const getProfitLossReport = async (
   if (!rows) {
     return null;
   }
+  await supplementAdjustmentTargets(month, rows);
 
-  // 対象行が取得期間外へ移動した調整のラベル解決用に、欠けている対象行だけを
-  // ID 指定で補完取得する（通常は0件でクエリを発行しない。あっても1往復にまとめる）。
-  // 補完行は月振り分けで集計から除外されるため集計値は不変。
-  // RLS で読めない行は解決できず汎用表示（「売上（ID: X）」等）に落ちる。
-  const missingIds = collectMissingAdjustmentTargetIds(
+  // 確定済みの月は確定明細から、未確定の月はライブ集計から組み立てる（Issue #148）
+  const report = buildMonthReport({
     month,
-    rows.adjustments,
-    new Set(rows.businessRows.map((row) => row.id)),
-    new Set(rows.costRows.map((row) => row.id)),
-    new Set(rows.recurringCosts.map((rc) => rc.id)),
-  );
-  if (
-    missingIds.businessIds.length > 0 ||
-    missingIds.costIds.length > 0 ||
-    missingIds.recurringCostIds.length > 0
-  ) {
-    const supabase = createServerSupabase();
-    const [missingBusiness, missingCosts, missingRecurring] = await Promise.all(
-      [
-        missingIds.businessIds.length > 0
-          ? supabase
-              .from("business")
-              .select(BUSINESS_SELECT)
-              .in("id", missingIds.businessIds)
-          : Promise.resolve({ data: [], error: null }),
-        missingIds.costIds.length > 0
-          ? supabase
-              .from("costs")
-              .select(COST_SELECT)
-              .in("id", missingIds.costIds)
-          : Promise.resolve({ data: [], error: null }),
-        missingIds.recurringCostIds.length > 0
-          ? supabase
-              .from("recurring_costs")
-              .select("*")
-              .in("id", missingIds.recurringCostIds)
-          : Promise.resolve({ data: [], error: null }),
-      ],
-    );
-    if (missingBusiness.error || missingCosts.error || missingRecurring.error) {
-      console.error(
-        "損益レポートの調整対象行の補完取得に失敗しました（汎用ラベルで表示します）:",
-        missingBusiness.error ?? missingCosts.error ?? missingRecurring.error,
-      );
-    } else {
-      rows.businessRows.push(...((missingBusiness.data ?? []) as BusinessRow[]));
-      rows.costRows.push(...((missingCosts.data ?? []) as CostRow[]));
-      rows.recurringCosts.push(...(missingRecurring.data ?? []));
-    }
-  }
-
-  return buildMonthlyReport({
-    month,
-    businessRows: rows.businessRows,
-    costRows: rows.costRows,
-    recurringCosts: rows.recurringCosts,
-    extraEntries: rows.extraEntries,
-    adjustments: rows.adjustments,
-    includeOrphanedAdjustments: true,
+    ...rows,
+    closing: rows.closings.get(month) ?? null,
+    includeMonthlyDetails: true,
     ...reportFlags(profileInfo.class),
   });
+
+  // 確定後の差分（Issue #149）の追加・削除に、他の月との移動の情報を付ける。
+  // 取得に失敗した場合は、相手側の月も確定済みかどうか（片方だけ反映すると両月の合計が
+  // ずれる警告）が分からないため、差分一覧で注意を出して反映を止める
+  if (report.closingDiffs) {
+    const { context, failed } = await fetchDiffMoveContext(month, [
+      ...report.closingDiffs.pending,
+      ...report.closingDiffs.dismissed,
+    ]);
+    if (failed) {
+      report.closingDiffs = {
+        ...report.closingDiffs,
+        moveInfoUnavailable: true,
+      };
+    } else if (context) {
+      report.closingDiffs = annotateDiffMoves(report.closingDiffs, context);
+    }
+  }
+  return report;
 };
 
 // 年間推移の取得（fiscalYear: 年度の開始年。2026 = 2026/7〜2027/6）
@@ -228,17 +101,16 @@ export const getAnnualTrend = async (
     return null;
   }
 
+  // 確定済みの月は確定明細から、未確定の月はライブ集計から組み立てる（Issue #148）
   const trendMonths = months.map((month) =>
-    buildMonthlyReport({
+    buildMonthReport({
       month,
-      businessRows: rows.businessRows,
-      costRows: rows.costRows,
-      recurringCosts: rows.recurringCosts,
-      extraEntries: rows.extraEntries,
-      adjustments: rows.adjustments,
-      // 年間推移は orphanedAdjustments を表示に使わないため 12ヶ月分の
-      // 無駄な計算を避ける（AnnualTrendTable は参照しない）
-      includeOrphanedAdjustments: false,
+      ...rows,
+      closing: rows.closings.get(month) ?? null,
+      // 年間推移は対象行なし調整・確定後の変更を表示に使わないため 12ヶ月分の
+      // 無駄な計算を避ける（AnnualTrendTable は参照しない。差分の件数はバナー用の
+      // getClosingDiffSummary から取る）
+      includeMonthlyDetails: false,
       ...reportFlags(profileInfo.class),
     }),
   );

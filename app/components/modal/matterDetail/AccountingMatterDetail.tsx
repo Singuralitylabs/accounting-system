@@ -27,6 +27,7 @@ import {
   useCheckCompletedSingle,
   useSaveAccountingMemo,
 } from "@/app/hooks/useMatterData";
+import ClosedMonthMatterNotice from "./ClosedMonthMatterNotice";
 
 type Props = {
   matterInfo: MatterInfoWithUserNameType;
@@ -212,6 +213,10 @@ export function AccountingMatterDetail({
         <span className="text-red-700 text-sm">
           ※記載の金額は、全て税抜となっております。
         </span>
+        <ClosedMonthMatterNotice
+          savedStartDate={matterInfo.start_date}
+          isDraft={!matterInfo.is_fixed && !matterInfo.is_completed}
+        />
         <h2 className="my-4">基本情報</h2>
         <div className="sm:flex gap-4 w-full my-4">
           <LabelText label="担当者名">{matterInfo.user_name}</LabelText>

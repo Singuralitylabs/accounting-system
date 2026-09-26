@@ -5,6 +5,8 @@ import {
   extraEntryDuplicateKey,
   formatEntryType,
   shiftDateToMonth,
+  isExtraEntryUnchanged,
+  selectChangedExtraEntries,
 } from "@/app/utils/extraEntry";
 import { ExtraEntryType } from "@/app/types/types";
 
@@ -197,5 +199,86 @@ describe("excludeDuplicateExtraEntries", () => {
   it("当月に既存明細が無ければ全件そのまま返す", () => {
     const rows = buildCopiedExtraEntries([entry()], "2026-09");
     expect(excludeDuplicateExtraEntries(rows, [])).toEqual(rows);
+  });
+});
+
+describe("isExtraEntryUnchanged", () => {
+  const original = {
+    id: 1,
+    entry_type: "expense",
+    category: "交通費",
+    entry_date: "2026-08-10",
+    invoice_number: null,
+    description: "出張",
+    billing_target: null,
+    manager_id: 1,
+    team: "シンラボ",
+    billing_amount: null,
+    expense_amount: 5000,
+    payment_method: "現金",
+    inserted_at: "",
+    updated_at: "",
+  };
+  const asRow = (override = {}) => ({
+    ...original,
+    isNew: false,
+    isRemoved: false,
+    ...override,
+  });
+
+  it("DB に書き込む項目がすべて同じなら未変更", () => {
+    expect(isExtraEntryUnchanged(original, asRow())).toBe(true);
+    // updated_at など書き込まない項目の違いは無視する
+    expect(isExtraEntryUnchanged(original, asRow({ updated_at: "x" }))).toBe(
+      true,
+    );
+  });
+
+  it("日付・金額・内容などが変われば変更あり", () => {
+    expect(
+      isExtraEntryUnchanged(original, asRow({ entry_date: "2026-08-11" })),
+    ).toBe(false);
+    expect(
+      isExtraEntryUnchanged(original, asRow({ expense_amount: 5001 })),
+    ).toBe(false);
+    expect(
+      isExtraEntryUnchanged(original, asRow({ description: "出張2" })),
+    ).toBe(false);
+  });
+});
+
+describe("selectChangedExtraEntries", () => {
+  const asRow = (
+    overrides: Partial<ExtraEntryType>,
+    flags: { isNew?: boolean; isRemoved?: boolean } = {},
+  ) => ({
+    ...entry(overrides),
+    isNew: false,
+    isRemoved: false,
+    ...flags,
+  });
+  const baseline = new Map(
+    [entry({ id: 1 }), entry({ id: 2 }), entry({ id: 3 })].map((row) => [
+      row.id,
+      row,
+    ]),
+  );
+
+  it("追加・削除・編集した行だけを選び、編集していない行と追加の取り消しは送らない", () => {
+    const rows = [
+      asRow({ id: 1 }), // 未変更
+      asRow({ id: 2, billing_amount: 400000 }), // 編集
+      asRow({ id: 3 }, { isRemoved: true }), // 削除
+      asRow({ id: 10 }, { isNew: true }), // 追加
+      asRow({ id: 11 }, { isNew: true, isRemoved: true }), // 追加して取り消し
+    ];
+    expect(
+      selectChangedExtraEntries(rows, baseline).map((row) => row.id),
+    ).toEqual([2, 3, 10]);
+  });
+
+  it("読み込み時点の値と比べる（読み込み後に他の利用者が変えた行を上書きしない）", () => {
+    // 画面の行は読み込み時点のまま。DB 側が後から変わっていても送らない
+    expect(selectChangedExtraEntries([asRow({ id: 1 })], baseline)).toEqual([]);
   });
 });

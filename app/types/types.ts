@@ -99,51 +99,132 @@ export type AdjustableAmount = {
   adjustmentAmount: number; // 調整の差分（調整が無ければ 0）
   actualAmount: number; // 実績額 = sourceAmount + adjustmentAmount
   sourceChanged: boolean; // 調整保存後に元データが変更されたか（画面に警告を出す）
-  adjustment: ProfitLossAdjustmentType | null; // 調整レコード（無ければ null）
+  adjustment: ProfitLossAdjustmentType | null; // 調整レコード（無ければ null。確定スナップショットでは常に null）
+  adjustmentReason: string | null; // 調整理由（調整が無ければ null。確定スナップショットにも保持する）
 };
 
-// 対象月に存在するが、対応する調整が「対象行が当月に存在しない」状態（案件の日付
+// 対象月に存在するが、対応する調整が「対象行が当月に存在しない」状態（案件開始日の
 // 変更等で対象行が別の月に移動した）になっている調整。削除を促す表示に使う
 export type OrphanedAdjustmentType = {
   adjustment: ProfitLossAdjustmentType;
   targetType: AdjustmentTargetType;
-  label: string; // 対象行を識別する表示名（案件名 - 取引先/支払先名、または定期費用名）
+  label: string; // 対象行を識別する表示名（案件名 - 取引先/コスト名、または定期費用名）
+  // 確定済みの月のみ: 対象行が確定明細に含まれている（= 確定値にこの調整が算入済み）か
+  includedInClosing?: boolean;
 };
 
-// 分類別売上内訳（matters.category ごと。案件別（business 行別）の実績額修正対象の明細＋
-// 経理追加収支の収入明細を含む。合計 amount は businesses と extraEntries の両方を含む）
-export type CategoryBreakdown = {
-  category: string;
-  amount: number;
-  businesses: BusinessDetail[];
-  extraEntries: ExtraEntryType[]; // 経理追加収支の収入（「経理追加」表示の明細行）
+// ===== 損益計算書の表示タイトル（profit_loss_labels）関連 =====
+// 案件名・取引先名・コスト名・定期費用名の元データは変えず、損益計算書上だけで
+// 有効な表示タイトルを別テーブルで管理する（Issue #150。全月共通）。
+
+type ProfitLossLabelsTable = Database["public"]["Tables"]["profit_loss_labels"];
+export type ProfitLossLabelType = ProfitLossLabelsTable["Row"];
+
+// タイトル変更の対象（matter_id / business_id / cost_id / recurring_cost_id のうち
+// ちょうど1つ）
+export type LabelTarget =
+  | { targetType: "matter"; matterId: number }
+  | { targetType: "business"; businessId: number }
+  | { targetType: "cost"; costId: number }
+  | { targetType: "recurring_cost"; recurringCostId: number };
+
+// 損益計算書に表示するタイトル。上書きタイトルがあればそれ、無ければ元の名称。
+// 元の名称は各行の name / matterTitle が保持する
+export type DisplayTitle = {
+  displayTitle: string;
+  isCustomTitle: boolean; // 上書きタイトルを表示しているか（元の名称をツールチップで示す）
 };
+
+// ===== 損益計算書の明細行（ライブ集計・確定スナップショットの共通形） =====
+// 損益計算書は「取得した行（または確定明細）→ 明細行（*Line）→ 集計」の 2 段階で組み立てる。
+// 明細行は集計・表示に必要な属性と実績額を持ち、元テーブルの行そのものには依存しない。
 
 // 案件の売上明細（1 business 行 = 1 行。実績額修正の対象単位）
-export type BusinessDetail = AdjustableAmount & {
+export type BusinessLine = AdjustableAmount & {
   businessId: number;
-  businessName: string; // 取引先名（同一案件に複数の business 行がある場合の識別用）
+  name: string; // 取引先名（同一案件に複数の business 行がある場合の識別用）
   matterId: number;
+  matterUserId: number; // 案件の作成者（matters.user_id。確定明細の RLS 用）
   matterTitle: string;
+  category: string; // 案件の分類（matters.category）
+  team: string; // 案件のチーム（matters.team）
 };
 
 // 案件費用の明細（1 costs 行 = 1 行。実績額修正の対象単位）
-export type CostDetail = AdjustableAmount & {
+export type CostLine = AdjustableAmount & {
   costId: number;
-  costName: string; // 支払先名（同一案件・同一品目に複数の costs 行がある場合の識別用）
+  name: string; // コスト名（同一案件・同一品目に複数の costs 行がある場合の識別用）
+  item: string; // 品目
+  matterId: number;
+  matterUserId: number; // 案件の作成者（matters.user_id。確定明細の RLS 用）
+  matterTitle: string;
+  category: string;
+  team: string;
+};
+
+// 定期費用（管理費）の明細（1 recurring_costs 行 = 1 行。実績額修正の対象単位）
+export type RecurringCostLine = AdjustableAmount & {
+  recurringCostId: number;
+  name: string;
+  item: string; // 費目（recurring_costs.item）
+  team: string | null; // NULL = 全体共通
+  paymentCycle: string;
+};
+
+// 経理追加収支の明細（1 extra_entries 行 = 1 行）
+export type ExtraEntryLine = {
+  extraEntryId: number;
+  entryType: string; // "income" | "expense"
+  category: string;
+  description: string;
+  team: string | null; // NULL = 全体共通
+  entryDate: string | null;
+  billingAmount: number | null; // 請求額（収入のみ）→ 売上
+  expenseAmount: number | null; // 経費 → 案件費用
+};
+
+// 1 ヶ月分の明細行（ロールによる算入 / 参考表示の振り分け前）
+export type PLMonthLines = {
+  businesses: BusinessLine[];
+  costs: CostLine[];
+  recurringCosts: RecurringCostLine[];
+  extraEntries: ExtraEntryLine[];
+};
+
+// 表示タイトルを解決済みの明細行（集計結果の表示用）
+export type TitledBusinessLine = BusinessLine & DisplayTitle;
+export type TitledCostLine = CostLine & DisplayTitle;
+export type TitledRecurringCostLine = RecurringCostLine & DisplayTitle;
+
+// ===== 案件別収支（チーム → 案件 → 案件内訳） =====
+
+// 案件行（案件の売上・案件費用・粗利と、展開時の案件内訳）。
+// displayTitle は上書きタイトル（無ければ matterTitle = 元の案件名）
+export type MatterBreakdown = DisplayTitle & {
   matterId: number;
   matterTitle: string;
+  category: string;
+  team: string;
+  revenue: number; // 売上明細の実績額合計
+  cost: number; // 費用明細の実績額合計
+  grossProfit: number; // revenue − cost
+  businesses: TitledBusinessLine[]; // ID の昇順
+  costs: TitledCostLine[]; // ID の昇順
 };
 
-// 品目別費用内訳（展開時の案件費用明細＋経理追加収支の経費明細を含む）
-export type ItemBreakdown = {
-  item: string;
-  amount: number;
-  costs: CostDetail[];
-  extraEntries: ExtraEntryType[]; // 経理追加収支の経費（「経理追加」表示の明細行）
+// チーム行（チーム内の案件と、案件に紐づかない経理追加収支）
+export type TeamMatterGroup = {
+  team: string | null; // NULL = 全体共通（チーム未指定の経理追加収支。accounting / admin のみ）
+  revenue: number; // チーム小計（案件＋経理追加収支）
+  cost: number;
+  grossProfit: number;
+  matters: MatterBreakdown[]; // 案件 ID の昇順
+  extraEntries: ExtraEntryLine[]; // 経理追加収支（案件外）。ID の昇順
+  extraRevenue: number; // 経理追加収支（案件外）行の売上（収入の請求額）
+  extraCost: number; // 経理追加収支（案件外）行の案件費用（経費）
 };
 
-// 分類別粗利内訳（売上分類の大分類ごとに 売上 − 案件費用 を集計）
+// 分類別収支（売上分類の大分類ごとに 売上 − 案件費用 を集計）
 export type GrossProfitBreakdown = {
   category: string;
   revenue: number;
@@ -151,16 +232,11 @@ export type GrossProfitBreakdown = {
   grossProfit: number;
 };
 
-// 定期費用の明細（1 recurring_costs 行 = 1 行。実績額修正の対象単位）
-export type RecurringCostDetail = AdjustableAmount & {
-  recurringCost: RecurringCostType;
-};
-
 // 費目別管理費内訳（recurring_costs.item ごと。展開時に定期費用の明細を表示）
 export type RecurringCostItemBreakdown = {
   item: string;
   amount: number;
-  details: RecurringCostDetail[];
+  details: TitledRecurringCostLine[];
 };
 
 // チーム別内訳（accounting / admin のみ。全体共通の管理費は team = "全体共通"）
@@ -176,22 +252,58 @@ export type TeamBreakdown = {
 export type PLReportType = {
   month: string; // "YYYY-MM"
   revenueTotal: number; // 売上合計（経理追加収支の収入を含む）
-  revenueByCategory: CategoryBreakdown[]; // 分類別売上内訳（経理追加収支の収入を合算）
   matterCostTotal: number; // 案件費用合計（経理追加収支の経費を含む）
-  matterCostByItem: ItemBreakdown[]; // 品目別費用内訳（案件別明細＋経理追加明細を含む）
   grossProfitTotal: number; // 売上総利益（粗利）= 売上合計 − 案件費用合計
-  grossProfitByCategory: GrossProfitBreakdown[]; // 分類別粗利内訳（合計は grossProfitTotal と一致）
+  teamMatterGroups: TeamMatterGroup[]; // 案件別収支（チーム小計の合計は売上合計・案件費用合計と一致）
+  categoryBreakdown: GrossProfitBreakdown[]; // 分類別収支（合計は案件別収支の合計と一致）
   recurringCostTotal: number; // 管理費合計（teamleader は自チーム分のみ算入）
   recurringCostByItem: RecurringCostItemBreakdown[]; // 費目別管理費内訳（定期費用の明細を含む）
-  orgWideRecurringCosts?: RecurringCostDetail[]; // teamleader 向け「全体共通（参考）」（損益に算入しない）
-  extraEntries: ExtraEntryType[]; // 経理追加収支明細（teamleader は自チーム分のみ。損益に算入済み）
-  orgWideExtraEntries?: ExtraEntryType[]; // teamleader 向け「全体共通（参考）」（損益に算入しない）
+  orgWideRecurringCosts?: TitledRecurringCostLine[]; // teamleader 向け「全体共通（参考）」（損益に算入しない）
+  extraEntries: ExtraEntryLine[]; // 経理追加収支明細（teamleader は自チーム分のみ。損益に算入済み）
+  orgWideExtraEntries?: ExtraEntryLine[]; // teamleader 向け「全体共通（参考）」（損益に算入しない）
   ordinaryProfit: number; // 経常利益 = 粗利合計 − 管理費合計（= 売上 − 案件費用 − 管理費）
   byTeam?: TeamBreakdown[]; // チーム別内訳（accounting / admin のみ）
-  undated: { revenue: number; matterCost: number }; // 月未確定（日付未入力。経理追加収支の日付未入力分を含む）
-  // 対象月に調整はあるが対象行が当月に存在しない（案件の日付変更等）ため、
+  undated: { revenue: number; matterCost: number }; // 月未確定（案件開始日・日付未入力。下書きの案件は除く）
+  // 対象月に調整はあるが対象行が当月に存在しない（案件開始日の変更等）ため、
   // 損益に反映されず削除待ちの調整（accounting / admin のみ。includeTeamBreakdown と同じロール判定）
   orphanedAdjustments?: OrphanedAdjustmentType[];
+  // 月次収支確定の情報（Issue #148）。確定済みの月は確定明細（スナップショット）から
+  // 集計した値を返す。未確定の月は null（ライブ集計）
+  closing?: ClosingInfo | null;
+  // 確定後の案件の変更（確定明細とライブ集計の差分。Issue #149）。
+  // 確定済みの月かつ accounting / admin のみ（チームリーダーには見せない）
+  closingDiffs?: ClosingDiffResult;
+};
+
+// ===== 月次収支確定（profit_loss_closings / profit_loss_closing_lines）関連 =====
+
+type ProfitLossClosingsTable =
+  Database["public"]["Tables"]["profit_loss_closings"];
+export type ProfitLossClosingType = ProfitLossClosingsTable["Row"];
+type ProfitLossClosingLinesTable =
+  Database["public"]["Tables"]["profit_loss_closing_lines"];
+export type ProfitLossClosingLineType = ProfitLossClosingLinesTable["Row"];
+
+// 確定明細の種別（profit_loss_closing_lines.source_type）
+export type ClosingSourceType =
+  | "business"
+  | "cost"
+  | "recurring_cost"
+  | "extra_entry";
+
+// 確定明細の保存用の 1 行（save_profit_loss_closing の p_lines の要素）
+export type ClosingLineInput = Omit<
+  ProfitLossClosingLineType,
+  "id" | "closing_id"
+>;
+
+// 画面に表示する確定情報（確定者・反映者は確定時点の氏名）
+export type ClosingInfo = {
+  month: string; // "YYYY-MM"
+  closedAt: string;
+  closedByName: string;
+  refreshedAt: string | null; // 最終反映日時（Issue #149。未反映は null）
+  refreshedByName: string | null;
 };
 
 export type AnnualTrendType = {
@@ -346,3 +458,74 @@ export type ActiveBudgetRecurringItemsResult =
   // 前月コピーの items: null（前月申告そのものが無い）とは区別して常に配列を返す
   | { items: BudgetDeclarationPreviousItem[]; error?: undefined }
   | { items?: undefined; error: AccessFailure };
+
+// ===== 確定後の変更検知・反映・見送り（Issue #149） =====
+
+type ProfitLossClosingDismissalsTable =
+  Database["public"]["Tables"]["profit_loss_closing_dismissals"];
+export type ProfitLossClosingDismissalType =
+  ProfitLossClosingDismissalsTable["Row"];
+
+// 変更検知の対象（案件の売上・費用の明細のみ）
+export type DiffSourceType = "business" | "cost";
+
+// 明細の特定キー（反映・見送りの Server Action に渡す）
+export type ClosingDiffKey = { sourceType: DiffSourceType; sourceId: number };
+
+// 反映・見送りで選んだ明細と、画面で見ていたその明細の最新の状態（Issue #149）。
+// サーバは値そのものは集計し直したものを使うが、画面で見ていた状態と現在の状態が
+// 食い違う（表示後にさらに変更された）場合は拒否し、見ていない変更を反映・見送りしない
+export type ClosingDiffSelection = ClosingDiffKey & {
+  expected: {
+    present: boolean;
+    actualAmount: number | null;
+    team: string | null;
+    category: string | null;
+  };
+};
+
+// 差分の種類。金額変更・区分変更（分類・チーム）は同時に起こりうるため changed に
+// フラグで持つ
+export type ClosingDiffKind = "added" | "removed" | "changed";
+
+// 差分の比較に使う明細の状態（金額・区分）
+export type DiffLineState = {
+  actualAmount: number;
+  team: string;
+  category: string;
+};
+
+// 確定明細から消えた（removed）理由。ライブの行を ID で引いて判定する
+export type RemovedReason = "moved" | "undated" | "draft" | "deleted";
+
+export type ClosingDiff = {
+  key: string; // "business:1" 形式（ClosingDiffKey の文字列表現）
+  sourceType: DiffSourceType;
+  sourceId: number;
+  kind: ClosingDiffKind;
+  amountChanged: boolean;
+  classificationChanged: boolean; // 分類・チームの変更
+  matterId: number;
+  matterTitle: string; // 表示タイトル（上書きタイトル → 最新の案件名 → 確定時点の案件名）
+  name: string; // 明細の表示タイトル（同上）
+  item: string | null; // 品目（費用明細のみ）
+  before: DiffLineState | null; // 確定値（追加は null）
+  after: DiffLineState | null; // 最新の値（削除は null）
+  delta: number; // 実績額の差（after − before。無い側は 0）
+  // 他の月との移動（案件開始日の変更）。added は移動元、removed は移動先の月（"YYYY-MM"）
+  movedMonth: string | null;
+  movedMonthClosed: boolean; // 移動の相手側の月も確定済みか（片方だけ反映すると両月の合計がずれる）
+  removedReason: RemovedReason | null;
+  dismissal: { dismissedAt: string; dismissedByName: string } | null; // 見送り済みのみ
+};
+
+export type ClosingDiffResult = {
+  pending: ClosingDiff[]; // 未処理（反映も見送りもしていない）
+  dismissed: ClosingDiff[]; // 見送り済み（見送った時点から変化していないもの）
+  // 他の月との移動の情報を取得できなかった（相手側の月も確定済みかが分からないため、
+  // 画面で注意を出し反映を止める）
+  moveInfoUnavailable?: boolean;
+};
+
+// ページ上部のバナー用（未処理の差分がある確定済みの月と件数）
+export type ClosingDiffSummary = { month: string; count: number }[];

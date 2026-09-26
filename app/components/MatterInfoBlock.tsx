@@ -64,6 +64,7 @@ export const MatterInfoBlock = ({
         />
         <CustomDatePicker
           label="案件開始日"
+          description="損益計算書では、案件の売上・費用をすべて案件開始日の月に計上します（下書きの間は計上されません）。"
           required={requireStartDate}
           placeholder="案件開始日をご記入ください。"
           className="md:pt-0 pt-4 w-full"

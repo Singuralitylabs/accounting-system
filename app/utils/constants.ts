@@ -1,6 +1,14 @@
 // チーム未指定（team IS NULL）の定期費用を表す表示ラベル
 export const ORG_WIDE_TEAM_LABEL = "全体共通";
 
+// チームの表示名（NULL = 全体共通）。表示・選択肢・集計のキーで同じ表示名を使うため、ここに寄せる
+export const teamLabel = (team: string | null): string =>
+  team ?? ORG_WIDE_TEAM_LABEL;
+
+// チームの選択肢で選ばれた表示名をチームに戻す（「全体共通」= NULL）
+export const teamFromLabel = (label: string | null): string | null =>
+  label === ORG_WIDE_TEAM_LABEL ? null : label;
+
 // ログインを許可するメールアドレスのドメイン（@ を含まない）。
 // クライアント（サインインボタン）・サーバ（OAuth コールバック / プロフィール作成）の
 // 双方でこの単一定義を参照し、ドメイン制限を多層で担保する。

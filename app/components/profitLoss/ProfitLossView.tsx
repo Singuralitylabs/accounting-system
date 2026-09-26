@@ -13,6 +13,12 @@ import ProfitLossStatement from "./ProfitLossStatement";
 import AnnualTrendTable from "./AnnualTrendTable";
 import AccountingMasterActions from "./AccountingMasterActions";
 import CopyPreviousExtraEntriesButton from "./CopyPreviousExtraEntriesButton";
+import ClosingControl from "./ClosingControl";
+import ClosingDiffBanner from "./ClosingDiffBanner";
+import {
+  useClosedMonths,
+  useClosingDiffSummary,
+} from "@/app/hooks/useProfitLossClosing";
 
 type Props = {
   initialMonth: string; // "YYYY-MM"
@@ -20,6 +26,8 @@ type Props = {
   canEditRecurringCosts: boolean; // 定期費用マスタへの管理リンクを表示するか
   canEditExtraEntries: boolean; // 経理追加収支への管理リンクを表示するか
   canEditAdjustments: boolean; // 損益調整（実績額修正）の操作を表示するか
+  canEditLabels: boolean; // 表示タイトルの変更操作を表示するか
+  canClose: boolean; // 月次収支の確定・確定解除を操作できるか（Issue #148）
 };
 
 // 月キー（YYYY-MM）から年度（7月始まり）を求める
@@ -35,6 +43,8 @@ const ProfitLossView = ({
   canEditRecurringCosts,
   canEditExtraEntries,
   canEditAdjustments,
+  canEditLabels,
+  canClose,
 }: Props) => {
   const currentFiscalYear = monthToFiscalYear(initialMonth);
 
@@ -55,6 +65,13 @@ const ProfitLossView = ({
     isLoading: isTrendLoading,
     isError: isTrendError,
   } = useAnnualTrend(fiscalYear, undefined, activeTab === "annual");
+  // 確定済みの月（月ピッカーの目印）と、確定後に未反映の変更がある月（Issue #149。
+  // ページ上部のバナー・月ピッカー・年間推移の目印。経理担当者・管理者のみ）
+  const { closedMonths } = useClosedMonths();
+  const { data: diffSummary } = useClosingDiffSummary(canClose);
+  const diffCountByMonth = new Map(
+    (diffSummary ?? []).map(({ month: m, count }) => [m, count]),
+  );
 
   // 年度の選択肢（当年度+1 〜 当年度-4）
   const fiscalYearOptions = Array.from({ length: 6 }, (_, i) => {
@@ -71,6 +88,15 @@ const ProfitLossView = ({
         canEditRecurringCosts={canEditRecurringCosts}
         canEditExtraEntries={canEditExtraEntries}
       />
+      {canClose && (
+        <ClosingDiffBanner
+          summary={diffSummary ?? []}
+          onSelectMonth={(selected) => {
+            setActiveTab("monthly");
+            setMonth(selected);
+          }}
+        />
+      )}
       <Tabs value={activeTab} onChange={setActiveTab}>
         <Tabs.List>
           <Tabs.Tab value="monthly">月次</Tabs.Tab>
@@ -88,6 +114,13 @@ const ProfitLossView = ({
                   setMonth(selected);
                 }
               }}
+              getMonthIndicator={(m) =>
+                diffCountByMonth.has(m)
+                  ? "alert"
+                  : closedMonths.has(m)
+                    ? "closed"
+                    : null
+              }
             />
           </div>
           {isReportError ? (
@@ -102,17 +135,28 @@ const ProfitLossView = ({
             </Alert>
           ) : (
             <>
+              <ClosingControl
+                month={report.month}
+                closing={report.closing ?? null}
+                canClose={canClose}
+              />
               {canEditExtraEntries && (
                 <Group justify="flex-end" className="mb-4">
                   <CopyPreviousExtraEntriesButton
                     month={month}
                     hasExistingEntries={report.extraEntries.length > 0}
+                    isClosed={!!report.closing}
                   />
                 </Group>
               )}
+              {/* 月ごとに作り直し、展開状態・差分一覧の選択を別の月へ持ち越さない
+                  （他の月へ移動した明細は両月で同じキーになるため、選択が残ると
+                  選んでいない月で反映してしまう） */}
               <ProfitLossStatement
+                key={report.month}
                 report={report}
                 canEditAdjustments={canEditAdjustments}
+                canEditLabels={canEditLabels}
               />
             </>
           )}
@@ -143,7 +187,10 @@ const ProfitLossView = ({
               年度を変えるか、時間をおいて再読み込みしてください。
             </Alert>
           ) : (
-            <AnnualTrendTable trend={trend} />
+            <AnnualTrendTable
+              trend={trend}
+              diffCountByMonth={diffCountByMonth}
+            />
           )}
         </Tabs.Panel>
       </Tabs>
