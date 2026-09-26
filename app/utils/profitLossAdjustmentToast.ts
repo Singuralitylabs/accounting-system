@@ -19,5 +19,6 @@ export const resolveSaveAdjustmentOutcome = (
 export const SAVE_ADJUSTMENT_TOAST: Record<SaveAdjustmentOutcome, string> = {
   deleted: "実績額修正を削除しました。",
   saved: "実績額を保存しました。",
-  unchanged: "実績額修正は既に削除されています。画面を再読み込みしてください。",
+  unchanged:
+    "変更はありませんでした（実績額修正が既に削除されているか、元データが更新されています）。画面を再読み込みしてください。",
 };

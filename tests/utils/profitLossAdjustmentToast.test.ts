@@ -25,6 +25,6 @@ describe("resolveSaveAdjustmentOutcome（Issue #139）", () => {
     expect(resolveSaveAdjustmentOutcome(false, 0)).toBe("unchanged");
     expect(
       SAVE_ADJUSTMENT_TOAST[resolveSaveAdjustmentOutcome(false, 0)],
-    ).toContain("既に削除されています");
+    ).toContain("変更はありませんでした");
   });
 });
