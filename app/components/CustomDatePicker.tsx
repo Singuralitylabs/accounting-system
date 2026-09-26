@@ -14,6 +14,8 @@ interface CustomDatePickerProps {
   onChange: (date: string | null) => void;
   className?: string;
   showIcon?: boolean;
+  // 選択させない日付（"YYYY-MM-DD" で判定。確定済みの月の日付を選ばせない用途など）
+  excludeDate?: (date: string) => boolean;
 }
 
 export const CustomDatePicker = ({
@@ -26,6 +28,7 @@ export const CustomDatePicker = ({
   onChange,
   className = "",
   showIcon = false,
+  excludeDate,
 }: CustomDatePickerProps) => {
   return (
     <DatePickerInput
@@ -40,6 +43,11 @@ export const CustomDatePicker = ({
       value={parseDateString(value)}
       onChange={(date) => onChange(toDateString(date))}
       leftSection={showIcon ? <FaRegCalendarAlt /> : undefined}
+      excludeDate={
+        excludeDate
+          ? (date) => excludeDate(toDateString(date) ?? "")
+          : undefined
+      }
     />
   );
 };

@@ -15,6 +15,7 @@ import { ORG_WIDE_TEAM_LABEL } from "@/app/utils/constants";
 import { Badge, Button, Group, Paper, Table, Text } from "@mantine/core";
 import { Fragment } from "react";
 import {
+  AdjustmentButton,
   AdjustmentIndicators,
   EditableTitle,
   ExpandToggle,
@@ -31,6 +32,7 @@ type Props = {
   matterCostTotal: number;
   grossProfitTotal: number;
   canEditAdjustments: boolean; // 実績額修正の操作を表示するか（accounting / admin）
+  isClosed?: boolean; // 確定済みの月か（Issue #148。実績額修正を無効化する）
   loadingMatterId: number | null;
   onShowMatter: (matterId: number) => void;
   onEditAdjustment: (
@@ -86,6 +88,7 @@ const MatterProfitTable = ({
   matterCostTotal,
   grossProfitTotal,
   canEditAdjustments,
+  isClosed = false,
   loadingMatterId,
   onShowMatter,
   onEditAdjustment,
@@ -165,16 +168,10 @@ const MatterProfitTable = ({
         <Table.Td />
         <Table.Td className="text-center">
           {canEditAdjustments && (
-            <Button
-              size="xs"
-              variant="subtle"
-              onClick={(event) => {
-                event.stopPropagation();
-                onEditAdjustment(target, label, line);
-              }}
-            >
-              実績額を修正
-            </Button>
+            <AdjustmentButton
+              isClosed={isClosed}
+              onClick={() => onEditAdjustment(target, label, line)}
+            />
           )}
         </Table.Td>
       </Table.Tr>

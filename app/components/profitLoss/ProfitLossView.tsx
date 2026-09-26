@@ -13,6 +13,7 @@ import ProfitLossStatement from "./ProfitLossStatement";
 import AnnualTrendTable from "./AnnualTrendTable";
 import AccountingMasterActions from "./AccountingMasterActions";
 import CopyPreviousExtraEntriesButton from "./CopyPreviousExtraEntriesButton";
+import ClosingControl from "./ClosingControl";
 
 type Props = {
   initialMonth: string; // "YYYY-MM"
@@ -21,6 +22,7 @@ type Props = {
   canEditExtraEntries: boolean; // 経理追加収支への管理リンクを表示するか
   canEditAdjustments: boolean; // 損益調整（実績額修正）の操作を表示するか
   canEditLabels: boolean; // 表示タイトルの変更操作を表示するか
+  canClose: boolean; // 月次収支の確定・確定解除を操作できるか（Issue #148）
 };
 
 // 月キー（YYYY-MM）から年度（7月始まり）を求める
@@ -37,6 +39,7 @@ const ProfitLossView = ({
   canEditExtraEntries,
   canEditAdjustments,
   canEditLabels,
+  canClose,
 }: Props) => {
   const currentFiscalYear = monthToFiscalYear(initialMonth);
 
@@ -104,11 +107,17 @@ const ProfitLossView = ({
             </Alert>
           ) : (
             <>
+              <ClosingControl
+                month={report.month}
+                closing={report.closing ?? null}
+                canClose={canClose}
+              />
               {canEditExtraEntries && (
                 <Group justify="flex-end" className="mb-4">
                   <CopyPreviousExtraEntriesButton
                     month={month}
                     hasExistingEntries={report.extraEntries.length > 0}
+                    isClosed={!!report.closing}
                   />
                 </Group>
               )}

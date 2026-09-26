@@ -94,3 +94,18 @@ export const formatDateToJp = (date: string | null) => {
     return "-";
   }
 };
+
+// ISO 日時 → 「YYYY/MM/DD HH:mm」（JST）。SSR（UTC）とブラウザで結果を揃えるため
+// timeZone を明示する（formatTimeToJp と同じ理由）
+export const formatDateTimeToJp = (value: string | null): string => {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(value));
+};

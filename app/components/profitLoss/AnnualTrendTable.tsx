@@ -2,7 +2,8 @@
 
 import { AnnualTrendType } from "@/app/types/types";
 import { formatCurrency, formatMonthHeader } from "@/app/utils/formatter";
-import { Paper, Table } from "@mantine/core";
+import { Paper, Table, Tooltip } from "@mantine/core";
+import { FaLock } from "react-icons/fa";
 
 type Props = {
   trend: AnnualTrendType;
@@ -49,6 +50,18 @@ const AnnualTrendTable = ({ trend }: Props) => {
             </Table.Th>
             {trend.months.map((month) => (
               <Table.Th key={month.month} className="text-right">
+                {month.closing && (
+                  // 確定済みの月（Issue #148）は確定値（スナップショット）を表示している
+                  <Tooltip label="確定済み（確定値を表示）">
+                    <span
+                      className="inline-flex mr-1 text-teal-700 align-middle"
+                      aria-label="確定済み"
+                      role="img"
+                    >
+                      <FaLock size="0.65rem" />
+                    </span>
+                  </Tooltip>
+                )}
                 {formatMonthHeader(month.month)}
               </Table.Th>
             ))}

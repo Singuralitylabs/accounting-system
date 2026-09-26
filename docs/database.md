@@ -56,22 +56,24 @@
 
 ## 2. テーブル一覧
 
-| テーブル名                           | 説明                                                                          |
-| ------------------------------------ | ----------------------------------------------------------------------------- |
-| profiles                             | ユーザー情報を管理するテーブル                                                |
-| matters                              | 案件情報を管理するテーブル                                                    |
-| costs                                | コスト情報を管理するテーブル                                                  |
-| business                             | 取引先情報を管理するテーブル                                                  |
-| select_option_types                  | 選択肢の種類を管理するテーブル                                                |
-| select_options                       | 選択肢の値を管理するテーブル                                                  |
-| recurring_costs                      | 定期費用（管理費）を管理するテーブル                                          |
-| extra_entries                        | 経理追加収支（案件に紐づかない収入・支出）を管理するテーブル                  |
-| budget_declarations                  | 事前収支申告（チーム×対象月の見込み収支）のヘッダを管理するテーブル           |
-| budget_declaration_items             | 事前収支申告の明細（見込み収入・支出の内訳）を管理するテーブル                |
-| budget_declaration_reminder_settings | 事前収支申告の未申告 Slack リマインド対象日を管理する設定テーブル（1 行のみ） |
-| budget_recurring_items               | 事前収支申告の定期明細（毎月固定の収入・支出）マスタを管理するテーブル        |
-| profit_loss_adjustments              | 損益調整（案件・定期費用の実績額修正）を管理するテーブル                      |
-| profit_loss_labels                   | 損益計算書上の表示タイトル（案件・明細の名称の上書き）を管理するテーブル      |
+| テーブル名                           | 説明                                                                           |
+| ------------------------------------ | ------------------------------------------------------------------------------ |
+| profiles                             | ユーザー情報を管理するテーブル                                                 |
+| matters                              | 案件情報を管理するテーブル                                                     |
+| costs                                | コスト情報を管理するテーブル                                                   |
+| business                             | 取引先情報を管理するテーブル                                                   |
+| select_option_types                  | 選択肢の種類を管理するテーブル                                                 |
+| select_options                       | 選択肢の値を管理するテーブル                                                   |
+| recurring_costs                      | 定期費用（管理費）を管理するテーブル                                           |
+| extra_entries                        | 経理追加収支（案件に紐づかない収入・支出）を管理するテーブル                   |
+| budget_declarations                  | 事前収支申告（チーム×対象月の見込み収支）のヘッダを管理するテーブル            |
+| budget_declaration_items             | 事前収支申告の明細（見込み収入・支出の内訳）を管理するテーブル                 |
+| budget_declaration_reminder_settings | 事前収支申告の未申告 Slack リマインド対象日を管理する設定テーブル（1 行のみ）  |
+| budget_recurring_items               | 事前収支申告の定期明細（毎月固定の収入・支出）マスタを管理するテーブル         |
+| profit_loss_adjustments              | 損益調整（案件・定期費用の実績額修正）を管理するテーブル                       |
+| profit_loss_labels                   | 損益計算書上の表示タイトル（案件・明細の名称の上書き）を管理するテーブル       |
+| profit_loss_closings                 | 損益計算書の月次収支確定のヘッダ（確定済みの月）を管理するテーブル             |
+| profit_loss_closing_lines            | 損益計算書の月次収支確定の明細（確定時点のスナップショット）を管理するテーブル |
 
 ## 3. テーブル詳細
 
@@ -474,6 +476,65 @@ CHECK (btrim(label) <> '' AND label = btrim(label) AND char_length(label) <= 200
 - 入力は損益計算書の各行（案件行・売上明細・費用明細・管理費の明細）の編集アイコンから行い、保存は DB 関数 `public.save_profit_loss_label`（5.13）を1回呼ぶだけで完結する（`app/utils/supabase/profitLossLabels.ts`）。空欄で保存すると行ごと削除し、元の名称に戻る
 - チーム・分類・品目・費目の見出しと経理追加収支（/extra-entries で内容を直接編集できる）は対象外
 - 対象行が削除されると CASCADE で削除される（確定済みの月は確定明細に保存した名称で表示される）
+
+### 3.15 profit_loss_closings テーブル
+
+損益計算書の月次収支確定のヘッダ（Issue #148）。1 ヶ月 1 行で、行があればその月は確定済み。確定済みの月の損益計算書は profit_loss_closing_lines（3.16）のスナップショットから表示する。確定解除は行の削除（明細・見送り記録は CASCADE）。金額は持たない。
+
+| カラム名          | データ型                 | 制約                                       | 説明                                                                                                 |
+| ----------------- | ------------------------ | ------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| id                | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY  | 主キー                                                                                               |
+| target_month      | date                     | NOT NULL, UNIQUE, CHECK (月初日であること) | 確定した月（月初日で格納。profit_loss_adjustments.target_month と同方式）                            |
+| closed_by         | bigint                   | NOT NULL, FOREIGN KEY (profiles.id)        | 確定した経理担当者・管理者（再確定で更新）                                                           |
+| closed_by_name    | text                     | NOT NULL                                   | 確定者の氏名（確定時点。profiles の RLS ではチームリーダーが経理担当者の氏名を読めないため保持する） |
+| closed_at         | timestamp with time zone | NOT NULL, DEFAULT now()                    | 確定日時（再確定で更新）                                                                             |
+| refreshed_by      | bigint                   | NULL, FOREIGN KEY (profiles.id)            | 確定後の変更を最後に反映した経理担当者・管理者（Issue #149。再確定でクリア）                         |
+| refreshed_by_name | text                     | NULL                                       | 最終反映者の氏名（反映時点）                                                                         |
+| refreshed_at      | timestamp with time zone | NULL                                       | 最終反映日時                                                                                         |
+| inserted_at       | timestamp with time zone | NOT NULL, DEFAULT now()                    | 作成日時                                                                                             |
+| updated_at        | timestamp with time zone | NOT NULL, DEFAULT now()                    | 更新日時                                                                                             |
+
+CHECK 制約: `target_month = date_trunc('month', target_month)::date`、`num_nulls(refreshed_by, refreshed_by_name, refreshed_at) IN (0, 3)`
+
+インデックス: target_month（UNIQUE）、closed_by / refreshed_by（FK 側の索引）
+
+### 3.16 profit_loss_closing_lines テーブル
+
+損益計算書の月次収支確定の明細（Issue #148）。確定時点の案件の売上・費用、管理費（定期費用）、経理追加収支を 1 行ずつ保持する（実績額・調整額・調整理由を含む）。
+
+| カラム名          | データ型      | 制約                                                                     | 説明                                                                               |
+| ----------------- | ------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| id                | bigint        | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                                | 主キー                                                                             |
+| closing_id        | bigint        | NOT NULL, FOREIGN KEY (profit_loss_closings.id) ON DELETE CASCADE        | 確定ヘッダ                                                                         |
+| source_type       | text          | NOT NULL, CHECK (`business` / `cost` / `recurring_cost` / `extra_entry`) | 元の行の種別                                                                       |
+| source_id         | bigint        | NOT NULL（FK なし）                                                      | 元の行の id                                                                        |
+| matter_id         | bigint        | NULL（FK なし）                                                          | 案件 ID（business / cost）                                                         |
+| matter_title      | text          | NULL                                                                     | 案件名（確定時点）                                                                 |
+| name              | text          | NOT NULL                                                                 | 取引先名 / コスト名 / 定期費用名 / 経理追加収支の内容（確定時点）                  |
+| category          | text          | NULL                                                                     | 案件の分類 / 経理追加収支の分類                                                    |
+| item              | text          | NULL                                                                     | 品目（cost）/ 費目（recurring_cost）                                               |
+| team              | text          | NULL                                                                     | 案件のチーム / 定期費用・経理追加収支のチーム（NULL = 全体共通）。RLS の判定に使う |
+| entry_type        | text          | NULL                                                                     | 経理追加収支の種別（income / expense）                                             |
+| entry_date        | date          | NULL                                                                     | 経理追加収支の日付                                                                 |
+| payment_cycle     | text          | NULL                                                                     | 定期費用の支払サイクル                                                             |
+| source_amount     | numeric(15,2) | NULL                                                                     | 元データ金額（business / cost / recurring_cost）                                   |
+| adjustment_amount | numeric(15,2) | NULL                                                                     | 損益調整の差分                                                                     |
+| actual_amount     | numeric(15,2) | NULL                                                                     | 実績額（= 元データ + 調整）                                                        |
+| adjustment_reason | text          | NULL                                                                     | 調整理由（調整なしは NULL）                                                        |
+| billing_amount    | numeric(15,2) | NULL                                                                     | 経理追加収支の請求額                                                               |
+| expense_amount    | numeric(15,2) | NULL                                                                     | 経理追加収支の経費                                                                 |
+
+制約:
+
+- UNIQUE (closing_id, source_type, source_id)（closing_id の索引を兼ねる）
+- CHECK（種別ごとに集計・表示に必要な列が揃っていること）: business / cost は matter_id・matter_title・category・team・source_amount・adjustment_amount・actual_amount（cost は item も）が NOT NULL、recurring_cost は item・payment_cycle・金額 3 列が NOT NULL、extra_entry は entry_type（income / expense）・category が NOT NULL
+
+設計上の注意:
+
+- `source_id` / `matter_id` には FK を張らない（元の行や案件が削除されても確定値を残すため。確定後に明細が削除されて損益調整が CASCADE 削除されても確定値は変わらない）
+- JSON 1 カラムにまとめず正規化している理由: チームリーダー向けの行単位 RLS（自チーム＋全体共通のみ）と、確定後の変更検知（Issue #149）の明細単位の突き合わせ・反映のため
+- 明細の算出（集計）は TypeScript（`app/utils/profitLossLogic.ts` の `buildLiveMonthLines`）で行い、`save_profit_loss_closing`（5.14）で保存する。SQL 側に集計ロジックを二重実装しない
+- 名称（matter_title / name）は確定時点の値だが、表示では元の行が存在する限り最新の名称（と上書きタイトル）を使う（名称は金額・集計に影響しないため）。元の行が削除された場合のフォールバックにのみ使う
 
 ## 4. 列挙型
 
@@ -1034,6 +1095,8 @@ CREATE POLICY "extra_entries_delete_policy" ON extra_entries
     );
 ```
 
+> **確定中の編集ロック（Issue #148、migration 27）**: 上記の INSERT / UPDATE / DELETE ポリシーには、損益計算書で確定済みの月のエントリを変更できないよう `NOT private.is_pl_month_closed(entry_date)` が追加されている（UPDATE は USING = 変更前の月、WITH CHECK = 変更後の月）。詳細は 5.14。
+
 ### 5.8 budget_declarations テーブル
 
 > recurring_costs / extra_entries と異なり、**チームリーダーに自チーム分の書き込みを許可する**（事前収支申告はチームリーダー自身が入力するため）。経理担当者・管理者は全行、チームリーダーは自チームの行のみ SELECT / INSERT / UPDATE / DELETE でき、public ロールはアクセスできない。UPDATE は `WITH CHECK` でも team を制約し、他チームへの付け替えを防ぐ。
@@ -1384,6 +1447,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE profit_loss_adjustments TO authent
 REVOKE ALL ON TABLE profit_loss_adjustments FROM anon;
 ```
 
+> **確定中の編集ロック（Issue #148、migration 27）**: 上記の INSERT / UPDATE / DELETE ポリシーには、損益計算書で確定済みの月の調整を変更できないよう `NOT private.is_pl_month_closed(target_month)` が追加されている。`save_profit_loss_adjustment` も確定済みの月は `MONTH_CLOSED` 例外を返す。詳細は 5.14。
+
 #### 実績額修正の原子的な保存（`save_profit_loss_adjustment`）
 
 `app/utils/supabase/profitLossAdjustments.ts` の保存処理は、この DB 関数を1回呼ぶだけで完結する。アプリ側で「元データ金額の取得 → 差分計算 → INSERT/UPDATE」を複数クエリに分けると、取得から書き込みまでの間に元データが変わる、または2人の経理担当者が同時に同じ対象へ保存する、といった競合の余地がある。本関数は対象行を `SELECT ... FOR UPDATE` でロックし、差分計算と `INSERT ... ON CONFLICT DO UPDATE`（部分 UNIQUE インデックスを一意性制約として使う upsert）を単一トランザクション（関数呼び出し1回）内で行うことでこれを解消する。
@@ -1562,6 +1627,67 @@ REVOKE ALL ON TABLE profit_loss_labels FROM anon;
 #### 表示タイトルの保存（`save_profit_loss_label`）
 
 `save_profit_loss_label(p_label, p_matter_id, p_business_id, p_cost_id, p_recurring_cost_id)`（対象の 4 引数は DEFAULT NULL で、ちょうど1つを指定する）。`p_label` の前後の空白を除去し、空なら既存のタイトルを削除（`deleted = true` を返す）、それ以外は対象の部分 UNIQUE インデックスに対する `INSERT ... ON CONFLICT (列) WHERE 列 IS NOT NULL DO UPDATE` で upsert する（部分 UNIQUE は PostgREST の upsert では推論できないため関数にしている。`save_profit_loss_adjustment` と同じ方式）。200 文字を超える場合は `LABEL_TOO_LONG` の例外。`updated_by` は `auth.uid()` から解決し、クライアントからは受け取らない。SECURITY INVOKER のため書き込み可否は上記 RLS がそのまま適用される。
+
+### 5.14 profit_loss_closings / profit_loss_closing_lines テーブル
+
+> 月次収支確定（Issue #148）。ヘッダ（profit_loss_closings）の SELECT はログインユーザー全員（担当者の案件編集時に「確定済みの月」の注意表示を出すため。金額を持たない）、書き込みは経理担当者・管理者のみ。明細（profit_loss_closing_lines）の SELECT は経理担当者・管理者が全行、チームリーダーは `team = 自チーム OR team IS NULL`（ライブ集計時の matters / recurring_costs / extra_entries の RLS と同じ範囲）、書き込みは経理担当者・管理者のみ。public ロールは明細を読めない。anon は両テーブルとも権限なし。
+
+```sql
+-- 確定済み判定（RLS の編集ロックから呼ぶ。private スキーマ・SECURITY DEFINER）
+CREATE OR REPLACE FUNCTION private.is_pl_month_closed(p_month date)
+RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE SET search_path = ''
+AS $$
+  SELECT p_month IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.profit_loss_closings c
+    WHERE c.target_month = date_trunc('month', p_month)::date
+  )
+$$;
+
+CREATE POLICY "profit_loss_closings_select_policy" ON profit_loss_closings
+    FOR SELECT TO authenticated USING (true);
+-- closed_by / refreshed_by は呼び出し本人の profiles.id に限る（なりすまし防止）
+CREATE POLICY "profit_loss_closings_insert_policy" ON profit_loss_closings
+    FOR INSERT TO authenticated
+    WITH CHECK (
+      public.auth_user_class() IN ('admin', 'accounting')
+      AND EXISTS (SELECT 1 FROM profiles p WHERE p.id = profit_loss_closings.closed_by AND p.user_id = (select auth.uid()))
+    );
+CREATE POLICY "profit_loss_closings_update_policy" ON profit_loss_closings
+    FOR UPDATE TO authenticated
+    USING (public.auth_user_class() IN ('admin', 'accounting'))
+    WITH CHECK (
+      public.auth_user_class() IN ('admin', 'accounting')
+      AND (profit_loss_closings.refreshed_by IS NULL
+           OR EXISTS (SELECT 1 FROM profiles p WHERE p.id = profit_loss_closings.refreshed_by AND p.user_id = (select auth.uid())))
+    );
+CREATE POLICY "profit_loss_closings_delete_policy" ON profit_loss_closings
+    FOR DELETE TO authenticated
+    USING (public.auth_user_class() IN ('admin', 'accounting'));
+
+CREATE POLICY "profit_loss_closing_lines_select_policy" ON profit_loss_closing_lines
+    FOR SELECT TO authenticated
+    USING (
+      public.auth_user_class() IN ('admin', 'accounting')
+      OR (
+        public.auth_user_class() = 'teamleader'
+        AND public.auth_user_team() IS NOT NULL
+        AND (profit_loss_closing_lines.team IS NULL OR profit_loss_closing_lines.team = public.auth_user_team())
+      )
+    );
+-- INSERT / UPDATE / DELETE は accounting / admin のみ（USING / WITH CHECK とも auth_user_class() で判定）
+```
+
+#### 確定中の編集ロック（既存テーブルのポリシー変更。migration 27）
+
+- profit_loss_adjustments（5.12）: INSERT の WITH CHECK、UPDATE の USING / WITH CHECK、DELETE の USING に `NOT private.is_pl_month_closed(target_month)` を追加。`save_profit_loss_adjustment` は SECURITY INVOKER のため RLS が効くが、利用者に分かるよう関数の先頭でも判定し、確定済みの月は固定文言の例外 `MONTH_CLOSED` を返す
+- extra_entries（5.7）: INSERT の WITH CHECK（新しい entry_date の月）、UPDATE の USING（変更前の月）と WITH CHECK（変更後の月。従来 WITH CHECK は未指定で USING と同じだったため、経理担当者・管理者の条件も併せて明示）、DELETE の USING に `NOT private.is_pl_month_closed(entry_date)` を追加（entry_date が NULL の行は対象外）
+- recurring_costs のポリシーは変更しない（定期費用マスタは確定済みの月があっても編集できる。確定済みの月の表示は確定明細から行うため影響しない）
+- 案件の明細・定期費用の削除に伴う損益調整の CASCADE 削除は参照整合性のアクションで、RLS は適用されないため妨げられない
+- UPDATE / DELETE は RLS で拒否されても 0 行更新になるだけでエラーにならないため、アプリ側（`bulkUpsertExtraEntry` / `deleteProfitLossAdjustment`）は書き込み前の判定・削除件数の確認で利用者にエラーを返す
+
+#### 確定（`save_profit_loss_closing`）
+
+`save_profit_loss_closing(p_target_month date, p_lines jsonb)` は、ヘッダの upsert（`ON CONFLICT (target_month)`。再確定では確定者・確定日時を更新し、反映者・反映日時をクリア）と明細の全置換（既存明細の DELETE → `jsonb_to_recordset(p_lines)` の INSERT）を 1 回の関数呼び出し（= 1 トランザクション）で行う。途中で失敗（明細の CHECK 違反など）すると確定前の状態に完全にロールバックされる。closed_by / closed_by_name は `auth.uid()` から解決し、クライアントからは受け取らない。SECURITY INVOKER のため書き込み可否は上記 RLS がそのまま適用される。明細はサーバ（`app/utils/supabase/profitLossClosings.ts` の `closeProfitLossMonth`）が当月をライブ集計し直して組み立てる（クライアントから送られた金額は使わない）。確定解除はヘッダの DELETE（明細・見送り記録は CASCADE）。
 
 ## 6. トリガー
 

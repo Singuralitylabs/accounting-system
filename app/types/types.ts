@@ -263,6 +263,40 @@ export type PLReportType = {
   // 対象月に調整はあるが対象行が当月に存在しない（案件開始日の変更等）ため、
   // 損益に反映されず削除待ちの調整（accounting / admin のみ。includeTeamBreakdown と同じロール判定）
   orphanedAdjustments?: OrphanedAdjustmentType[];
+  // 月次収支確定の情報（Issue #148）。確定済みの月は確定明細（スナップショット）から
+  // 集計した値を返す。未確定の月は null（ライブ集計）
+  closing?: ClosingInfo | null;
+};
+
+// ===== 月次収支確定（profit_loss_closings / profit_loss_closing_lines）関連 =====
+
+type ProfitLossClosingsTable =
+  Database["public"]["Tables"]["profit_loss_closings"];
+export type ProfitLossClosingType = ProfitLossClosingsTable["Row"];
+type ProfitLossClosingLinesTable =
+  Database["public"]["Tables"]["profit_loss_closing_lines"];
+export type ProfitLossClosingLineType = ProfitLossClosingLinesTable["Row"];
+
+// 確定明細の種別（profit_loss_closing_lines.source_type）
+export type ClosingSourceType =
+  | "business"
+  | "cost"
+  | "recurring_cost"
+  | "extra_entry";
+
+// 確定明細の保存用の 1 行（save_profit_loss_closing の p_lines の要素）
+export type ClosingLineInput = Omit<
+  ProfitLossClosingLineType,
+  "id" | "closing_id"
+>;
+
+// 画面に表示する確定情報（確定者・反映者は確定時点の氏名）
+export type ClosingInfo = {
+  month: string; // "YYYY-MM"
+  closedAt: string;
+  closedByName: string;
+  refreshedAt: string | null; // 最終反映日時（Issue #149。未反映は null）
+  refreshedByName: string | null;
 };
 
 export type AnnualTrendType = {

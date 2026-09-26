@@ -544,6 +544,134 @@ export type Database = {
           },
         ]
       }
+      profit_loss_closing_lines: {
+        Row: {
+          actual_amount: number | null
+          adjustment_amount: number | null
+          adjustment_reason: string | null
+          billing_amount: number | null
+          category: string | null
+          closing_id: number
+          entry_date: string | null
+          entry_type: string | null
+          expense_amount: number | null
+          id: number
+          item: string | null
+          matter_id: number | null
+          matter_title: string | null
+          name: string
+          payment_cycle: string | null
+          source_amount: number | null
+          source_id: number
+          source_type: string
+          team: string | null
+        }
+        Insert: {
+          actual_amount?: number | null
+          adjustment_amount?: number | null
+          adjustment_reason?: string | null
+          billing_amount?: number | null
+          category?: string | null
+          closing_id: number
+          entry_date?: string | null
+          entry_type?: string | null
+          expense_amount?: number | null
+          id?: never
+          item?: string | null
+          matter_id?: number | null
+          matter_title?: string | null
+          name: string
+          payment_cycle?: string | null
+          source_amount?: number | null
+          source_id: number
+          source_type: string
+          team?: string | null
+        }
+        Update: {
+          actual_amount?: number | null
+          adjustment_amount?: number | null
+          adjustment_reason?: string | null
+          billing_amount?: number | null
+          category?: string | null
+          closing_id?: number
+          entry_date?: string | null
+          entry_type?: string | null
+          expense_amount?: number | null
+          id?: never
+          item?: string | null
+          matter_id?: number | null
+          matter_title?: string | null
+          name?: string
+          payment_cycle?: string | null
+          source_amount?: number | null
+          source_id?: number
+          source_type?: string
+          team?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profit_loss_closing_lines_closing_id_fkey"
+            columns: ["closing_id"]
+            isOneToOne: false
+            referencedRelation: "profit_loss_closings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profit_loss_closings: {
+        Row: {
+          closed_at: string
+          closed_by: number
+          closed_by_name: string
+          id: number
+          inserted_at: string
+          refreshed_at: string | null
+          refreshed_by: number | null
+          refreshed_by_name: string | null
+          target_month: string
+          updated_at: string
+        }
+        Insert: {
+          closed_at?: string
+          closed_by: number
+          closed_by_name: string
+          id?: never
+          inserted_at?: string
+          refreshed_at?: string | null
+          refreshed_by?: number | null
+          refreshed_by_name?: string | null
+          target_month: string
+          updated_at?: string
+        }
+        Update: {
+          closed_at?: string
+          closed_by?: number
+          closed_by_name?: string
+          id?: never
+          inserted_at?: string
+          refreshed_at?: string | null
+          refreshed_by?: number | null
+          refreshed_by_name?: string | null
+          target_month?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profit_loss_closings_closed_by_fkey"
+            columns: ["closed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profit_loss_closings_refreshed_by_fkey"
+            columns: ["refreshed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profit_loss_labels: {
         Row: {
           business_id: number | null
@@ -777,6 +905,15 @@ export type Database = {
           deleted: boolean
           source_amount: number
           adjustment_amount: number
+        }[]
+      }
+      save_profit_loss_closing: {
+        Args: {
+          p_target_month: string
+          p_lines: Json
+        }
+        Returns: {
+          id: number
         }[]
       }
       save_profit_loss_label: {

@@ -19,6 +19,9 @@ import { notifyError, notifySuccess } from "@/app/utils/notify";
 import { confirmAction } from "@/app/utils/confirmAction";
 import { PAYMENT_CYCLE_OPTIONS } from "@/app/utils/paymentCycle";
 import { CustomMonthPicker } from "../CustomMonthPicker";
+import { useClosedMonths } from "@/app/hooks/useProfitLossClosing";
+import { closedMonthsInRecurringRange } from "@/app/utils/profitLossClosing";
+import { formatMonthLabel } from "@/app/utils/formatter";
 
 type Props = {
   initialData: RecurringCostType[];
@@ -34,6 +37,9 @@ const toListRows = (
 const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
   const { data: recurringCostList } = useRecurringCostList(initialData);
   const upsertMutation = useUpsertRecurringCost();
+  // 損益計算書で確定済みの月（Issue #148）。定期費用マスタは確定済みの月があっても
+  // 編集できるが、確定済みの月の損益計算書（確定値）には反映されないため注記する
+  const { closedMonths } = useClosedMonths();
 
   const [rows, setRows] = useState<RecurringCostInListType[]>(
     toListRows(initialData),
@@ -133,7 +139,7 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
       <LoadingOverlay visible={upsertMutation.isPending} />
       <div className="flex justify-between items-center mb-4">
         <p className="text-sm text-gray-600">
-          定期的にかかる管理費を登録します。支払月（適用開始月を起点に支払サイクルごと）の損益計算書に支払額が全額算入されます。
+          定期的にかかる管理費を登録します。支払月（適用開始月を起点に支払サイクルごと）の損益計算書に支払額が全額算入されます。損益計算書で確定済みの月には変更が反映されません（反映するには損益計算書でその月の「確定済み」をオフにしてから再度オンにします）。
         </p>
         <Button
           type="button"
@@ -159,111 +165,129 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {visibleRows.map((row) => (
-              <Table.Tr key={row.id}>
-                <Table.Td>
-                  <TextInput
-                    value={row.name}
-                    placeholder="例: オフィス家賃"
-                    onChange={(event) =>
-                      handleUpdateRow(row.id, { name: event.target.value })
-                    }
-                  />
-                </Table.Td>
-                <Table.Td>
-                  <Select
-                    value={row.item || null}
-                    placeholder="品目を選択"
-                    data={itemList}
-                    onChange={(selected) =>
-                      handleUpdateRow(row.id, { item: selected ?? "" })
-                    }
-                    allowDeselect={false}
-                  />
-                </Table.Td>
-                <Table.Td>
-                  <NumberInput
-                    value={row.price}
-                    min={0}
-                    step={1000}
-                    thousandSeparator=","
-                    prefix="¥"
-                    onChange={(value) =>
-                      handleUpdateRow(row.id, {
-                        price: typeof value === "number" ? value : 0,
-                      })
-                    }
-                  />
-                </Table.Td>
-                <Table.Td>
-                  <Select
-                    value={row.payment_cycle}
-                    data={PAYMENT_CYCLE_OPTIONS}
-                    onChange={(selected) =>
-                      handleUpdateRow(row.id, {
-                        payment_cycle: selected ?? "monthly",
-                      })
-                    }
-                    allowDeselect={false}
-                  />
-                </Table.Td>
-                <Table.Td>
-                  <Select
-                    value={row.team ?? ORG_WIDE_TEAM_LABEL}
-                    data={[ORG_WIDE_TEAM_LABEL, ...teamList]}
-                    onChange={(selected) =>
-                      handleUpdateRow(row.id, {
-                        team:
-                          selected === ORG_WIDE_TEAM_LABEL ? null : selected,
-                      })
-                    }
-                    allowDeselect={false}
-                  />
-                </Table.Td>
-                <Table.Td>
-                  <CustomMonthPicker
-                    placeholder="開始月"
-                    value={row.start_month ? row.start_month.slice(0, 7) : null}
-                    onChange={(month) =>
-                      handleUpdateRow(row.id, {
-                        start_month: month ? `${month}-01` : "",
-                      })
-                    }
-                  />
-                </Table.Td>
-                <Table.Td>
-                  <CustomMonthPicker
-                    placeholder="終了月（継続中は空欄）"
-                    value={row.end_month ? row.end_month.slice(0, 7) : null}
-                    onChange={(month) =>
-                      handleUpdateRow(row.id, {
-                        end_month: month ? `${month}-01` : null,
-                      })
-                    }
-                    isClearable
-                  />
-                </Table.Td>
-                <Table.Td>
-                  <TextInput
-                    value={row.comment ?? ""}
-                    placeholder="備考"
-                    onChange={(event) =>
-                      handleUpdateRow(row.id, { comment: event.target.value })
-                    }
-                  />
-                </Table.Td>
-                <Table.Td>
-                  <button
-                    type="button"
-                    aria-label="削除"
-                    className="text-red-500 hover:text-red-700"
-                    onClick={() => handleRemoveRow(row.id)}
-                  >
-                    <RiDeleteBin6Line size="1.2rem" />
-                  </button>
-                </Table.Td>
-              </Table.Tr>
-            ))}
+            {visibleRows.map((row) => {
+              const closedInRange = row.start_month
+                ? closedMonthsInRecurringRange(row, closedMonths)
+                : [];
+              return (
+                <Table.Tr key={row.id}>
+                  <Table.Td>
+                    <TextInput
+                      value={row.name}
+                      placeholder="例: オフィス家賃"
+                      description={
+                        closedInRange.length > 0
+                          ? `確定済みの月（${formatMonthLabel(closedInRange[0])}〜）の損益計算書には反映されません`
+                          : undefined
+                      }
+                      inputWrapperOrder={[
+                        "label",
+                        "input",
+                        "description",
+                        "error",
+                      ]}
+                      onChange={(event) =>
+                        handleUpdateRow(row.id, { name: event.target.value })
+                      }
+                    />
+                  </Table.Td>
+                  <Table.Td>
+                    <Select
+                      value={row.item || null}
+                      placeholder="品目を選択"
+                      data={itemList}
+                      onChange={(selected) =>
+                        handleUpdateRow(row.id, { item: selected ?? "" })
+                      }
+                      allowDeselect={false}
+                    />
+                  </Table.Td>
+                  <Table.Td>
+                    <NumberInput
+                      value={row.price}
+                      min={0}
+                      step={1000}
+                      thousandSeparator=","
+                      prefix="¥"
+                      onChange={(value) =>
+                        handleUpdateRow(row.id, {
+                          price: typeof value === "number" ? value : 0,
+                        })
+                      }
+                    />
+                  </Table.Td>
+                  <Table.Td>
+                    <Select
+                      value={row.payment_cycle}
+                      data={PAYMENT_CYCLE_OPTIONS}
+                      onChange={(selected) =>
+                        handleUpdateRow(row.id, {
+                          payment_cycle: selected ?? "monthly",
+                        })
+                      }
+                      allowDeselect={false}
+                    />
+                  </Table.Td>
+                  <Table.Td>
+                    <Select
+                      value={row.team ?? ORG_WIDE_TEAM_LABEL}
+                      data={[ORG_WIDE_TEAM_LABEL, ...teamList]}
+                      onChange={(selected) =>
+                        handleUpdateRow(row.id, {
+                          team:
+                            selected === ORG_WIDE_TEAM_LABEL ? null : selected,
+                        })
+                      }
+                      allowDeselect={false}
+                    />
+                  </Table.Td>
+                  <Table.Td>
+                    <CustomMonthPicker
+                      placeholder="開始月"
+                      value={
+                        row.start_month ? row.start_month.slice(0, 7) : null
+                      }
+                      onChange={(month) =>
+                        handleUpdateRow(row.id, {
+                          start_month: month ? `${month}-01` : "",
+                        })
+                      }
+                    />
+                  </Table.Td>
+                  <Table.Td>
+                    <CustomMonthPicker
+                      placeholder="終了月（継続中は空欄）"
+                      value={row.end_month ? row.end_month.slice(0, 7) : null}
+                      onChange={(month) =>
+                        handleUpdateRow(row.id, {
+                          end_month: month ? `${month}-01` : null,
+                        })
+                      }
+                      isClearable
+                    />
+                  </Table.Td>
+                  <Table.Td>
+                    <TextInput
+                      value={row.comment ?? ""}
+                      placeholder="備考"
+                      onChange={(event) =>
+                        handleUpdateRow(row.id, { comment: event.target.value })
+                      }
+                    />
+                  </Table.Td>
+                  <Table.Td>
+                    <button
+                      type="button"
+                      aria-label="削除"
+                      className="text-red-500 hover:text-red-700"
+                      onClick={() => handleRemoveRow(row.id)}
+                    >
+                      <RiDeleteBin6Line size="1.2rem" />
+                    </button>
+                  </Table.Td>
+                </Table.Tr>
+              );
+            })}
           </Table.Tbody>
         </Table>
         {visibleRows.length === 0 && (

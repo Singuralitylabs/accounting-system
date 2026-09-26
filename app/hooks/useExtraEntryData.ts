@@ -23,13 +23,27 @@ export const useExtraEntryList = (initialData?: ExtraEntryType[] | null) => {
   });
 };
 
+// 保存前の検証で拒否されたことを表すエラー（何も書き込まれていない）。
+// 書き込み途中の失敗（一部のみ反映の可能性がある）と画面の案内を分けるために区別する
+export class ExtraEntryValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ExtraEntryValidationError";
+  }
+}
+
 // 経理追加収支の一括登録・更新・削除
 export const useUpsertExtraEntry = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (extraEntries: ExtraEntryInListType[]) =>
-      bulkUpsertExtraEntry(extraEntries),
+    mutationFn: async (extraEntries: ExtraEntryInListType[]) => {
+      const result = await bulkUpsertExtraEntry(extraEntries);
+      if (result.error) {
+        // 保存前の検証（確定済みの月の編集ロック等）で拒否された。何も書き込んでいない
+        throw new ExtraEntryValidationError(result.error.message);
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["extraEntries"] });
       // 経理追加収支の変更は月次・年間推移の損益レポートに影響するため、損益側もまとめて無効化する
@@ -75,8 +89,11 @@ export const useCopyExtraEntriesFromPreviousMonth = () => {
       sourceIds: number[];
       targetMonth: string;
     }) => {
-      const { insertedCount, skippedCount, error } =
+      const { insertedCount, skippedCount, error, closedMonthError } =
         await copyExtraEntriesFromPreviousMonth(sourceIds, targetMonth);
+      if (closedMonthError) {
+        throw new Error(closedMonthError);
+      }
       if (error) {
         throw new Error("経理追加収支の前月コピーに失敗しました");
       }

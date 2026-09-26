@@ -1,11 +1,17 @@
 "use server";
 
-import { ExtraEntryInListType } from "../../types/types";
+import { AccessFailure, ExtraEntryInListType } from "../../types/types";
 import {
   buildCopiedExtraEntries,
   excludeDuplicateExtraEntries,
 } from "../extraEntry";
 import { addMonths, toFirstOfMonth } from "../formatter";
+import {
+  CLOSED_MONTH_LOCK_MESSAGE,
+  findExtraEntryLockViolations,
+  isClosedMonth,
+  toClosedMonthSet,
+} from "../profitLossClosing";
 import { createServerSupabase } from "./clients";
 
 // 一覧の行データを DB 書き込み用の形に変換する（INSERT / UPDATE 共通）
@@ -48,12 +54,63 @@ export const getExtraEntryList = async () => {
   return { extraEntryList, error };
 };
 
+// 確定済みの月（損益計算書の月次収支確定。Issue #148）の集合を取得する
+const fetchClosedMonths = async () => {
+  const supabase = createServerSupabase();
+  const { data, error } = await supabase
+    .from("profit_loss_closings")
+    .select("target_month");
+  return { closedMonths: toClosedMonthSet(data ?? []), error };
+};
+
+export type BulkUpsertExtraEntryResult = { error?: AccessFailure };
+
 // 経理追加収支の一括登録・更新・削除
-// 書き込み権限（accounting / admin のみ）は RLS で担保される
+// 書き込み権限（accounting / admin のみ）は RLS で担保される。
+// 確定済みの月（Issue #148）のエントリの追加・更新・削除、確定済みの月へ / からの
+// 日付の変更は RLS でも拒否されるが、UPDATE / DELETE は RLS で拒否されると 0 行更新に
+// なるだけでエラーにならない（黙って保存されない）ため、書き込み前にここで判定し、
+// 1 件でも該当すれば何も書き込まずに分かりやすいエラーを返す
 export const bulkUpsertExtraEntry = async (
   extraEntries: ExtraEntryInListType[]
-) => {
+): Promise<BulkUpsertExtraEntryResult> => {
   const supabase = createServerSupabase();
+
+  const existingIds = extraEntries
+    .filter((ee) => !ee.isNew)
+    .map((ee) => ee.id);
+  const [{ closedMonths, error: closingError }, originalResult] =
+    await Promise.all([
+      fetchClosedMonths(),
+      existingIds.length > 0
+        ? supabase
+            .from("extra_entries")
+            .select("id, entry_date")
+            .in("id", existingIds)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+  if (closingError || originalResult.error) {
+    console.error(
+      "経理追加収支の保存前確認に失敗しました:",
+      closingError ?? originalResult.error
+    );
+    throw new Error("経理追加収支情報の更新に失敗しました");
+  }
+  const violations = findExtraEntryLockViolations(
+    extraEntries,
+    new Map(
+      (originalResult.data ?? []).map((row) => [row.id, row.entry_date])
+    ),
+    closedMonths
+  );
+  if (violations.length > 0) {
+    return {
+      error: {
+        kind: "validationFailed",
+        message: `${CLOSED_MONTH_LOCK_MESSAGE}（対象: ${violations.join("、")}）`,
+      },
+    };
+  }
 
   // 新規作成用
   const newEntries = extraEntries.filter((ee) => ee.isNew && !ee.isRemoved);
@@ -114,7 +171,7 @@ export const bulkUpsertExtraEntry = async (
     }
   }
 
-  return true;
+  return {};
 };
 
 // 月キー（YYYY-MM）の範囲を [月初, 翌月初) の半開区間で返す（entry_date の絞り込み用）
@@ -168,6 +225,21 @@ export const copyExtraEntriesFromPreviousMonth = async (
 ) => {
   if (sourceIds.length === 0) {
     return { insertedCount: 0, skippedCount: 0, error: null };
+  }
+
+  // 確定済みの月（Issue #148）へのコピーは RLS でも拒否されるが、分かりやすいエラーにする
+  const { closedMonths, error: closingError } = await fetchClosedMonths();
+  if (closingError) {
+    console.error("確定済みの月の取得に失敗しました:", closingError);
+    return { insertedCount: 0, skippedCount: 0, error: closingError };
+  }
+  if (isClosedMonth(closedMonths, targetMonth)) {
+    return {
+      insertedCount: 0,
+      skippedCount: 0,
+      error: null,
+      closedMonthError: CLOSED_MONTH_LOCK_MESSAGE,
+    };
   }
 
   const supabase = createServerSupabase();

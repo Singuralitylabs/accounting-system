@@ -4,6 +4,7 @@ import { getCachedProfileInfo } from "@/app/utils/supabase/requestCache";
 import {
   hasClassAccess,
   PL_ADJUSTMENT_WRITE_CLASSES,
+  PL_CLOSING_WRITE_CLASSES,
   PL_LABEL_WRITE_CLASSES,
   ROUTE_PERMISSIONS,
 } from "@/app/utils/permissions";
@@ -36,6 +37,8 @@ const DynamicProfitLoss = async () => {
   );
   // 表示タイトル（Issue #150）の変更操作を表示するか（RLS の accounting/admin 判定と揃える）
   const canEditLabels = hasClassAccess(PL_LABEL_WRITE_CLASSES, profileClass);
+  // 月次収支の確定・確定解除（Issue #148）を操作できるか（RLS の accounting/admin 判定と揃える）
+  const canClose = hasClassAccess(PL_CLOSING_WRITE_CLASSES, profileClass);
 
   return (
     <main>
@@ -46,6 +49,7 @@ const DynamicProfitLoss = async () => {
         canEditExtraEntries={canEditExtraEntries}
         canEditAdjustments={canEditAdjustments}
         canEditLabels={canEditLabels}
+        canClose={canClose}
       />
     </main>
   );

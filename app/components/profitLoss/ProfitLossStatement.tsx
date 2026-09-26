@@ -19,6 +19,7 @@ import {
   SimpleGrid,
   Table,
   Text,
+  Tooltip,
 } from "@mantine/core";
 import { Fragment, useState } from "react";
 import { MatterCardDetail } from "../modal/MatterCardDetail";
@@ -28,6 +29,7 @@ import ProfitLossLabelModal from "./ProfitLossLabelModal";
 import MatterProfitTable from "./MatterProfitTable";
 import CategoryProfitTable from "./CategoryProfitTable";
 import {
+  AdjustmentButton,
   AdjustmentIndicators,
   EditableTitle,
   ExpandToggle,
@@ -39,6 +41,7 @@ import {
 import { notifyError, notifySuccess, toErrorMessage } from "@/app/utils/notify";
 import { confirmAction } from "@/app/utils/confirmAction";
 import { useDeleteProfitLossAdjustment } from "@/app/hooks/useProfitLossAdjustments";
+import { CLOSED_MONTH_LOCK_MESSAGE } from "@/app/utils/profitLossClosing";
 
 type Props = {
   report: PLReportType;
@@ -185,6 +188,9 @@ const ProfitLossStatement = ({
     }
   };
 
+  // 確定済みの月（Issue #148）は損益調整を編集できない（確定済みチェックをオフにしてから編集する）
+  const isClosed = !!report.closing;
+
   const hasUndated =
     report.undated.revenue !== 0 || report.undated.matterCost !== 0;
 
@@ -235,6 +241,7 @@ const ProfitLossStatement = ({
         matterCostTotal={report.matterCostTotal}
         grossProfitTotal={report.grossProfitTotal}
         canEditAdjustments={canEditAdjustments}
+        isClosed={isClosed}
         loadingMatterId={loadingMatterId}
         onShowMatter={handleShowMatter}
         onEditAdjustment={openAdjustmentModal}
@@ -362,11 +369,9 @@ const ProfitLossStatement = ({
                         </Table.Td>
                         <Table.Td className="text-center">
                           {canEditAdjustments && (
-                            <Button
-                              size="xs"
-                              variant="subtle"
-                              onClick={(event) => {
-                                event.stopPropagation();
+                            <AdjustmentButton
+                              isClosed={isClosed}
+                              onClick={() =>
                                 openAdjustmentModal(
                                   {
                                     targetType: "recurring_cost",
@@ -374,11 +379,9 @@ const ProfitLossStatement = ({
                                   },
                                   detail.displayTitle,
                                   detail,
-                                );
-                              }}
-                            >
-                              実績額を修正
-                            </Button>
+                                )
+                              }
+                            />
                           )}
                         </Table.Td>
                       </Table.Tr>
@@ -436,17 +439,30 @@ const ProfitLossStatement = ({
                       </span>
                     </Table.Td>
                     <Table.Td className="text-right w-32">
-                      <Button
-                        size="xs"
-                        color="red"
-                        variant="light"
-                        loading={deletingAdjustmentIds.has(adjustment.id)}
-                        onClick={() =>
-                          handleDeleteOrphanedAdjustment(adjustment.id, label)
-                        }
+                      <Tooltip
+                        label={CLOSED_MONTH_LOCK_MESSAGE}
+                        disabled={!isClosed}
+                        multiline
+                        w={260}
                       >
-                        削除
-                      </Button>
+                        <span>
+                          <Button
+                            size="xs"
+                            color="red"
+                            variant="light"
+                            disabled={isClosed}
+                            loading={deletingAdjustmentIds.has(adjustment.id)}
+                            onClick={() =>
+                              handleDeleteOrphanedAdjustment(
+                                adjustment.id,
+                                label,
+                              )
+                            }
+                          >
+                            削除
+                          </Button>
+                        </span>
+                      </Tooltip>
                     </Table.Td>
                   </Table.Tr>
                 ),

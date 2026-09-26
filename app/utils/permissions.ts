@@ -33,6 +33,11 @@ export const PL_ADJUSTMENT_WRITE_CLASSES: Role[] = ["accounting", "admin"];
 // profit_loss_labels の RLS（INSERT/UPDATE/DELETE は accounting / admin のみ）と揃える
 export const PL_LABEL_WRITE_CLASSES: Role[] = ["accounting", "admin"];
 
+// 損益計算書の月次収支確定（確定・確定解除。Issue #148）と、確定後の変更の反映・見送り
+// （Issue #149）を操作できるロール。profit_loss_closings / profit_loss_closing_lines の
+// RLS（INSERT/UPDATE/DELETE は accounting / admin のみ）と揃える
+export const PL_CLOSING_WRITE_CLASSES: Role[] = ["accounting", "admin"];
+
 export const hasClassAccess = (
   allowedClasses: readonly Role[],
   profileClass: string | null | undefined,

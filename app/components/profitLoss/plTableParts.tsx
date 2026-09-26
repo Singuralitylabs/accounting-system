@@ -6,7 +6,8 @@ import { AdjustableAmount, DisplayTitle } from "@/app/types/types";
 import { formatCurrency } from "@/app/utils/formatter";
 import { formatPaymentCycle } from "@/app/utils/paymentCycle";
 import { ORG_WIDE_TEAM_LABEL } from "@/app/utils/constants";
-import { ActionIcon, Badge, Tooltip } from "@mantine/core";
+import { ActionIcon, Badge, Button, Tooltip } from "@mantine/core";
+import { CLOSED_MONTH_LOCK_MESSAGE } from "@/app/utils/profitLossClosing";
 import { ReactNode, useState } from "react";
 import {
   FaChevronDown,
@@ -203,4 +204,36 @@ export const EditableTitle = (props: {
     <span>{props.title.displayTitle}</span>
     <TitleExtras {...props} />
   </>
+);
+
+// 明細行の「実績額を修正」ボタン。確定済みの月（Issue #148）は無効化し、
+// 確定解除してから編集する旨をツールチップで示す（無効化したボタンはホバーイベントを
+// 受けないため span で包む）
+export const AdjustmentButton = ({
+  isClosed,
+  onClick,
+}: {
+  isClosed: boolean;
+  onClick: () => void;
+}) => (
+  <Tooltip
+    label={CLOSED_MONTH_LOCK_MESSAGE}
+    disabled={!isClosed}
+    multiline
+    w={260}
+  >
+    <span>
+      <Button
+        size="xs"
+        variant="subtle"
+        disabled={isClosed}
+        onClick={(event) => {
+          event.stopPropagation();
+          onClick();
+        }}
+      >
+        実績額を修正
+      </Button>
+    </span>
+  </Tooltip>
 );

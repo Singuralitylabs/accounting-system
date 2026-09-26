@@ -805,6 +805,8 @@ export const aggregateMonthLines = ({
     byTeam,
     undated: { revenue: 0, matterCost: 0 },
     orphanedAdjustments: undefined,
+    // ライブ集計（未確定）。確定済みの月は buildMonthReport（profitLossClosing.ts）が上書きする
+    closing: null,
   };
 };
 
