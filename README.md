@@ -139,6 +139,8 @@ https://accounting.future-tech-association.org
 
 **🚀 開発環境構築の詳細手順については、[docs/setup.md](./docs/setup.md) をご確認ください。**
 
+**🚢 本番リリースの手順については、[docs/release.md](./docs/release.md) をご確認ください（リリース PR 作成・タグ作成は GitHub Actions で半自動化）。**
+
 ### 環境変数
 
 Supabase・Google 認証・Slack 通知に加え、事前収支申告の未申告リマインド（Vercel Cron）用に以下が必要です。
