@@ -6,6 +6,9 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # リリース PR 作成時の品質ゲートから再利用する（release-pr.yml）。
+  # 既存の push / pull_request トリガーの挙動は変えない。
+  workflow_call:
 
 jobs:
   format-check:

@@ -12,7 +12,8 @@
 6. [データ移行（ローカル ↔ クラウド）](#データ移行)
 7. [開発コマンド一覧](#開発コマンド一覧)
 8. [Supabase keep-alive（自動 Pause 対策）](#supabase-keep-alive自動-pause-対策)
-9. [トラブルシューティング](#トラブルシューティング)
+9. [本番リリース](#本番リリース)
+10. [トラブルシューティング](#トラブルシューティング)
 
 ---
 
@@ -500,6 +501,12 @@ Supabase 無料プランは 1 週間アクセスが無いとプロジェクト�
 
 - **一時停止**: GitHub の **Actions > Supabase Keep-Alive > ⋯ > Disable workflow**。再開は同じ場所の **Enable workflow**。
 - **恒久的に廃止**: `.github/workflows/supabase-keepalive.yml` を削除して main にマージし、上記 4 つの Secrets も削除する（Pro プランに移行した場合など）。
+
+---
+
+## 本番リリース
+
+本番リリース（`main` → `release`）の手順は [`docs/release.md`](./release.md) を参照。差分検出・リリース PR 作成・タグ作成は GitHub Actions で半自動化している（`.github/workflows/release-pr.yml` / `create-release.yml`）。本番 DB へのマイグレーション適用（`supabase db push`）は手動で行う（ワークフローは実行しない）。
 
 ---
 
