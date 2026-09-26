@@ -34,6 +34,7 @@ import {
   AdjustmentIndicators,
   EditableTitle,
   ExpandToggle,
+  INDENT,
   amountColor,
   expandableRowProps,
   formatRecurringCostNote,
@@ -322,7 +323,7 @@ const ProfitLossStatement = ({
               return (
                 <Fragment key={rowKey}>
                   <Table.Tr {...expandableRowProps(() => toggleRow(rowKey))}>
-                    <Table.Td className="pl-8 text-gray-700">
+                    <Table.Td className="text-gray-700" style={INDENT.child}>
                       <ExpandToggle
                         isExpanded={isExpanded}
                         onToggle={() => toggleRow(rowKey)}
@@ -343,7 +344,10 @@ const ProfitLossStatement = ({
                         key={`${rowKey}-detail-${detail.recurringCostId}`}
                         className="bg-gray-50"
                       >
-                        <Table.Td className="pl-16 text-gray-600">
+                        <Table.Td
+                          className="text-gray-600"
+                          style={INDENT.detail}
+                        >
                           <EditableTitle
                             title={detail}
                             originalTitle={detail.name}

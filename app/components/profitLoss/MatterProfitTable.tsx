@@ -30,6 +30,7 @@ import {
   ExpandToggle,
   TitleExtras,
   adjustmentNote,
+  INDENT,
   amountColor,
   expandableRowProps,
   useExpandedRows,
@@ -147,7 +148,7 @@ const MatterProfitTable = ({
       : { targetType: "cost", costId: id };
     return (
       <Table.Tr key={`${kind}-${id}`} className="bg-gray-50">
-        <Table.Td className="pl-20 text-gray-600">
+        <Table.Td className="text-gray-600" style={INDENT.detail}>
           <Badge
             size="xs"
             variant="outline"
@@ -273,7 +274,10 @@ const MatterProfitTable = ({
                           <Table.Tr
                             {...expandableRowProps(() => toggleRow(matterKey))}
                           >
-                            <Table.Td className="pl-8 text-gray-700">
+                            <Table.Td
+                              className="text-gray-700"
+                              style={INDENT.child}
+                            >
                               <ExpandToggle
                                 isExpanded={isMatterExpanded}
                                 onToggle={() => toggleRow(matterKey)}
@@ -353,7 +357,10 @@ const MatterProfitTable = ({
                         <Table.Tr
                           {...expandableRowProps(() => toggleRow(extraKey))}
                         >
-                          <Table.Td className="pl-8 text-gray-700">
+                          <Table.Td
+                            className="text-gray-700"
+                            style={INDENT.child}
+                          >
                             <ExpandToggle
                               isExpanded={isExtraExpanded}
                               onToggle={() => toggleRow(extraKey)}
@@ -375,7 +382,10 @@ const MatterProfitTable = ({
                               key={`extra-${entry.extraEntryId}`}
                               className="bg-gray-50"
                             >
-                              <Table.Td className="pl-20 text-gray-600">
+                              <Table.Td
+                                className="text-gray-600"
+                                style={INDENT.detail}
+                              >
                                 <Badge
                                   size="xs"
                                   variant="outline"

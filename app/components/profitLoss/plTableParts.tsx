@@ -16,6 +16,13 @@ import {
   FaPen,
 } from "react-icons/fa";
 
+// 階層表示の字下げ（見出し → 子 → 明細）。Mantine の Table.Td の padding は
+// Tailwind の pl-* クラスより詳細度が高く効かないため、インラインスタイルで指定する
+export const INDENT = {
+  child: { paddingLeft: "2rem" },
+  detail: { paddingLeft: "3.75rem" },
+} as const;
+
 // 損益の符号に応じた文字色（0 は黒字扱い）
 export const amountColor = (value: number) =>
   value < 0 ? "text-red-600" : "text-green-700";
