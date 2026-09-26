@@ -7,6 +7,7 @@ const { createServerSupabase } = vi.hoisted(() => ({
 vi.mock("@/app/utils/supabase/clients", () => ({ createServerSupabase }));
 
 import { bulkUpsertExtraEntry } from "@/app/utils/supabase/extraEntries";
+import { copyExtraEntriesFromPreviousMonth } from "@/app/utils/supabase/extraEntries";
 
 const saved = (
   id: number,
@@ -181,5 +182,27 @@ describe("bulkUpsertExtraEntry（確定済みの月の編集ロック・1 トラ
       expect(result.error?.message).toContain("確定済みの月です");
       expect(calls).toEqual([]);
     }
+  });
+});
+
+describe("copyExtraEntriesFromPreviousMonth の対象月検証（Issue #140）", () => {
+  beforeEach(() => {
+    createServerSupabase.mockReset();
+  });
+
+  it("不正な targetMonth は DB に行かずエラーを返す", async () => {
+    const result = await copyExtraEntriesFromPreviousMonth([1, 2], "2026-09-15");
+
+    expect(result.insertedCount).toBe(0);
+    expect(result.skippedCount).toBe(0);
+    expect(result.error).toBeTruthy();
+    expect(createServerSupabase).not.toHaveBeenCalled();
+  });
+
+  it("空の sourceIds は正常（DB に行かない）", async () => {
+    const result = await copyExtraEntriesFromPreviousMonth([], "2026-09");
+
+    expect(result).toEqual({ insertedCount: 0, skippedCount: 0, error: null });
+    expect(createServerSupabase).not.toHaveBeenCalled();
   });
 });

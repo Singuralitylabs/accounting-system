@@ -10,6 +10,9 @@ export const useSaveProfitLossAdjustment = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
+    // 非冪等な書き込みのため、グローバル retry による mutationFn 再実行を防ぐ
+    // （useSaveBudgetRecurringItems / useSaveBudgetDeclaration と同方針）
+    retry: 0,
     mutationFn: async ({
       target,
       targetMonth,
@@ -48,6 +51,9 @@ export const useDeleteProfitLossAdjustment = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
+    // 非冪等な書き込みのため、グローバル retry による mutationFn 再実行を防ぐ
+    // （useSaveBudgetRecurringItems / useSaveBudgetDeclaration と同方針）
+    retry: 0,
     mutationFn: async (adjustmentId: number) => {
       const { error } = await deleteProfitLossAdjustment(adjustmentId);
       if (error) {

@@ -1524,6 +1524,7 @@ DECLARE
   v_actual_amount numeric;
   v_adjustment_amount numeric;
   v_adjusted_by bigint;
+  v_deleted_count integer;
 BEGIN
   -- 対象は必ずちょうど1つ
   IF num_nonnulls(p_business_id, p_cost_id, p_recurring_cost_id) <> 1 THEN
@@ -1556,14 +1557,16 @@ BEGIN
 
   v_adjustment_amount := v_actual_amount - v_source_amount;
 
-  -- 差分 0（実績額 = 元データ）なら既存の調整を削除する
+  -- 差分 0（実績額 = 元データ）なら既存の調整を削除する。対象が無ければ
+  -- deleted = false を返し、呼び出し側が「変更なし」として扱えるようにする（Issue #139）
   IF v_adjustment_amount = 0 THEN
     DELETE FROM public.profit_loss_adjustments
     WHERE target_month = p_target_month
       AND business_id IS NOT DISTINCT FROM p_business_id
       AND cost_id IS NOT DISTINCT FROM p_cost_id
       AND recurring_cost_id IS NOT DISTINCT FROM p_recurring_cost_id;
-    RETURN QUERY SELECT true, v_source_amount, 0::numeric;
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RETURN QUERY SELECT (v_deleted_count > 0), v_source_amount, 0::numeric;
     RETURN;
   END IF;
 

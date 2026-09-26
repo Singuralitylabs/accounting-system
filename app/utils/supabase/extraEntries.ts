@@ -7,6 +7,7 @@ import {
   toExtraEntryDbRow as toDbRow,
 } from "../extraEntry";
 import { addMonths, toFirstOfMonth } from "../formatter";
+import { isMonthKey } from "../profitLossLogic";
 import {
   CLOSED_MONTH_LOCK_MESSAGE,
   findExtraEntryLockViolations,
@@ -212,6 +213,17 @@ export const copyExtraEntriesFromPreviousMonth = async (
   sourceIds: number[],
   targetMonth: string,
 ) => {
+  // 不正な月キーは沈黙の空表示にせず取得失敗として扱う（getProfitLossReport と同方針）
+  if (!isMonthKey(targetMonth)) {
+    console.error(
+      `経理追加収支の前月コピーの対象月の形式が不正です: ${targetMonth}`,
+    );
+    return {
+      insertedCount: 0,
+      skippedCount: 0,
+      error: { message: "対象月の形式が不正です。" },
+    };
+  }
   if (sourceIds.length === 0) {
     return { insertedCount: 0, skippedCount: 0, error: null };
   }

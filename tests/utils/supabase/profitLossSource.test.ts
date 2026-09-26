@@ -11,6 +11,9 @@ import {
   fetchAllByIds,
   fetchAllPages,
 } from "@/app/utils/supabase/paging";
+import { createServerSupabase } from "@/app/utils/supabase/clients";
+import { supplementAdjustmentTargets } from "@/app/utils/supabase/profitLossSource";
+import type { ReportSourceRows } from "@/app/utils/supabase/profitLossSource";
 
 describe("fetchAllPages（PostgREST の max_rows 打ち切り対策）", () => {
   it("1 ページが PAGE_SIZE 件なら直前の最大 id の次から取得し、全件をつなげる", async () => {
@@ -83,5 +86,67 @@ describe("fetchAllByIds（ID 指定の取得の分割・ページング）", () 
       Promise.resolve({ data: null, error }),
     );
     expect(failed).toEqual({ data: null, error });
+  });
+});
+
+describe("supplementAdjustmentTargets の teamleader スキップ（Issue #142）", () => {
+  const rowsWithOrphan = (): ReportSourceRows => ({
+    businessRows: [],
+    costRows: [],
+    recurringCosts: [],
+    extraEntries: [],
+    adjustments: [
+      {
+        id: 1,
+        target_month: "2026-07-01",
+        business_id: 99,
+        cost_id: null,
+        recurring_cost_id: null,
+        adjustment_amount: 1000,
+        source_amount_snapshot: 0,
+        reason: "理由",
+        adjusted_by: 1,
+        inserted_at: "2026-07-01T00:00:00+09:00",
+        updated_at: "2026-07-01T00:00:00+09:00",
+      },
+    ],
+    labels: [],
+    closings: new Map(),
+  });
+
+  const emptyPageQuery = () => {
+    const query: Record<string, unknown> = {};
+    query.select = vi.fn(() => query);
+    query.in = vi.fn(() => query);
+    query.gt = vi.fn(() => query);
+    query.order = vi.fn(() => query);
+    query.limit = vi.fn(() => Promise.resolve({ data: [], error: null }));
+    return query;
+  };
+
+  it("includeTeamBreakdown が false なら補完クエリを発行しない", async () => {
+    vi.mocked(createServerSupabase).mockReset();
+    const rows = rowsWithOrphan();
+
+    await supplementAdjustmentTargets("2026-07", rows, {
+      includeTeamBreakdown: false,
+    });
+
+    expect(createServerSupabase).not.toHaveBeenCalled();
+    expect(rows.businessRows).toEqual([]);
+  });
+
+  it("includeTeamBreakdown が true（省略時含む）なら欠けている対象行を補完取得する", async () => {
+    vi.mocked(createServerSupabase).mockReset();
+    vi.mocked(createServerSupabase).mockReturnValue({
+      from: vi.fn(() => emptyPageQuery()),
+    } as unknown as ReturnType<typeof createServerSupabase>);
+    const rows = rowsWithOrphan();
+
+    await supplementAdjustmentTargets("2026-07", rows, {
+      includeTeamBreakdown: true,
+    });
+
+    expect(createServerSupabase).toHaveBeenCalled();
   });
 });
