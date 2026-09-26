@@ -20,6 +20,9 @@ on:
       - "package.json"
       - "yarn.lock"
   workflow_dispatch:
+  # リリース PR 作成時の品質ゲートから再利用する（release-pr.yml）。
+  # 既存の push / pull_request トリガーと paths フィルタの挙動は変えない。
+  workflow_call:
 
 jobs:
   test:

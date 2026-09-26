@@ -24,7 +24,7 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 - スキーマ変更（テーブル / RLS / トリガー / enum / 初期データなど）は **必ず `supabase/migrations/` に SQL ファイルとして追加する**。命名は `YYYYMMDDHHMMSS_<snake_case_name>.sql`。リモートに直接当てた変更も後追いで同形式のファイルを追加し、ローカルから `supabase db reset` で同じ状態を再現できる状態を維持する。
 - マイグレーションを足したら同じ PR で `docs/database.md` も更新する（テーブル定義 / RLS / トリガーの記載と実物を一致させる）。
 - テストは Vitest（`tests/` 配下。純粋関数は `*.test.ts`、コンポーネントは `*.test.tsx` + jsdom。TZ=Asia/Tokyo 固定）。方針・対象・規約は `docs/testing.md` を参照。テスト済みコードを修正したら対応するテストも更新する。
-- CI は GitHub Actions（`.github/workflows/`: typecheck+lint / test / build / format-check）。同ディレクトリの `supabase-keepalive.yml` は CI ではなく Supabase 無料プランの自動 Pause 防止用（毎日 1 回 REST で SELECT。`docs/setup.md` 参照）。
+- CI は GitHub Actions（`.github/workflows/`: typecheck+lint / test / build / format-check）。同ディレクトリの `supabase-keepalive.yml` は CI ではなく Supabase 無料プランの自動 Pause 防止用（毎日 1 回 REST で SELECT。`docs/setup.md` 参照）。リリース用の `release-pr.yml` / `create-release.yml` も同ディレクトリにあり、手順は `docs/release.md` を参照。
 
 ## 作業ルール
 
@@ -32,6 +32,7 @@ supabase start | stop | reset   # ローカル Supabase の起動・停止・リ
 - `main` へ直接 push しない。変更は作業ブランチ＋PR を経由する。
 - **`release`（本番）への反映は必ず `main` を経由する。** PR のマージ先は原則 `main` であり、作業ブランチから `release` へ直接 PR を作らない。`release` へ入るのは `main` → `release` のリリースカットのみ。本番ホットフィックスも同様に `main` に入れてからカットする（この運用により `release` のツリーは常に `main` のある時点と一致する）。
 - **PR のマージは禁止。** `gh pr merge`、GitHub MCP の merge、`main` への merge / push をエージェントが実行してはならない。マージはユーザーだけが行う。担当範囲は CI green ＋レビュー完了まで。
+- 本番リリースは `docs/release.md` の手順に従う。リリース PR 作成・タグ作成は GitHub Actions（`release-pr.yml` / `create-release.yml`）で行い、本番 DB へのマイグレーション適用（`supabase db push`）は手動で行う（ワークフローは実行しない）。
 
 ## アーキテクチャ
 
