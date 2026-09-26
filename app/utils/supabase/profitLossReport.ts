@@ -42,7 +42,10 @@ export const getProfitLossReport = async (
   if (!rows) {
     return null;
   }
-  await supplementAdjustmentTargets(month, rows);
+  const flags = reportFlags(profileInfo.class);
+  await supplementAdjustmentTargets(month, rows, {
+    includeTeamBreakdown: flags.includeTeamBreakdown,
+  });
 
   // 確定済みの月は確定明細から、未確定の月はライブ集計から組み立てる（Issue #148）
   const report = buildMonthReport({
@@ -50,7 +53,7 @@ export const getProfitLossReport = async (
     ...rows,
     closing: rows.closings.get(month) ?? null,
     includeMonthlyDetails: true,
-    ...reportFlags(profileInfo.class),
+    ...flags,
   });
 
   // 確定後の差分（Issue #149）の追加・削除に、他の月との移動の情報を付ける。

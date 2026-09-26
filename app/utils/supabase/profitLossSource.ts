@@ -278,10 +278,16 @@ export const fetchReportSourceRows = async (
 // ID 指定で補完取得し rows に追加する（通常は0件でクエリを発行しない。あっても1往復にまとめる）。
 // 補完行は月振り分けで集計から除外されるため集計値は不変。
 // RLS で読めない行は解決できず汎用表示（「売上（ID: X）」等）に落ちる。
+// orphanedAdjustments は includeTeamBreakdown（accounting / admin）でのみ計算・表示
+// されるため、teamleader では補完取得自体をスキップする（Issue #142）。
 export const supplementAdjustmentTargets = async (
   month: string,
   rows: ReportSourceRows,
+  options?: { includeTeamBreakdown?: boolean },
 ): Promise<void> => {
+  if (options?.includeTeamBreakdown === false) {
+    return;
+  }
   const missingIds = collectMissingAdjustmentTargetIds(
     month,
     rows.adjustments,

@@ -27,7 +27,7 @@ import {
   TitledRecurringCostLine,
 } from "../types/types";
 import { teamLabel } from "./constants";
-import { addMonths } from "./formatter";
+import { addMonths, toFirstOfMonth } from "./formatter";
 import { hasClassAccess } from "./permissions";
 
 // 集計対象の行が属する案件の属性。
@@ -154,14 +154,10 @@ export type ReportRangeBounds = {
 };
 
 // 月キー（"YYYY-MM"）の翌月の月初日を返す。
-// 日付の月ズレを避けるため Date オブジェクトは使わない。
-const firstDayOfNextMonth = (monthKey: string): string => {
-  const year = parseInt(monthKey.slice(0, 4), 10);
-  const monthNumber = parseInt(monthKey.slice(5, 7), 10);
-  const nextYear = monthNumber === 12 ? year + 1 : year;
-  const nextMonthNumber = monthNumber === 12 ? 1 : monthNumber + 1;
-  return `${nextYear}-${String(nextMonthNumber).padStart(2, "0")}-01`;
-};
+// extraEntries.ts の monthDateRange と同じく formatter.ts のヘルパーで組み立てる
+// （日付の月ズレを避けるため Date オブジェクトは使わない）。
+const firstDayOfNextMonth = (monthKey: string): string =>
+  toFirstOfMonth(addMonths(monthKey, 1));
 
 // 取得期間から日付範囲（[startDate, endExclusive)）を求める。
 // SQL の WHERE 句とインメモリのフィルタで同じ境界を使うための単一の定義。
