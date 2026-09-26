@@ -33,7 +33,10 @@ export const useSaveProfitLossAdjustment = () => {
       if (result.error) {
         throw new Error(result.error.message);
       }
-      return { deleted: result.deleted };
+      return {
+        deleted: result.deleted,
+        adjustmentAmount: result.adjustmentAmount,
+      };
     },
     onSuccess: () => {
       // 損益調整は損益レポート（月次・年間推移）にのみ影響する

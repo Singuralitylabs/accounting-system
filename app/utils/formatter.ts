@@ -52,6 +52,14 @@ export const addMonths = (month: string, count: number): string => {
   return `${String(nextYear).padStart(4, "0")}-${String(nextMonthNumber).padStart(2, "0")}`;
 };
 
+// 月キー（"YYYY-MM"）の形式検証。
+// Server Action 経由でクライアント到達可能な取得期間の入口で使い、
+// 不正な値は呼び出し側で取得失敗（再取得を促す表示）として扱う。
+// 月ヘルパと同居させることで、データアクセス層（"use server"）が P&L 集計モジュール
+// 全体に依存せずに済む（Issue #140 のレビュー指摘）。
+export const isMonthKey = (value: string): boolean =>
+  /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+
 // 月キー（YYYY-MM）または日付文字列（YYYY-MM-DD）→ 月初日（YYYY-MM-01）。
 // 月単位で保持するカラム（recurring_costs.start_month /
 // budget_declarations.target_month）への書き込み・絞り込みで使う。

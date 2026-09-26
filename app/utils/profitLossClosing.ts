@@ -27,6 +27,7 @@ import {
   buildLiveMonthLines,
   computeOrphanedAdjustments,
   computeUndated,
+  needsMonthlyAdjustmentDetails,
 } from "./profitLossLogic";
 
 const toMonthKey = (value: string): string => value.slice(0, 7);
@@ -416,9 +417,12 @@ export const buildMonthReport = (
     labels: input.labels,
   });
   // 対象行なし調整・確定後の変更は、経理担当者・管理者（includeTeamBreakdown）の
-  // 月次タブの単月表示（includeMonthlyDetails）でのみ計算する（年間推移では使わない）
-  const monthlyDetails =
-    input.includeTeamBreakdown && input.includeMonthlyDetails;
+  // 月次タブの単月表示（includeMonthlyDetails）でのみ計算する（年間推移では使わない）。
+  // 取得側（supplementAdjustmentTargets）と同じ needsMonthlyAdjustmentDetails で判定する
+  const monthlyDetails = needsMonthlyAdjustmentDetails({
+    includeTeamBreakdown: input.includeTeamBreakdown,
+    includeMonthlyDetails: input.includeMonthlyDetails,
+  });
   const labelIndex = monthlyDetails ? buildLabelIndex(input.labels) : undefined;
   return {
     ...report,

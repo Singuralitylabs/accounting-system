@@ -6,8 +6,7 @@ import {
   excludeDuplicateExtraEntries,
   toExtraEntryDbRow as toDbRow,
 } from "../extraEntry";
-import { addMonths, toFirstOfMonth } from "../formatter";
-import { isMonthKey } from "../profitLossLogic";
+import { addMonths, isMonthKey, toFirstOfMonth } from "../formatter";
 import {
   CLOSED_MONTH_LOCK_MESSAGE,
   findExtraEntryLockViolations,

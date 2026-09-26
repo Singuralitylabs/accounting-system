@@ -130,13 +130,27 @@ describe("supplementAdjustmentTargets の teamleader スキップ（Issue #142�
 
     await supplementAdjustmentTargets("2026-07", rows, {
       includeTeamBreakdown: false,
+      includeMonthlyDetails: true,
     });
 
     expect(createServerSupabase).not.toHaveBeenCalled();
     expect(rows.businessRows).toEqual([]);
   });
 
-  it("includeTeamBreakdown が true（省略時含む）なら欠けている対象行を補完取得する", async () => {
+  it("年間推移（includeMonthlyDetails が false）なら補完クエリを発行しない", async () => {
+    vi.mocked(createServerSupabase).mockReset();
+    const rows = rowsWithOrphan();
+
+    await supplementAdjustmentTargets("2026-07", rows, {
+      includeTeamBreakdown: true,
+      includeMonthlyDetails: false,
+    });
+
+    expect(createServerSupabase).not.toHaveBeenCalled();
+    expect(rows.businessRows).toEqual([]);
+  });
+
+  it("月次表示（両方 true。省略時含む）なら欠けている対象行を補完取得する", async () => {
     vi.mocked(createServerSupabase).mockReset();
     vi.mocked(createServerSupabase).mockReturnValue({
       from: vi.fn(() => emptyPageQuery()),
@@ -145,6 +159,7 @@ describe("supplementAdjustmentTargets の teamleader スキップ（Issue #142�
 
     await supplementAdjustmentTargets("2026-07", rows, {
       includeTeamBreakdown: true,
+      includeMonthlyDetails: true,
     });
 
     expect(createServerSupabase).toHaveBeenCalled();

@@ -21,6 +21,7 @@ import {
   isDraftMatter,
   matterMonthKey,
   matterPeriodFilter,
+  needsMonthlyAdjustmentDetails,
   recurringOverlapEndFilter,
   reportRangeBounds,
 } from "../profitLossLogic";
@@ -278,14 +279,21 @@ export const fetchReportSourceRows = async (
 // ID 指定で補完取得し rows に追加する（通常は0件でクエリを発行しない。あっても1往復にまとめる）。
 // 補完行は月振り分けで集計から除外されるため集計値は不変。
 // RLS で読めない行は解決できず汎用表示（「売上（ID: X）」等）に落ちる。
-// orphanedAdjustments は includeTeamBreakdown（accounting / admin）でのみ計算・表示
-// されるため、teamleader では補完取得自体をスキップする（Issue #142）。
+// orphanedAdjustments は月次タブの単月表示でチーム別内訳を持つロール
+// （accounting / admin）でのみ計算・表示されるため、それ以外では補完取得自体を
+// スキップする（Issue #142）。表示側（buildMonthReport）と同じ
+// needsMonthlyAdjustmentDetails で判定する
 export const supplementAdjustmentTargets = async (
   month: string,
   rows: ReportSourceRows,
-  options?: { includeTeamBreakdown?: boolean },
+  options?: { includeTeamBreakdown?: boolean; includeMonthlyDetails?: boolean },
 ): Promise<void> => {
-  if (options?.includeTeamBreakdown === false) {
+  if (
+    !needsMonthlyAdjustmentDetails({
+      includeTeamBreakdown: options?.includeTeamBreakdown ?? true,
+      includeMonthlyDetails: options?.includeMonthlyDetails ?? true,
+    })
+  ) {
     return;
   }
   const missingIds = collectMissingAdjustmentTargetIds(

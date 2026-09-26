@@ -45,6 +45,7 @@ export const getProfitLossReport = async (
   const flags = reportFlags(profileInfo.class);
   await supplementAdjustmentTargets(month, rows, {
     includeTeamBreakdown: flags.includeTeamBreakdown,
+    includeMonthlyDetails: true,
   });
 
   // 確定済みの月は確定明細から、未確定の月はライブ集計から組み立てる（Issue #148）
