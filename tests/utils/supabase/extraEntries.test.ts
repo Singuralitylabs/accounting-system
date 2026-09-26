@@ -40,7 +40,11 @@ const row = (
 });
 
 // supabase.from(table) のモック。select（保存前確認）と update / insert / delete を記録する
-const setup = (closedMonths: string[], originals: ExtraEntryType[]) => {
+const setup = (
+  closedMonths: string[],
+  originals: ExtraEntryType[],
+  rlsBlockedIds: unknown[] = [],
+) => {
   const writes: { op: string; payload?: unknown; id?: unknown }[] = [];
   const from = vi.fn((table: string) => {
     if (table === "profit_loss_closings") {
@@ -57,20 +61,30 @@ const setup = (closedMonths: string[], originals: ExtraEntryType[]) => {
         in: () => Promise.resolve({ data: originals, error: null }),
       }),
       update: (payload: unknown) => ({
-        eq: (_col: string, id: unknown) => {
-          writes.push({ op: "update", payload, id });
-          return Promise.resolve({ error: null });
-        },
+        eq: (_col: string, id: unknown) => ({
+          select: () => {
+            writes.push({ op: "update", payload, id });
+            return Promise.resolve({
+              data: rlsBlockedIds.includes(id) ? [] : [{ id }],
+              error: null,
+            });
+          },
+        }),
       }),
       insert: (payload: unknown) => {
         writes.push({ op: "insert", payload });
         return Promise.resolve({ error: null });
       },
       delete: () => ({
-        in: (_col: string, id: unknown) => {
-          writes.push({ op: "delete", id });
-          return Promise.resolve({ error: null });
-        },
+        in: (_col: string, ids: unknown[]) => ({
+          select: () => {
+            writes.push({ op: "delete", id: ids });
+            return Promise.resolve({
+              data: ids.map((id) => ({ id })),
+              error: null,
+            });
+          },
+        }),
       }),
     };
   });
@@ -95,6 +109,14 @@ describe("bulkUpsertExtraEntry の確定済みの月の編集ロック（Issue #
     expect(writes).toEqual([
       { op: "update", payload: expect.objectContaining({ billing_amount: 20000 }), id: 2 },
     ]);
+  });
+
+  it("保存前の確認の後に月が確定され RLS で 0 行更新になった場合は、成功扱いにせずエラーにする", async () => {
+    const september = saved(2, "2026-09-10");
+    setup([], [september], [2]);
+    await expect(
+      bulkUpsertExtraEntry([row({ ...september, billing_amount: 1 })]),
+    ).rejects.toThrow("一部が更新されませんでした");
   });
 
   it("確定済みの月の行を変更・削除・確定済みの月へ移動しようとすると、何も書き込まずにエラーを返す", async () => {

@@ -3,6 +3,7 @@
 import {
   AccessFailure,
   ClosingDiffKey,
+  ClosingDiffSelection,
   ClosingDiffSummary,
   ClosingLineInput,
 } from "../../types/types";
@@ -16,8 +17,10 @@ import {
 import {
   buildApplyPayload,
   diffClosingLines,
+  findStaleSelections,
   liveDiffStates,
   sanitizeDiffKeys,
+  sanitizeDiffSelections,
 } from "../profitLossDiff";
 import { createServerSupabase } from "./clients";
 import { fetchReportSourceRows } from "./profitLossSource";
@@ -89,7 +92,17 @@ export const closeProfitLossMonth = async (
   // （しかも以後ロックされ、定期費用・経理追加収支は変更検知の対象外で気付けない）。
   // 確定のコミット後（= ロック後）にもう一度集計し、違いがあれば取り直して確定値に含める
   const verified = await liveClosingRows();
-  if (verified && !sameClosingRows(lines, verified)) {
+  if (!verified) {
+    // 確定自体は完了している。確認できなかったことだけを知らせる
+    return {
+      error: {
+        kind: "fetchFailed",
+        message:
+          "確定しましたが、確定直後の確認（確定処理中の他の変更の取り込み）に失敗しました。念のため「確定済み」をオフにしてから再度オンにしてください。",
+      },
+    };
+  }
+  if (!sameClosingRows(lines, verified)) {
     if (!(await save(verified))) {
       return {
         error: {
@@ -191,14 +204,14 @@ export const getClosingDiffSummary =
     return { summary: summary.sort((a, b) => a.month.localeCompare(b.month)) };
   };
 
-// 反映・見送りの共通の前処理（入力検証・権限確認・当月のライブ集計）
+// 反映・見送りの共通の前処理（入力検証・権限確認・当月のライブ集計・表示後の変更の確認）
 const prepareDiffOperation = async (
   month: string,
-  keys: ClosingDiffKey[],
+  selections: ClosingDiffSelection[],
   subject: string,
 ) => {
-  const validKeys = sanitizeDiffKeys(keys);
-  if (!isMonthKey(month) || !validKeys) {
+  const validSelections = sanitizeDiffSelections(selections);
+  if (!isMonthKey(month) || !validSelections) {
     return {
       error: {
         kind: "validationFailed" as const,
@@ -233,17 +246,32 @@ const prepareDiffOperation = async (
       },
     };
   }
-  return { keys: validKeys, liveLines: buildLiveMonthLines({ month, ...rows }) };
+  const liveLines = buildLiveMonthLines({ month, ...rows });
+  // 画面で見ていた状態から変わった明細があれば、利用者が見ていない変更を反映・見送り
+  // しないよう拒否する（値そのものは常にサーバで集計し直したものを使う）
+  if (findStaleSelections(liveLines, validSelections).length > 0) {
+    return {
+      error: {
+        kind: "validationFailed" as const,
+        message:
+          "表示した後に案件が更新された明細があります。画面を再読み込みして内容を確認してから操作してください。",
+      },
+    };
+  }
+  const keys: ClosingDiffKey[] = validSelections.map(
+    ({ sourceType, sourceId }) => ({ sourceType, sourceId }),
+  );
+  return { keys, liveLines };
 };
 
-// 選択した差分の反映。クライアントからは対象の明細（source_type, source_id）だけを
-// 受け取り、値はサーバ側でライブ集計し直したものを使う（ライブにある明細は最新の値で
+// 選択した差分の反映。クライアントからは対象の明細（source_type, source_id）と画面で
+// 見ていた状態だけを受け取り、値はサーバ側でライブ集計し直したものを使う（ライブにある明細は最新の値で
 // upsert、無い明細は確定明細から削除）。反映者・反映日時を記録する
 export const applyClosingDiffs = async (
   month: string,
-  keys: ClosingDiffKey[],
+  selections: ClosingDiffSelection[],
 ): Promise<ProfitLossClosingWriteResult> => {
-  const prepared = await prepareDiffOperation(month, keys, "変更の反映");
+  const prepared = await prepareDiffOperation(month, selections, "変更の反映");
   if (prepared.error) {
     return { error: prepared.error };
   }
@@ -270,9 +298,9 @@ export const applyClosingDiffs = async (
 // 以後その状態のままならアラート・件数から外す
 export const dismissClosingDiffs = async (
   month: string,
-  keys: ClosingDiffKey[],
+  selections: ClosingDiffSelection[],
 ): Promise<ProfitLossClosingWriteResult> => {
-  const prepared = await prepareDiffOperation(month, keys, "変更の見送り");
+  const prepared = await prepareDiffOperation(month, selections, "変更の見送り");
   if (prepared.error) {
     return { error: prepared.error };
   }

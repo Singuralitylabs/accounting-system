@@ -16,7 +16,10 @@ import {
   diffClosingLines,
   diffKindLabel,
   liveDiffStates,
+  findStaleSelections,
   sanitizeDiffKeys,
+  sanitizeDiffSelections,
+  toDiffSelection,
 } from "@/app/utils/profitLossDiff";
 import {
   ClosingLineInput,
@@ -465,5 +468,106 @@ describe("案件詳細モーダルの確定済みの月の注意表示（Issue #
       ["2026-08"],
     );
     expect(closedMonthsForMatter(closed, [null, undefined])).toEqual([]);
+  });
+});
+
+describe("反映・見送りの選択と表示後の変更の検出（Issue #149）", () => {
+  const live = linesOf("2026-08", [business(1, 120000, 1)], []);
+
+  it("差分から画面で見ていた状態を作り、現在の状態と同じなら古くない", () => {
+    const result = diff([business(1, 120000, 1)], closedCosts);
+    const selections = result.pending.map(toDiffSelection);
+    expect(selections).toContainEqual({
+      sourceType: "business",
+      sourceId: 1,
+      expected: {
+        present: true,
+        actualAmount: 120000,
+        team: "シンラボ",
+        category: "受託案件",
+      },
+    });
+    expect(
+      findStaleSelections(
+        linesOf("2026-08", [business(1, 120000, 1)], []),
+        selections,
+      ),
+    ).toEqual([]);
+  });
+
+  it("金額・在否・区分が画面で見ていた状態から変わった明細を返す", () => {
+    expect(
+      findStaleSelections(live, [
+        {
+          sourceType: "business",
+          sourceId: 1,
+          expected: {
+            present: true,
+            actualAmount: 100000,
+            team: "シンラボ",
+            category: "受託案件",
+          },
+        },
+        {
+          sourceType: "business",
+          sourceId: 2,
+          expected: {
+            present: false,
+            actualAmount: null,
+            team: null,
+            category: null,
+          },
+        },
+        {
+          sourceType: "cost",
+          sourceId: 1,
+          expected: {
+            present: true,
+            actualAmount: 30000,
+            team: "シンラボ",
+            category: "受託案件",
+          },
+        },
+      ]),
+    ).toEqual([
+      { sourceType: "business", sourceId: 1 },
+      { sourceType: "cost", sourceId: 1 }, // ライブから消えた
+    ]);
+  });
+
+  it("選択の入力検証（在否と値の組み合わせ・重複）", () => {
+    const ok = {
+      sourceType: "business",
+      sourceId: 1,
+      expected: {
+        present: false,
+        actualAmount: null,
+        team: null,
+        category: null,
+      },
+    };
+    expect(sanitizeDiffSelections([ok])).toEqual([ok]);
+    expect(sanitizeDiffSelections([ok, ok])).toBeNull();
+    expect(
+      sanitizeDiffSelections([
+        { ...ok, expected: { ...ok.expected, actualAmount: 1 } },
+      ]),
+    ).toBeNull();
+    expect(
+      sanitizeDiffSelections([
+        {
+          ...ok,
+          expected: {
+            present: true,
+            actualAmount: 1,
+            team: null,
+            category: "c",
+          },
+        },
+      ]),
+    ).toBeNull();
+    expect(
+      sanitizeDiffSelections([{ sourceType: "business", sourceId: 1 }]),
+    ).toBeNull();
   });
 });

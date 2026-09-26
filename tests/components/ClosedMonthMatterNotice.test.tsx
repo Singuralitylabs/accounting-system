@@ -15,6 +15,7 @@ describe("ClosedMonthMatterNotice", () => {
       <ClosedMonthMatterNotice
         savedStartDate="2026-08-10"
         currentStartDate="2026-10-01"
+        isDraft={false}
       />,
     );
     expect(
@@ -22,11 +23,28 @@ describe("ClosedMonthMatterNotice", () => {
     ).toBeInTheDocument();
   });
 
+  it("下書き（新規作成を含む）は計上されていないため、経理申請後に反映される旨を表示する", () => {
+    renderWithMantine(
+      <ClosedMonthMatterNotice
+        savedStartDate={null}
+        currentStartDate="2026-08-01"
+        isDraft
+      />,
+    );
+    expect(
+      screen.getByText(
+        /経理申請すると、経理の確認後にその月の損益計算書へ反映されます/,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/計上されています/)).not.toBeInTheDocument();
+  });
+
   it("どちらも確定済みでなければ何も表示しない", () => {
     renderWithMantine(
       <ClosedMonthMatterNotice
         savedStartDate="2026-09-10"
         currentStartDate={null}
+        isDraft={false}
       />,
     );
     expect(

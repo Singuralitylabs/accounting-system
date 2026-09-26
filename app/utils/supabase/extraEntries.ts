@@ -116,10 +116,14 @@ export const bulkUpsertExtraEntry = async (
         throw new Error("更新対象の経理追加収支IDが見つかりません");
       }
 
+      // RLS（確定済みの月の編集ロック等）で拒否された UPDATE はエラーにならず 0 行に
+      // なるだけのため、更新した行を返させて件数を確かめる（下の expectedCount）
       return supabase
         .from("extra_entries")
         .update(toDbRow(ee))
-        .eq("id", ee.id);
+        .eq("id", ee.id)
+        .select("id")
+        .then((result) => ({ ...result, expectedCount: 1 }));
     });
     operations.push(...updatePromises);
   }
@@ -131,7 +135,12 @@ export const bulkUpsertExtraEntry = async (
       .filter((id) => id !== undefined);
     if (deleteIds.length > 0) {
       operations.push(
-        supabase.from("extra_entries").delete().in("id", deleteIds)
+        supabase
+          .from("extra_entries")
+          .delete()
+          .in("id", deleteIds)
+          .select("id")
+          .then((result) => ({ ...result, expectedCount: deleteIds.length }))
       );
     }
   }
@@ -149,6 +158,19 @@ export const bulkUpsertExtraEntry = async (
         errors
       );
       throw new Error("経理追加収支情報の更新に失敗しました");
+    }
+    // 保存前の確認の後に月が確定された等で、RLS により一部の更新・削除が 0 行になった
+    const skipped = results.filter(
+      (result) =>
+        "expectedCount" in result &&
+        (result.data?.length ?? 0) < (result.expectedCount as number)
+    );
+    if (skipped.length > 0) {
+      console.error(
+        "経理追加収支情報の一部が更新・削除されませんでした（確定済みの月の可能性）:",
+        skipped
+      );
+      throw new Error("経理追加収支情報の一部が更新されませんでした");
     }
   }
 

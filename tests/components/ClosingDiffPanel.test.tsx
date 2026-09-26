@@ -139,7 +139,18 @@ describe("ClosingDiffPanel", () => {
     await vi.waitFor(() =>
       expect(applyMutateAsync).toHaveBeenCalledWith({
         month: "2026-08",
-        keys: [{ sourceType: "business", sourceId: 1 }],
+        items: [
+          {
+            sourceType: "business",
+            sourceId: 1,
+            expected: {
+              present: true,
+              actualAmount: 120000,
+              team: "シンラボ",
+              category: "受託案件",
+            },
+          },
+        ],
       }),
     );
   });
@@ -172,7 +183,9 @@ describe("ClosingDiffPanel", () => {
     await vi.waitFor(() =>
       expect(dismissMutateAsync).toHaveBeenCalledWith({
         month: "2026-08",
-        keys: [{ sourceType: "business", sourceId: 1 }],
+        items: [
+          expect.objectContaining({ sourceType: "business", sourceId: 1 }),
+        ],
       }),
     );
 
@@ -183,7 +196,7 @@ describe("ClosingDiffPanel", () => {
     await vi.waitFor(() =>
       expect(undoMutateAsync).toHaveBeenCalledWith({
         month: "2026-08",
-        keys: [{ sourceType: "cost", sourceId: 5 }],
+        items: [{ sourceType: "cost", sourceId: 5 }],
       }),
     );
   });

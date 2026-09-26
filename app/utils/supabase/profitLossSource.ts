@@ -44,21 +44,25 @@ const MATTER_COLUMNS =
 export const BUSINESS_SELECT = `id, name, amount, matter_id, ${MATTER_COLUMNS}`;
 export const COST_SELECT = `id, name, price, item, matter_id, ${MATTER_COLUMNS}`;
 
-// PostgREST は 1 リクエストで返す行数を max_rows（supabase/config.toml・本番とも既定 1000）で
-// 黙って打ち切る。集計の取りこぼしを防ぐため、行数が増えうる取得は id 順にページングして
-// 全件を集める（通常は 1 ページ = 1 往復で終わる）。ページサイズは max_rows 以下にすること
-// （上回ると 1 ページ目が max_rows 件で打ち切られ、最終ページと誤判定して取りこぼす）
+// PostgREST は 1 リクエストで返す行数を max_rows（supabase/config.toml・本番とも既定 1000。
+// 埋め込みリソースの配列にも掛かる）で黙って打ち切る。集計の取りこぼしを防ぐため、
+// 行数が増えうる取得は id のキーセット方式（id > 直前の最大 id を id 順に PAGE_SIZE 件ずつ）で
+// ページングして全件を集める（通常は 1 ページ = 1 往復で終わる）。offset 方式と違い、
+// 取得の途中で前の行が削除されても後ろの行を読み飛ばさない。
+// ページサイズは max_rows 以下にすること（上回ると 1 ページ目が max_rows 件で打ち切られ、
+// 最終ページと誤判定して取りこぼす）
 export const PAGE_SIZE = 1000;
 
-export const fetchAllPages = async <T>(
+export const fetchAllPages = async <T extends { id: number }>(
   fetchPage: (
-    from: number,
-    to: number,
+    afterId: number,
+    limit: number,
   ) => PromiseLike<{ data: T[] | null; error: PostgrestError | null }>,
 ): Promise<{ data: T[] | null; error: PostgrestError | null }> => {
   const rows: T[] = [];
-  for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await fetchPage(from, from + PAGE_SIZE - 1);
+  let afterId = 0; // id は 1 以上（GENERATED ... AS IDENTITY）
+  for (;;) {
+    const { data, error } = await fetchPage(afterId, PAGE_SIZE);
     if (error) {
       return { data: null, error };
     }
@@ -66,6 +70,7 @@ export const fetchAllPages = async <T>(
     if (!data || data.length < PAGE_SIZE) {
       return { data: rows, error: null };
     }
+    afterId = data[data.length - 1].id;
   }
 };
 
@@ -95,58 +100,64 @@ export const fetchReportSourceRows = async (
   // 条件は埋め込みリソース（matters!inner）側に掛ける
   // 行数が増えうるため fetchAllPages で id 順にページングする（年間推移・確定後の変更の集計は
   // 複数月をまとめて取得するため、max_rows を超えうる）
-  const businessQuery = fetchAllPages((from, to) =>
+  const businessQuery = fetchAllPages((afterId, limit) =>
     supabase
       .from("business")
       .select(BUSINESS_SELECT)
       .or(matterPeriodFilter(bounds), { referencedTable: "matters" })
+      .gt("id", afterId)
       .order("id", { ascending: true })
-      .range(from, to),
+      .limit(limit),
   );
-  const costQuery = fetchAllPages((from, to) =>
+  const costQuery = fetchAllPages((afterId, limit) =>
     supabase
       .from("costs")
       .select(COST_SELECT)
       .or(matterPeriodFilter(bounds), { referencedTable: "matters" })
+      .gt("id", afterId)
       .order("id", { ascending: true })
-      .range(from, to),
+      .limit(limit),
   );
   // 定期費用は適用期間の重なりで絞る（支払サイクルの計上判定は集計側で行う）。
   // 適用期間が取得期間と重ならない行だけを除外する。
-  const recurringQuery = fetchAllPages((from, to) =>
+  const recurringQuery = fetchAllPages((afterId, limit) =>
     supabase
       .from("recurring_costs")
       .select("*")
       .lt("start_month", bounds.endExclusive)
       .or(recurringOverlapEndFilter(bounds))
+      .gt("id", afterId)
       .order("id", { ascending: true })
-      .range(from, to),
+      .limit(limit),
   );
-  const extraQuery = fetchAllPages((from, to) =>
+  const extraQuery = fetchAllPages((afterId, limit) =>
     supabase
       .from("extra_entries")
       .select("*")
       .or(datedOrUndatedFilter("entry_date", bounds))
+      .gt("id", afterId)
       .order("id", { ascending: true })
-      .range(from, to),
+      .limit(limit),
   );
   // 調整は対象月で絞る（target_month は NOT NULL）。
-  const adjustmentQuery = fetchAllPages((from, to) =>
+  const adjustmentQuery = fetchAllPages((afterId, limit) =>
     supabase
       .from("profit_loss_adjustments")
       .select("*")
       .gte("target_month", bounds.startDate)
       .lt("target_month", bounds.endExclusive)
+      .gt("id", afterId)
       .order("id", { ascending: true })
-      .range(from, to),
+      .limit(limit),
   );
   // 表示タイトル（Issue #150）は全月共通のため期間で絞らない（件数は対象行数以下）
-  const labelQuery = fetchAllPages((from, to) =>
+  const labelQuery = fetchAllPages((afterId, limit) =>
     supabase
       .from("profit_loss_labels")
       .select("*")
+      .gt("id", afterId)
       .order("id", { ascending: true })
-      .range(from, to),
+      .limit(limit),
   );
   // 確定ヘッダ（Issue #148）・確定明細・見送り記録（Issue #149）。PostgREST の max_rows は
   // 埋め込みリソースの配列にも掛かるため、明細・見送り記録は埋め込まずに別クエリで
@@ -157,23 +168,25 @@ export const fetchReportSourceRows = async (
     .select("*")
     .gte("target_month", bounds.startDate)
     .lt("target_month", bounds.endExclusive);
-  const closingLineQuery = fetchAllPages((from, to) =>
+  const closingLineQuery = fetchAllPages((afterId, limit) =>
     supabase
       .from("profit_loss_closing_lines")
       .select("*, profit_loss_closings!inner(target_month)")
       .gte("profit_loss_closings.target_month", bounds.startDate)
       .lt("profit_loss_closings.target_month", bounds.endExclusive)
+      .gt("id", afterId)
       .order("id", { ascending: true })
-      .range(from, to),
+      .limit(limit),
   );
-  const dismissalQuery = fetchAllPages((from, to) =>
+  const dismissalQuery = fetchAllPages((afterId, limit) =>
     supabase
       .from("profit_loss_closing_dismissals")
       .select("*, profit_loss_closings!inner(target_month)")
       .gte("profit_loss_closings.target_month", bounds.startDate)
       .lt("profit_loss_closings.target_month", bounds.endExclusive)
+      .gt("id", afterId)
       .order("id", { ascending: true })
-      .range(from, to),
+      .limit(limit),
   );
 
   const [

@@ -109,6 +109,8 @@ export type OrphanedAdjustmentType = {
   adjustment: ProfitLossAdjustmentType;
   targetType: AdjustmentTargetType;
   label: string; // 対象行を識別する表示名（案件名 - 取引先/コスト名、または定期費用名）
+  // 確定済みの月のみ: 対象行が確定明細に含まれている（= 確定値にこの調整が算入済み）か
+  includedInClosing?: boolean;
 };
 
 // ===== 損益計算書の表示タイトル（profit_loss_labels）関連 =====
@@ -469,6 +471,18 @@ export type DiffSourceType = "business" | "cost";
 
 // 明細の特定キー（反映・見送りの Server Action に渡す）
 export type ClosingDiffKey = { sourceType: DiffSourceType; sourceId: number };
+
+// 反映・見送りで選んだ明細と、画面で見ていたその明細の最新の状態（Issue #149）。
+// サーバは値そのものは集計し直したものを使うが、画面で見ていた状態と現在の状態が
+// 食い違う（表示後にさらに変更された）場合は拒否し、見ていない変更を反映・見送りしない
+export type ClosingDiffSelection = ClosingDiffKey & {
+  expected: {
+    present: boolean;
+    actualAmount: number | null;
+    team: string | null;
+    category: string | null;
+  };
+};
 
 // 差分の種類。金額変更・区分変更（分類・チーム）は同時に起こりうるため changed に
 // フラグで持つ

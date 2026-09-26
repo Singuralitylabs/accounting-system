@@ -138,34 +138,13 @@ CREATE POLICY "profit_loss_closings_select_policy" ON profit_loss_closings
   FOR SELECT TO authenticated
   USING (true);
 
--- 書き込みは経理担当者・管理者のみ。closed_by / refreshed_by は呼び出し本人に限る
--- （PostgREST 経由で任意の profiles.id を指定したなりすましを防ぐ）
-CREATE POLICY "profit_loss_closings_insert_policy" ON profit_loss_closings
-  FOR INSERT TO authenticated
-  WITH CHECK (
-    public.auth_user_class() IN ('admin', 'accounting')
-    AND EXISTS (
-      SELECT 1 FROM profiles p
-      WHERE p.id = profit_loss_closings.closed_by
-      AND p.user_id = (select auth.uid())
-    )
-  );
-
-CREATE POLICY "profit_loss_closings_update_policy" ON profit_loss_closings
-  FOR UPDATE TO authenticated
-  USING (public.auth_user_class() IN ('admin', 'accounting'))
-  WITH CHECK (
-    public.auth_user_class() IN ('admin', 'accounting')
-    AND (
-      profit_loss_closings.refreshed_by IS NULL
-      OR EXISTS (
-        SELECT 1 FROM profiles p
-        WHERE p.id = profit_loss_closings.refreshed_by
-        AND p.user_id = (select auth.uid())
-      )
-    )
-  );
-
+-- 追加・更新（確定・変更の反映）は確定用の RPC（save_profit_loss_closing /
+-- apply_profit_loss_closing_diffs。SECURITY DEFINER で経理担当者・管理者かを判定する）
+-- 経由でのみ行う。テーブルへの INSERT / UPDATE 権限は authenticated に付与しない
+-- （下の GRANT）。確定者・反映者（closed_by / refreshed_by と氏名）を RPC が auth.uid() から
+-- 解決して書き込むため、PostgREST からの直接の書き込みで他人名義にしたり、サーバで
+-- 集計し直していない値を保存したりできないようにする。
+-- 確定解除（行の削除。明細・見送り記録は CASCADE）だけは直接の DELETE を許可する
 CREATE POLICY "profit_loss_closings_delete_policy" ON profit_loss_closings
   FOR DELETE TO authenticated
   USING (public.auth_user_class() IN ('admin', 'accounting'));
@@ -199,18 +178,8 @@ CREATE POLICY "profit_loss_closing_lines_select_policy" ON profit_loss_closing_l
     )
   );
 
-CREATE POLICY "profit_loss_closing_lines_insert_policy" ON profit_loss_closing_lines
-  FOR INSERT TO authenticated
-  WITH CHECK (public.auth_user_class() IN ('admin', 'accounting'));
-
-CREATE POLICY "profit_loss_closing_lines_update_policy" ON profit_loss_closing_lines
-  FOR UPDATE TO authenticated
-  USING (public.auth_user_class() IN ('admin', 'accounting'))
-  WITH CHECK (public.auth_user_class() IN ('admin', 'accounting'));
-
-CREATE POLICY "profit_loss_closing_lines_delete_policy" ON profit_loss_closing_lines
-  FOR DELETE TO authenticated
-  USING (public.auth_user_class() IN ('admin', 'accounting'));
+-- 明細の追加・更新・削除は確定用の RPC 経由のみ（テーブルへの書き込み権限は付与しない。
+-- 確定解除時の削除はヘッダからの CASCADE）
 
 -- ===== 確定中の編集ロック: profit_loss_adjustments =====
 -- target_month が確定済みの月の調整の追加・更新・削除を拒否する。
@@ -413,9 +382,9 @@ $$;
 -- ヘッダの upsert（再確定では確定者・確定日時を更新し、反映者・反映日時をクリアする）と
 -- 明細の全置換を 1 回の関数呼び出し（= 1 トランザクション）で行う。
 -- 途中で失敗した場合は確定前の状態に完全にロールバックされる。
--- SECURITY INVOKER のため、書き込みの可否は上記 RLS（経理担当者・管理者のみ）が
--- そのまま適用される。closed_by / closed_by_name は auth.uid() から解決し、
--- クライアントからは受け取らない。
+-- SECURITY DEFINER にし、関数内で経理担当者・管理者かを判定する（テーブルへの直接の
+-- 書き込み権限を authenticated に付与しないため）。closed_by / closed_by_name は
+-- auth.uid() から解決し、クライアントからは受け取らない。
 -- p_lines は明細オブジェクトの配列（キーは profit_loss_closing_lines の列名。
 -- app/utils/profitLossClosing.ts の monthLinesToClosingRows が組み立てる）。
 CREATE OR REPLACE FUNCTION public.save_profit_loss_closing(
@@ -424,7 +393,7 @@ CREATE OR REPLACE FUNCTION public.save_profit_loss_closing(
 )
 RETURNS TABLE (id bigint)
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
@@ -432,6 +401,11 @@ DECLARE
   v_profile_id bigint;
   v_profile_name text;
 BEGIN
+  IF public.auth_user_class() IS NULL
+     OR public.auth_user_class() NOT IN ('admin', 'accounting') THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
   SELECT p.id, p.name INTO v_profile_id, v_profile_name
   FROM public.profiles p WHERE p.user_id = auth.uid();
   IF v_profile_id IS NULL THEN
@@ -477,15 +451,19 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.save_profit_loss_closing(date, jsonb) IS
-  '損益計算書の月次収支確定（Issue #148）。ヘッダ（profit_loss_closings）の upsert と明細（profit_loss_closing_lines）の全置換を単一トランザクションで行う。再確定では確定者・確定日時を更新し、反映者・反映日時をクリアする。closed_by は auth.uid() から解決する。書き込みの可否は呼び出し元ロールに対する RLS がそのまま適用される（SECURITY INVOKER）。詳細: docs/database.md 5.15';
+  '損益計算書の月次収支確定（Issue #148）。ヘッダ（profit_loss_closings）の upsert と明細（profit_loss_closing_lines）の全置換を単一トランザクションで行う。再確定では確定者・確定日時を更新し、反映者・反映日時をクリアする。closed_by は auth.uid() から解決する。SECURITY DEFINER で関数内で経理担当者・管理者かを判定する（テーブルへの直接の書き込み権限は付与しない）。詳細: docs/database.md 5.15';
 
 REVOKE EXECUTE ON FUNCTION public.save_profit_loss_closing(date, jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.save_profit_loss_closing(date, jsonb) TO authenticated;
 
 -- ===== GRANT =====
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE profit_loss_closings
-  TO authenticated, service_role;
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE profit_loss_closing_lines
-  TO authenticated, service_role;
+-- authenticated には読み取りと確定解除（ヘッダの DELETE）のみ。追加・更新は RPC 経由のみ。
+-- 既定権限（ALTER DEFAULT PRIVILEGES）で付与されうる書き込み権限を明示的に剥奪する
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE profit_loss_closings FROM authenticated;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE profit_loss_closing_lines FROM authenticated;
+GRANT SELECT, DELETE ON TABLE profit_loss_closings TO authenticated;
+GRANT SELECT ON TABLE profit_loss_closing_lines TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE profit_loss_closings TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE profit_loss_closing_lines TO service_role;
 REVOKE ALL ON TABLE profit_loss_closings FROM anon;
 REVOKE ALL ON TABLE profit_loss_closing_lines FROM anon;

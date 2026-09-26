@@ -436,14 +436,14 @@ const ProfitLossStatement = ({
         >
           <Text size="sm" className="mb-2">
             {isClosed
-              ? // 確定済みの月は、確定時点で算入済みの調整が確定値に残っている（判定はライブの状態で行う）
-                "確定後に、案件開始日の変更や下書きへの差し戻しなどで対象行が当月の集計から外れました。確定値には確定時点の実績額として反映済みです（外れた明細は確定後の変更として表示されます）。調整を削除するには「確定済み」をオフにしてください。"
+              ? // 判定はライブの状態で行う。確定値に算入済みかは行ごとに示す
+                "案件開始日の変更や下書きへの差し戻しなどにより、対象行が当月の集計から外れている損益調整があります。確定値への算入の有無は各行に表示しています。調整を削除するには「確定済み」をオフにしてください。"
               : "案件開始日の変更や下書きへの差し戻しなどにより、対象行が当月の集計から外れています。損益には反映されていません。内容を確認して削除してください。"}
           </Text>
           <Table verticalSpacing="xs">
             <Table.Tbody>
               {report.orphanedAdjustments.map(
-                ({ adjustment, targetType, label }) => (
+                ({ adjustment, targetType, label, includedInClosing }) => (
                   <Table.Tr key={`orphan-${adjustment.id}`}>
                     <Table.Td>
                       <Badge
@@ -455,6 +455,18 @@ const ProfitLossStatement = ({
                         {targetTypeLabel[targetType]}
                       </Badge>
                       {label}
+                      {includedInClosing !== undefined && (
+                        <Badge
+                          size="xs"
+                          variant="outline"
+                          color={includedInClosing ? "teal" : "gray"}
+                          className="ml-2"
+                        >
+                          {includedInClosing
+                            ? "確定値に算入済み"
+                            : "確定値にも含まれていません"}
+                        </Badge>
+                      )}
                       <span className="text-xs text-gray-500 ml-2">
                         （{adjustment.reason} / 調整額{" "}
                         {formatCurrency(adjustment.adjustment_amount)}）

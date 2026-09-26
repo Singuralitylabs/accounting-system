@@ -328,6 +328,44 @@ describe("確定明細への変換と再構成（Issue #148）", () => {
     expect(liveSeptember.closing).toBeNull();
   });
 
+  it("確定済みの月の「対象行が当月に存在しない調整」に、確定値へ算入済みかを付ける", () => {
+    const input = baseInput();
+    const snapshot = snapshotOf(input);
+    // 確定後、案件 1 の開始日を 9 月へ移した（business:1 の調整は確定値に算入済み）
+    const moved = baseInput({
+      businessRows: [
+        {
+          ...business(1, 100000, 1, "シンラボ"),
+          matters: matter(1, "シンラボ", "受託案件", "2026-09-01"),
+        },
+        business(2, 200000, 2, "SDGs", "イベント"),
+      ],
+      adjustments: [
+        ...input.adjustments,
+        // 確定時点で既に対象行が当月に無かった調整（business:99 は確定明細にも無い）
+        {
+          ...input.adjustments[0],
+          id: 9,
+          business_id: 99,
+        },
+      ],
+    });
+    const report = buildMonthReport({ ...moved, closing: snapshot });
+    expect(
+      report.orphanedAdjustments?.map((o) => [
+        o.adjustment.id,
+        o.includedInClosing,
+      ]),
+    ).toEqual([
+      [1, true],
+      [9, false],
+    ]);
+    // ライブの月では付けない
+    expect(
+      buildMonthlyReport(moved).orphanedAdjustments?.[0].includedInClosing,
+    ).toBeUndefined();
+  });
+
   it("月未確定の注記は確定済みの月でもライブの値を表示する", () => {
     const input = baseInput();
     const snapshot = snapshotOf(input);

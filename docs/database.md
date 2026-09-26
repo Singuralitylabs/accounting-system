@@ -1593,7 +1593,7 @@ GRANT EXECUTE ON FUNCTION public.save_profit_loss_adjustment(bigint, bigint, big
 
 ### 5.13 profit_loss_labels テーブル
 
-> 書き込み（INSERT / UPDATE / DELETE）は経理担当者・管理者のみ。SELECT は経理担当者・管理者が全行、チームリーダーは対象のチーム（案件・明細は matters.team、定期費用は recurring_costs.team）が自チーム、または全体共通（recurring_costs.team IS NULL）の行のみ（profit_loss_adjustments と同じ方針）。チームリーダーにも上書き後のタイトルを表示するため SELECT は許可する。public ロールはアクセスできない。
+> 書き込み（INSERT / UPDATE / DELETE）は経理担当者・管理者のみ。SELECT は経理担当者・管理者が全行、チームリーダーは対象のチーム（案件・明細は matters.team、定期費用は recurring_costs.team）が自チーム、全体共通（recurring_costs.team IS NULL）、または対象の案件を自分が作成した（`private.pl_label_matter_user` = 自分の profiles.id。ライブ集計で見える範囲と揃える）行のみ（profit_loss_adjustments と同じ方針）。チームリーダーにも上書き後のタイトルを表示するため SELECT は許可する。public ロールはアクセスできない。
 >
 > 対象のチームの解決は `private.pl_label_team`（SECURITY DEFINER）で行う。`private.pl_adjustment_team`（5.12）と同じ理由で、matters 等の RLS に委ねず（他チームの対象が NULL = 全体共通に見えて誤って表示を許可しないため）、PostgREST に公開しない `private` スキーマに置く。
 
@@ -1625,7 +1625,13 @@ AS $$
           OR private.pl_label_team(p_matter_id, p_business_id, p_cost_id, p_recurring_cost_id) = public.auth_user_team()
         )
       )
+      OR (
+        public.auth_user_class() = 'teamleader'
+        AND private.pl_label_matter_user(p_matter_id, p_business_id, p_cost_id)
+            = (SELECT p.id FROM public.profiles p WHERE p.user_id = auth.uid())
+      )
 $$;
+-- private.pl_label_matter_user: 対象（案件 / 売上明細 / 費用明細）の案件の matters.user_id を返す（SECURITY DEFINER）
 
 CREATE POLICY "profit_loss_labels_select_policy" ON profit_loss_labels
     FOR SELECT TO authenticated
@@ -1659,7 +1665,7 @@ REVOKE ALL ON TABLE profit_loss_labels FROM anon;
 
 ### 5.14 profit_loss_closings / profit_loss_closing_lines テーブル
 
-> 月次収支確定（Issue #148）。ヘッダ（profit_loss_closings）の SELECT はログインユーザー全員（担当者の案件編集時に「確定済みの月」の注意表示を出すため。金額を持たない）、書き込みは経理担当者・管理者のみ。明細（profit_loss_closing_lines）の SELECT は経理担当者・管理者が全行、チームリーダーは `team = 自チーム OR team IS NULL`、または自分が作成した案件の明細（`matter_user_id` = 自分の profiles.id）（ライブ集計時の matters / business / costs / recurring_costs / extra_entries の RLS と同じ範囲。確定の前後でチームリーダーの表示範囲を変えない）、書き込みは経理担当者・管理者のみ。public ロールは明細を読めない。anon は両テーブルとも権限なし。
+> 月次収支確定（Issue #148）。ヘッダ（profit_loss_closings）の SELECT はログインユーザー全員（担当者の案件編集時に「確定済みの月」の注意表示を出すため。金額を持たない）、DELETE（確定解除）は経理担当者・管理者のみ。**ヘッダ・明細の追加・更新はテーブルへの権限を authenticated に付与せず、確定用の RPC（`save_profit_loss_closing` / `apply_profit_loss_closing_diffs`。SECURITY DEFINER で関数内で経理担当者・管理者かを判定し、それ以外は `FORBIDDEN`）経由でのみ行う**。確定者・反映者（id と氏名）を RPC が auth.uid() から解決して書き込むため、PostgREST からの直接の書き込みで他人名義にしたり、サーバで集計し直していない値を保存したりできない。明細（profit_loss_closing_lines）の SELECT は経理担当者・管理者が全行、チームリーダーは `team = 自チーム OR team IS NULL`、または自分が作成した案件の明細（`matter_user_id` = 自分の profiles.id）（ライブ集計時の matters / business / costs / recurring_costs / extra_entries の RLS と同じ範囲。確定の前後でチームリーダーの表示範囲を変えない）、書き込みは RPC 経由のみ（確定解除時の削除はヘッダからの CASCADE）。public ロールは明細を読めない。anon は両テーブルとも権限なし。
 
 ```sql
 -- 確定済み判定（RLS の編集ロックから呼ぶ。private スキーマ・SECURITY DEFINER）
@@ -1674,21 +1680,6 @@ $$;
 
 CREATE POLICY "profit_loss_closings_select_policy" ON profit_loss_closings
     FOR SELECT TO authenticated USING (true);
--- closed_by / refreshed_by は呼び出し本人の profiles.id に限る（なりすまし防止）
-CREATE POLICY "profit_loss_closings_insert_policy" ON profit_loss_closings
-    FOR INSERT TO authenticated
-    WITH CHECK (
-      public.auth_user_class() IN ('admin', 'accounting')
-      AND EXISTS (SELECT 1 FROM profiles p WHERE p.id = profit_loss_closings.closed_by AND p.user_id = (select auth.uid()))
-    );
-CREATE POLICY "profit_loss_closings_update_policy" ON profit_loss_closings
-    FOR UPDATE TO authenticated
-    USING (public.auth_user_class() IN ('admin', 'accounting'))
-    WITH CHECK (
-      public.auth_user_class() IN ('admin', 'accounting')
-      AND (profit_loss_closings.refreshed_by IS NULL
-           OR EXISTS (SELECT 1 FROM profiles p WHERE p.id = profit_loss_closings.refreshed_by AND p.user_id = (select auth.uid())))
-    );
 CREATE POLICY "profit_loss_closings_delete_policy" ON profit_loss_closings
     FOR DELETE TO authenticated
     USING (public.auth_user_class() IN ('admin', 'accounting'));
@@ -1706,7 +1697,11 @@ CREATE POLICY "profit_loss_closing_lines_select_policy" ON profit_loss_closing_l
         )
       )
     );
--- INSERT / UPDATE / DELETE は accounting / admin のみ（USING / WITH CHECK とも auth_user_class() で判定）
+-- 追加・更新は RPC 経由のみ（下の GRANT で authenticated に INSERT / UPDATE を付与しない）
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE profit_loss_closings FROM authenticated;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE profit_loss_closing_lines FROM authenticated;
+GRANT SELECT, DELETE ON TABLE profit_loss_closings TO authenticated;
+GRANT SELECT ON TABLE profit_loss_closing_lines TO authenticated;
 ```
 
 #### 確定中の編集ロック（既存テーブルのポリシー変更。migration 27）
@@ -1719,26 +1714,21 @@ CREATE POLICY "profit_loss_closing_lines_select_policy" ON profit_loss_closing_l
 
 #### 確定（`save_profit_loss_closing`）
 
-`save_profit_loss_closing(p_target_month date, p_lines jsonb)` は、ヘッダの upsert（`ON CONFLICT (target_month)`。再確定では確定者・確定日時を更新し、反映者・反映日時をクリア）と明細の全置換（既存明細の DELETE → `jsonb_to_recordset(p_lines)` の INSERT）を 1 回の関数呼び出し（= 1 トランザクション）で行う。途中で失敗（明細の CHECK 違反など）すると確定前の状態に完全にロールバックされる。closed_by / closed_by_name は `auth.uid()` から解決し、クライアントからは受け取らない。SECURITY INVOKER のため書き込み可否は上記 RLS がそのまま適用される。明細はサーバ（`app/utils/supabase/profitLossClosings.ts` の `closeProfitLossMonth`）が当月をライブ集計し直して組み立てる（クライアントから送られた金額は使わない）。集計から確定のコミットまでの間はまだ編集ロックが掛かっていないため、コミット後（= ロック後）にもう一度集計し、違いがあれば同じ関数で取り直す（その間に他の経理担当者が保存した損益調整・経理追加収支が、確定値から漏れたままロックされるのを防ぐ）。確定解除はヘッダの DELETE（明細・見送り記録は CASCADE）。
+`save_profit_loss_closing(p_target_month date, p_lines jsonb)`（SECURITY DEFINER。経理担当者・管理者以外は `FORBIDDEN`）は、ヘッダの upsert（`ON CONFLICT (target_month)`。再確定では確定者・確定日時を更新し、反映者・反映日時をクリア）と明細の全置換（既存明細の DELETE → `jsonb_to_recordset(p_lines)` の INSERT）を 1 回の関数呼び出し（= 1 トランザクション）で行う。途中で失敗（明細の CHECK 違反など）すると確定前の状態に完全にロールバックされる。closed_by / closed_by_name は `auth.uid()` から解決し、クライアントからは受け取らない。明細はサーバ（`app/utils/supabase/profitLossClosings.ts` の `closeProfitLossMonth`）が当月をライブ集計し直して組み立てる（クライアントから送られた金額は使わない）。集計から確定のコミットまでの間はまだ編集ロックが掛かっていないため、コミット後（= ロック後）にもう一度集計し、違いがあれば同じ関数で取り直す（その間に他の経理担当者が保存した損益調整・経理追加収支が、確定値から漏れたままロックされるのを防ぐ）。確定解除はヘッダの DELETE（明細・見送り記録は CASCADE）。
 
 ### 5.15 profit_loss_closing_dismissals テーブルと反映・見送りの関数
 
-> 確定後の変更の反映・見送り（Issue #149）。見送り記録の SELECT / INSERT / UPDATE / DELETE は経理担当者・管理者のみ（チームリーダーには確定値のみ表示し、アラート・差分は見せない）。INSERT / UPDATE の WITH CHECK で dismissed_by が呼び出し本人であることを要求する。
+> 確定後の変更の反映・見送り（Issue #149）。見送り記録の SELECT は経理担当者・管理者のみ（チームリーダーには確定値のみ表示し、アラート・差分は見せない）。追加・更新・削除はテーブルへの権限を authenticated に付与せず、見送り・取り消し・反映・再確定の RPC（SECURITY DEFINER で経理担当者・管理者かを判定）経由でのみ行う（見送った人と氏名を RPC が auth.uid() から解決するため、他人名義や集計し直していない状態を直接書き込めない）。
 
 ```sql
 CREATE POLICY "profit_loss_closing_dismissals_select_policy" ON profit_loss_closing_dismissals
     FOR SELECT TO authenticated
     USING (public.auth_user_class() IN ('admin', 'accounting'));
-CREATE POLICY "profit_loss_closing_dismissals_insert_policy" ON profit_loss_closing_dismissals
-    FOR INSERT TO authenticated
-    WITH CHECK (
-      public.auth_user_class() IN ('admin', 'accounting')
-      AND EXISTS (SELECT 1 FROM profiles p WHERE p.id = profit_loss_closing_dismissals.dismissed_by AND p.user_id = (select auth.uid()))
-    );
--- UPDATE は USING = accounting / admin、WITH CHECK = INSERT と同じ。DELETE は USING = accounting / admin
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE profit_loss_closing_dismissals FROM authenticated;
+GRANT SELECT ON TABLE profit_loss_closing_dismissals TO authenticated;
 ```
 
-関数（いずれも SECURITY INVOKER・`SET search_path = ''`。書き込み可否は RLS がそのまま適用される。値は Server Action（`app/utils/supabase/profitLossClosings.ts`）がサーバ側でライブ集計し直したものを渡し、クライアントの値は使わない）:
+関数（いずれも SECURITY DEFINER・`SET search_path = ''`。先頭で `public.auth_user_class()` が経理担当者・管理者でなければ `FORBIDDEN`（SQLSTATE 42501）を返す。値は Server Action（`app/utils/supabase/profitLossClosings.ts`）がサーバ側でライブ集計し直したものを渡し、クライアントの値は使わない。Server Action は、画面で見ていた明細の状態（在否・実績額・チーム・分類）も受け取り、集計し直した現在の状態と食い違う場合は反映・見送りを拒否する＝利用者が見ていない変更を反映・見送りしない）:
 
 - `apply_profit_loss_closing_diffs(p_target_month date, p_upsert_lines jsonb, p_delete_keys jsonb)`: 反映。確定ヘッダを `FOR UPDATE` でロックし（未確定なら `NOT_CLOSED`）、`p_upsert_lines`（ライブにある明細の最新の値。`save_profit_loss_closing` の明細と同じ形）を `ON CONFLICT (closing_id, source_type, source_id) DO UPDATE` で upsert、`p_delete_keys`（ライブに無い明細の `{source_type, source_id}`）を確定明細から削除、両方のキーの見送り記録を削除し、反映者（refreshed_by / refreshed_by_name）・反映日時を更新する（確定者・確定日時は保持）。source_type は business / cost のみ受け付ける。1 トランザクション
 - `dismiss_profit_loss_closing_diffs(p_target_month date, p_dismissals jsonb)`: 見送り。`{source_type, source_id, live_present, live_actual_amount, live_team, live_category}` の配列を、見送った人（auth.uid() から解決）・日時とともに upsert する（再見送りは見送った時点の状態・日時・人を更新）

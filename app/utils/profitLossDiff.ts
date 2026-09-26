@@ -8,6 +8,7 @@ import {
   ClosingDiff,
   ClosingDiffKey,
   ClosingDiffResult,
+  ClosingDiffSelection,
   ClosingLineInput,
   DiffLineState,
   DiffSourceType,
@@ -428,4 +429,71 @@ export const sanitizeDiffKeys = (keys: unknown): ClosingDiffKey[] | null => {
     result.set(diffKeyOf(sourceType, sourceId), { sourceType, sourceId });
   }
   return Array.from(result.values());
+};
+
+// 差分一覧で選んだ明細の、画面に表示していた最新の状態（反映・見送りの Server Action に渡す）
+export const toDiffSelection = (diff: ClosingDiff): ClosingDiffSelection => ({
+  sourceType: diff.sourceType,
+  sourceId: diff.sourceId,
+  expected: diff.after
+    ? {
+        present: true,
+        actualAmount: diff.after.actualAmount,
+        team: diff.after.team,
+        category: diff.after.category,
+      }
+    : { present: false, actualAmount: null, team: null, category: null },
+});
+
+// Server Action に渡された選択（キー＋画面で見ていた状態）の検証。不正な値があれば null
+export const sanitizeDiffSelections = (
+  selections: unknown,
+): ClosingDiffSelection[] | null => {
+  if (!Array.isArray(selections)) return null;
+  const keys = sanitizeDiffKeys(selections);
+  if (!keys || keys.length !== selections.length) return null; // 重複も不正とする
+  const result: ClosingDiffSelection[] = [];
+  for (let index = 0; index < selections.length; index++) {
+    const expected = (selections[index] as ClosingDiffSelection | null)
+      ?.expected;
+    if (
+      !expected ||
+      typeof expected.present !== "boolean" ||
+      (expected.present
+        ? typeof expected.actualAmount !== "number" ||
+          !Number.isFinite(expected.actualAmount) ||
+          typeof expected.team !== "string" ||
+          typeof expected.category !== "string"
+        : expected.actualAmount !== null ||
+          expected.team !== null ||
+          expected.category !== null)
+    ) {
+      return null;
+    }
+    result.push({ ...keys[index], expected });
+  }
+  return result;
+};
+
+// 画面で見ていた状態と、サーバで集計し直した現在の状態が食い違う選択（表示後に
+// さらに変更された明細）を返す。1 件でもあれば反映・見送りを拒否し、再読み込みを促す
+export const findStaleSelections = (
+  liveLines: PLMonthLines,
+  selections: ClosingDiffSelection[],
+): ClosingDiffKey[] => {
+  const states = liveDiffStates(liveLines, selections);
+  return selections
+    .filter((selection, index) => {
+      const state = states[index];
+      const expected = selection.expected;
+      if (state.present !== expected.present) return true;
+      if (!state.present) return false;
+      return (
+        toCents(state.actualAmount ?? 0) !==
+          toCents(expected.actualAmount ?? 0) ||
+        state.team !== expected.team ||
+        state.category !== expected.category
+      );
+    })
+    .map(({ sourceType, sourceId }) => ({ sourceType, sourceId }));
 };

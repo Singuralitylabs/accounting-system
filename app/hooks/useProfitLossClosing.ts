@@ -9,7 +9,7 @@ import {
   reopenProfitLossMonth,
   undoClosingDismissals,
 } from "../utils/supabase/profitLossClosings";
-import { ClosingDiffKey } from "../types/types";
+import { ClosingDiffKey, ClosingDiffSelection } from "../types/types";
 
 // 確定・確定解除の後は、損益計算書（月次・年間推移・確定済みの月の一覧）と、
 // 編集ロックが変わる経理追加収支のキャッシュを無効化する
@@ -73,27 +73,26 @@ export const useClosingDiffSummary = (enabled: boolean) =>
     staleTime: 60 * 1000,
   });
 
-type DiffOperationInput = { month: string; keys: ClosingDiffKey[] };
-
 // 反映・見送り・見送り取り消しの共通のミューテーション。
-// 完了後は損益計算書（月次・年間推移・バナーの件数）のキャッシュを無効化する
-const useDiffOperation = (
+// 完了後（失敗時も。表示後の変更で拒否された場合に最新を表示するため）は
+// 損益計算書（月次・年間推移・バナーの件数）のキャッシュを無効化する
+const useDiffOperation = <T>(
   action: (
     month: string,
-    keys: ClosingDiffKey[],
+    items: T[],
   ) => Promise<{ error?: { message: string } }>,
   label: string,
 ) => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ month, keys }: DiffOperationInput) => {
-      const { error } = await action(month, keys);
+    mutationFn: async ({ month, items }: { month: string; items: T[] }) => {
+      const { error } = await action(month, items);
       if (error) {
         throw new Error(error.message);
       }
     },
     retry: 0,
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["profitLoss"] });
     },
     onError: (error) => {
@@ -103,8 +102,14 @@ const useDiffOperation = (
 };
 
 export const useApplyClosingDiffs = () =>
-  useDiffOperation(applyClosingDiffs, "確定後の変更の反映");
+  useDiffOperation<ClosingDiffSelection>(
+    applyClosingDiffs,
+    "確定後の変更の反映",
+  );
 export const useDismissClosingDiffs = () =>
-  useDiffOperation(dismissClosingDiffs, "確定後の変更の見送り");
+  useDiffOperation<ClosingDiffSelection>(
+    dismissClosingDiffs,
+    "確定後の変更の見送り",
+  );
 export const useUndoClosingDismissals = () =>
-  useDiffOperation(undoClosingDismissals, "見送りの取り消し");
+  useDiffOperation<ClosingDiffKey>(undoClosingDismissals, "見送りの取り消し");

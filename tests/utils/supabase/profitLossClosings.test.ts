@@ -86,6 +86,20 @@ const rows = (
 
 const rpc = vi.fn();
 
+// 画面で見ていた明細の状態（反映・見送りで送る）
+const present = (actualAmount: number) => ({
+  present: true,
+  actualAmount,
+  team: "シンラボ",
+  category: "受託案件",
+});
+const absent = {
+  present: false,
+  actualAmount: null,
+  team: null,
+  category: null,
+};
+
 describe("profitLossClosings の Server Action（Issue #148 / #149）", () => {
   beforeEach(() => {
     rpc.mockReset().mockResolvedValue({ data: null, error: null });
@@ -98,8 +112,10 @@ describe("profitLossClosings の Server Action（Issue #148 / #149）", () => {
 
   it("反映はクライアントから受け取ったキーだけを対象に、サーバで集計し直した値で upsert / delete を組み立てる", async () => {
     const result = await applyClosingDiffs("2026-08", [
-      { sourceType: "business", sourceId: 1 }, // ライブにある → 最新値で upsert
-      { sourceType: "business", sourceId: 2 }, // ライブに無い → delete
+      // ライブにある → 最新値で upsert
+      { sourceType: "business", sourceId: 1, expected: present(120000) },
+      // ライブに無い → delete
+      { sourceType: "business", sourceId: 2, expected: absent },
     ]);
     expect(result).toEqual({});
     expect(rpc).toHaveBeenCalledTimes(1);
@@ -122,8 +138,8 @@ describe("profitLossClosings の Server Action（Issue #148 / #149）", () => {
 
   it("見送りはサーバで集計し直したその時点のライブの状態を記録する", async () => {
     await dismissClosingDiffs("2026-08", [
-      { sourceType: "cost", sourceId: 1 },
-      { sourceType: "cost", sourceId: 9 },
+      { sourceType: "cost", sourceId: 1, expected: present(30000) },
+      { sourceType: "cost", sourceId: 9, expected: absent },
     ]);
     const [name, args] = rpc.mock.calls[0];
     expect(name).toBe("dismiss_profit_loss_closing_diffs");
@@ -151,22 +167,47 @@ describe("profitLossClosings の Server Action（Issue #148 / #149）", () => {
     expect(
       (
         await applyClosingDiffs("2026-08", [
-          { sourceType: "recurring_cost" as "cost", sourceId: 1 },
+          {
+            sourceType: "recurring_cost" as "cost",
+            sourceId: 1,
+            expected: absent,
+          },
         ])
       ).error?.kind,
     ).toBe("validationFailed");
     fetchReportSourceRows.mockResolvedValue(rows({}, false));
     expect(
-      (await applyClosingDiffs("2026-08", [{ sourceType: "cost", sourceId: 1 }]))
-        .error?.kind,
+      (
+        await applyClosingDiffs("2026-08", [
+          { sourceType: "cost", sourceId: 1, expected: present(30000) },
+        ])
+      ).error?.kind,
     ).toBe("validationFailed");
     getAuthorizedViewer.mockResolvedValue({
       error: { kind: "forbidden", message: "権限がありません" },
     });
     expect(
-      (await dismissClosingDiffs("2026-08", [{ sourceType: "cost", sourceId: 1 }]))
-        .error?.kind,
+      (
+        await dismissClosingDiffs("2026-08", [
+          { sourceType: "cost", sourceId: 1, expected: present(30000) },
+        ])
+      ).error?.kind,
     ).toBe("forbidden");
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("画面で見ていた状態から表示後にさらに変更された明細があれば、反映・見送りを拒否する", async () => {
+    // 画面では 110,000 だったが、現在は 120,000
+    const applied = await applyClosingDiffs("2026-08", [
+      { sourceType: "business", sourceId: 1, expected: present(110000) },
+    ]);
+    expect(applied.error?.kind).toBe("validationFailed");
+    expect(applied.error?.message).toContain("再読み込み");
+    // 画面では削除（ライブに無い）だったが、現在はライブにある
+    const dismissed = await dismissClosingDiffs("2026-08", [
+      { sourceType: "cost", sourceId: 1, expected: absent },
+    ]);
+    expect(dismissed.error?.kind).toBe("validationFailed");
     expect(rpc).not.toHaveBeenCalled();
   });
 

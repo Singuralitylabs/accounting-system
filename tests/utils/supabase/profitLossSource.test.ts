@@ -11,22 +11,32 @@ vi.mock("@/app/utils/supabase/selectOptionsCache", () => ({
 import { PAGE_SIZE, fetchAllPages } from "@/app/utils/supabase/profitLossSource";
 
 describe("fetchAllPages（PostgREST の max_rows 打ち切り対策）", () => {
-  it("1 ページが PAGE_SIZE 件なら次のページも取得し、全件をつなげる", async () => {
-    const all = Array.from({ length: PAGE_SIZE + 5 }, (_, i) => i);
-    const fetchPage = vi.fn(async (from: number, to: number) => ({
-      data: all.slice(from, to + 1),
+  it("1 ページが PAGE_SIZE 件なら直前の最大 id の次から取得し、全件をつなげる", async () => {
+    // id は飛び番（削除済みの行がある）
+    const all = Array.from({ length: PAGE_SIZE + 5 }, (_, i) => ({
+      id: i * 2 + 1,
+    }));
+    const fetchPage = vi.fn(async (afterId: number, limit: number) => ({
+      data: all.filter((row) => row.id > afterId).slice(0, limit),
       error: null,
     }));
     const result = await fetchAllPages(fetchPage);
     expect(result.data).toEqual(all);
     expect(fetchPage).toHaveBeenCalledTimes(2);
-    expect(fetchPage).toHaveBeenNthCalledWith(1, 0, PAGE_SIZE - 1);
-    expect(fetchPage).toHaveBeenNthCalledWith(2, PAGE_SIZE, PAGE_SIZE * 2 - 1);
+    expect(fetchPage).toHaveBeenNthCalledWith(1, 0, PAGE_SIZE);
+    expect(fetchPage).toHaveBeenNthCalledWith(
+      2,
+      all[PAGE_SIZE - 1].id,
+      PAGE_SIZE,
+    );
   });
 
   it("通常（PAGE_SIZE 未満）は 1 往復で終わり、エラーはそのまま返す", async () => {
-    const fetchPage = vi.fn(async () => ({ data: [1, 2], error: null }));
-    expect((await fetchAllPages(fetchPage)).data).toEqual([1, 2]);
+    const fetchPage = vi.fn(async () => ({
+      data: [{ id: 1 }, { id: 2 }],
+      error: null,
+    }));
+    expect((await fetchAllPages(fetchPage)).data).toEqual([{ id: 1 }, { id: 2 }]);
     expect(fetchPage).toHaveBeenCalledTimes(1);
 
     const error = {

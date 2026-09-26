@@ -10,6 +10,7 @@ import {
   DiffImpact,
   computeDiffImpact,
   diffKindLabel,
+  toDiffSelection,
 } from "@/app/utils/profitLossDiff";
 import { confirmAction } from "@/app/utils/confirmAction";
 import { notifyError, notifySuccess, toErrorMessage } from "@/app/utils/notify";
@@ -168,7 +169,7 @@ const ClosingDiffPanel = ({ report, loadingMatterId, onShowMatter }: Props) => {
     try {
       await applyMutation.mutateAsync({
         month: report.month,
-        keys: targets.map(toKey),
+        items: targets.map(toDiffSelection),
       });
       notifySuccess(`${targets.length} 件の変更を反映しました。`);
     } catch (error) {
@@ -185,7 +186,7 @@ const ClosingDiffPanel = ({ report, loadingMatterId, onShowMatter }: Props) => {
     try {
       await dismissMutation.mutateAsync({
         month: report.month,
-        keys: selectedDiffs.map(toKey),
+        items: selectedDiffs.map(toDiffSelection),
       });
       notifySuccess(`${selectedDiffs.length} 件の変更を見送りました。`);
     } catch (error) {
@@ -202,7 +203,7 @@ const ClosingDiffPanel = ({ report, loadingMatterId, onShowMatter }: Props) => {
     try {
       await undoMutation.mutateAsync({
         month: report.month,
-        keys: selectedDismissedDiffs.map(toKey),
+        items: selectedDismissedDiffs.map(toKey),
       });
       notifySuccess("見送りを取り消しました。");
     } catch (error) {

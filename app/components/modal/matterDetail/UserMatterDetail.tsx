@@ -309,6 +309,7 @@ export function UserMatterDetail({
         <ClosedMonthMatterNotice
           savedStartDate={isNew ? null : matterInfo.start_date}
           currentStartDate={form.values.start_date}
+          isDraft={isNew || (!matterInfo.is_fixed && !matterInfo.is_completed)}
         />
         <h2>基本情報</h2>
         <MatterInfoBlock

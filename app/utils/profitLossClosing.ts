@@ -7,6 +7,7 @@ import {
   ClosingInfo,
   ClosingLineInput,
   ExtraEntryInListType,
+  OrphanedAdjustmentType,
   ExtraEntryType,
   PLMonthLines,
   PLReportType,
@@ -378,6 +379,29 @@ export type MonthClosingSnapshot = {
   dismissals: ProfitLossClosingDismissalType[];
 };
 
+// 確定済みの月の「対象行が当月に存在しない調整」に、対象行が確定明細に含まれているか
+// （= 確定値にこの調整が算入済みか）を付ける。確定後に対象行が外れた場合は算入済み、
+// 確定時点で既に外れていた場合は確定値にも含まれない
+const markIncludedInClosing = (
+  orphans: OrphanedAdjustmentType[],
+  closingLines: ClosingLineInput[] | undefined,
+): OrphanedAdjustmentType[] => {
+  if (!closingLines) return orphans;
+  const keys = new Set(
+    closingLines.map((line) => `${line.source_type}:${line.source_id}`),
+  );
+  return orphans.map((orphan) => {
+    const { adjustment } = orphan;
+    const key =
+      adjustment.business_id !== null
+        ? `business:${adjustment.business_id}`
+        : adjustment.cost_id !== null
+          ? `cost:${adjustment.cost_id}`
+          : `recurring_cost:${adjustment.recurring_cost_id}`;
+    return { ...orphan, includedInClosing: keys.has(key) };
+  });
+};
+
 // 指定月の損益レポートを組み立てる。確定済みの月（closing あり）は確定明細から、
 // 未確定の月はライブ集計から集計する（Issue #148）。
 // 月未確定（undated）と対象行が当月に存在しない調整（orphanedAdjustments）は、
@@ -406,14 +430,17 @@ export const buildMonthReport = (
     ),
     orphanedAdjustments:
       input.includeTeamBreakdown && input.includeOrphanedAdjustments
-        ? computeOrphanedAdjustments(
-            input.month,
-            liveLines,
-            input.adjustments,
-            input.businessRows,
-            input.costRows,
-            input.recurringCosts,
-            buildLabelIndex(input.labels),
+        ? markIncludedInClosing(
+            computeOrphanedAdjustments(
+              input.month,
+              liveLines,
+              input.adjustments,
+              input.businessRows,
+              input.costRows,
+              input.recurringCosts,
+              buildLabelIndex(input.labels),
+            ),
+            input.closing?.lines,
           )
         : undefined,
     closing: input.closing ? toClosingInfo(input.closing.header) : null,

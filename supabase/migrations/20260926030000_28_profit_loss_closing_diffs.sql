@@ -48,39 +48,15 @@ CREATE INDEX IF NOT EXISTS idx_profit_loss_closing_dismissals_dismissed_by
 
 ALTER TABLE profit_loss_closing_dismissals ENABLE ROW LEVEL SECURITY;
 
--- SELECT / INSERT / UPDATE / DELETE とも経理担当者・管理者のみ
--- （チームリーダーには確定値のみ表示し、アラート・差分は見せない）。
--- dismissed_by は呼び出し本人に限る（なりすまし防止）
+-- SELECT は経理担当者・管理者のみ（チームリーダーには確定値のみ表示し、アラート・差分は見せない）
 CREATE POLICY "profit_loss_closing_dismissals_select_policy" ON profit_loss_closing_dismissals
   FOR SELECT TO authenticated
   USING (public.auth_user_class() IN ('admin', 'accounting'));
 
-CREATE POLICY "profit_loss_closing_dismissals_insert_policy" ON profit_loss_closing_dismissals
-  FOR INSERT TO authenticated
-  WITH CHECK (
-    public.auth_user_class() IN ('admin', 'accounting')
-    AND EXISTS (
-      SELECT 1 FROM profiles p
-      WHERE p.id = profit_loss_closing_dismissals.dismissed_by
-      AND p.user_id = (select auth.uid())
-    )
-  );
-
-CREATE POLICY "profit_loss_closing_dismissals_update_policy" ON profit_loss_closing_dismissals
-  FOR UPDATE TO authenticated
-  USING (public.auth_user_class() IN ('admin', 'accounting'))
-  WITH CHECK (
-    public.auth_user_class() IN ('admin', 'accounting')
-    AND EXISTS (
-      SELECT 1 FROM profiles p
-      WHERE p.id = profit_loss_closing_dismissals.dismissed_by
-      AND p.user_id = (select auth.uid())
-    )
-  );
-
-CREATE POLICY "profit_loss_closing_dismissals_delete_policy" ON profit_loss_closing_dismissals
-  FOR DELETE TO authenticated
-  USING (public.auth_user_class() IN ('admin', 'accounting'));
+-- 追加・更新・削除は見送り・反映・再確定の RPC（SECURITY DEFINER で経理担当者・管理者かを
+-- 判定する）経由でのみ行う。テーブルへの書き込み権限は authenticated に付与しない
+-- （見送った人 dismissed_by と氏名を RPC が auth.uid() から解決するため、他人名義の
+-- 見送りや、サーバで集計し直していない状態の記録を直接書き込めないようにする）
 
 -- ===== 再確定で見送り記録も削除する =====
 -- save_profit_loss_closing（migration 27）に見送り記録の全削除を加える。
@@ -91,7 +67,7 @@ CREATE OR REPLACE FUNCTION public.save_profit_loss_closing(
 )
 RETURNS TABLE (id bigint)
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
@@ -99,6 +75,11 @@ DECLARE
   v_profile_id bigint;
   v_profile_name text;
 BEGIN
+  IF public.auth_user_class() IS NULL
+     OR public.auth_user_class() NOT IN ('admin', 'accounting') THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
   SELECT p.id, p.name INTO v_profile_id, v_profile_name
   FROM public.profiles p WHERE p.user_id = auth.uid();
   IF v_profile_id IS NULL THEN
@@ -152,8 +133,8 @@ $$;
 -- p_delete_keys: ライブに存在しない明細（削除・他月へ移動・下書きに戻された）の
 --   {source_type, source_id} の配列
 -- 確定明細の upsert / delete、該当する見送り記録の削除、反映者・反映日時の更新を
--- 1 トランザクションで行う（確定者・確定日時は保持する）。SECURITY INVOKER のため
--- 書き込み可否は RLS（経理担当者・管理者のみ）がそのまま適用される。
+-- 1 トランザクションで行う（確定者・確定日時は保持する）。SECURITY DEFINER で、関数内で
+-- 経理担当者・管理者かを判定する（テーブルへの直接の書き込み権限は付与しない）。
 CREATE OR REPLACE FUNCTION public.apply_profit_loss_closing_diffs(
   p_target_month date,
   p_upsert_lines jsonb,
@@ -161,7 +142,7 @@ CREATE OR REPLACE FUNCTION public.apply_profit_loss_closing_diffs(
 )
 RETURNS TABLE (applied_count integer)
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
@@ -171,6 +152,11 @@ DECLARE
   v_upserted integer;
   v_deleted integer;
 BEGIN
+  IF public.auth_user_class() IS NULL
+     OR public.auth_user_class() NOT IN ('admin', 'accounting') THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
   SELECT p.id, p.name INTO v_profile_id, v_profile_name
   FROM public.profiles p WHERE p.user_id = auth.uid();
   IF v_profile_id IS NULL THEN
@@ -256,7 +242,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.apply_profit_loss_closing_diffs(date, jsonb, jsonb) IS
-  '確定後の案件変更の反映（Issue #149）。選択された明細だけ確定明細を最新の値に置き換え（upsert / delete）、該当する見送り記録を削除し、反映者・反映日時を記録する（確定者・確定日時は保持）。値はサーバ側でライブ集計し直したものを渡す。書き込みの可否は RLS がそのまま適用される（SECURITY INVOKER）。詳細: docs/database.md 5.15';
+  '確定後の案件変更の反映（Issue #149）。選択された明細だけ確定明細を最新の値に置き換え（upsert / delete）、該当する見送り記録を削除し、反映者・反映日時を記録する（確定者・確定日時は保持）。値はサーバ側でライブ集計し直したものを渡す。SECURITY DEFINER で関数内で経理担当者・管理者かを判定する（テーブルへの直接の書き込み権限は付与しない）。詳細: docs/database.md 5.15';
 
 REVOKE EXECUTE ON FUNCTION public.apply_profit_loss_closing_diffs(date, jsonb, jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.apply_profit_loss_closing_diffs(date, jsonb, jsonb) TO authenticated;
@@ -270,7 +256,7 @@ CREATE OR REPLACE FUNCTION public.dismiss_profit_loss_closing_diffs(
 )
 RETURNS TABLE (dismissed_count integer)
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
@@ -279,6 +265,11 @@ DECLARE
   v_profile_name text;
   v_count integer;
 BEGIN
+  IF public.auth_user_class() IS NULL
+     OR public.auth_user_class() NOT IN ('admin', 'accounting') THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
   SELECT p.id, p.name INTO v_profile_id, v_profile_name
   FROM public.profiles p WHERE p.user_id = auth.uid();
   IF v_profile_id IS NULL THEN
@@ -316,7 +307,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.dismiss_profit_loss_closing_diffs(date, jsonb) IS
-  '確定後の案件変更の見送り（Issue #149）。選択された明細の見送り記録を、その時点のライブの状態で upsert する。値はサーバ側でライブ集計し直したものを渡す。dismissed_by は auth.uid() から解決する。書き込みの可否は RLS がそのまま適用される（SECURITY INVOKER）。詳細: docs/database.md 5.15';
+  '確定後の案件変更の見送り（Issue #149）。選択された明細の見送り記録を、その時点のライブの状態で upsert する。値はサーバ側でライブ集計し直したものを渡す。dismissed_by は auth.uid() から解決する。SECURITY DEFINER で関数内で経理担当者・管理者かを判定する（テーブルへの直接の書き込み権限は付与しない）。詳細: docs/database.md 5.15';
 
 REVOKE EXECUTE ON FUNCTION public.dismiss_profit_loss_closing_diffs(date, jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.dismiss_profit_loss_closing_diffs(date, jsonb) TO authenticated;
@@ -328,12 +319,17 @@ CREATE OR REPLACE FUNCTION public.undo_profit_loss_closing_dismissals(
 )
 RETURNS TABLE (undone_count integer)
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
   v_count integer;
 BEGIN
+  IF public.auth_user_class() IS NULL
+     OR public.auth_user_class() NOT IN ('admin', 'accounting') THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
   DELETE FROM public.profit_loss_closing_dismissals AS d
   USING public.profit_loss_closings AS c,
         jsonb_to_recordset(p_keys) AS k(source_type text, source_id bigint)
@@ -348,12 +344,13 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.undo_profit_loss_closing_dismissals(date, jsonb) IS
-  '確定後の案件変更の見送りの取り消し（Issue #149）。選択された明細の見送り記録を削除し、未処理の差分に戻す。書き込みの可否は RLS がそのまま適用される（SECURITY INVOKER）。詳細: docs/database.md 5.15';
+  '確定後の案件変更の見送りの取り消し（Issue #149）。選択された明細の見送り記録を削除し、未処理の差分に戻す。SECURITY DEFINER で関数内で経理担当者・管理者かを判定する（テーブルへの直接の書き込み権限は付与しない）。詳細: docs/database.md 5.15';
 
 REVOKE EXECUTE ON FUNCTION public.undo_profit_loss_closing_dismissals(date, jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.undo_profit_loss_closing_dismissals(date, jsonb) TO authenticated;
 
 -- ===== GRANT =====
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE profit_loss_closing_dismissals
-  TO authenticated, service_role;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE profit_loss_closing_dismissals FROM authenticated;
+GRANT SELECT ON TABLE profit_loss_closing_dismissals TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE profit_loss_closing_dismissals TO service_role;
 REVOKE ALL ON TABLE profit_loss_closing_dismissals FROM anon;

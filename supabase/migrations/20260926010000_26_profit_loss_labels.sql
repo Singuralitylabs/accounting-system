@@ -82,6 +82,41 @@ $$;
 COMMENT ON FUNCTION private.pl_label_team(bigint, bigint, bigint, bigint) IS
   '損益計算書の表示タイトル（profit_loss_labels）の対象が属するチームを返す。案件は matters.team、明細・定期費用は private.pl_adjustment_team と同じ。matters 等の RLS に依存しないよう SECURITY DEFINER にし、PostgREST に公開しない private スキーマに置く。詳細: docs/database.md 5.13';
 
+-- 対象（案件 / 売上明細 / 費用明細）の案件の作成者（matters.user_id）。定期費用は NULL。
+-- ライブ集計では matters / business / costs の RLS によりチームリーダーは自分が作成した
+-- 他チームの案件も見えるため、その案件の上書きタイトルも見せる（表示を経理と揃える）
+CREATE OR REPLACE FUNCTION private.pl_label_matter_user(
+  p_matter_id bigint,
+  p_business_id bigint,
+  p_cost_id bigint
+)
+RETURNS bigint
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = ''
+AS $$
+  SELECT CASE
+    WHEN p_matter_id IS NOT NULL THEN (
+      SELECT matters.user_id FROM public.matters WHERE matters.id = p_matter_id
+    )
+    WHEN p_business_id IS NOT NULL THEN (
+      SELECT matters.user_id FROM public.business
+      JOIN public.matters ON matters.id = business.matter_id
+      WHERE business.id = p_business_id
+    )
+    WHEN p_cost_id IS NOT NULL THEN (
+      SELECT matters.user_id FROM public.costs
+      JOIN public.matters ON matters.id = costs.matter_id
+      WHERE costs.id = p_cost_id
+    )
+    ELSE NULL
+  END
+$$;
+
+COMMENT ON FUNCTION private.pl_label_matter_user(bigint, bigint, bigint) IS
+  '損益計算書の表示タイトルの対象の案件の作成者（matters.user_id）を返す（定期費用は NULL）。pl_label_team と同じ理由で SECURITY DEFINER・private スキーマ。詳細: docs/database.md 5.13';
+
 CREATE OR REPLACE FUNCTION private.can_view_pl_label(
   p_matter_id bigint,
   p_business_id bigint,
@@ -102,13 +137,21 @@ AS $$
           OR private.pl_label_team(p_matter_id, p_business_id, p_cost_id, p_recurring_cost_id) = public.auth_user_team()
         )
       )
+      OR (
+        public.auth_user_class() = 'teamleader'
+        AND private.pl_label_matter_user(p_matter_id, p_business_id, p_cost_id) = (
+          SELECT p.id FROM public.profiles p WHERE p.user_id = auth.uid()
+        )
+      )
 $$;
 
 COMMENT ON FUNCTION private.can_view_pl_label(bigint, bigint, bigint, bigint) IS
-  '損益計算書の表示タイトル（profit_loss_labels）の SELECT 判定。経理・管理者は全行、チームリーダーは自チームの対象 + 全体共通（recurring_costs.team IS NULL）の対象のみ true。詳細: docs/database.md 5.13';
+  '損益計算書の表示タイトル（profit_loss_labels）の SELECT 判定。経理・管理者は全行、チームリーダーは自チームの対象 + 全体共通（recurring_costs.team IS NULL）の対象 + 自分が作成した案件の対象のみ true。詳細: docs/database.md 5.13';
 
 REVOKE EXECUTE ON FUNCTION private.pl_label_team(bigint, bigint, bigint, bigint) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION private.pl_label_team(bigint, bigint, bigint, bigint) TO authenticated;
+REVOKE EXECUTE ON FUNCTION private.pl_label_matter_user(bigint, bigint, bigint) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION private.pl_label_matter_user(bigint, bigint, bigint) TO authenticated;
 REVOKE EXECUTE ON FUNCTION private.can_view_pl_label(bigint, bigint, bigint, bigint) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION private.can_view_pl_label(bigint, bigint, bigint, bigint) TO authenticated;
 
