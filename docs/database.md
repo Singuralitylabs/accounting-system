@@ -71,6 +71,7 @@
 | budget_declaration_reminder_settings | 事前収支申告の未申告 Slack リマインド対象日を管理する設定テーブル（1 行のみ） |
 | budget_recurring_items               | 事前収支申告の定期明細（毎月固定の収入・支出）マスタを管理するテーブル        |
 | profit_loss_adjustments              | 損益調整（案件・定期費用の実績額修正）を管理するテーブル                      |
+| profit_loss_labels                   | 損益計算書上の表示タイトル（案件・明細の名称の上書き）を管理するテーブル      |
 
 ## 3. テーブル詳細
 
@@ -439,6 +440,40 @@ CREATE UNIQUE INDEX ... ON profit_loss_adjustments (recurring_cost_id, target_mo
 - 対象行が別の月に移動した場合（案件開始日の変更等）・対象行の案件が下書きに戻された場合: 調整は `target_month` に留まるため、その月の集計対象に対象行が無ければ「対象行が当月に存在しません」として損益には反映せず、削除を促す警告を表示する（`app/utils/profitLossLogic.ts` の `orphanedAdjustments`）
 - 計上基準の変更に伴う移行（migration 25、Issue #146）: 案件の売上・費用の計上月を「請求日 / 支払い期限の月」から「案件開始日の月」に変えたため、`business_id` / `cost_id` を対象とする調整のうち `target_month` が旧計上月（`invoice_date` / `period` の月）と一致するものを、案件開始日の月へ付け替えた。付け替え先に同じ対象行の調整が既にある場合（部分 UNIQUE の衝突）、案件開始日が NULL の場合、旧計上月の日付が NULL の場合、`target_month` が旧計上月と一致しない場合（旧基準でも既に対象行が当月に存在しなかったもの）は据え置き、従来どおり「対象行が当月に存在しません」の警告で経理が手動対応する。下書き案件の明細に付いた調整は、集計対象外のため経理申請されるまで同警告に出る。元データ・調整額は変えないため、付け替え後も実績額は移行前と一致する
 - 対象行そのものが削除された場合は ON DELETE CASCADE により調整も自動的に削除される
+
+### 3.14 profit_loss_labels テーブル
+
+損益計算書上の表示タイトル（Issue #150）。案件名（matters.title）・取引先名（business.name）・コスト名（costs.name）・定期費用名（recurring_costs.name）の元データは書き換えず、損益計算書（/profit-loss）でのみ使う名称を対象行ごとに保持する。元データを経理が直接書き換えると担当者の案件画面が変わり差し戻し検知（has_updates）も誤発火するため、損益調整（3.13）と同じく別テーブルで持つ。タイトルは対象行単位で全月共通（月ごとのタイトルは持たない）。金額・集計に影響しないため、月次収支確定の編集ロック・変更検知の対象外。
+
+| カラム名          | データ型                 | 制約                                                                      | 説明                                                                                               |
+| ----------------- | ------------------------ | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| id                | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                                 | 主キー                                                                                             |
+| matter_id         | bigint                   | NULL, FOREIGN KEY (matters.id) ON DELETE CASCADE                          | 対象（案件行）。matter_id / business_id / cost_id / recurring_cost_id のうちちょうど1つが NOT NULL |
+| business_id       | bigint                   | NULL, FOREIGN KEY (business.id) ON DELETE CASCADE                         | 対象（売上明細）                                                                                   |
+| cost_id           | bigint                   | NULL, FOREIGN KEY (costs.id) ON DELETE CASCADE                            | 対象（費用明細）                                                                                   |
+| recurring_cost_id | bigint                   | NULL, FOREIGN KEY (recurring_costs.id) ON DELETE CASCADE                  | 対象（管理費の明細）                                                                               |
+| label             | text                     | NOT NULL, CHECK (空でない・前後に空白が無い・200 文字以内)                | 損益計算書に表示するタイトル                                                                       |
+| updated_by        | bigint                   | NOT NULL, FOREIGN KEY (profiles.id)（参照アクション指定なし = NO ACTION） | 最後に保存した経理担当者・管理者（adjusted_by と同じ方針）                                         |
+| inserted_at       | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 作成日時                                                                                           |
+| updated_at        | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 更新日時                                                                                           |
+
+CHECK 制約:
+
+```sql
+CHECK (num_nonnulls(matter_id, business_id, cost_id, recurring_cost_id) = 1)
+CHECK (btrim(label) <> '' AND label = btrim(label) AND char_length(label) <= 200)
+```
+
+インデックス:
+
+- (matter_id) / (business_id) / (cost_id) / (recurring_cost_id) の部分 UNIQUE インデックス（`WHERE 列 IS NOT NULL`。対象行 1 件につきタイトルは 1 件。FK 側の索引を兼ねる）
+- updated_by（FK 側の索引）
+
+運用上の注意:
+
+- 入力は損益計算書の各行（案件行・売上明細・費用明細・管理費の明細）の編集アイコンから行い、保存は DB 関数 `public.save_profit_loss_label`（5.13）を1回呼ぶだけで完結する（`app/utils/supabase/profitLossLabels.ts`）。空欄で保存すると行ごと削除し、元の名称に戻る
+- チーム・分類・品目・費目の見出しと経理追加収支（/extra-entries で内容を直接編集できる）は対象外
+- 対象行が削除されると CASCADE で削除される（確定済みの月は確定明細に保存した名称で表示される）
 
 ## 4. 列挙型
 
@@ -1461,6 +1496,72 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.save_profit_loss_adjustment(bigint, bigint, bigint, date, numeric, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.save_profit_loss_adjustment(bigint, bigint, bigint, date, numeric, text) TO authenticated;
 ```
+
+### 5.13 profit_loss_labels テーブル
+
+> 書き込み（INSERT / UPDATE / DELETE）は経理担当者・管理者のみ。SELECT は経理担当者・管理者が全行、チームリーダーは対象のチーム（案件・明細は matters.team、定期費用は recurring_costs.team）が自チーム、または全体共通（recurring_costs.team IS NULL）の行のみ（profit_loss_adjustments と同じ方針）。チームリーダーにも上書き後のタイトルを表示するため SELECT は許可する。public ロールはアクセスできない。
+>
+> 対象のチームの解決は `private.pl_label_team`（SECURITY DEFINER）で行う。`private.pl_adjustment_team`（5.12）と同じ理由で、matters 等の RLS に委ねず（他チームの対象が NULL = 全体共通に見えて誤って表示を許可しないため）、PostgREST に公開しない `private` スキーマに置く。
+
+```sql
+CREATE OR REPLACE FUNCTION private.pl_label_team(
+  p_matter_id bigint, p_business_id bigint, p_cost_id bigint, p_recurring_cost_id bigint
+)
+RETURNS text LANGUAGE sql SECURITY DEFINER STABLE SET search_path = ''
+AS $$
+  SELECT CASE
+    WHEN p_matter_id IS NOT NULL THEN (
+      SELECT matters.team FROM public.matters WHERE matters.id = p_matter_id
+    )
+    ELSE private.pl_adjustment_team(p_business_id, p_cost_id, p_recurring_cost_id)
+  END
+$$;
+
+CREATE OR REPLACE FUNCTION private.can_view_pl_label(
+  p_matter_id bigint, p_business_id bigint, p_cost_id bigint, p_recurring_cost_id bigint
+)
+RETURNS boolean LANGUAGE sql STABLE SET search_path = ''
+AS $$
+  SELECT public.auth_user_class() IN ('admin', 'accounting')
+      OR (
+        public.auth_user_class() = 'teamleader'
+        AND public.auth_user_team() IS NOT NULL
+        AND (
+          private.pl_label_team(p_matter_id, p_business_id, p_cost_id, p_recurring_cost_id) IS NULL
+          OR private.pl_label_team(p_matter_id, p_business_id, p_cost_id, p_recurring_cost_id) = public.auth_user_team()
+        )
+      )
+$$;
+
+CREATE POLICY "profit_loss_labels_select_policy" ON profit_loss_labels
+    FOR SELECT TO authenticated
+    USING (private.can_view_pl_label(matter_id, business_id, cost_id, recurring_cost_id));
+
+-- 書き込みは経理担当者・管理者のみ。updated_by は呼び出し本人の profiles.id に限る
+CREATE POLICY "profit_loss_labels_insert_policy" ON profit_loss_labels
+    FOR INSERT TO authenticated
+    WITH CHECK (
+      public.auth_user_class() IN ('admin', 'accounting')
+      AND EXISTS (SELECT 1 FROM profiles p WHERE p.id = profit_loss_labels.updated_by AND p.user_id = (select auth.uid()))
+    );
+CREATE POLICY "profit_loss_labels_update_policy" ON profit_loss_labels
+    FOR UPDATE TO authenticated
+    USING (public.auth_user_class() IN ('admin', 'accounting'))
+    WITH CHECK (
+      public.auth_user_class() IN ('admin', 'accounting')
+      AND EXISTS (SELECT 1 FROM profiles p WHERE p.id = profit_loss_labels.updated_by AND p.user_id = (select auth.uid()))
+    );
+CREATE POLICY "profit_loss_labels_delete_policy" ON profit_loss_labels
+    FOR DELETE TO authenticated
+    USING (public.auth_user_class() IN ('admin', 'accounting'));
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE profit_loss_labels TO authenticated, service_role;
+REVOKE ALL ON TABLE profit_loss_labels FROM anon;
+```
+
+#### 表示タイトルの保存（`save_profit_loss_label`）
+
+`save_profit_loss_label(p_label, p_matter_id, p_business_id, p_cost_id, p_recurring_cost_id)`（対象の 4 引数は DEFAULT NULL で、ちょうど1つを指定する）。`p_label` の前後の空白を除去し、空なら既存のタイトルを削除（`deleted = true` を返す）、それ以外は対象の部分 UNIQUE インデックスに対する `INSERT ... ON CONFLICT (列) WHERE 列 IS NOT NULL DO UPDATE` で upsert する（部分 UNIQUE は PostgREST の upsert では推論できないため関数にしている。`save_profit_loss_adjustment` と同じ方式）。200 文字を超える場合は `LABEL_TOO_LONG` の例外。`updated_by` は `auth.uid()` から解決し、クライアントからは受け取らない。SECURITY INVOKER のため書き込み可否は上記 RLS がそのまま適用される。
 
 ## 6. トリガー
 

@@ -2,16 +2,17 @@
 
 // 損益計算書の各表（案件別収支・分類別収支・管理費）で共通に使う表示部品
 
-import { AdjustableAmount } from "@/app/types/types";
+import { AdjustableAmount, DisplayTitle } from "@/app/types/types";
 import { formatCurrency } from "@/app/utils/formatter";
 import { formatPaymentCycle } from "@/app/utils/paymentCycle";
 import { ORG_WIDE_TEAM_LABEL } from "@/app/utils/constants";
-import { Badge, Tooltip } from "@mantine/core";
+import { ActionIcon, Badge, Tooltip } from "@mantine/core";
 import { ReactNode, useState } from "react";
 import {
   FaChevronDown,
   FaChevronRight,
   FaExclamationTriangle,
+  FaPen,
 } from "react-icons/fa";
 
 // 損益の符号に応じた文字色（0 は黒字扱い）
@@ -144,3 +145,62 @@ export const formatRecurringCostNote = (
   }
   return parts.length > 0 ? `（${parts.join(" / ")}）` : "";
 };
+
+// 表示タイトル（Issue #150）の付随表示。上書き中は「名称変更」バッジ（元の名称を
+// ツールチップで示す）を、onEdit があれば（経理担当者・管理者）編集アイコンを出す。
+// タイトル本文と分けているのは、案件行のようにタイトル本文を展開ボタンの中に置く場合に
+// ボタンの入れ子（対話要素の入れ子）を作らないため。
+// チーム・分類・品目・費目の見出しと経理追加収支の行には使わない（タイトル変更の対象外）
+export const TitleExtras = ({
+  title,
+  originalTitle,
+  onEdit,
+}: {
+  title: DisplayTitle;
+  originalTitle: string;
+  onEdit?: () => void;
+}) => (
+  <>
+    {title.isCustomTitle && (
+      <Tooltip label={`元の名称: ${originalTitle}`}>
+        <button
+          type="button"
+          className="ml-1 align-middle focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          aria-label={`元の名称: ${originalTitle}`}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <Badge size="xs" color="violet" variant="light">
+            名称変更
+          </Badge>
+        </button>
+      </Tooltip>
+    )}
+    {onEdit && (
+      <ActionIcon
+        size="xs"
+        variant="subtle"
+        color="gray"
+        className="ml-1 align-middle"
+        aria-label={`${title.displayTitle}のタイトルを変更`}
+        onClick={(event) => {
+          event.stopPropagation();
+          onEdit();
+        }}
+      >
+        <FaPen size="0.6rem" />
+      </ActionIcon>
+    )}
+  </>
+);
+
+// 表示タイトル本文 + 付随表示
+export const EditableTitle = (props: {
+  title: DisplayTitle;
+  originalTitle: string;
+  onEdit?: () => void;
+}) => (
+  <>
+    <span>{props.title.displayTitle}</span>
+    <TitleExtras {...props} />
+  </>
+);

@@ -8,7 +8,9 @@ import {
   isDraftMatter,
   isRecurringCostChargedInMonth,
   monthDiff,
+  normalizeLabelInput,
   reportFlags,
+  resolveTitle,
 } from "@/app/utils/profitLossLogic";
 import {
   ExtraEntryType,
@@ -1538,5 +1540,86 @@ describe("buildMonthlyReport: 案件開始日基準の計上（Issue #146）", (
       buildMonthlyReport(buildInput({ ...input, month: "2026-07" }))
         .revenueTotal,
     ).toBe(100000);
+  });
+});
+
+describe("表示タイトル（Issue #150）", () => {
+  const label = (
+    override: Partial<{
+      matter_id: number | null;
+      business_id: number | null;
+      cost_id: number | null;
+      recurring_cost_id: number | null;
+    }>,
+    text: string,
+  ) => ({
+    matter_id: null,
+    business_id: null,
+    cost_id: null,
+    recurring_cost_id: null,
+    ...override,
+    label: text,
+  });
+
+  it("resolveTitle は上書きタイトルがあればそれを、無ければ元の名称を返す", () => {
+    expect(resolveTitle("元の名前", "上書き")).toEqual({
+      displayTitle: "上書き",
+      isCustomTitle: true,
+    });
+    expect(resolveTitle("元の名前", undefined)).toEqual({
+      displayTitle: "元の名前",
+      isCustomTitle: false,
+    });
+  });
+
+  it("normalizeLabelInput は前後の空白を除去し、空白のみは削除扱い（null）にする", () => {
+    expect(normalizeLabelInput("  経理用  ")).toBe("経理用");
+    expect(normalizeLabelInput("   ")).toBeNull();
+    expect(normalizeLabelInput("")).toBeNull();
+  });
+
+  it("案件・売上明細・費用明細・定期費用ごとに上書きタイトルを解決し、元の名称は保持する", () => {
+    const b = business(100000, "2026-07-01", "受託案件", "チームA", 7);
+    const c = cost(30000, "2026-07-01", "外注費", "受託案件", 7);
+    const report = buildMonthlyReport(
+      buildInput({
+        businessRows: [b],
+        costRows: [c],
+        recurringCosts: [recurringCost({ id: 3 })],
+        labels: [
+          // 同じ id でも対象種別が違えば別の行（案件 7 と 明細 id 1 を取り違えない）
+          { ...label({ matter_id: 7 }, "経理用案件名"), id: 1 },
+          { ...label({ business_id: b.id }, "経理用取引先"), id: 2 },
+          { ...label({ recurring_cost_id: 3 }, "経理用定期費用"), id: 3 },
+        ].map((row) => ({
+          ...row,
+          updated_by: 1,
+          inserted_at: "2026-07-01T00:00:00+09:00",
+          updated_at: "2026-07-01T00:00:00+09:00",
+        })),
+      }),
+    );
+    const matter = report.teamMatterGroups[0].matters[0];
+    expect(matter).toMatchObject({
+      matterTitle: "案件7",
+      displayTitle: "経理用案件名",
+      isCustomTitle: true,
+    });
+    expect(matter.businesses[0]).toMatchObject({
+      name: b.name,
+      displayTitle: "経理用取引先",
+      isCustomTitle: true,
+    });
+    expect(matter.costs[0]).toMatchObject({
+      name: c.name,
+      displayTitle: c.name,
+      isCustomTitle: false,
+    });
+    expect(report.recurringCostByItem[0].details[0]).toMatchObject({
+      name: "定期費用3",
+      displayTitle: "経理用定期費用",
+    });
+    // タイトルは金額・集計に影響しない
+    expect(report.revenueTotal).toBe(100000);
   });
 });

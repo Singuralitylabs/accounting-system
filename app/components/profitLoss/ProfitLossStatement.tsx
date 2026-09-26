@@ -4,6 +4,7 @@ import {
   AdjustableAmount,
   AdjustmentTarget,
   ExtraEntryLine,
+  LabelTarget,
   MatterInfoWithUserNameType,
   PLReportType,
 } from "@/app/types/types";
@@ -23,10 +24,12 @@ import { Fragment, useState } from "react";
 import { MatterCardDetail } from "../modal/MatterCardDetail";
 import ExtraEntrySection from "./ExtraEntrySection";
 import ProfitLossAdjustmentModal from "./ProfitLossAdjustmentModal";
+import ProfitLossLabelModal from "./ProfitLossLabelModal";
 import MatterProfitTable from "./MatterProfitTable";
 import CategoryProfitTable from "./CategoryProfitTable";
 import {
   AdjustmentIndicators,
+  EditableTitle,
   ExpandToggle,
   amountColor,
   expandableRowProps,
@@ -40,6 +43,14 @@ import { useDeleteProfitLossAdjustment } from "@/app/hooks/useProfitLossAdjustme
 type Props = {
   report: PLReportType;
   canEditAdjustments: boolean; // 実績額修正の操作を表示するか（accounting / admin）
+  canEditLabels: boolean; // 表示タイトルの変更操作を表示するか（accounting / admin）
+};
+
+// 「タイトルを変更」モーダルに渡す対象の情報
+type LabelModalState = {
+  target: LabelTarget;
+  originalTitle: string;
+  currentTitle: string | null;
 };
 
 // 「実績額を修正」モーダルに渡す対象の情報
@@ -90,7 +101,11 @@ const targetTypeLabel = {
   recurring_cost: "管理費",
 } as const;
 
-const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
+const ProfitLossStatement = ({
+  report,
+  canEditAdjustments,
+  canEditLabels,
+}: Props) => {
   // 管理費の費目行の展開状態（案件別収支の展開状態は MatterProfitTable が持つ）
   const { expandedRows, toggleRow } = useExpandedRows();
   const [selectedMatter, setSelectedMatter] =
@@ -99,6 +114,7 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
   const [loadingMatterId, setLoadingMatterId] = useState<number | null>(null);
   const [adjustmentModal, setAdjustmentModal] =
     useState<AdjustmentModalState | null>(null);
+  const [labelModal, setLabelModal] = useState<LabelModalState | null>(null);
   // 削除中の対象行が当月に存在しない調整の id 集合（deleteAdjustmentMutation.isPending
   // だけで判定すると全行のボタンが連動してスピナーになるため、行ごとに個別管理する。
   // Set にしているのは、複数行を続けて削除したときに片方の完了で他方のスピナーが
@@ -135,6 +151,14 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
       currentActualAmount: detail.actualAmount,
       currentReason: detail.adjustmentReason ?? "",
     });
+  };
+
+  const openLabelModal = (
+    target: LabelTarget,
+    originalTitle: string,
+    currentTitle: string | null,
+  ) => {
+    setLabelModal({ target, originalTitle, currentTitle });
   };
 
   const handleDeleteOrphanedAdjustment = async (
@@ -214,6 +238,8 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
         loadingMatterId={loadingMatterId}
         onShowMatter={handleShowMatter}
         onEditAdjustment={openAdjustmentModal}
+        canEditLabels={canEditLabels}
+        onEditTitle={openLabelModal}
       />
 
       {/* 分類別収支 */}
@@ -296,7 +322,25 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
                         className="bg-gray-50"
                       >
                         <Table.Td className="pl-16 text-gray-600">
-                          {detail.name}
+                          <EditableTitle
+                            title={detail}
+                            originalTitle={detail.name}
+                            onEdit={
+                              canEditLabels
+                                ? () =>
+                                    openLabelModal(
+                                      {
+                                        targetType: "recurring_cost",
+                                        recurringCostId: detail.recurringCostId,
+                                      },
+                                      detail.name,
+                                      detail.isCustomTitle
+                                        ? detail.displayTitle
+                                        : null,
+                                    )
+                                : undefined
+                            }
+                          />
                           <span className="text-xs text-gray-500 ml-2">
                             {formatRecurringCostNote(detail, {
                               includeItem: false,
@@ -328,7 +372,7 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
                                     targetType: "recurring_cost",
                                     recurringCostId: detail.recurringCostId,
                                   },
-                                  detail.name,
+                                  detail.displayTitle,
                                   detail,
                                 );
                               }}
@@ -432,7 +476,7 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
               {report.orgWideRecurringCosts?.map((detail) => (
                 <Table.Tr key={`orgwide-${detail.recurringCostId}`}>
                   <Table.Td className="text-gray-700">
-                    {detail.name}
+                    <EditableTitle title={detail} originalTitle={detail.name} />
                     <span className="text-xs text-gray-500 ml-2">
                       {formatRecurringCostNote(detail, {
                         includeItem: true,
@@ -530,6 +574,17 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
           matterInfo={selectedMatter}
           opened={isModalOpened}
           setOpened={setIsModalOpened}
+        />
+      )}
+
+      {/* タイトル変更モーダル（accounting / admin のみ開ける） */}
+      {labelModal && (
+        <ProfitLossLabelModal
+          opened
+          onClose={() => setLabelModal(null)}
+          target={labelModal.target}
+          originalTitle={labelModal.originalTitle}
+          currentTitle={labelModal.currentTitle}
         />
       )}
 

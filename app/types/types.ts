@@ -111,6 +111,28 @@ export type OrphanedAdjustmentType = {
   label: string; // 対象行を識別する表示名（案件名 - 取引先/コスト名、または定期費用名）
 };
 
+// ===== 損益計算書の表示タイトル（profit_loss_labels）関連 =====
+// 案件名・取引先名・コスト名・定期費用名の元データは変えず、損益計算書上だけで
+// 有効な表示タイトルを別テーブルで管理する（Issue #150。全月共通）。
+
+type ProfitLossLabelsTable = Database["public"]["Tables"]["profit_loss_labels"];
+export type ProfitLossLabelType = ProfitLossLabelsTable["Row"];
+
+// タイトル変更の対象（matter_id / business_id / cost_id / recurring_cost_id のうち
+// ちょうど1つ）
+export type LabelTarget =
+  | { targetType: "matter"; matterId: number }
+  | { targetType: "business"; businessId: number }
+  | { targetType: "cost"; costId: number }
+  | { targetType: "recurring_cost"; recurringCostId: number };
+
+// 損益計算書に表示するタイトル。上書きタイトルがあればそれ、無ければ元の名称。
+// 元の名称は各行の name / matterTitle が保持する
+export type DisplayTitle = {
+  displayTitle: string;
+  isCustomTitle: boolean; // 上書きタイトルを表示しているか（元の名称をツールチップで示す）
+};
+
 // ===== 損益計算書の明細行（ライブ集計・確定スナップショットの共通形） =====
 // 損益計算書は「取得した行（または確定明細）→ 明細行（*Line）→ 集計」の 2 段階で組み立てる。
 // 明細行は集計・表示に必要な属性と実績額を持ち、元テーブルの行そのものには依存しない。
@@ -165,10 +187,16 @@ export type PLMonthLines = {
   extraEntries: ExtraEntryLine[];
 };
 
+// 表示タイトルを解決済みの明細行（集計結果の表示用）
+export type TitledBusinessLine = BusinessLine & DisplayTitle;
+export type TitledCostLine = CostLine & DisplayTitle;
+export type TitledRecurringCostLine = RecurringCostLine & DisplayTitle;
+
 // ===== 案件別収支（チーム → 案件 → 案件内訳） =====
 
-// 案件行（案件の売上・案件費用・粗利と、展開時の案件内訳）
-export type MatterBreakdown = {
+// 案件行（案件の売上・案件費用・粗利と、展開時の案件内訳）。
+// displayTitle は上書きタイトル（無ければ matterTitle = 元の案件名）
+export type MatterBreakdown = DisplayTitle & {
   matterId: number;
   matterTitle: string;
   category: string;
@@ -176,8 +204,8 @@ export type MatterBreakdown = {
   revenue: number; // 売上明細の実績額合計
   cost: number; // 費用明細の実績額合計
   grossProfit: number; // revenue − cost
-  businesses: BusinessLine[]; // ID の昇順
-  costs: CostLine[]; // ID の昇順
+  businesses: TitledBusinessLine[]; // ID の昇順
+  costs: TitledCostLine[]; // ID の昇順
 };
 
 // チーム行（チーム内の案件と、案件に紐づかない経理追加収支）
@@ -204,7 +232,7 @@ export type GrossProfitBreakdown = {
 export type RecurringCostItemBreakdown = {
   item: string;
   amount: number;
-  details: RecurringCostLine[];
+  details: TitledRecurringCostLine[];
 };
 
 // チーム別内訳（accounting / admin のみ。全体共通の管理費は team = "全体共通"）
@@ -226,7 +254,7 @@ export type PLReportType = {
   categoryBreakdown: GrossProfitBreakdown[]; // 分類別収支（合計は案件別収支の合計と一致）
   recurringCostTotal: number; // 管理費合計（teamleader は自チーム分のみ算入）
   recurringCostByItem: RecurringCostItemBreakdown[]; // 費目別管理費内訳（定期費用の明細を含む）
-  orgWideRecurringCosts?: RecurringCostLine[]; // teamleader 向け「全体共通（参考）」（損益に算入しない）
+  orgWideRecurringCosts?: TitledRecurringCostLine[]; // teamleader 向け「全体共通（参考）」（損益に算入しない）
   extraEntries: ExtraEntryLine[]; // 経理追加収支明細（teamleader は自チーム分のみ。損益に算入済み）
   orgWideExtraEntries?: ExtraEntryLine[]; // teamleader 向け「全体共通（参考）」（損益に算入しない）
   ordinaryProfit: number; // 経常利益 = 粗利合計 − 管理費合計（= 売上 − 案件費用 − 管理費）

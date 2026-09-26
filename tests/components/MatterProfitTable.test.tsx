@@ -3,7 +3,10 @@
 import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import MatterProfitTable from "@/app/components/profitLoss/MatterProfitTable";
-import { buildTeamMatterGroups } from "@/app/utils/profitLossLogic";
+import {
+  buildLabelIndex,
+  buildTeamMatterGroups,
+} from "@/app/utils/profitLossLogic";
 import {
   AdjustableAmount,
   BusinessLine,
@@ -57,12 +60,25 @@ const extraEntries: ExtraEntryLine[] = [
   },
 ];
 
-const renderTable = (canEditAdjustments = true) => {
-  const groups = buildTeamMatterGroups(businesses, costs, extraEntries, [
-    "シンラボ",
-  ]);
+const renderTable = (canEditAdjustments = true, canEditLabels = true) => {
+  const groups = buildTeamMatterGroups(
+    businesses,
+    costs,
+    extraEntries,
+    ["シンラボ"],
+    buildLabelIndex([
+      {
+        matter_id: null,
+        business_id: 1,
+        cost_id: null,
+        recurring_cost_id: null,
+        label: "取引先A（経理表記）",
+      },
+    ]),
+  );
   const onShowMatter = vi.fn();
   const onEditAdjustment = vi.fn();
+  const onEditTitle = vi.fn();
   renderWithMantine(
     <MatterProfitTable
       groups={groups}
@@ -73,9 +89,11 @@ const renderTable = (canEditAdjustments = true) => {
       loadingMatterId={null}
       onShowMatter={onShowMatter}
       onEditAdjustment={onEditAdjustment}
+      canEditLabels={canEditLabels}
+      onEditTitle={onEditTitle}
     />,
   );
-  return { onShowMatter, onEditAdjustment };
+  return { onShowMatter, onEditAdjustment, onEditTitle };
 };
 
 describe("MatterProfitTable", () => {
@@ -98,8 +116,12 @@ describe("MatterProfitTable", () => {
     expect(within(matterRow).getByText("￥300,000")).toBeInTheDocument();
     expect(within(matterRow).getByText("￥600,000")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /案件X/ }));
-    expect(screen.getByText("取引先A")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^#12\s*案件X$/ }));
+    // 上書きタイトルを表示し、元の名称はバッジのツールチップで確認できる
+    expect(screen.getByText("取引先A（経理表記）")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "元の名称: 取引先A" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("外注費用")).toBeInTheDocument();
     // 調整がある明細は元データ・調整を補足表示し、調整ありバッジを付ける
     expect(
@@ -114,21 +136,60 @@ describe("MatterProfitTable", () => {
     fireEvent.click(screen.getByRole("button", { name: "案件を表示" }));
     expect(onShowMatter).toHaveBeenCalledWith(12);
 
-    fireEvent.click(screen.getByRole("button", { name: /案件X/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^#12\s*案件X$/ }));
     fireEvent.click(screen.getAllByRole("button", { name: "実績額を修正" })[0]);
     expect(onEditAdjustment).toHaveBeenCalledWith(
       { targetType: "business", businessId: 1 },
-      "案件Xの売上（取引先A）",
+      "案件Xの売上（取引先A（経理表記））",
       expect.objectContaining({ actualAmount: 900000 }),
     );
   });
 
-  it("実績額修正の権限が無い場合は操作を表示しない", () => {
-    renderTable(false);
+  it("実績額修正・タイトル変更の権限が無い場合は操作を表示しない（上書き後のタイトルは表示する）", () => {
+    renderTable(false, false);
     fireEvent.click(screen.getByRole("button", { name: /シンラボ/ }));
-    fireEvent.click(screen.getByRole("button", { name: /案件X/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^#12\s*案件X$/ }));
     expect(
       screen.queryByRole("button", { name: "実績額を修正" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /タイトルを変更/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("取引先A（経理表記）")).toBeInTheDocument();
+  });
+
+  it("案件行・明細行のタイトル変更で対象と元の名称・現在の上書きタイトルを渡す", () => {
+    const { onEditTitle } = renderTable();
+    fireEvent.click(screen.getByRole("button", { name: /シンラボ/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "案件Xのタイトルを変更" }),
+    );
+    expect(onEditTitle).toHaveBeenCalledWith(
+      { targetType: "matter", matterId: 12 },
+      "案件X",
+      null,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^#12\s*案件X$/ }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "取引先A（経理表記）のタイトルを変更",
+      }),
+    );
+    expect(onEditTitle).toHaveBeenLastCalledWith(
+      { targetType: "business", businessId: 1 },
+      "取引先A",
+      "取引先A（経理表記）",
+    );
+    // 経理追加収支の行・チームの見出しにはタイトル変更の操作を出さない
+    fireEvent.click(screen.getByRole("button", { name: /全体共通/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "経理追加収支（案件外）" }),
+    );
+    expect(
+      screen.queryByRole("button", { name: /協賛金収入のタイトルを変更/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /シンラボのタイトルを変更/ }),
     ).not.toBeInTheDocument();
   });
 

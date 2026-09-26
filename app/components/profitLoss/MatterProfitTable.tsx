@@ -3,10 +3,11 @@
 import {
   AdjustableAmount,
   AdjustmentTarget,
-  BusinessLine,
-  CostLine,
+  LabelTarget,
   MatterBreakdown,
   TeamMatterGroup,
+  TitledBusinessLine,
+  TitledCostLine,
 } from "@/app/types/types";
 import { formatCurrency } from "@/app/utils/formatter";
 import { formatEntryType } from "@/app/utils/extraEntry";
@@ -15,7 +16,9 @@ import { Badge, Button, Group, Paper, Table, Text } from "@mantine/core";
 import { Fragment } from "react";
 import {
   AdjustmentIndicators,
+  EditableTitle,
   ExpandToggle,
+  TitleExtras,
   adjustmentNote,
   amountColor,
   expandableRowProps,
@@ -34,6 +37,12 @@ type Props = {
     target: AdjustmentTarget,
     label: string,
     detail: AdjustableAmount,
+  ) => void;
+  canEditLabels: boolean; // 表示タイトルの変更操作を表示するか（accounting / admin）
+  onEditTitle: (
+    target: LabelTarget,
+    originalTitle: string,
+    currentTitle: string | null,
   ) => void;
 };
 
@@ -80,26 +89,31 @@ const MatterProfitTable = ({
   loadingMatterId,
   onShowMatter,
   onEditAdjustment,
+  canEditLabels,
+  onEditTitle,
 }: Props) => {
   const { expandedRows, toggleRow } = useExpandedRows();
 
   const detailRow = (
     kind: "business" | "cost",
-    line: BusinessLine | CostLine,
+    line: TitledBusinessLine | TitledCostLine,
     matter: MatterBreakdown,
   ) => {
     const isBusiness = kind === "business";
     const id = isBusiness
-      ? (line as BusinessLine).businessId
-      : (line as CostLine).costId;
-    const item = isBusiness ? null : (line as CostLine).item;
+      ? (line as TitledBusinessLine).businessId
+      : (line as TitledCostLine).costId;
+    const item = isBusiness ? null : (line as TitledCostLine).item;
     const note = adjustmentNote(line);
     const target: AdjustmentTarget = isBusiness
       ? { targetType: "business", businessId: id }
       : { targetType: "cost", costId: id };
     const label = isBusiness
-      ? `${matter.matterTitle}の売上（${line.name}）`
-      : `${matter.matterTitle}の案件費用（${line.name} / ${item}）`;
+      ? `${matter.displayTitle}の売上（${line.displayTitle}）`
+      : `${matter.displayTitle}の案件費用（${line.displayTitle} / ${item}）`;
+    const labelTarget: LabelTarget = isBusiness
+      ? { targetType: "business", businessId: id }
+      : { targetType: "cost", costId: id };
     return (
       <Table.Tr key={`${kind}-${id}`} className="bg-gray-50">
         <Table.Td className="pl-20 text-gray-600">
@@ -111,7 +125,20 @@ const MatterProfitTable = ({
           >
             {isBusiness ? "売上" : "費用"}
           </Badge>
-          {line.name}
+          <EditableTitle
+            title={line}
+            originalTitle={line.name}
+            onEdit={
+              canEditLabels
+                ? () =>
+                    onEditTitle(
+                      labelTarget,
+                      line.name,
+                      line.isCustomTitle ? line.displayTitle : null,
+                    )
+                : undefined
+            }
+          />
           {item && (
             <span className="text-xs text-gray-500 ml-1">（{item}）</span>
           )}
@@ -226,8 +253,27 @@ const MatterProfitTable = ({
                                 <span className="text-xs text-gray-500">
                                   #{matter.matterId}
                                 </span>
-                                {matter.matterTitle}
+                                {matter.displayTitle}
                               </ExpandToggle>
+                              <TitleExtras
+                                title={matter}
+                                originalTitle={matter.matterTitle}
+                                onEdit={
+                                  canEditLabels
+                                    ? () =>
+                                        onEditTitle(
+                                          {
+                                            targetType: "matter",
+                                            matterId: matter.matterId,
+                                          },
+                                          matter.matterTitle,
+                                          matter.isCustomTitle
+                                            ? matter.displayTitle
+                                            : null,
+                                        )
+                                    : undefined
+                                }
+                              />
                               <Badge
                                 size="xs"
                                 variant="light"

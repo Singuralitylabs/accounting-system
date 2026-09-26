@@ -544,6 +544,78 @@ export type Database = {
           },
         ]
       }
+      profit_loss_labels: {
+        Row: {
+          business_id: number | null
+          cost_id: number | null
+          id: number
+          inserted_at: string
+          label: string
+          matter_id: number | null
+          recurring_cost_id: number | null
+          updated_at: string
+          updated_by: number
+        }
+        Insert: {
+          business_id?: number | null
+          cost_id?: number | null
+          id?: never
+          inserted_at?: string
+          label: string
+          matter_id?: number | null
+          recurring_cost_id?: number | null
+          updated_at?: string
+          updated_by: number
+        }
+        Update: {
+          business_id?: number | null
+          cost_id?: number | null
+          id?: never
+          inserted_at?: string
+          label?: string
+          matter_id?: number | null
+          recurring_cost_id?: number | null
+          updated_at?: string
+          updated_by?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profit_loss_labels_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "business"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profit_loss_labels_cost_id_fkey"
+            columns: ["cost_id"]
+            isOneToOne: false
+            referencedRelation: "costs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profit_loss_labels_matter_id_fkey"
+            columns: ["matter_id"]
+            isOneToOne: false
+            referencedRelation: "matters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profit_loss_labels_recurring_cost_id_fkey"
+            columns: ["recurring_cost_id"]
+            isOneToOne: false
+            referencedRelation: "recurring_costs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profit_loss_labels_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       recurring_costs: {
         Row: {
           comment: string | null
@@ -705,6 +777,18 @@ export type Database = {
           deleted: boolean
           source_amount: number
           adjustment_amount: number
+        }[]
+      }
+      save_profit_loss_label: {
+        Args: {
+          p_label: string
+          p_matter_id?: number
+          p_business_id?: number
+          p_cost_id?: number
+          p_recurring_cost_id?: number
+        }
+        Returns: {
+          deleted: boolean
         }[]
       }
       validate_member_ids: {

@@ -7,6 +7,7 @@ import {
   AdjustableAmount,
   BusinessLine,
   CostLine,
+  DisplayTitle,
   ExtraEntryLine,
   ExtraEntryType,
   GrossProfitBreakdown,
@@ -15,11 +16,15 @@ import {
   PLMonthLines,
   PLReportType,
   ProfitLossAdjustmentType,
+  ProfitLossLabelType,
   RecurringCostItemBreakdown,
   RecurringCostLine,
   RecurringCostType,
   TeamBreakdown,
   TeamMatterGroup,
+  TitledBusinessLine,
+  TitledCostLine,
+  TitledRecurringCostLine,
 } from "../types/types";
 import { ORG_WIDE_TEAM_LABEL } from "./constants";
 import { hasClassAccess } from "./permissions";
@@ -272,7 +277,64 @@ export type MonthlyReportInput = {
   // 案件別収支のチームの並び順（項目管理のチームマスタの display_order 順）。
   // マスタに無いチーム（無効化・削除済み）は後ろに名称順で並ぶ
   teamOrder?: string[];
+  // 損益計算書上の表示タイトル（Issue #150。RLS により閲覧できる行のみ）
+  labels?: ProfitLossLabelType[];
 };
+
+// ===== 表示タイトル（Issue #150） =====
+
+// 上書きタイトルの索引（対象種別ごとに id → タイトル）
+export type LabelIndex = {
+  matter: Map<number, string>;
+  business: Map<number, string>;
+  cost: Map<number, string>;
+  recurringCost: Map<number, string>;
+};
+
+export const buildLabelIndex = (
+  labels: Pick<
+    ProfitLossLabelType,
+    "matter_id" | "business_id" | "cost_id" | "recurring_cost_id" | "label"
+  >[] = [],
+): LabelIndex => {
+  const index: LabelIndex = {
+    matter: new Map(),
+    business: new Map(),
+    cost: new Map(),
+    recurringCost: new Map(),
+  };
+  labels.forEach((label) => {
+    if (label.matter_id !== null) {
+      index.matter.set(label.matter_id, label.label);
+    } else if (label.business_id !== null) {
+      index.business.set(label.business_id, label.label);
+    } else if (label.cost_id !== null) {
+      index.cost.set(label.cost_id, label.label);
+    } else if (label.recurring_cost_id !== null) {
+      index.recurringCost.set(label.recurring_cost_id, label.label);
+    }
+  });
+  return index;
+};
+
+// 表示タイトルの解決（上書きタイトル → 元の名称）
+export const resolveTitle = (
+  originalTitle: string,
+  customTitle: string | undefined,
+): DisplayTitle => ({
+  displayTitle: customTitle ?? originalTitle,
+  isCustomTitle: customTitle !== undefined,
+});
+
+// タイトル入力の正規化。前後の空白を除去し、空になった場合は null
+// （= 上書きを削除して元の名称に戻す）を返す。DB 関数 save_profit_loss_label と同じ扱い
+export const normalizeLabelInput = (input: string): string | null => {
+  const trimmed = input.trim();
+  return trimmed === "" ? null : trimmed;
+};
+
+// 表示タイトルの最大文字数（DB の CHECK 制約 char_length(label) <= 200 と揃える）
+export const LABEL_MAX_LENGTH = 200;
 
 type AdjustmentKey = "business_id" | "cost_id" | "recurring_cost_id";
 
@@ -454,6 +516,31 @@ export const compareTeams = (teamOrder: readonly string[]) => {
   };
 };
 
+const titledBusinessLine = (
+  line: BusinessLine,
+  labelIndex: LabelIndex,
+): TitledBusinessLine => ({
+  ...line,
+  ...resolveTitle(line.name, labelIndex.business.get(line.businessId)),
+});
+const titledCostLine = (
+  line: CostLine,
+  labelIndex: LabelIndex,
+): TitledCostLine => ({
+  ...line,
+  ...resolveTitle(line.name, labelIndex.cost.get(line.costId)),
+});
+const titledRecurringCostLine = (
+  line: RecurringCostLine,
+  labelIndex: LabelIndex,
+): TitledRecurringCostLine => ({
+  ...line,
+  ...resolveTitle(
+    line.name,
+    labelIndex.recurringCost.get(line.recurringCostId),
+  ),
+});
+
 // 案件別収支（チーム → 案件 → 案件内訳）を組み立てる。
 // 明細行はいずれもちょうど1つのチーム（経理追加収支のチーム未指定は全体共通）・
 // 1つの案件（経理追加収支は案件外）に属するため、チーム小計の合計は
@@ -463,6 +550,7 @@ export const buildTeamMatterGroups = (
   costs: CostLine[],
   extraEntries: ExtraEntryLine[],
   teamOrder: readonly string[] = [],
+  labelIndex: LabelIndex = buildLabelIndex(),
 ): TeamMatterGroup[] => {
   const groups = new Map<
     string | null,
@@ -478,6 +566,7 @@ export const buildTeamMatterGroups = (
     const matters = getGroup(line.team).matters;
     if (!matters.has(line.matterId)) {
       matters.set(line.matterId, {
+        ...resolveTitle(line.matterTitle, labelIndex.matter.get(line.matterId)),
         matterId: line.matterId,
         matterTitle: line.matterTitle,
         category: line.category,
@@ -495,12 +584,12 @@ export const buildTeamMatterGroups = (
   businesses.forEach((line) => {
     const matter = getMatter(line);
     matter.revenue += line.actualAmount;
-    matter.businesses.push(line);
+    matter.businesses.push(titledBusinessLine(line, labelIndex));
   });
   costs.forEach((line) => {
     const matter = getMatter(line);
     matter.cost += line.actualAmount;
-    matter.costs.push(line);
+    matter.costs.push(titledCostLine(line, labelIndex));
   });
   extraEntries.forEach((entry) => {
     getGroup(entry.team).extraEntries.push(entry);
@@ -586,6 +675,7 @@ export type AggregateInput = {
   isTeamLeader: boolean;
   includeTeamBreakdown: boolean;
   teamOrder?: readonly string[];
+  labels?: ProfitLossLabelType[];
 };
 
 // 明細行（ライブ集計・確定スナップショット共通）から損益計算書を集計する。
@@ -597,7 +687,9 @@ export const aggregateMonthLines = ({
   isTeamLeader,
   includeTeamBreakdown,
   teamOrder = [],
+  labels = [],
 }: AggregateInput): PLReportType => {
+  const labelIndex = buildLabelIndex(labels);
   // teamleader の場合、全体共通（team IS NULL）の経理追加収支・管理費は損益に算入せず
   // 参考表示に分離する（案件は matters.team が NOT NULL のため常に算入）
   const countedExtraEntries = isTeamLeader
@@ -606,11 +698,14 @@ export const aggregateMonthLines = ({
   const orgWideExtraEntries = isTeamLeader
     ? lines.extraEntries.filter((entry) => entry.team === null)
     : undefined;
+  const titledRecurringCosts = lines.recurringCosts.map((line) =>
+    titledRecurringCostLine(line, labelIndex),
+  );
   const countedRecurringCosts = isTeamLeader
-    ? lines.recurringCosts.filter((line) => line.team !== null)
-    : lines.recurringCosts;
+    ? titledRecurringCosts.filter((line) => line.team !== null)
+    : titledRecurringCosts;
   const orgWideRecurringCosts = isTeamLeader
-    ? lines.recurringCosts.filter((line) => line.team === null)
+    ? titledRecurringCosts.filter((line) => line.team === null)
     : undefined;
 
   // ===== 案件別収支・分類別収支 =====
@@ -619,6 +714,7 @@ export const aggregateMonthLines = ({
     lines.costs,
     countedExtraEntries,
     teamOrder,
+    labelIndex,
   );
   const categoryBreakdown = buildCategoryBreakdown(
     lines.businesses,
@@ -636,7 +732,7 @@ export const aggregateMonthLines = ({
   const grossProfitTotal = revenueTotal - matterCostTotal;
 
   // ===== 管理費（定期費用。費目別。明細は展開表示に使う） =====
-  const recurringItemMap = new Map<string, RecurringCostLine[]>();
+  const recurringItemMap = new Map<string, TitledRecurringCostLine[]>();
   countedRecurringCosts.forEach((line) => {
     if (!recurringItemMap.has(line.item)) {
       recurringItemMap.set(line.item, []);
@@ -755,6 +851,7 @@ export const computeOrphanedAdjustments = (
   businessRows: BusinessRow[],
   costRows: CostRow[],
   recurringCosts: RecurringCostType[],
+  labelIndex: LabelIndex = buildLabelIndex(),
 ): OrphanedAdjustmentType[] => {
   const monthlyBusinessIds = new Set(
     lines.businesses.map((line) => line.businessId),
@@ -769,6 +866,8 @@ export const computeOrphanedAdjustments = (
   const businessById = new Map(businessRows.map((row) => [row.id, row]));
   const costById = new Map(costRows.map((row) => [row.id, row]));
   const recurringCostById = new Map(recurringCosts.map((rc) => [rc.id, rc]));
+  const matterTitleOf = (row: BusinessRow | CostRow) =>
+    labelIndex.matter.get(row.matter_id) ?? row.matters.title;
 
   return adjustments
     .filter((adjustment) => toMonthKey(adjustment.target_month) === month)
@@ -788,7 +887,7 @@ export const computeOrphanedAdjustments = (
           adjustment,
           targetType: "business" as const,
           label: row
-            ? `${row.matters.title} - ${row.name}`
+            ? `${matterTitleOf(row)} - ${labelIndex.business.get(row.id) ?? row.name}`
             : `売上（ID: ${adjustment.business_id}）`,
         };
       }
@@ -798,7 +897,7 @@ export const computeOrphanedAdjustments = (
           adjustment,
           targetType: "cost" as const,
           label: row
-            ? `${row.matters.title} - ${row.name}（${row.item}）`
+            ? `${matterTitleOf(row)} - ${labelIndex.cost.get(row.id) ?? row.name}（${row.item}）`
             : `案件費用（ID: ${adjustment.cost_id}）`,
         };
       }
@@ -806,7 +905,9 @@ export const computeOrphanedAdjustments = (
       return {
         adjustment,
         targetType: "recurring_cost" as const,
-        label: rc ? rc.name : `管理費（ID: ${adjustment.recurring_cost_id}）`,
+        label: rc
+          ? (labelIndex.recurringCost.get(rc.id) ?? rc.name)
+          : `管理費（ID: ${adjustment.recurring_cost_id}）`,
       };
     });
 };
@@ -820,6 +921,7 @@ export const buildMonthlyReport = (input: MonthlyReportInput): PLReportType => {
     isTeamLeader: input.isTeamLeader,
     includeTeamBreakdown: input.includeTeamBreakdown,
     teamOrder: input.teamOrder,
+    labels: input.labels,
   });
   return {
     ...report,
@@ -840,6 +942,7 @@ export const buildMonthlyReport = (input: MonthlyReportInput): PLReportType => {
             input.businessRows,
             input.costRows,
             input.recurringCosts,
+            buildLabelIndex(input.labels),
           )
         : undefined,
   };

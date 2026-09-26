@@ -29,6 +29,10 @@ export const PL_ALLOWED_CLASSES = ROUTE_PERMISSIONS["/profit-loss"];
 // profit_loss_adjustments の RLS（INSERT/UPDATE/DELETE は accounting / admin のみ）と揃える
 export const PL_ADJUSTMENT_WRITE_CLASSES: Role[] = ["accounting", "admin"];
 
+// 損益計算書の表示タイトル（Issue #150）を変更できるロール。
+// profit_loss_labels の RLS（INSERT/UPDATE/DELETE は accounting / admin のみ）と揃える
+export const PL_LABEL_WRITE_CLASSES: Role[] = ["accounting", "admin"];
+
 export const hasClassAccess = (
   allowedClasses: readonly Role[],
   profileClass: string | null | undefined,

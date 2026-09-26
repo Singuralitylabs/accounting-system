@@ -56,6 +56,11 @@ const fetchReportSourceRows = async (period?: ReportPeriod) => {
     .from("profit_loss_adjustments")
     .select("*")
     .order("id", { ascending: true });
+  // 表示タイトル（Issue #150）は全月共通のため期間で絞らない（件数は対象行数以下）
+  const labelQuery = supabase
+    .from("profit_loss_labels")
+    .select("*")
+    .order("id", { ascending: true });
 
   if (bounds) {
     // 案件の売上・費用は案件開始日の月に計上し、下書きの案件は除外する（Issue #146）。
@@ -84,6 +89,7 @@ const fetchReportSourceRows = async (period?: ReportPeriod) => {
     recurringResult,
     extraResult,
     adjustmentResult,
+    labelResult,
     teamOptions,
   ] = await Promise.all([
     businessQuery,
@@ -91,6 +97,7 @@ const fetchReportSourceRows = async (period?: ReportPeriod) => {
     recurringQuery,
     extraQuery,
     adjustmentQuery,
+    labelQuery,
     // 案件別収支のチームの並び順（項目管理のチームマスタの display_order 順）
     getActiveSelectOptionsByType(["team"]),
   ]);
@@ -100,7 +107,8 @@ const fetchReportSourceRows = async (period?: ReportPeriod) => {
     costResult.error ||
     recurringResult.error ||
     extraResult.error ||
-    adjustmentResult.error
+    adjustmentResult.error ||
+    labelResult.error
   ) {
     console.error(
       "損益レポートのデータ取得に失敗しました:",
@@ -108,7 +116,8 @@ const fetchReportSourceRows = async (period?: ReportPeriod) => {
         costResult.error ??
         recurringResult.error ??
         extraResult.error ??
-        adjustmentResult.error,
+        adjustmentResult.error ??
+        labelResult.error,
     );
     return null;
   }
@@ -129,6 +138,7 @@ const fetchReportSourceRows = async (period?: ReportPeriod) => {
     recurringCosts: recurringResult.data ?? [],
     extraEntries: extraResult.data ?? [],
     adjustments: adjustmentResult.data ?? [],
+    labels: labelResult.data ?? [],
   };
 };
 
@@ -217,6 +227,7 @@ export const getProfitLossReport = async (
     extraEntries: rows.extraEntries,
     adjustments: rows.adjustments,
     teamOrder: rows.teamOrder,
+    labels: rows.labels,
     includeOrphanedAdjustments: true,
     ...reportFlags(profileInfo.class),
   });
@@ -259,6 +270,7 @@ export const getAnnualTrend = async (
       extraEntries: rows.extraEntries,
       adjustments: rows.adjustments,
       teamOrder: rows.teamOrder,
+      labels: rows.labels,
       // 年間推移は orphanedAdjustments を表示に使わないため 12ヶ月分の
       // 無駄な計算を避ける（AnnualTrendTable は参照しない）
       includeOrphanedAdjustments: false,

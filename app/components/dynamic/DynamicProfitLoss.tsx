@@ -4,6 +4,7 @@ import { getCachedProfileInfo } from "@/app/utils/supabase/requestCache";
 import {
   hasClassAccess,
   PL_ADJUSTMENT_WRITE_CLASSES,
+  PL_LABEL_WRITE_CLASSES,
   ROUTE_PERMISSIONS,
 } from "@/app/utils/permissions";
 import ProfitLossView from "../profitLoss/ProfitLossView";
@@ -33,6 +34,8 @@ const DynamicProfitLoss = async () => {
     PL_ADJUSTMENT_WRITE_CLASSES,
     profileClass,
   );
+  // 表示タイトル（Issue #150）の変更操作を表示するか（RLS の accounting/admin 判定と揃える）
+  const canEditLabels = hasClassAccess(PL_LABEL_WRITE_CLASSES, profileClass);
 
   return (
     <main>
@@ -42,6 +45,7 @@ const DynamicProfitLoss = async () => {
         canEditRecurringCosts={canEditRecurringCosts}
         canEditExtraEntries={canEditExtraEntries}
         canEditAdjustments={canEditAdjustments}
+        canEditLabels={canEditLabels}
       />
     </main>
   );
