@@ -8,6 +8,7 @@ import type { AuthError } from "@supabase/supabase-js";
 import {
   AUTH_FETCH_TIMEOUT_MS,
   AUTH_GET_USER_TIMEOUT_MS,
+  AUTH_PROFILES_TIMEOUT_MS,
   classifyPath,
   createTimeoutFetch,
   isProfilesTimeoutError,
@@ -134,10 +135,12 @@ export async function middleware(req: NextRequest) {
 
         if (userClass === null) {
           // profiles 取得はボディ停滞でも Edge の 25 秒制限に掛からないよう
-          // 外側からも打ち切る。ボディ停滞の制限超過は throw で `catch` 節の
-          // 503 に落ちる。ヘッダ待ちの制限超過は内側の fetch 中断が postgrest-js
-          // に捕捉されて `{ error }` の戻り値になるため、タイムアウト由来か判定
-          // して 503 に落とす（Issue #137）。それ以外の取得失敗は既存どおり
+          // 外側からも打ち切る。外側は `AUTH_PROFILES_TIMEOUT_MS`（内側 + 1 秒）
+          // とし、ヘッダ待ちハングでは内側の fetch 中断を先に発火させる。
+          // 内側の中断は postgrest-js に捕捉されて `{ error }` の戻り値になる
+          // ため、タイムアウト由来か判定して 503 に落とす（Issue #137）。
+          // ボディ停滞（ヘッダ到着後に body が止まる）の制限超過は throw で
+          // `catch` 節の 503 に落ちる。それ以外の取得失敗は既存どおり
           // `/` へ転送する。
           // なお `global.fetch` の 5 秒タイムアウトは PostgREST にも適用される。
           const profileQuery = supabase
@@ -147,7 +150,7 @@ export async function middleware(req: NextRequest) {
             .single();
           const { data: profile, error: profileError } = await withAuthTimeout(
             Promise.resolve(profileQuery),
-            AUTH_FETCH_TIMEOUT_MS,
+            AUTH_PROFILES_TIMEOUT_MS,
           );
 
           if (profileError) {

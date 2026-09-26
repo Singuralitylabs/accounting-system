@@ -27,13 +27,19 @@ export const isTransientAuthError = (error: AuthError) =>
   (isAuthApiError(error) && error.status >= 500);
 
 // `profiles` 取得のエラーがタイムアウト由来かどうか（Issue #137）。
-// 内側の createTimeoutFetch（5 秒）が先に発火すると postgrest-js に捕捉され、
-// throw ではなく `{ error: { message: "TimeoutError: ...", code: "" } }` の
-// 戻り値になる（postgrest-js の PostgrestBuilder.ts の catch 節が
+// 内側の createTimeoutFetch（`AUTH_FETCH_TIMEOUT_MS`）が先に発火すると
+// postgrest-js に捕捉され、throw ではなく
+// `{ error: { message: "TimeoutError: ...", code: "" } }` の戻り値になる
+// （postgrest-js の PostgrestBuilder.ts の catch 節が
 // `${fetchError?.name}: ${fetchError?.message}` の形式で包むため）。
-// そのため withAuthTimeout の外側タイマーによる throw（catch 節の 503）には
-// 到達せず、middleware 側でこの判定により 503 に落とす。
-// ヘッダ到着後のボディ停滞は外側タイマーが throw するため、両経路で 503 になる。
+// middleware 側でこの判定により 503 に落とす。ヘッダ到着後のボディ停滞は
+// fetch 自体が解決済みで内側タイマーが発火しないため、外側タイマーの throw
+// （catch 節の 503）に落ちる。両経路で 503 になる。
+// なお内側が先に発火するのは、外側を `AUTH_PROFILES_TIMEOUT_MS`
+// （内側 + マージン）にしているからのみ成立する。`Promise.resolve(thenable)`
+// は `.then`（fetch 開始と内側タイマー登録）を後続のマイクロタスクで呼ぶ一方、
+// `withAuthTimeout` は外側タイマーを同期的に先に登録するため、同一遅延では
+// 外側が必ず先に発火してしまう。順序を変える場合はこのマージンを保つこと。
 export const isProfilesTimeoutError = (
   error:
     | { message?: unknown; name?: unknown; code?: unknown }
@@ -73,11 +79,18 @@ export const AUTH_FETCH_TIMEOUT_MS = 5000;
 // 「数秒以内に 503」のため 6 秒とする。
 //
 // middleware 全体の時間予算（上限の考え方。全て満たすこと）：
-// - `getUser()` ≤ 6 秒（本定数）＋後続の `profiles` 取得 ≤ 5 秒
-//   （`AUTH_FETCH_TIMEOUT_MS` で外側からも打ち切り）で合計約 11 秒
+// - `getUser()` ≤ 6 秒（本定数）＋後続の `profiles` 取得 ≤ 6 秒
+//   （`AUTH_PROFILES_TIMEOUT_MS` で外側からも打ち切り）で合計約 12 秒
 // - Vercel Edge の 25 秒制限を大きく下回る。定数を変える場合はこの予算を保つこと
 //   （`tests/utils/routeGuard.test.ts` の合算テストが回帰を検出する）。
 export const AUTH_GET_USER_TIMEOUT_MS = 6000;
+
+// `profiles` 取得全体の待ちの上限。`middleware.ts` が `withAuthTimeout` に渡す。
+// 内側の 1 リクエスト打ち切り（`AUTH_FETCH_TIMEOUT_MS`）より 1 秒長くし、
+// ヘッダ待ちハングでは内側タイマーを先に発火させる（順序の理由は
+// `isProfilesTimeoutError` のコメント参照）。ヘッダ到着後のボディ停滞は
+// 外側の throw で打ち切る。受け入れ基準「数秒以内に 503」を満たす。
+export const AUTH_PROFILES_TIMEOUT_MS = AUTH_FETCH_TIMEOUT_MS + 1000;
 
 /**
  * Edge Runtime 安全なタイムアウト付き fetch を作る。

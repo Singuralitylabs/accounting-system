@@ -7,6 +7,7 @@ import {
 import {
   AUTH_FETCH_TIMEOUT_MS,
   AUTH_GET_USER_TIMEOUT_MS,
+  AUTH_PROFILES_TIMEOUT_MS,
   classifyPath,
   createTimeoutFetch,
   isAuthRoute,
@@ -247,13 +248,18 @@ describe("withAuthTimeout", () => {
   });
 
   it("既定の上限と後続取得の合算でも Edge の 25 秒制限に収まる", () => {
-    // getUser 全体の上限＋後続の profiles 取得（再試行なし・1 リクエスト上限）の合算
-    expect(AUTH_GET_USER_TIMEOUT_MS + AUTH_FETCH_TIMEOUT_MS).toBeLessThan(
+    // getUser 全体の上限＋後続の profiles 取得（外側打ち切り）の合算
+    expect(AUTH_GET_USER_TIMEOUT_MS + AUTH_PROFILES_TIMEOUT_MS).toBeLessThan(
       25000,
     );
+    // profiles 取得の外側は内側（1 リクエスト上限）より長くする。
+    // Promise.resolve(thenable) が .then をマイクロタスクで呼ぶため、
+    // 同一遅延では外側が先に登録・発火して内側が勝てない。マージンで順序を明示する
+    expect(AUTH_FETCH_TIMEOUT_MS).toBeLessThan(AUTH_PROFILES_TIMEOUT_MS);
     expect(AUTH_FETCH_TIMEOUT_MS).toBeLessThan(AUTH_GET_USER_TIMEOUT_MS);
     // 受け入れ基準「数秒以内に 503」の回帰検出（引き上げは基準との再合意が必要）
     expect(AUTH_GET_USER_TIMEOUT_MS).toBeLessThanOrEqual(6000);
+    expect(AUTH_PROFILES_TIMEOUT_MS).toBeLessThanOrEqual(6000);
   });
 
   it("期限切れトークンの再試行ループ想定でも全体上限で打ち切る", async () => {
@@ -445,5 +451,86 @@ describe("isProfilesTimeoutError（Issue #137）", () => {
     expect(isProfilesTimeoutError(null)).toBe(false);
     expect(isProfilesTimeoutError(undefined)).toBe(false);
     expect(isProfilesTimeoutError({})).toBe(false);
+  });
+});
+
+describe("profiles 取得のタイムアウト合成（Issue #137）", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // middleware と同じ合成（Promise.resolve(thenable) + withAuthTimeout）を
+  // fake timer で再現し、どちらの経路で 503 相当になるかを示す。
+  // postgrest-js 相当：fetch の中断を throw ではなく { error } の戻り値に包む
+  const postgrestLike = (fetch: typeof globalThis.fetch) =>
+    ({
+      then: (
+        resolve: (value: unknown) => void,
+        reject: (reason: unknown) => void,
+      ) => {
+        fetch("https://example.test/profiles")
+          .then(
+            () => resolve({ data: { class: "admin" }, error: null }),
+            (fetchError: Error) =>
+              resolve({
+                data: null,
+                error: {
+                  message: `${fetchError.name}: ${fetchError.message}`,
+                  details: "",
+                  hint: "",
+                  code: "",
+                },
+              }),
+          )
+          .then(undefined, reject);
+      },
+    }) as unknown as Promise<{
+      data: { class: string } | null;
+      error: { message: string; code: string } | null;
+    }>;
+
+  it("ヘッダ待ちハングでは内側タイマーが先に発火し error オブジェクトで解決する", async () => {
+    vi.useFakeTimers();
+    const profileQuery = postgrestLike(
+      createTimeoutFetch(AUTH_FETCH_TIMEOUT_MS, hangingFetch),
+    );
+    const pending = withAuthTimeout(
+      Promise.resolve(profileQuery),
+      AUTH_PROFILES_TIMEOUT_MS,
+    );
+    const assertion = pending.then(
+      (result) => {
+        // 外側の throw ではなく内側の中断が error として届く。
+        // 同一遅延では外側が先に発火するため、このアサーションは
+        // AUTH_PROFILES_TIMEOUT_MS のマージンが無いと失敗する
+        expect(result.error).not.toBeNull();
+        expect(isProfilesTimeoutError(result.error)).toBe(true);
+      },
+      () => {
+        throw new Error("外側タイマーが先に発火しました");
+      },
+    );
+    await vi.advanceTimersByTimeAsync(AUTH_PROFILES_TIMEOUT_MS);
+    await assertion;
+  });
+
+  it("応答も中断も無い場合（ボディ停滞の想定）は外側タイマーが throw する", async () => {
+    vi.useFakeTimers();
+    const neverSettling = { then: () => {} } as unknown as Promise<never>;
+    const pending = withAuthTimeout(
+      Promise.resolve(neverSettling),
+      AUTH_PROFILES_TIMEOUT_MS,
+    );
+    const assertion = pending.then(
+      () => {
+        throw new Error("解決してはならない");
+      },
+      (reason) => {
+        expect(reason).toBeInstanceOf(AuthRetryableFetchError);
+        expect(isTransientAuthError(reason)).toBe(true);
+      },
+    );
+    await vi.advanceTimersByTimeAsync(AUTH_PROFILES_TIMEOUT_MS);
+    await assertion;
   });
 });
