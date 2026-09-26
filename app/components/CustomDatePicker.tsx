@@ -6,6 +6,7 @@ import { parseDateString, toDateString } from "../utils/formatter";
 
 interface CustomDatePickerProps {
   label?: string;
+  description?: string; // 入力欄の下に出す補足説明（Mantine の description）
   required?: boolean;
   placeholder: string;
   disabled?: boolean;
@@ -17,6 +18,7 @@ interface CustomDatePickerProps {
 
 export const CustomDatePicker = ({
   label,
+  description,
   required,
   placeholder,
   disabled = false,
@@ -29,6 +31,7 @@ export const CustomDatePicker = ({
     <DatePickerInput
       className={className}
       label={label}
+      description={description}
       required={required}
       placeholder={placeholder}
       disabled={disabled}

@@ -16,18 +16,21 @@ import {
   datedOrUndatedFilter,
   fiscalYearMonths,
   isMonthKey,
+  matterPeriodFilter,
   recurringOverlapEndFilter,
   reportFlags,
   reportRangeBounds,
 } from "../profitLossLogic";
 import { getAuthorizedViewer } from "./viewerAccess";
 
-// business / costs の取得列。ラベル解決に matters.title を使うため join を含む。
-// 通常取得と orphanedAdjustments 用の補完取得で同じ形を使う。
-const BUSINESS_SELECT =
-  "id, name, amount, invoice_date, matter_id, matters!inner(id, title, team, category)";
-const COST_SELECT =
-  "id, name, price, item, period, matter_id, matters!inner(id, title, team, category)";
+// business / costs の取得列。計上月（案件開始日）・下書き判定・ラベル解決に
+// matters の列を使うため join を含む。通常取得と orphanedAdjustments 用の補完取得で同じ形を使う。
+// matters は !inner（inner join）にし、埋め込み側の絞り込み（matterPeriodFilter）で
+// 親の business / costs 行を絞れるようにする。
+const MATTER_COLUMNS =
+  "matters!inner(id, title, team, category, start_date, is_fixed, is_completed)";
+const BUSINESS_SELECT = `id, name, amount, matter_id, ${MATTER_COLUMNS}`;
+const COST_SELECT = `id, name, price, item, matter_id, ${MATTER_COLUMNS}`;
 
 // 集計に必要な行をまとめて取得する（RLS により権限に応じた行のみ返る）
 // セッション Cookie は @supabase/ssr 形式。createServerSupabase() 以外のクライアントを混ぜない
@@ -54,10 +57,14 @@ const fetchReportSourceRows = async (period?: ReportPeriod) => {
     .order("id", { ascending: true });
 
   if (bounds) {
-    businessQuery = businessQuery.or(
-      datedOrUndatedFilter("invoice_date", bounds),
-    );
-    costQuery = costQuery.or(datedOrUndatedFilter("period", bounds));
+    // 案件の売上・費用は案件開始日の月に計上し、下書きの案件は除外する（Issue #146）。
+    // 条件は埋め込みリソース（matters!inner）側に掛ける
+    businessQuery = businessQuery.or(matterPeriodFilter(bounds), {
+      referencedTable: "matters",
+    });
+    costQuery = costQuery.or(matterPeriodFilter(bounds), {
+      referencedTable: "matters",
+    });
     extraQuery = extraQuery.or(datedOrUndatedFilter("entry_date", bounds));
     // 定期費用は適用期間の重なりで絞る（支払サイクルの計上判定は集計側で行う）。
     // 適用期間が取得期間と重ならない行だけを除外する。

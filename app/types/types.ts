@@ -189,7 +189,7 @@ export type PLReportType = {
   ordinaryProfit: number; // 経常利益 = 粗利合計 − 管理費合計（= 売上 − 案件費用 − 管理費）
   byTeam?: TeamBreakdown[]; // チーム別内訳（accounting / admin のみ）
   undated: { revenue: number; matterCost: number }; // 月未確定（日付未入力。経理追加収支の日付未入力分を含む）
-  // 対象月に調整はあるが対象行が当月に存在しない（案件の日付変更等）ため、
+  // 対象月に調整はあるが対象行が当月に存在しない（案件開始日の変更等）ため、
   // 損益に反映されず削除待ちの調整（accounting / admin のみ。includeTeamBreakdown と同じロール判定）
   orphanedAdjustments?: OrphanedAdjustmentType[];
 };

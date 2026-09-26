@@ -5,6 +5,7 @@ import {
   MonthlyReportInput,
   buildMonthlyReport,
   fiscalYearMonths,
+  isDraftMatter,
   isRecurringCostChargedInMonth,
   monthDiff,
   reportFlags,
@@ -29,7 +30,7 @@ beforeEach(() => {
 
 const business = (
   amount: number | null,
-  invoiceDate: string | null,
+  startDate: string | null,
   category: string,
   team = "チームA",
   matterId = 1,
@@ -39,15 +40,22 @@ const business = (
     id,
     name: `取引先${id}`,
     amount,
-    invoice_date: invoiceDate,
     matter_id: matterId,
-    matters: { id: matterId, title: `案件${matterId}`, team, category },
+    matters: {
+      id: matterId,
+      title: `案件${matterId}`,
+      team,
+      category,
+      start_date: startDate,
+      is_fixed: true,
+      is_completed: false,
+    },
   };
 };
 
 const cost = (
   price: number,
-  period: string | null,
+  startDate: string | null,
   item: string,
   category: string,
   matterId = 1,
@@ -59,9 +67,16 @@ const cost = (
     name: `支払先${id}`,
     price,
     item,
-    period,
     matter_id: matterId,
-    matters: { id: matterId, title: `案件${matterId}`, team, category },
+    matters: {
+      id: matterId,
+      title: `案件${matterId}`,
+      team,
+      category,
+      start_date: startDate,
+      is_fixed: true,
+      is_completed: false,
+    },
   };
 };
 
@@ -162,7 +177,7 @@ const legacyOperatingProfit = ({
 
   const revenueTotal =
     businessRows
-      .filter((row) => toMonthKey(row.invoice_date) === month)
+      .filter((row) => toMonthKey(row.matters.start_date) === month)
       .reduce((sum, row) => sum + (row.amount ?? 0), 0) +
     countedExtraEntries
       .filter((entry) => entry.entry_type === "income")
@@ -170,7 +185,7 @@ const legacyOperatingProfit = ({
 
   const matterCostTotal =
     costRows
-      .filter((row) => toMonthKey(row.period) === month)
+      .filter((row) => toMonthKey(row.matters.start_date) === month)
       .reduce((sum, row) => sum + row.price, 0) +
     countedExtraEntries.reduce(
       (sum, entry) => sum + (entry.expense_amount ?? 0),
@@ -1317,5 +1332,117 @@ describe("buildMonthlyReport: 損益調整（実績額修正）", () => {
     expect(category?.extraEntries.map((entry) => entry.id)).toEqual([1]);
     expect(category?.businesses).toEqual([]);
     expect(category?.amount).toBe(50000);
+  });
+});
+
+describe("isDraftMatter", () => {
+  it("経理申請前（is_fixed・is_completed ともに false / NULL）のみ下書き", () => {
+    expect(isDraftMatter({ is_fixed: false, is_completed: false })).toBe(true);
+    expect(isDraftMatter({ is_fixed: null, is_completed: null })).toBe(true);
+    expect(isDraftMatter({ is_fixed: true, is_completed: false })).toBe(false);
+    expect(isDraftMatter({ is_fixed: true, is_completed: true })).toBe(false);
+    expect(isDraftMatter({ is_fixed: false, is_completed: true })).toBe(false);
+  });
+});
+
+describe("buildMonthlyReport: 案件開始日基準の計上（Issue #146）", () => {
+  // 1 案件の売上・費用。旧基準（請求日・支払期限）では別の月に分かれていたケースでも、
+  // 行が持つ案件開始日だけで計上月が決まる
+  const matterRows = (
+    startDate: string | null,
+    state: { is_fixed: boolean | null; is_completed: boolean | null } = {
+      is_fixed: true,
+      is_completed: false,
+    },
+  ) => {
+    const b = business(100000, startDate, "受託案件");
+    const c = cost(30000, startDate, "外注費", "受託案件");
+    b.matters = { ...b.matters, ...state };
+    c.matters = { ...c.matters, ...state };
+    return { businessRows: [b], costRows: [c] };
+  };
+
+  it("売上・費用ともに案件開始日の月に全額計上し、他の月には計上しない", () => {
+    const rows = matterRows("2026-07-20");
+    const july = buildMonthlyReport(buildInput({ ...rows }));
+    const august = buildMonthlyReport(
+      buildInput({ ...rows, month: "2026-08" }),
+    );
+    expect(july.revenueTotal).toBe(100000);
+    expect(july.matterCostTotal).toBe(30000);
+    expect(july.grossProfitTotal).toBe(70000);
+    expect(august.revenueTotal).toBe(0);
+    expect(august.matterCostTotal).toBe(0);
+  });
+
+  it("下書きの案件はどの月にも月未確定にも計上しない", () => {
+    const dated = buildMonthlyReport(
+      buildInput(
+        matterRows("2026-07-01", { is_fixed: false, is_completed: false }),
+      ),
+    );
+    expect(dated.revenueTotal).toBe(0);
+    expect(dated.matterCostTotal).toBe(0);
+    const undated = buildMonthlyReport(
+      buildInput(matterRows(null, { is_fixed: null, is_completed: null })),
+    );
+    expect(undated.undated).toEqual({ revenue: 0, matterCost: 0 });
+  });
+
+  it.each([
+    ["経理申請中", { is_fixed: true, is_completed: false }],
+    ["経理確認完了・完了", { is_fixed: true, is_completed: true }],
+  ])("%s の案件は計上する", (_label, state) => {
+    const report = buildMonthlyReport(
+      buildInput(matterRows("2026-07-01", state)),
+    );
+    expect(report.revenueTotal).toBe(100000);
+    expect(report.matterCostTotal).toBe(30000);
+  });
+
+  it("案件開始日が未入力の案件（下書き以外）は売上・費用とも月未確定に計上する", () => {
+    const report = buildMonthlyReport(buildInput(matterRows(null)));
+    expect(report.revenueTotal).toBe(0);
+    expect(report.undated).toEqual({ revenue: 100000, matterCost: 30000 });
+  });
+
+  it("案件開始日を別の月へ変更すると計上月が移動し、元の月の調整は対象行が当月に存在しない扱いになる", () => {
+    const rows = matterRows("2026-08-05"); // 7月 → 8月へ変更後
+    const adjustments = [
+      adjustment({
+        id: 1,
+        target_month: "2026-07-01",
+        business_id: rows.businessRows[0].id,
+        adjustment_amount: 5000,
+        source_amount_snapshot: 100000,
+      }),
+    ];
+    const july = buildMonthlyReport(
+      buildInput({ ...rows, adjustments, includeTeamBreakdown: true }),
+    );
+    expect(july.revenueTotal).toBe(0);
+    expect(july.orphanedAdjustments?.map((o) => o.adjustment.id)).toEqual([1]);
+    const august = buildMonthlyReport(
+      buildInput({ ...rows, adjustments, month: "2026-08" }),
+    );
+    // 調整は 7 月に留まるため 8 月の実績額は元データのまま
+    expect(august.revenueTotal).toBe(100000);
+  });
+
+  it("年度境界（6月末開始 / 7月1日開始）は開始日の月で振り分ける", () => {
+    const june = matterRows("2026-06-30");
+    const july = matterRows("2026-07-01");
+    const input = {
+      businessRows: [...june.businessRows, ...july.businessRows],
+      costRows: [...june.costRows, ...july.costRows],
+    };
+    expect(
+      buildMonthlyReport(buildInput({ ...input, month: "2026-06" }))
+        .revenueTotal,
+    ).toBe(100000);
+    expect(
+      buildMonthlyReport(buildInput({ ...input, month: "2026-07" }))
+        .revenueTotal,
+    ).toBe(100000);
   });
 });

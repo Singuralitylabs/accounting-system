@@ -22,31 +22,53 @@ import {
 import { ORG_WIDE_TEAM_LABEL } from "./constants";
 import { hasClassAccess } from "./permissions";
 
+// 集計対象の行が属する案件の属性。
+// 計上月は案件開始日（start_date）の月で判定し（Issue #146）、下書きの案件は集計から除外する。
+// category は案件費用を売上分類（大分類）別の粗利へ振り分けるために使う
+export type MatterOfRow = {
+  id: number;
+  title: string;
+  team: string;
+  category: string;
+  start_date: string | null;
+  is_fixed: boolean | null;
+  is_completed: boolean | null;
+};
+
 // 集計対象の行（RLS により権限に応じた行のみ取得される）
 export type BusinessRow = {
   id: number;
   name: string; // 取引先名。同一案件に複数の business 行がある場合の識別に使う
   amount: number | null;
-  invoice_date: string | null;
   matter_id: number;
-  matters: { id: number; title: string; team: string; category: string };
+  matters: MatterOfRow;
 };
 
 export type CostRow = {
   id: number;
-  name: string; // 支払先名。同一案件・同一品目に複数の costs 行がある場合の識別に使う
+  name: string; // コスト名。同一案件・同一品目に複数の costs 行がある場合の識別に使う
   price: number;
   item: string;
-  period: string | null;
   matter_id: number;
-  // category は案件費用を売上分類（大分類）別の粗利へ振り分けるために使う
-  matters: { id: number; title: string; team: string; category: string };
+  matters: MatterOfRow;
 };
 
 // 日付文字列（YYYY-MM-DD）から月キー（YYYY-MM）を取り出す。
 // タイムゾーン変換による月ズレを避けるため Date オブジェクトは使わない。
 const toMonthKey = (dateStr: string | null): string | null =>
   dateStr ? dateStr.slice(0, 7) : null;
+
+// 下書き（経理申請前）の案件か。下書きは損益計算書のどこにも計上しない（Issue #146）。
+// is_fixed / is_completed は DB 上 NULL 許容のため NULL は false として扱う。
+// 取得側の絞り込み（matterPeriodFilter）と同じ定義。
+export const isDraftMatter = (
+  matter: Pick<MatterOfRow, "is_fixed" | "is_completed">,
+): boolean => matter.is_fixed !== true && matter.is_completed !== true;
+
+// 案件の売上・費用を計上する月（案件開始日の月。未入力は null = 月未確定）
+export const matterMonthKey = (
+  matter: Pick<MatterOfRow, "start_date">,
+): string | null => toMonthKey(matter.start_date);
 
 // 支払サイクルごとの間隔（月数）
 const CYCLE_MONTHS: Record<string, number> = {
@@ -128,13 +150,21 @@ export const reportRangeBounds = (period: ReportPeriod): ReportRangeBounds => ({
 });
 
 // 日付カラムが取得期間内または月未確定（NULL）か。
-// invoice_date / period / entry_date の絞り込みで NULL 行を落とさないための条件。
+// matters.start_date / entry_date の絞り込みで NULL 行を落とさないための条件。
 export const isDateInRangeOrUndated = (
   dateStr: string | null,
   bounds: ReportRangeBounds,
 ): boolean =>
   dateStr === null ||
   (dateStr >= bounds.startDate && dateStr < bounds.endExclusive);
+
+// 案件の行（business / costs）が取得対象か（matterPeriodFilter のインメモリ版）。
+// 下書きでなく、案件開始日が取得期間内または未入力（月未確定）のもの。
+export const isMatterInRangeOrUndated = (
+  matter: Pick<MatterOfRow, "start_date" | "is_fixed" | "is_completed">,
+  bounds: ReportRangeBounds,
+): boolean =>
+  !isDraftMatter(matter) && isDateInRangeOrUndated(matter.start_date, bounds);
 
 // 定期費用マスタの適用期間が取得期間と重なるか。
 // 支払サイクルによる計上月の判定は行わない（buildMonthlyReport 側で行う）。
@@ -198,13 +228,23 @@ export const collectMissingAdjustmentTargetIds = (
 };
 
 // Supabase（PostgREST）の or() に渡す日付絞り込み条件「期間内 OR 月未確定（NULL）」。
-// invoice_date / period / entry_date 用。SQL とテストで同じ文字列を使うための単一の定義。
+// extra_entries.entry_date 用。SQL とテストで同じ文字列を使うための単一の定義。
 // column は union 型に絞り、任意文字列の混入を型で防ぐ。
 export const datedOrUndatedFilter = (
-  column: "invoice_date" | "period" | "entry_date",
+  column: "entry_date" | "start_date",
   bounds: ReportRangeBounds,
 ): string =>
   `and(${column}.gte.${bounds.startDate},${column}.lt.${bounds.endExclusive}),${column}.is.null`;
+
+// business / costs の取得で埋め込みリソース matters（!inner）に掛ける or() 条件。
+// 「案件開始日が期間内 OR 未入力（月未確定）」かつ「下書きでない」（isDraftMatter の否定）。
+// supabase-js の or() は referencedTable ごとに 1 つの or= パラメータになるため、
+// 2 つの条件を 1 つの論理式にまとめる（(下書きでない AND 期間内) OR (下書きでない AND NULL)）。
+// is.true を使うのは、NULL を false と同じく「下書き側」に倒すため（isDraftMatter と同じ）。
+export const matterPeriodFilter = (bounds: ReportRangeBounds): string => {
+  const notDraft = "or(is_fixed.is.true,is_completed.is.true)";
+  return `and(${notDraft},start_date.gte.${bounds.startDate},start_date.lt.${bounds.endExclusive}),and(${notDraft},start_date.is.null)`;
+};
 
 // 定期費用の適用終了側の or() 条件（`start_month < endExclusive` と AND で使う）。
 // 適用期間が取得期間と重ならない行だけを除外するための条件。
@@ -316,9 +356,17 @@ export const buildMonthlyReport = ({
     (entry) => entry.expense_amount !== null,
   );
 
+  // 案件の売上・費用は案件開始日の月に計上し、下書きの案件は除外する（Issue #146）。
+  // 取得側でも同じ条件で絞るが、orphanedAdjustments のラベル解決用の補完行
+  // （期間外・下書きを含みうる）が混ざるため、ここでも判定する
+  const countedBusinessRows = businessRows.filter(
+    (row) => !isDraftMatter(row.matters),
+  );
+  const countedCostRows = costRows.filter((row) => !isDraftMatter(row.matters));
+
   // ===== 売上（分類別。案件別（business 行別）の明細＋経理追加収支の収入を合算） =====
-  const monthlyBusiness = businessRows.filter(
-    (row) => toMonthKey(row.invoice_date) === month,
+  const monthlyBusiness = countedBusinessRows.filter(
+    (row) => matterMonthKey(row.matters) === month,
   );
 
   const categoryMap = new Map<
@@ -380,8 +428,8 @@ export const buildMonthlyReport = ({
   const revenueTotal = revenueByCategory.reduce((sum, c) => sum + c.amount, 0);
 
   // ===== 案件費用（品目別 → 案件費用明細。経理追加収支の経費を合算） =====
-  const monthlyCosts = costRows.filter(
-    (row) => toMonthKey(row.period) === month,
+  const monthlyCosts = countedCostRows.filter(
+    (row) => matterMonthKey(row.matters) === month,
   );
 
   const itemMap = new Map<string, CostDetail[]>();
@@ -517,11 +565,11 @@ export const buildMonthlyReport = ({
     0,
   );
 
-  // ===== 月未確定（日付未入力） =====
+  // ===== 月未確定（案件開始日・日付未入力。下書きの案件は除く） =====
   const undated = {
     revenue:
-      businessRows
-        .filter((row) => row.invoice_date === null)
+      countedBusinessRows
+        .filter((row) => row.matters.start_date === null)
         .reduce((sum, row) => sum + (row.amount ?? 0), 0) +
       extraEntries
         .filter(
@@ -529,8 +577,8 @@ export const buildMonthlyReport = ({
         )
         .reduce((sum, entry) => sum + (entry.billing_amount ?? 0), 0),
     matterCost:
-      costRows
-        .filter((row) => row.period === null)
+      countedCostRows
+        .filter((row) => row.matters.start_date === null)
         .reduce((sum, row) => sum + row.price, 0) +
       extraEntries
         .filter((entry) => entry.entry_date === null)
@@ -588,7 +636,7 @@ export const buildMonthlyReport = ({
       .sort((a, b) => b.profit - a.profit);
   }
 
-  // ===== 対象行が当月に存在しない調整（案件の日付変更等で対象行が別の月に移動した） =====
+  // ===== 対象行が当月に存在しない調整（案件開始日の変更等で対象行が別の月に移動した・下書きに戻された） =====
   // CASCADE により対象行そのものが削除された調整は存在しなくなるため、ここに現れるのは
   // 「対象行は存在するが、当月の集計対象からは外れた」ケースのみ。削除を促す表示に使うため、
   // 実績額修正の操作を持つロール（includeTeamBreakdown = accounting / admin）にのみ含める。

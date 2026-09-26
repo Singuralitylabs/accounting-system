@@ -671,7 +671,7 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
         </Table>
       </Paper>
 
-      {/* 対象行が当月に存在しない損益調整（案件の日付変更等）。削除を促す */}
+      {/* 対象行が当月に存在しない損益調整（案件開始日の変更等）。削除を促す */}
       {report.orphanedAdjustments && report.orphanedAdjustments.length > 0 && (
         <Alert
           color="orange"
@@ -679,7 +679,7 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
           className="mb-6"
         >
           <Text size="sm" className="mb-2">
-            案件の日付変更などにより、対象行が当月の集計から外れています。損益には反映されていません。内容を確認して削除してください。
+            案件開始日の変更や下書きへの差し戻しなどにより、対象行が当月の集計から外れています。損益には反映されていません。内容を確認して削除してください。
           </Text>
           <Table verticalSpacing="xs">
             <Table.Tbody>
@@ -827,7 +827,7 @@ const ProfitLossStatement = ({ report, canEditAdjustments }: Props) => {
       {/* 月未確定 */}
       {hasUndated && (
         <Alert color="yellow" title="月未確定のデータがあります">
-          請求日・支払い期限が未入力のため、月次集計に含まれていないデータがあります（売上:
+          案件開始日・経理追加収支の日付が未入力のため、月次集計に含まれていないデータがあります（売上:
           {formatCurrency(report.undated.revenue)} / 案件費用:
           {formatCurrency(report.undated.matterCost)}）。
         </Alert>

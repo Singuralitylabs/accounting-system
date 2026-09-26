@@ -9,7 +9,9 @@ import {
   fiscalYearMonths,
   isAdjustmentInRange,
   isDateInRangeOrUndated,
+  isMatterInRangeOrUndated,
   isMonthKey,
+  matterPeriodFilter,
   recurringOverlapEndFilter,
   reportRangeBounds,
 } from "@/app/utils/profitLossLogic";
@@ -23,29 +25,43 @@ let nextId = 1;
 
 const business = (
   amount: number | null,
-  invoiceDate: string | null,
+  startDate: string | null,
 ): BusinessRow => {
   const id = nextId++;
   return {
     id,
     name: `取引先${id}`,
     amount,
-    invoice_date: invoiceDate,
     matter_id: 1,
-    matters: { id: 1, title: "案件1", team: "チームA", category: "受託案件" },
+    matters: {
+      id: 1,
+      title: "案件1",
+      team: "チームA",
+      category: "受託案件",
+      start_date: startDate,
+      is_fixed: true,
+      is_completed: false,
+    },
   };
 };
 
-const cost = (price: number, period: string | null): CostRow => {
+const cost = (price: number, startDate: string | null): CostRow => {
   const id = nextId++;
   return {
     id,
     name: `支払先${id}`,
     price,
     item: "外注費",
-    period,
     matter_id: 1,
-    matters: { id: 1, title: "案件1", team: "チームA", category: "受託案件" },
+    matters: {
+      id: 1,
+      title: "案件1",
+      team: "チームA",
+      category: "受託案件",
+      start_date: startDate,
+      is_fixed: true,
+      is_completed: false,
+    },
   };
 };
 
@@ -291,11 +307,18 @@ describe("SQL フィルタ文字列（fetchReportSourceRows と同じ定義）",
       startMonth: "2026-07",
       endMonth: "2026-07",
     });
-    expect(datedOrUndatedFilter("invoice_date", bounds)).toBe(
-      "and(invoice_date.gte.2026-07-01,invoice_date.lt.2026-08-01),invoice_date.is.null",
+    expect(datedOrUndatedFilter("entry_date", bounds)).toBe(
+      "and(entry_date.gte.2026-07-01,entry_date.lt.2026-08-01),entry_date.is.null",
     );
-    expect(datedOrUndatedFilter("period", bounds)).toBe(
-      "and(period.gte.2026-07-01,period.lt.2026-08-01),period.is.null",
+  });
+
+  it("案件の行は matters 側に「下書きでない AND（開始日が期間内 OR NULL）」の or() 条件になる", () => {
+    const bounds = reportRangeBounds({
+      startMonth: "2026-07",
+      endMonth: "2026-07",
+    });
+    expect(matterPeriodFilter(bounds)).toBe(
+      "and(or(is_fixed.is.true,is_completed.is.true),start_date.gte.2026-07-01,start_date.lt.2026-08-01),and(or(is_fixed.is.true,is_completed.is.true),start_date.is.null)",
     );
   });
 
@@ -425,10 +448,10 @@ describe("期間絞り込みの前後で集計値が変わらない", () => {
     const filtered = buildMonthlyReport({
       ...base,
       businessRows: businessRows.filter((row) =>
-        isDateInRangeOrUndated(row.invoice_date, bounds),
+        isMatterInRangeOrUndated(row.matters, bounds),
       ),
       costRows: costRows.filter((row) =>
-        isDateInRangeOrUndated(row.period, bounds),
+        isMatterInRangeOrUndated(row.matters, bounds),
       ),
       extraEntries: extraEntries.filter((entry) =>
         isDateInRangeOrUndated(entry.entry_date, bounds),
@@ -589,10 +612,10 @@ describe("期間絞り込みの前後で集計値が変わらない", () => {
       endMonth: "2027-06",
     });
     const filteredBusiness = businessRows.filter((row) =>
-      isDateInRangeOrUndated(row.invoice_date, bounds),
+      isMatterInRangeOrUndated(row.matters, bounds),
     );
     const filteredCosts = costRows.filter((row) =>
-      isDateInRangeOrUndated(row.period, bounds),
+      isMatterInRangeOrUndated(row.matters, bounds),
     );
     // SQL と同じ条件で絞り込む（定期費用は適用期間の重なり、調整は対象月）
     const filteredRecurring = recurringCosts.filter((rc) =>

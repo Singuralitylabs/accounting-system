@@ -124,6 +124,9 @@
 
 - user_id
 - parent_matter_id
+- start_date の索引は張らない。損益計算書は案件の売上・費用を案件開始日の範囲（`matters!inner` 側の絞り込み）で取得するが（Issue #146）、案件数の規模的に不要なため（必要になったら追加する）
+
+損益計算書との関係: 案件の売上（business）・案件費用（costs）は、請求日・支払い期限ではなく案件の `start_date` の月に計上する。下書き（`is_fixed` / `is_completed` がともに false / NULL）の案件は損益計算書に計上しない（docs/specification.md 4.16.2）。
 
 ### 3.3 costs テーブル
 
@@ -433,7 +436,8 @@ CREATE UNIQUE INDEX ... ON profit_loss_adjustments (recurring_cost_id, target_mo
 
 - 実績額の入力は損益計算書（/profit-loss）の各明細行の「実績額を修正」操作から行う。入力は実績額のみで、保存は DB 関数 `public.save_profit_loss_adjustment`（[5.12](#512-profit_loss_adjustments-テーブル)）を1回呼ぶだけで完結する。対象行を `FOR UPDATE` でロックしたうえで `adjustment_amount = 実績額 − 元データ金額` を計算し、`source_amount_snapshot` に同じ元データ金額を保存する（`app/utils/supabase/profitLossAdjustments.ts`）。取得から書き込みまでを単一トランザクションで行うため、保存の途中で元データが変わる・複数人が同時に同じ対象へ保存するといった競合が起きない
 - 元データ変更の検知: 表示時に現在の元データ金額と `source_amount_snapshot` が異なる場合、画面に警告を表示する。本テーブルの値は自動では追従しない（経理が再確認して実績額を更新するか、調整自体を削除する）
-- 対象行が別の月に移動した場合（案件の請求日変更等）: 調整は `target_month` に留まるため、その月の集計対象に対象行が無ければ「対象行が当月に存在しません」として損益には反映せず、削除を促す警告を表示する（`app/utils/profitLossLogic.ts` の `orphanedAdjustments`）
+- 対象行が別の月に移動した場合（案件開始日の変更等）・対象行の案件が下書きに戻された場合: 調整は `target_month` に留まるため、その月の集計対象に対象行が無ければ「対象行が当月に存在しません」として損益には反映せず、削除を促す警告を表示する（`app/utils/profitLossLogic.ts` の `orphanedAdjustments`）
+- 計上基準の変更に伴う移行（migration 25、Issue #146）: 案件の売上・費用の計上月を「請求日 / 支払い期限の月」から「案件開始日の月」に変えたため、`business_id` / `cost_id` を対象とする調整のうち `target_month` が旧計上月（`invoice_date` / `period` の月）と一致するものを、案件開始日の月へ付け替えた。付け替え先に同じ対象行の調整が既にある場合（部分 UNIQUE の衝突）、案件開始日が NULL の場合、旧計上月の日付が NULL の場合、`target_month` が旧計上月と一致しない場合（旧基準でも既に対象行が当月に存在しなかったもの）は据え置き、従来どおり「対象行が当月に存在しません」の警告で経理が手動対応する。下書き案件の明細に付いた調整は、集計対象外のため経理申請されるまで同警告に出る。元データ・調整額は変えないため、付け替え後も実績額は移行前と一致する
 - 対象行そのものが削除された場合は ON DELETE CASCADE により調整も自動的に削除される
 
 ## 4. 列挙型
