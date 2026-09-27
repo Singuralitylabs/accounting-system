@@ -17,6 +17,10 @@ import { ExtraEntryInListType, ExtraEntryType } from "../types/types";
 export const useExtraEntryList = (
   month: string,
   initialData?: ExtraEntryType[] | null,
+  // initialData をサーバで取得した時刻。渡さないと TanStack Query は
+  // 「今」シードされたものとして扱い、GC 後に古い initialData が
+  // 新鮮なデータとして再表示される（QueryProvider は refetchOnMount: false）。
+  initialDataUpdatedAt?: number,
 ) => {
   return useQuery({
     queryKey: ["extraEntries", "list", month],
@@ -28,6 +32,7 @@ export const useExtraEntryList = (
       return extraEntryList ?? [];
     },
     initialData: initialData ?? undefined,
+    initialDataUpdatedAt: initialData ? initialDataUpdatedAt : undefined,
     enabled: !!month,
     staleTime: 2 * 60 * 1000, // 2分
     // 月を切り替えている間は前月の表を残す（毎回フルスピナーにしない）

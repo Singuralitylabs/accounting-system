@@ -53,6 +53,9 @@ const DynamicExtraEntries = async ({ monthParam }: Props = {}) => {
       <ExtraEntryList
         initialMonth={initialMonth}
         initialData={extraEntryList}
+        // シード時刻を渡さないと、TanStack Query が「今取得した」と扱い、
+        // GC 後に古い initialData を再取得なしで表示してしまう
+        initialDataUpdatedAt={Date.now()}
         incomeCategoryList={incomeCategoryResult.options.map(
           (option) => option.value,
         )}

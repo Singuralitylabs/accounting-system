@@ -43,6 +43,7 @@ import { CustomMonthPicker } from "../CustomMonthPicker";
 type Props = {
   initialMonth: string; // "YYYY-MM"
   initialData: ExtraEntryType[];
+  initialDataUpdatedAt: number; // サーバで initialData を取得した時刻（epoch ms）
   incomeCategoryList: string[];
   expenseCategoryList: string[];
   paymentMethodList: string[];
@@ -63,6 +64,7 @@ const toSuggestions = (values: (string | null)[]): string[] =>
 const ExtraEntryList = ({
   initialMonth,
   initialData,
+  initialDataUpdatedAt,
   incomeCategoryList,
   expenseCategoryList,
   paymentMethodList,
@@ -74,20 +76,28 @@ const ExtraEntryList = ({
   const [month, setMonth] = useState<string>(initialMonth);
   const {
     data: extraEntryList,
-    isLoading,
     isError,
     isPlaceholderData,
   } = useExtraEntryList(
     month,
     month === initialMonth ? initialData : undefined,
+    month === initialMonth ? initialDataUpdatedAt : undefined,
   );
   const upsertMutation = useUpsertExtraEntry();
   // 確定済みの月（損益計算書の月次収支確定。Issue #148）のエントリは編集・削除できず、
   // 確定済みの月の日付も選べない（DB の RLS でも拒否される）
-  const { closedMonths } = useClosedMonths();
+  const {
+    closedMonths,
+    isLoading: isClosedLoading,
+    isError: isClosedError,
+  } = useClosedMonths();
   // 月切替中（新しい月の取得中）は前月の行を残したまま、編集・保存できないようにする
   const isSwitchingMonth = isPlaceholderData;
   const isMonthClosed = isClosedMonth(closedMonths, month);
+  // 確定済みの月の情報がまだ無い（取得中・取得失敗）間は、確定済みか判定できない
+  // ため追加ボタンを無効にする（保存はロック判定・RLS で拒否されるが、仕様どおり
+  // 確定済みの月では押せないようにする）
+  const isClosedUnknown = isClosedLoading || isClosedError;
   // 切替中・保存中はすべての入力を無効化する
   const formLocked = isSwitchingMonth || upsertMutation.isPending;
   // 最新の保存済みの行（編集ロックは変更前の日付で判定する）
@@ -158,7 +168,7 @@ const ExtraEntryList = ({
   };
 
   const handleAddRow = (entryType: "income" | "expense") => {
-    if (isMonthClosed || formLocked) return;
+    if (isMonthClosed || isClosedUnknown || formLocked) return;
     const newId =
       rows.length > 0 ? Math.max(...rows.map((row) => row.id)) + 1 : 1;
     const newRow: ExtraEntryInListType = {
@@ -410,14 +420,17 @@ const ExtraEntryList = ({
           getMonthIndicator={(m) => (closedMonths.has(m) ? "closed" : null)}
         />
       </div>
-      {isError ? (
-        <Alert color="red" title="経理追加収支情報の取得に失敗しました">
-          時間をおいてページを再読み込みしてください。
-        </Alert>
-      ) : isLoading ? (
-        <p className="py-6 text-center text-gray-500">読み込み中…</p>
-      ) : (
+      {extraEntryList ? (
         <>
+          {isError && (
+            <Alert
+              color="red"
+              title="最新の経理追加収支情報の取得に失敗しました"
+              className="mb-4"
+            >
+              表示中の内容は取得済みのものです。時間をおいてページを再読み込みしてください。
+            </Alert>
+          )}
           <div className="flex justify-between items-center mb-4 gap-4">
             <p className="text-sm text-gray-600">
               案件に紐づかない収入・支出を登録します。日付の属する月の損益計算書に算入されます（日付未入力は月未確定）。
@@ -522,7 +535,7 @@ const ExtraEntryList = ({
               color="dark"
               variant="outline"
               rightSection={<CiSquarePlus />}
-              disabled={isMonthClosed || formLocked}
+              disabled={isMonthClosed || isClosedUnknown || formLocked}
               onClick={() => handleAddRow("income")}
             >
               収入を追加
@@ -592,7 +605,7 @@ const ExtraEntryList = ({
               color="dark"
               variant="outline"
               rightSection={<CiSquarePlus />}
-              disabled={isMonthClosed || formLocked}
+              disabled={isMonthClosed || isClosedUnknown || formLocked}
               onClick={() => handleAddRow("expense")}
             >
               支出を追加
@@ -604,6 +617,12 @@ const ExtraEntryList = ({
             )}
           </div>
         </>
+      ) : isError ? (
+        <Alert color="red" title="経理追加収支情報の取得に失敗しました">
+          時間をおいてページを再読み込みしてください。
+        </Alert>
+      ) : (
+        <p className="py-6 text-center text-gray-500">読み込み中…</p>
       )}
     </div>
   );

@@ -9,21 +9,45 @@ import { confirmAction } from "@/app/utils/confirmAction";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
 
 const mutateAsync = vi.fn();
+// テストごとにクエリの状態（取得失敗・確定済み月の取得中など）を変えられるよう、
+// モックの戻り値の一部を上書きできるようにする
+const extraEntryListOverrides = vi.hoisted(() => ({
+  value: {} as {
+    data?: ExtraEntryType[] | null;
+    isLoading?: boolean;
+    isError?: boolean;
+    isPlaceholderData?: boolean;
+  },
+}));
+const closedMonthsOverrides = vi.hoisted(() => ({
+  value: {} as {
+    closedMonths?: Set<string>;
+    isLoading?: boolean;
+    isError?: boolean;
+  },
+}));
 vi.mock("@/app/hooks/useExtraEntryData", () => ({
   useExtraEntryList: (
     _month: string,
     initialData?: ExtraEntryType[] | null,
+    _initialDataUpdatedAt?: number,
   ) => ({
     data: initialData,
     isLoading: false,
     isError: false,
     isPlaceholderData: false,
+    ...extraEntryListOverrides.value,
   }),
   useUpsertExtraEntry: () => ({ mutateAsync, isPending: false }),
   ExtraEntryValidationError: class extends Error {},
 }));
 vi.mock("@/app/hooks/useClosedMonths", () => ({
-  useClosedMonths: () => ({ closedMonths: new Set(["2026-08"]) }),
+  useClosedMonths: () => ({
+    closedMonths: new Set(["2026-08"]),
+    isLoading: false,
+    isError: false,
+    ...closedMonthsOverrides.value,
+  }),
 }));
 vi.mock("@/app/utils/confirmAction", () => ({
   confirmAction: vi.fn().mockResolvedValue(true),
@@ -93,6 +117,7 @@ const renderList = (initialData: ExtraEntryType[], initialMonth = "2026-09") =>
     <ExtraEntryList
       initialMonth={initialMonth}
       initialData={initialData}
+      initialDataUpdatedAt={Date.now()}
       incomeCategoryList={["協賛金"]}
       expenseCategoryList={["交通費"]}
       paymentMethodList={["現金"]}
@@ -101,13 +126,17 @@ const renderList = (initialData: ExtraEntryType[], initialMonth = "2026-09") =>
     />,
   );
 
+const resetMocks = () => {
+  mutateAsync.mockReset().mockResolvedValue(undefined);
+  vi.mocked(notifyError).mockReset();
+  vi.mocked(confirmAction).mockReset();
+  vi.mocked(confirmAction).mockResolvedValue(true);
+  extraEntryListOverrides.value = {};
+  closedMonthsOverrides.value = {};
+};
+
 describe("ExtraEntryList の一括保存", () => {
-  beforeEach(() => {
-    mutateAsync.mockReset().mockResolvedValue(undefined);
-    vi.mocked(notifyError).mockReset();
-    vi.mocked(confirmAction).mockReset();
-    vi.mocked(confirmAction).mockResolvedValue(true);
-  });
+  beforeEach(resetMocks);
 
   it("編集した行だけを送り、必須チェックも送る行に限る（確定済みの月でロックされた既存行の値で保存が止まらない）", async () => {
     renderList([
@@ -144,12 +173,7 @@ describe("ExtraEntryList の一括保存", () => {
 });
 
 describe("ExtraEntryList の月別表示（Issue #157）", () => {
-  beforeEach(() => {
-    mutateAsync.mockReset().mockResolvedValue(undefined);
-    vi.mocked(notifyError).mockReset();
-    vi.mocked(confirmAction).mockReset();
-    vi.mocked(confirmAction).mockResolvedValue(true);
-  });
+  beforeEach(resetMocks);
 
   it("月未確定（日付未入力）の行には「月未確定」バッジを付ける", () => {
     renderList([entry({ id: 2, entry_date: null, description: "9月協賛" })]);
@@ -208,5 +232,47 @@ describe("ExtraEntryList の月別表示（Issue #157）", () => {
         "2026-10",
       ),
     );
+  });
+
+  it("確定済みの月の情報を取得中は、確定済みでない月でも追加ボタンが無効になる", () => {
+    closedMonthsOverrides.value = {
+      closedMonths: new Set<string>(),
+      isLoading: true,
+    };
+    renderList([entry({ id: 2, description: "9月協賛" })], "2026-09");
+
+    expect(screen.getByRole("button", { name: "収入を追加" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    expect(screen.getByRole("button", { name: "支出を追加" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+});
+
+describe("ExtraEntryList の取得失敗時の表示（レビュー指摘）", () => {
+  beforeEach(resetMocks);
+
+  it("再取得の失敗時もデータがあればフォームを残し、警告と保存ボタンを表示する", () => {
+    extraEntryListOverrides.value = { isError: true };
+    renderList([entry({ id: 2, description: "9月協賛" })]);
+
+    expect(
+      screen.getByText("最新の経理追加収支情報の取得に失敗しました"),
+    ).toBeTruthy();
+    expect(screen.getByDisplayValue("9月協賛")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "保存" })).toBeTruthy();
+  });
+
+  it("データが無い状態での取得失敗は画面全体の Alert になる", () => {
+    extraEntryListOverrides.value = { data: undefined, isError: true };
+    renderList([]);
+
+    expect(
+      screen.getByText("経理追加収支情報の取得に失敗しました"),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "保存" })).toBeNull();
   });
 });
