@@ -55,11 +55,7 @@ const costs: CostLine[] = [
     team: "シンラボ",
   },
 ];
-const renderTable = (
-  canEditAdjustments = true,
-  canEditLabels = true,
-  hasExtraEntries = true,
-) => {
+const renderTable = (canEditAdjustments = true, canEditLabels = true) => {
   const matters = buildMatterBreakdowns(
     [...businesses, otherTeamBusiness],
     costs,
@@ -80,7 +76,6 @@ const renderTable = (
     <MatterProfitTable
       matters={matters}
       totals={sumMatterBreakdowns(matters)}
-      hasExtraEntries={hasExtraEntries}
       canEditAdjustments={canEditAdjustments}
       loadingMatterId={null}
       onShowMatter={onShowMatter}
@@ -115,13 +110,20 @@ describe("MatterProfitTable", () => {
       screen.queryByRole("button", { name: /^シンラボ/ }),
     ).not.toBeInTheDocument();
 
-    // 案件の合計（経理追加収支は含まない旨を注記する）
+    // 案件の合計（損益計算書の「案件」行と一致する旨を注記する。Issue #164）
     const totalRow = screen.getByText("案件の合計").closest("tr")!;
     expect(within(totalRow).getByText("￥1,100,000")).toBeInTheDocument();
     expect(within(totalRow).getByText("￥800,000")).toBeInTheDocument();
     expect(
-      screen.getByText(/経理追加収支（案件外）はこの表に含みません/),
+      screen.getByText(
+        /案件の合計は、損益計算書の売上総利益の「案件」行と一致します/,
+      ),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        /売上総利益とは一致しません|案件の合計とは一致しません/,
+      ),
+    ).not.toBeInTheDocument();
 
     fireEvent.click(matterToggle(12, "案件X"));
     // 上書きタイトルを表示し、元の名称はバッジのツールチップで確認できる
@@ -147,7 +149,6 @@ describe("MatterProfitTable", () => {
       <MatterProfitTable
         matters={matters}
         totals={sumMatterBreakdowns(matters)}
-        hasExtraEntries={false}
         canEditAdjustments={false}
         loadingMatterId={null}
         onShowMatter={vi.fn()}
@@ -182,13 +183,6 @@ describe("MatterProfitTable", () => {
     expect(
       screen.getByRole("columnheader", { name: "操作" }),
     ).toBeInTheDocument();
-  });
-
-  it("経理追加収支が無い月は注記を出さない", () => {
-    renderTable(true, true, false);
-    expect(
-      screen.queryByText(/経理追加収支（案件外）はこの表に含みません/),
-    ).not.toBeInTheDocument();
   });
 
   it("「すべて開く」「すべて閉じる」で全案件の内訳をまとめて開閉する（Issue #152）", () => {

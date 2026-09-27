@@ -466,7 +466,11 @@ describe("期間絞り込みの前後で集計値が変わらない", () => {
 
     expect(filtered).toEqual(full);
     // 月未確定行が脱落していないこと
-    expect(filtered.undated).toEqual({ revenue: 790000, matterCost: 200000 });
+    expect(filtered.undated).toEqual({
+      revenue: 790000,
+      matterCost: 200000,
+      adminCost: 0,
+    });
   });
 
   it("年間推移：年度範囲で絞っても12ヶ月分のレポートが一致する", () => {

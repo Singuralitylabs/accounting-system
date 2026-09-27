@@ -272,6 +272,34 @@ describe("確定明細への変換と再構成（Issue #148）", () => {
     },
   );
 
+  it("確定済みの月も経理追加収支（支出）の経費を管理費として集計する（確定明細の種別で振り分ける。Issue #164）", () => {
+    const input = baseInput({
+      extraEntries: [
+        extraEntry({ id: 1 }),
+        extraEntry({
+          id: 2,
+          entry_type: "expense",
+          category: "交通費",
+          billing_amount: null,
+          expense_amount: 4000,
+          payment_method: "現金",
+        }),
+      ],
+    });
+    const live = buildMonthReport(input);
+    const closed = buildMonthReport({ ...input, closing: snapshotOf(input) });
+    expect(closed.extraIncomeTotals).toEqual({
+      revenue: 30000,
+      cost: 5000,
+      grossProfit: 25000,
+    });
+    expect(closed.extraExpenseTotal).toBe(4000);
+    expect(closed.adminCostTotal).toBe(closed.recurringCostTotal + 4000);
+    expect(closed.grossProfitTotal).toBe(live.grossProfitTotal);
+    expect(closed.adminCostTotal).toBe(live.adminCostTotal);
+    expect(closed.ordinaryProfit).toBe(live.ordinaryProfit);
+  });
+
   it("確定後に案件・定期費用・調整が変わっても、削除されても確定済みの月の表示は変わらない", () => {
     const input = baseInput();
     const snapshot = snapshotOf(input);

@@ -405,7 +405,7 @@ describe("buildMonthReport: 売上総利益（粗利）の分類別集計", () =
     });
   });
 
-  it("経理追加収支の請求額・経費をエントリの分類の粗利へ算入する", () => {
+  it("分類別の粗利は案件のみで、経理追加収支は含めない（収入は売上総利益、支出は管理費へ。Issue #164）", () => {
     const report = buildMonthReport(
       buildInput({
         extraEntries: [
@@ -428,21 +428,23 @@ describe("buildMonthReport: 売上総利益（粗利）の分類別集計", () =
       }),
     );
 
-    expect(report.categoryBreakdown).toContainEqual({
-      category: "受託収入",
+    expect(report.categoryBreakdown).toEqual([]);
+    // 収入エントリ: 請求額 → 売上、経費 → 案件費用（売上総利益の「経理追加収支」行）
+    expect(report.extraIncomeTotals).toEqual({
       revenue: 400000,
       cost: 100000,
       grossProfit: 300000,
     });
-    expect(report.categoryBreakdown).toContainEqual({
-      category: "消耗品費",
-      revenue: 0,
-      cost: 30000,
-      grossProfit: -30000,
-    });
+    expect(report.revenueTotal).toBe(400000);
+    expect(report.matterCostTotal).toBe(100000);
+    expect(report.grossProfitTotal).toBe(300000);
+    // 支出エントリ: 経費 → 管理費
+    expect(report.extraExpenseTotal).toBe(30000);
+    expect(report.adminCostTotal).toBe(30000);
+    expect(report.ordinaryProfit).toBe(270000);
   });
 
-  it("分類別粗利の合計は 売上合計 − 案件費用合計 と一致する", () => {
+  it("分類別粗利の合計は案件の合計と一致し、経理追加収支（収入）を加えると売上総利益になる（Issue #164）", () => {
     const report = buildMonthReport(
       buildInput({
         businessRows: [
@@ -470,7 +472,11 @@ describe("buildMonthReport: 売上総利益（粗利）の分類別集計", () =
       (total, row) => total + row.grossProfit,
       0,
     );
-    expect(sum).toBe(report.grossProfitTotal);
+    expect(sum).toBe(report.matterTotals.grossProfit);
+    expect(sum).toBe(350000);
+    expect(sum + report.extraIncomeTotals.grossProfit).toBe(
+      report.grossProfitTotal,
+    );
     expect(report.grossProfitTotal).toBe(
       report.revenueTotal - report.matterCostTotal,
     );
@@ -771,7 +777,7 @@ describe("buildMonthReport: チーム別内訳", () => {
       revenue: 500000,
       matterCost: 100000,
       grossProfit: 400000,
-      recurringCost: 30000,
+      adminCost: 30000,
       profit: 370000,
     });
 
@@ -780,7 +786,7 @@ describe("buildMonthReport: チーム別内訳", () => {
       revenue: 0,
       matterCost: 0,
       grossProfit: 0,
-      recurringCost: 40000,
+      adminCost: 40000,
       profit: -40000,
     });
   });
@@ -891,22 +897,19 @@ describe("buildMonthReport: ロール別の表示スコープ", () => {
   it("teamleader: 全体共通の経理追加収支を売上・粗利・費用内訳から除外し参考表示へ分離する", () => {
     const report = buildMonthReport(orgWideInput(true));
 
-    // 全体共通の収入エントリ（協賛金）は案件別収支・分類別収支のどちらにも現れない
+    // 全体共通の収入エントリ（協賛金）は売上総利益に算入しない
     expect(report.extraEntries.map((entry) => entry.team)).not.toContain(null);
-    expect(report.categoryBreakdown.map((row) => row.category)).not.toContain(
-      "協賛金",
-    );
+    expect(report.extraIncomeTotals).toEqual({
+      revenue: 0,
+      cost: 0,
+      grossProfit: 0,
+    });
     expect(report.revenueTotal).toBe(300000);
 
-    // 自チームの支出エントリ（交通費）は算入される
-    expect(report.categoryBreakdown).toContainEqual({
-      category: "交通費",
-      revenue: 0,
-      cost: 5000,
-      grossProfit: -5000,
-    });
-    expect(report.matterCostTotal).toBe(55000);
-    expect(report.grossProfitTotal).toBe(245000);
+    // 自チームの支出エントリ（交通費）は管理費に算入される（Issue #164）
+    expect(report.matterCostTotal).toBe(50000);
+    expect(report.grossProfitTotal).toBe(250000);
+    expect(report.extraExpenseTotal).toBe(5000);
 
     // 参考表示側に全体共通の管理費・経理追加収支が入る
     expect(
@@ -917,8 +920,9 @@ describe("buildMonthReport: ロール別の表示スコープ", () => {
     ).toEqual([2]);
     expect(report.extraEntries.map((entry) => entry.extraEntryId)).toEqual([2]);
 
-    // 管理費は自チーム分のみ
+    // 管理費は自チーム分のみ（定期費用 10,000 + 支出エントリ 5,000）
     expect(report.recurringCostTotal).toBe(10000);
+    expect(report.adminCostTotal).toBe(15000);
     expect(report.recurringCostByItem.map((row) => row.item)).toEqual([
       "システム料",
     ]);
@@ -930,12 +934,12 @@ describe("buildMonthReport: ロール別の表示スコープ", () => {
 
     // 全体共通の収入エントリも売上・粗利に算入される
     expect(report.revenueTotal).toBe(400000);
-    expect(report.categoryBreakdown).toContainEqual({
-      category: "協賛金",
+    expect(report.extraIncomeTotals).toEqual({
       revenue: 100000,
       cost: 40000,
       grossProfit: 60000,
     });
+    expect(report.matterCostTotal).toBe(90000);
 
     // 参考表示セクションは出さない（＝分離しない）
     expect(report.orgWideExtraEntries).toBeUndefined();
@@ -946,6 +950,7 @@ describe("buildMonthReport: ロール別の表示スコープ", () => {
 
     // 全体共通の管理費も費目別内訳・管理費合計に算入される
     expect(report.recurringCostTotal).toBe(80000);
+    expect(report.adminCostTotal).toBe(85000);
     expect(report.recurringCostByItem.map((row) => row.item)).toEqual([
       "施設利用料",
       "システム料",
@@ -1033,7 +1038,7 @@ describe("buildMonthReport: 案件別収支（Issue #147 / #152）", () => {
     ]);
   });
 
-  it("経理追加収支は案件別収支に含めず、売上合計・案件費用合計・チーム別内訳には含める", () => {
+  it("経理追加収支は案件別収支に含めず、収入は売上合計・案件費用合計、支出は管理費（チーム別内訳も同じ）に含める", () => {
     const report = buildMonthReport(
       buildInput({
         includeTeamBreakdown: true,
@@ -1061,22 +1066,24 @@ describe("buildMonthReport: 案件別収支（Issue #147 / #152）", () => {
       1,
     ]);
     expect(report.revenueTotal).toBe(130000);
-    expect(report.matterCostTotal).toBe(15000);
+    expect(report.matterCostTotal).toBe(10000);
+    expect(report.adminCostTotal).toBe(5000);
     expect(
-      report.byTeam?.map(({ team, revenue, matterCost }) => ({
+      report.byTeam?.map(({ team, revenue, matterCost, adminCost }) => ({
         team,
         revenue,
         matterCost,
+        adminCost,
       })),
     ).toEqual(
       expect.arrayContaining([
-        { team: "チームA", revenue: 130000, matterCost: 10000 },
-        { team: "全体共通", revenue: 0, matterCost: 5000 },
+        { team: "チームA", revenue: 130000, matterCost: 10000, adminCost: 0 },
+        { team: "全体共通", revenue: 0, matterCost: 0, adminCost: 5000 },
       ]),
     );
   });
 
-  it("案件の合計＋経理追加収支・分類別収支の合計・チーム別内訳の合計・サマリー（売上 − 案件費用）がすべて一致する", () => {
+  it("不変条件: 案件行＝案件の合計＝Σ分類、案件＋経理追加収支（収入）＝売上総利益、定期費用＋支出＝管理費合計、チーム別の合計＝サマリー（Issue #164）", () => {
     const report = buildMonthReport(
       buildInput({
         includeTeamBreakdown: true,
@@ -1088,6 +1095,10 @@ describe("buildMonthReport: 案件別収支（Issue #147 / #152）", () => {
           cost(50000, "2026-07-01", "外注費", "受託案件", 2, "チームB"),
           cost(10000, "2026-07-01", "備品購入", "会員費", 1, "チームA"),
         ],
+        recurringCosts: [
+          recurringCost({ id: 1, price: 30000, team: "チームA" }),
+          recurringCost({ id: 2, price: 40000, team: null }),
+        ],
         extraEntries: [
           extraEntry({
             id: 1,
@@ -1095,6 +1106,14 @@ describe("buildMonthReport: 案件別収支（Issue #147 / #152）", () => {
             category: "協賛金",
             billing_amount: 20000,
             expense_amount: 3000,
+          }),
+          extraEntry({
+            id: 2,
+            team: "チームB",
+            entry_type: "expense",
+            category: "交通費",
+            expense_amount: 7000,
+            payment_method: "現金",
           }),
         ],
         adjustments: [
@@ -1110,26 +1129,67 @@ describe("buildMonthReport: 案件別収支（Issue #147 / #152）", () => {
     const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
     const matterRevenue = sum(report.matterBreakdowns.map((m) => m.revenue));
     const matterCost = sum(report.matterBreakdowns.map((m) => m.cost));
-    const categoryRevenue = sum(report.categoryBreakdown.map((c) => c.revenue));
-    const categoryCost = sum(report.categoryBreakdown.map((c) => c.cost));
 
-    expect(report.revenueTotal).toBe(415000);
-    expect(report.matterCostTotal).toBe(63000);
-    // 案件の合計に経理追加収支（請求額 20,000・経費 3,000）を足すと売上合計・案件費用合計になる
-    expect(matterRevenue + 20000).toBe(report.revenueTotal);
-    expect(matterCost + 3000).toBe(report.matterCostTotal);
+    // 案件行（matterTotals）＝ 案件別収支の合計 ＝ Σ 分類別の粗利
+    expect(report.matterTotals).toEqual({
+      revenue: 395000,
+      cost: 60000,
+      grossProfit: 335000,
+    });
     expect(report.matterTotals).toEqual({
       revenue: matterRevenue,
       cost: matterCost,
       grossProfit: matterRevenue - matterCost,
     });
-    expect(categoryRevenue).toBe(report.revenueTotal);
-    expect(categoryCost).toBe(report.matterCostTotal);
-    expect(sum(report.categoryBreakdown.map((c) => c.grossProfit))).toBe(
-      report.grossProfitTotal,
+    expect(sum(report.categoryBreakdown.map((c) => c.revenue))).toBe(
+      report.matterTotals.revenue,
     );
+    expect(sum(report.categoryBreakdown.map((c) => c.cost))).toBe(
+      report.matterTotals.cost,
+    );
+    expect(sum(report.categoryBreakdown.map((c) => c.grossProfit))).toBe(
+      report.matterTotals.grossProfit,
+    );
+
+    // 案件 ＋ 経理追加収支（収入）＝ 売上総利益（支出エントリは含まない）
+    expect(report.extraIncomeTotals).toEqual({
+      revenue: 20000,
+      cost: 3000,
+      grossProfit: 17000,
+    });
+    expect(report.revenueTotal).toBe(
+      report.matterTotals.revenue + report.extraIncomeTotals.revenue,
+    );
+    expect(report.matterCostTotal).toBe(
+      report.matterTotals.cost + report.extraIncomeTotals.cost,
+    );
+    expect(report.grossProfitTotal).toBe(
+      report.matterTotals.grossProfit + report.extraIncomeTotals.grossProfit,
+    );
+    expect(report.grossProfitTotal).toBe(352000);
+
+    // 定期費用 ＋ 経理追加収支（支出）＝ 管理費合計
+    expect(report.extraExpenseTotal).toBe(7000);
+    expect(report.adminCostTotal).toBe(
+      report.recurringCostTotal + report.extraExpenseTotal,
+    );
+    expect(report.adminCostTotal).toBe(77000);
+
+    // 売上総利益 − 管理費合計 ＝ 経常利益
+    expect(report.ordinaryProfit).toBe(
+      report.grossProfitTotal - report.adminCostTotal,
+    );
+
+    // チーム別内訳の合計 ＝ サマリー（売上 / 粗利 / 経常利益）
+    expect(sum(report.byTeam!.map((t) => t.revenue))).toBe(report.revenueTotal);
     expect(sum(report.byTeam!.map((t) => t.grossProfit))).toBe(
       report.grossProfitTotal,
+    );
+    expect(sum(report.byTeam!.map((t) => t.adminCost))).toBe(
+      report.adminCostTotal,
+    );
+    expect(sum(report.byTeam!.map((t) => t.profit))).toBe(
+      report.ordinaryProfit,
     );
   });
 });
@@ -1155,6 +1215,14 @@ describe("buildMonthReport: 月未確定（日付未入力）", () => {
             billing_amount: 90000,
             expense_amount: 8000,
           }),
+          extraEntry({
+            id: 2,
+            entry_type: "expense",
+            category: "交通費",
+            entry_date: null,
+            expense_amount: 4000,
+            payment_method: "現金",
+          }),
         ],
       }),
     );
@@ -1162,10 +1230,12 @@ describe("buildMonthReport: 月未確定（日付未入力）", () => {
     expect(report.undated).toEqual({
       revenue: 790000, // 700000 + 90000
       matterCost: 208000, // 200000 + 8000
+      adminCost: 4000, // 支出エントリの経費は管理費として数える（Issue #164）
     });
     expect(report.revenueTotal).toBe(100000);
     expect(report.matterCostTotal).toBe(20000);
     expect(report.grossProfitTotal).toBe(80000);
+    expect(report.adminCostTotal).toBe(0);
   });
 
   it("月未確定のデータがない場合は 0 になる", () => {
@@ -1174,7 +1244,7 @@ describe("buildMonthReport: 月未確定（日付未入力）", () => {
         businessRows: [business(100000, "2026-07-01", "会員費")],
       }),
     );
-    expect(report.undated).toEqual({ revenue: 0, matterCost: 0 });
+    expect(report.undated).toEqual({ revenue: 0, matterCost: 0, adminCost: 0 });
   });
 });
 
@@ -1483,13 +1553,13 @@ describe("buildMonthReport: 損益調整（実績額修正）", () => {
     expect(teamA).toMatchObject({
       revenue: 120000, // 100000 + 20000
       matterCost: 25000, // 30000 - 5000
-      recurringCost: 13000, // 10000 + 3000
+      adminCost: 13000, // 10000 + 3000
     });
     // チームが1つだけのため、本表の合計とも一致するはず（本表とチーム別内訳が
     // 別の計算経路でズレていないことを担保する不変条件）
     expect(teamA?.revenue).toBe(report.revenueTotal);
     expect(teamA?.matterCost).toBe(report.matterCostTotal);
-    expect(teamA?.recurringCost).toBe(report.recurringCostTotal);
+    expect(teamA?.adminCost).toBe(report.recurringCostTotal);
   });
 });
 
@@ -1542,7 +1612,11 @@ describe("buildMonthReport: 案件開始日基準の計上（Issue #146）", () 
     const undated = buildMonthReport(
       buildInput(matterRows(null, { is_fixed: null, is_completed: null })),
     );
-    expect(undated.undated).toEqual({ revenue: 0, matterCost: 0 });
+    expect(undated.undated).toEqual({
+      revenue: 0,
+      matterCost: 0,
+      adminCost: 0,
+    });
   });
 
   it.each([
@@ -1559,7 +1633,11 @@ describe("buildMonthReport: 案件開始日基準の計上（Issue #146）", () 
   it("案件開始日が未入力の案件（下書き以外）は売上・費用とも月未確定に計上する", () => {
     const report = buildMonthReport(buildInput(matterRows(null)));
     expect(report.revenueTotal).toBe(0);
-    expect(report.undated).toEqual({ revenue: 100000, matterCost: 30000 });
+    expect(report.undated).toEqual({
+      revenue: 100000,
+      matterCost: 30000,
+      adminCost: 0,
+    });
   });
 
   it("案件開始日を別の月へ変更すると計上月が移動し、元の月の調整は対象行が当月に存在しない扱いになる", () => {

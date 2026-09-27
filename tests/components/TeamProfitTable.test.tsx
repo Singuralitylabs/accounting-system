@@ -15,7 +15,7 @@ describe("TeamProfitTable", () => {
             revenue: 500000,
             matterCost: 100000,
             grossProfit: 400000,
-            recurringCost: 30000,
+            adminCost: 30000,
             profit: 370000,
           },
           {
@@ -23,7 +23,7 @@ describe("TeamProfitTable", () => {
             revenue: 0,
             matterCost: 0,
             grossProfit: 0,
-            recurringCost: 50000,
+            adminCost: 50000,
             profit: -50000,
           },
         ]}
