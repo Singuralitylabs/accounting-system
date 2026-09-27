@@ -201,6 +201,39 @@ describe("ProfitLossStatement のサマリーカードと損益計算書（Issue
     expect(plRow("講演謝礼")).toHaveTextContent("￥40,000");
   });
 
+  it("経費の無い収入エントリの明細は「請求 X」のみを注記する", () => {
+    const noExpense = {
+      ...extraEntry({
+        extraEntryId: 3,
+        description: "寄付",
+        expenseAmount: null,
+      }),
+      grossProfit: 50000,
+    };
+    renderWithMantine(
+      <Controlled
+        withTeamBreakdown
+        value={{
+          ...report(true),
+          extraIncome: {
+            revenue: 50000,
+            cost: 0,
+            grossProfit: 50000,
+            entries: [noExpense],
+          },
+        }}
+      />,
+    );
+    fireEvent.click(
+      within(plRow("経理追加収支")).getByRole("button", { expanded: false }),
+    );
+    const row = plRow("寄付");
+    expect(row).toHaveTextContent(
+      "（講演 / シンラボ / 2026/08/10 / 請求 ￥50,000）",
+    );
+    expect(row).not.toHaveTextContent("経費");
+  });
+
   it("経理追加収支（支出）は管理費合計の内訳に表示する", () => {
     renderWithMantine(<Controlled withTeamBreakdown />);
 

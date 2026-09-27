@@ -15,6 +15,7 @@ import {
   GrossProfitBreakdown,
   MatterBreakdown,
   MatterTotals,
+  ProfitTotals,
   OrphanedAdjustmentType,
   PLMonthLines,
   PLReportType,
@@ -29,6 +30,7 @@ import {
   TitledRecurringCostLine,
 } from "../types/types";
 import { teamLabel } from "./constants";
+import { isIncomeExtraEntry } from "./extraEntry";
 import { addMonths, toFirstOfMonth } from "./formatter";
 import { hasClassAccess } from "./permissions";
 
@@ -421,20 +423,29 @@ export const toExtraEntryLine = (entry: ExtraEntryType): ExtraEntryLine => ({
   expenseAmount: entry.expense_amount,
 });
 
-// 経理追加収支 1 件の算入先（Issue #164）。
+// 経理追加収支 1 件の算入額（Issue #164）。算入先の規則はこの関数の 1 か所だけに置き、
+// 損益計算書の行への振り分け（splitExtraEntries）・チーム別内訳・月未確定はすべてこれを使う。
 // 収入エントリ: 請求額 → 売上、経費（任意）→ 案件費用（いずれも売上総利益の内訳）。
 // 支出エントリ: 経費 → 管理費（売上総利益には算入しない）
-export const isIncomeExtraEntry = (entry: Pick<ExtraEntryLine, "entryType">) =>
-  entry.entryType === "income";
-const extraEntryRevenue = (entry: ExtraEntryLine): number =>
-  isIncomeExtraEntry(entry) ? (entry.billingAmount ?? 0) : 0;
-const extraEntryCost = (entry: ExtraEntryLine): number =>
-  isIncomeExtraEntry(entry) ? (entry.expenseAmount ?? 0) : 0;
-const extraEntryAdminCost = (entry: ExtraEntryLine): number =>
-  isIncomeExtraEntry(entry) ? 0 : (entry.expenseAmount ?? 0);
+export const classifyExtraEntry = (
+  entry: ExtraEntryLine,
+): { isIncome: boolean; revenue: number; cost: number; adminCost: number } =>
+  isIncomeExtraEntry(entry)
+    ? {
+        isIncome: true,
+        revenue: entry.billingAmount ?? 0,
+        cost: entry.expenseAmount ?? 0,
+        adminCost: 0,
+      }
+    : {
+        isIncome: false,
+        revenue: 0,
+        cost: 0,
+        adminCost: entry.expenseAmount ?? 0,
+      };
 
 // 売上・費用から 売上 / 費用 / 粗利 の組を作る
-const toTotals = (revenue: number, cost: number): MatterTotals => ({
+const toTotals = (revenue: number, cost: number): ProfitTotals => ({
   revenue,
   cost,
   grossProfit: revenue - cost,
@@ -442,7 +453,7 @@ const toTotals = (revenue: number, cost: number): MatterTotals => ({
 
 // 経理追加収支を収入（売上総利益の「経理追加収支」行）と支出（管理費の
 // 「経理追加収支（支出）」行）に振り分け、それぞれの合計と明細を作る（Issue #164）。
-// 振り分けは上の算入先の関数だけで行い、画面側では振り分け直さない
+// 算入額は classifyExtraEntry で求める。画面側では振り分け直さない
 export const splitExtraEntries = (
   entries: readonly ExtraEntryLine[],
 ): { extraIncome: ExtraIncomeSection; extraExpense: ExtraExpenseSection } => {
@@ -452,14 +463,16 @@ export const splitExtraEntries = (
   const incomeEntries: ExtraIncomeSection["entries"] = [];
   const expenseEntries: ExtraExpenseSection["entries"] = [];
   entries.forEach((entry) => {
-    if (isIncomeExtraEntry(entry)) {
-      const entryRevenue = extraEntryRevenue(entry);
-      const entryCost = extraEntryCost(entry);
-      revenue += entryRevenue;
-      cost += entryCost;
-      incomeEntries.push({ ...entry, grossProfit: entryRevenue - entryCost });
+    const amounts = classifyExtraEntry(entry);
+    if (amounts.isIncome) {
+      revenue += amounts.revenue;
+      cost += amounts.cost;
+      incomeEntries.push({
+        ...entry,
+        grossProfit: amounts.revenue - amounts.cost,
+      });
     } else {
-      expenseTotal += extraEntryAdminCost(entry);
+      expenseTotal += amounts.adminCost;
       expenseEntries.push(entry);
     }
   });
@@ -789,9 +802,10 @@ export const aggregateMonthLines = ({
     });
     countedExtraEntries.forEach((extra) => {
       const entry = getTeamEntry(extra.team);
-      entry.revenue += extraEntryRevenue(extra);
-      entry.matterCost += extraEntryCost(extra);
-      entry.adminCost += extraEntryAdminCost(extra);
+      const amounts = classifyExtraEntry(extra);
+      entry.revenue += amounts.revenue;
+      entry.matterCost += amounts.cost;
+      entry.adminCost += amounts.adminCost;
     });
     lines.recurringCosts.forEach((line) => {
       getTeamEntry(line.team).adminCost += line.actualAmount;
@@ -842,31 +856,23 @@ export const computeUndated = (
 ): PLReportType["undated"] => {
   const isUndatedMatter = (matter: MatterOfRow) =>
     !isDraftMatter(matter) && matter.start_date === null;
-  const undatedExtraEntries = extraEntries
-    .filter((entry) => entry.entry_date === null)
-    .filter((entry) => !isTeamLeader || entry.team !== null)
-    .map(toExtraEntryLine);
+  // 経理追加収支は月次と同じ振り分け（splitExtraEntries → classifyExtraEntry）で数える
+  const { extraIncome, extraExpense } = splitExtraEntries(
+    extraEntries
+      .filter((entry) => entry.entry_date === null)
+      .filter((entry) => !isTeamLeader || entry.team !== null)
+      .map(toExtraEntryLine),
+  );
   return {
     revenue:
       businessRows
         .filter((row) => isUndatedMatter(row.matters))
-        .reduce((sum, row) => sum + (row.amount ?? 0), 0) +
-      undatedExtraEntries.reduce(
-        (sum, entry) => sum + extraEntryRevenue(entry),
-        0,
-      ),
+        .reduce((sum, row) => sum + (row.amount ?? 0), 0) + extraIncome.revenue,
     matterCost:
       costRows
         .filter((row) => isUndatedMatter(row.matters))
-        .reduce((sum, row) => sum + row.price, 0) +
-      undatedExtraEntries.reduce(
-        (sum, entry) => sum + extraEntryCost(entry),
-        0,
-      ),
-    adminCost: undatedExtraEntries.reduce(
-      (sum, entry) => sum + extraEntryAdminCost(entry),
-      0,
-    ),
+        .reduce((sum, row) => sum + row.price, 0) + extraIncome.cost,
+    adminCost: extraExpense.total,
   };
 };
 

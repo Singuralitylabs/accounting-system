@@ -14,6 +14,10 @@ const ENTRY_TYPE_LABELS: Record<string, string> = {
 export const formatEntryType = (entryType: string): string =>
   ENTRY_TYPE_LABELS[entryType] ?? entryType;
 
+// 収入エントリか（損益計算書の明細行 ExtraEntryLine の entryType で判定する）
+export const isIncomeExtraEntry = (entry: { entryType: string }): boolean =>
+  entry.entryType === "income";
+
 // 種別 Select の選択肢（income/expense）。事前収支申告の明細フォーム
 // （BudgetDeclarationForm）と定期明細管理セクション（BudgetRecurringItemList）で共用する
 export const ENTRY_TYPE_OPTIONS = [

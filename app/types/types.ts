@@ -220,14 +220,16 @@ export type MatterBreakdown = DisplayTitle & {
   costs: TitledCostLine[]; // ID の昇順
 };
 
-// 売上・費用・粗利の組（案件別収支の合計・経理追加収支（収入）の合計に使う）。
-// 案件の合計は損益計算書の売上総利益の「案件」行と、案件別収支の「案件の合計」行で
-// 同じ値を表示する（Issue #164）
-export type MatterTotals = {
+// 売上・費用・粗利の組（grossProfit = revenue − cost）
+export type ProfitTotals = {
   revenue: number;
   cost: number;
   grossProfit: number;
 };
+
+// 案件別収支の合計（案件の売上・費用のみ。経理追加収支は含まない）。
+// 損益計算書の売上総利益の「案件」行と、案件別収支の「案件の合計」行で同じ値を表示する（Issue #164）
+export type MatterTotals = ProfitTotals;
 
 // 分類別の粗利（案件の売上分類の大分類ごとに 売上 − 案件費用 を集計。経理追加収支は含まない。
 // 損益計算書の売上総利益の「案件」行の内訳として表示する。Issue #164）
@@ -249,7 +251,7 @@ export type RecurringCostItemBreakdown = {
 export type ExtraIncomeLine = ExtraEntryLine & { grossProfit: number };
 
 // 損益計算書の売上総利益の「経理追加収支」行（収入エントリの合計と明細。Issue #164）
-export type ExtraIncomeSection = MatterTotals & { entries: ExtraIncomeLine[] };
+export type ExtraIncomeSection = ProfitTotals & { entries: ExtraIncomeLine[] };
 
 // 損益計算書の管理費合計の「経理追加収支（支出）」行（支出エントリの経費の合計と明細。Issue #164）
 export type ExtraExpenseSection = { total: number; entries: ExtraEntryLine[] };

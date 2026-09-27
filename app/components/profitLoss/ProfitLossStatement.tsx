@@ -14,9 +14,8 @@ import {
   formatDateToJp,
   formatMonthLabel,
 } from "@/app/utils/formatter";
-import { formatEntryType } from "@/app/utils/extraEntry";
+import { formatEntryType, isIncomeExtraEntry } from "@/app/utils/extraEntry";
 import { teamLabel } from "@/app/utils/constants";
-import { isIncomeExtraEntry } from "@/app/utils/profitLossLogic";
 import {
   Alert,
   Badge,
@@ -70,14 +69,25 @@ const GROSS_EXTRA_KEY = "gross:extra"; // 売上総利益 > 経理追加収支�
 const ADMIN_EXTRA_KEY = "admin:extra"; // 管理費 > 経理追加収支（支出）
 const recurringRowKey = (item: string) => `recurring:${item}`;
 
+// 「売上 X − 費用 Y」の注記の本文（括弧なし）。費用が null（収入エントリの経費なし）なら売上のみ。
+// 見出し行・分類行・明細行の注記はすべてこれで組み、書式を揃える
+const revenueCostText = (
+  revenueLabel: string,
+  revenue: number,
+  costLabel: string,
+  cost: number | null,
+) =>
+  cost === null
+    ? `${revenueLabel} ${formatCurrency(revenue)}`
+    : `${revenueLabel} ${formatCurrency(revenue)} − ${costLabel} ${formatCurrency(cost)}`;
+
 // 「（売上 X − 費用 Y）」の注記
 const revenueCostNote = (
   revenueLabel: string,
   revenue: number,
   costLabel: string,
   cost: number,
-) =>
-  `（${revenueLabel} ${formatCurrency(revenue)} − ${costLabel} ${formatCurrency(cost)}）`;
+) => `（${revenueCostText(revenueLabel, revenue, costLabel, cost)}）`;
 
 // 損益計算書の内訳の見出し行（子の階層）。onToggle があれば展開できる
 const BreakdownHeadingRow = ({
@@ -230,13 +240,18 @@ const ProfitLossStatement = ({
   // 振り分けは集計側 splitExtraEntries で済んでいるため、ここでは表示するだけ）
   const incomeExtraEntries = report.extraIncome.entries;
   const expenseExtraEntries = report.extraExpense.entries;
+  // 展開できる行の有無はここだけで判定し、描画条件と「すべて開く / 閉じる」の対象キーの
+  // 両方で同じ値を使う（片方だけ直して一括開閉が効かなくなるのを防ぐ）
+  const canExpandMatter = report.categoryBreakdown.length > 0;
+  const hasIncomeExtra = incomeExtraEntries.length > 0;
+  const hasExpenseExtra = expenseExtraEntries.length > 0;
   const expandableKeys = [
-    ...(report.categoryBreakdown.length > 0 ? [GROSS_MATTER_KEY] : []),
-    ...(incomeExtraEntries.length > 0 ? [GROSS_EXTRA_KEY] : []),
+    ...(canExpandMatter ? [GROSS_MATTER_KEY] : []),
+    ...(hasIncomeExtra ? [GROSS_EXTRA_KEY] : []),
     ...report.recurringCostByItem.map((breakdown) =>
       recurringRowKey(breakdown.item),
     ),
-    ...(expenseExtraEntries.length > 0 ? [ADMIN_EXTRA_KEY] : []),
+    ...(hasExpenseExtra ? [ADMIN_EXTRA_KEY] : []),
   ];
   const [selectedMatter, setSelectedMatter] =
     useState<MatterInfoWithUserNameType | null>(null);
@@ -441,12 +456,11 @@ const ProfitLossStatement = ({
               colorBySign
               isExpanded={expandedRows.has(GROSS_MATTER_KEY)}
               onToggle={
-                report.categoryBreakdown.length > 0
-                  ? () => toggleRow(GROSS_MATTER_KEY)
-                  : undefined
+                canExpandMatter ? () => toggleRow(GROSS_MATTER_KEY) : undefined
               }
             />
-            {expandedRows.has(GROSS_MATTER_KEY) &&
+            {canExpandMatter &&
+              expandedRows.has(GROSS_MATTER_KEY) &&
               report.categoryBreakdown.map((row) => (
                 <BreakdownDetailRow
                   key={`category-${row.category}`}
@@ -458,7 +472,7 @@ const ProfitLossStatement = ({
               ))}
 
             {/* 経理追加収支（収入）: 請求額 − 経費（収入に紐づく経費） */}
-            {incomeExtraEntries.length > 0 && (
+            {hasIncomeExtra && (
               <>
                 <BreakdownHeadingRow
                   label="経理追加収支"
@@ -478,13 +492,12 @@ const ProfitLossStatement = ({
                     <BreakdownDetailRow
                       key={`extra-income-${entry.extraEntryId}`}
                       label={entry.description}
-                      note={`（${extraEntryAttributes(entry)} / 請求 ${formatCurrency(
+                      note={`（${extraEntryAttributes(entry)} / ${revenueCostText(
+                        "請求",
                         entry.billingAmount ?? 0,
-                      )}${
-                        entry.expenseAmount !== null
-                          ? ` − 経費 ${formatCurrency(entry.expenseAmount)}`
-                          : ""
-                      }）`}
+                        "経費",
+                        entry.expenseAmount,
+                      )}）`}
                       amount={entry.grossProfit}
                       colorBySign
                     />
@@ -496,7 +509,7 @@ const ProfitLossStatement = ({
             <Table.Tr className="bg-slate-50">
               <Table.Td className="font-bold">
                 管理費合計
-                {expenseExtraEntries.length > 0 && (
+                {hasExpenseExtra && (
                   <span className="text-xs text-gray-500 font-normal ml-2">
                     （定期費用 {formatCurrency(report.recurringCostTotal)} ＋
                     経理追加収支（支出）{" "}
@@ -594,7 +607,7 @@ const ProfitLossStatement = ({
             })}
 
             {/* 経理追加収支（支出）: 経費を管理費へ算入する */}
-            {expenseExtraEntries.length > 0 && (
+            {hasExpenseExtra && (
               <>
                 <BreakdownHeadingRow
                   label="経理追加収支（支出）"
