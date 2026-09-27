@@ -1,5 +1,4 @@
 import { Suspense } from "react";
-import PageTitle from "../../components/PageTitle";
 import DynamicTeamMatterList from "../../components/dynamic/DynamicTeamMatterList";
 import { LoadingSpinner } from "../../components/LoadingSpinner";
 import { getProfileInfo } from "../../utils/supabase/profiles";
@@ -10,7 +9,10 @@ const TeamMatterPage = async () => {
 
   return (
     <main>
-      <PageTitle title={`${teamName}チーム案件一覧`} />
+      <h1 className="mb-2 px-8 text-sm font-normal text-gray-600">
+        <span className="sr-only">チーム案件一覧 </span>
+        {teamName}
+      </h1>
       <Suspense fallback={<LoadingSpinner />}>
         <DynamicTeamMatterList />
       </Suspense>

@@ -2,6 +2,9 @@ import { Database } from "../lib/database.types";
 
 export type PageTitleProps = {
   title: string;
+  // タイトル位置合わせ用のレイアウトクラス（各ページのコンテンツ幅に合わせる。
+  // 幅の定義を呼び出し側に集約し、PageTitle 側に重複させない）
+  className?: string;
 };
 
 type MattersTable = Database["public"]["Tables"]["matters"];
