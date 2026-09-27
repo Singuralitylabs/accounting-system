@@ -95,6 +95,9 @@ const ProfitLossView = ({
       <AccountingMasterActions
         canEditRecurringCosts={canEditRecurringCosts}
         canEditExtraEntries={canEditExtraEntries}
+        // 年間推移タブの表示中に月次タブ側の月を引き継ぐと、画面と一致しない
+        // ため月次タブのときだけ渡す
+        month={activeTab === "monthly" ? month : undefined}
       />
       {canClose && (
         <ClosingDiffBanner

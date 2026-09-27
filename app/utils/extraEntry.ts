@@ -3,6 +3,7 @@ import {
   ExtraEntryInsertType,
   ExtraEntryType,
 } from "../types/types";
+import { currentJstMonth, isMonthKey } from "./formatter";
 
 // 経理追加収支の種別定義（extra_entries.entry_type の値域）
 const ENTRY_TYPE_LABELS: Record<string, string> = {
@@ -63,6 +64,15 @@ export const isExtraEntryUnchanged = (
     return (before ?? null) === (after ?? null);
   });
 };
+
+// 経理追加収支画面（/extra-entries）の初期の対象月を解決する（純粋関数）。
+// `?month=YYYY-MM` が有効な月キーならその月、無効・未指定なら当月（JST）。
+// 損益計算書の「経理追加収支を管理」ボタンは表示中の対象月を `?month=` に付けて遷移する。
+export const resolveExtraEntryMonth = (
+  monthParam: string | null | undefined,
+  now: Date = new Date(),
+): string =>
+  monthParam && isMonthKey(monthParam) ? monthParam : currentJstMonth(now);
 
 // 一括保存でサーバへ送る行（追加・削除・編集した行）を選ぶ。
 // baseline は画面に読み込んだ時点の保存済みの行（id → 行）。編集していない行は送らない

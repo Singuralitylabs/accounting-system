@@ -1,25 +1,67 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   getExtraEntryList,
+  getExtraEntrySuggestions,
   bulkUpsertExtraEntry,
   getPreviousMonthExtraEntries,
   copyExtraEntriesFromPreviousMonth,
 } from "../utils/supabase/extraEntries";
 import { ExtraEntryInListType, ExtraEntryType } from "../types/types";
 
-// 経理追加収支一覧
-export const useExtraEntryList = (initialData?: ExtraEntryType[] | null) => {
+// 経理追加収支一覧（対象月のエントリ＋月未確定のエントリ）。
+// 月を切り替えている間は前月の表を残す（毎回フルスピナーにしない）
+export const useExtraEntryList = (
+  month: string,
+  initialData?: ExtraEntryType[] | null,
+  // initialData をサーバで取得した時刻。渡さないと TanStack Query は
+  // 「今」シードされたものとして扱い、GC 後に古い initialData が
+  // 新鮮なデータとして再表示される（QueryProvider は refetchOnMount: false）。
+  initialDataUpdatedAt?: number,
+) => {
   return useQuery({
-    queryKey: ["extraEntries", "all"],
+    queryKey: ["extraEntries", "list", month],
     queryFn: async () => {
-      const { extraEntryList, error } = await getExtraEntryList();
+      const { extraEntryList, error } = await getExtraEntryList(month);
       if (error) {
         throw new Error("経理追加収支情報の取得に失敗しました");
       }
       return extraEntryList ?? [];
     },
     initialData: initialData ?? undefined,
+    initialDataUpdatedAt: initialData ? initialDataUpdatedAt : undefined,
+    enabled: !!month,
     staleTime: 2 * 60 * 1000, // 2分
+    // 月を切り替えている間は前月の表を残す（毎回フルスピナーにしない）
+    placeholderData: keepPreviousData,
+  });
+};
+
+// 内容・請求先のサジェスト候補（直近12ヶ月＋月未確定分の過去の入力値）。
+// 補助的な表示のため staleTime を長めにし、保存時の ["extraEntries"] 無効化で追従する
+export type ExtraEntrySuggestion = Pick<
+  ExtraEntryType,
+  "description" | "billing_target"
+>;
+
+export const useExtraEntrySuggestions = (
+  initialData?: ExtraEntrySuggestion[] | null,
+) => {
+  return useQuery({
+    queryKey: ["extraEntries", "suggestions"],
+    queryFn: async () => {
+      const { suggestionList, error } = await getExtraEntrySuggestions();
+      if (error) {
+        throw new Error("経理追加収支のサジェスト候補の取得に失敗しました");
+      }
+      return suggestionList ?? [];
+    },
+    initialData: initialData ?? undefined,
+    staleTime: 10 * 60 * 1000, // 10分
   });
 };
 

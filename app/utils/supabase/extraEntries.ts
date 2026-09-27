@@ -6,7 +6,11 @@ import {
   excludeDuplicateExtraEntries,
   toExtraEntryDbRow as toDbRow,
 } from "../extraEntry";
-import { addMonths, isMonthKey, toFirstOfMonth } from "../formatter";
+import { addMonths, currentJstMonth, isMonthKey } from "../formatter";
+import {
+  datedOrUndatedFilter,
+  reportRangeBounds,
+} from "../profitLossLogic";
 import {
   CLOSED_MONTH_LOCK_MESSAGE,
   findExtraEntryLockViolations,
@@ -16,13 +20,24 @@ import { fetchClosedMonthKeys } from "./closedMonthsQuery";
 import { fetchAllByIds } from "./paging";
 import { createServerSupabase } from "./clients";
 
-// 経理追加収支一覧の取得（RLS により権限に応じた行のみ返る）
-export const getExtraEntryList = async () => {
+// 経理追加収支一覧の取得（RLS により権限に応じた行のみ返る）。
+// 対象月のエントリ（entry_date が対象月に属する行）と月未確定（entry_date が
+// NULL）の行だけを取得する（「期間内 OR NULL」。損益計算書の選択月の明細と同じ範囲）。
+export const getExtraEntryList = async (month: string) => {
+  if (!isMonthKey(month)) {
+    console.error(`経理追加収支の対象月の形式が不正です: ${month}`);
+    return {
+      extraEntryList: null,
+      error: { message: "対象月の形式が不正です。" },
+    };
+  }
   const supabase = createServerSupabase();
+  const bounds = reportRangeBounds({ startMonth: month, endMonth: month });
 
   const { data: extraEntryList, error } = await supabase
     .from("extra_entries")
     .select("*")
+    .or(datedOrUndatedFilter("entry_date", bounds))
     .order("entry_date", { ascending: false, nullsFirst: true })
     .order("id", { ascending: false });
 
@@ -163,12 +178,6 @@ export const bulkUpsertExtraEntry = async (
   return {};
 };
 
-// 月キー（YYYY-MM）の範囲を [月初, 翌月初) の半開区間で返す（entry_date の絞り込み用）
-const monthDateRange = (month: string) => ({
-  start: toFirstOfMonth(month),
-  end: toFirstOfMonth(addMonths(month, 1)),
-});
-
 // 対象月の前月分の経理追加収支を取得する（損益計算書 月次タブの
 // 「前月の経理追加収支をコピー」ボタン用。ボタンの活性判定・確認ダイアログの
 // 件数表示・複製元データの取得を兼ねる）。entry_date が前月内の行のみ返す
@@ -176,7 +185,10 @@ const monthDateRange = (month: string) => ({
 export const getPreviousMonthExtraEntries = async (month: string) => {
   const supabase = createServerSupabase();
   const previousMonth = addMonths(month, -1);
-  const { start: rangeStart, end: rangeEnd } = monthDateRange(previousMonth);
+  const { startDate: rangeStart, endExclusive: rangeEnd } = reportRangeBounds({
+    startMonth: previousMonth,
+    endMonth: previousMonth,
+  });
 
   const { data: extraEntryList, error } = await supabase
     .from("extra_entries")
@@ -244,8 +256,11 @@ export const copyExtraEntriesFromPreviousMonth = async (
 
   const supabase = createServerSupabase();
   const previousMonth = addMonths(targetMonth, -1);
-  const { start: previousRangeStart, end: previousRangeEnd } =
-    monthDateRange(previousMonth);
+  const { startDate: previousRangeStart, endExclusive: previousRangeEnd } =
+    reportRangeBounds({
+      startMonth: previousMonth,
+      endMonth: previousMonth,
+    });
 
   const { data: sourceEntries, error: sourceError } = await supabase
     .from("extra_entries")
@@ -264,8 +279,8 @@ export const copyExtraEntriesFromPreviousMonth = async (
     return { insertedCount: 0, skippedCount: 0, error: null };
   }
 
-  const { start: targetRangeStart, end: targetRangeEnd } =
-    monthDateRange(targetMonth);
+  const { startDate: targetRangeStart, endExclusive: targetRangeEnd } =
+    reportRangeBounds({ startMonth: targetMonth, endMonth: targetMonth });
   const { data: existingEntries, error: existingError } = await supabase
     .from("extra_entries")
     .select("*")
@@ -293,4 +308,33 @@ export const copyExtraEntriesFromPreviousMonth = async (
   }
 
   return { insertedCount: newRows.length, skippedCount, error: null };
+};
+
+// 内容・請求先のサジェスト用の過去の入力値を取得する（直近12ヶ月＋月未確定分。
+// 一覧は対象月だけを表示するため、他の月の過去入力も候補に出るよう別に取得する）。
+// 新しい月の行が 0 件でも先月までの入力値が候補に出る（4.19.3）。
+// 補助的な表示のため、取得に失敗しても呼び出し側で空配列にフォールバックする
+export const getExtraEntrySuggestions = async () => {
+  const supabase = createServerSupabase();
+  const currentMonth = currentJstMonth();
+  const bounds = reportRangeBounds({
+    startMonth: addMonths(currentMonth, -11),
+    endMonth: currentMonth,
+  });
+
+  const { data: suggestionList, error } = await supabase
+    .from("extra_entries")
+    .select("description,billing_target")
+    .or(datedOrUndatedFilter("entry_date", bounds))
+    .order("entry_date", { ascending: false, nullsFirst: false })
+    .limit(1000);
+
+  if (error) {
+    console.error(
+      "経理追加収支のサジェスト候補の取得に失敗しました:",
+      error,
+    );
+  }
+
+  return { suggestionList, error };
 };
