@@ -83,7 +83,12 @@ const report = (withTeamBreakdown: boolean): PLReportType => ({
     { category: "受託案件", revenue: 90000, cost: 20000, grossProfit: 70000 },
     { category: "研修", revenue: 30000, cost: 10000, grossProfit: 20000 },
   ],
-  extraIncomeTotals: { revenue: 50000, cost: 10000, grossProfit: 40000 },
+  extraIncome: {
+    revenue: 50000,
+    cost: 10000,
+    grossProfit: 40000,
+    entries: [{ ...extraEntry({ extraEntryId: 1 }), grossProfit: 40000 }],
+  },
   recurringCostTotal: 20000,
   recurringCostByItem: [
     {
@@ -103,19 +108,20 @@ const report = (withTeamBreakdown: boolean): PLReportType => ({
       ],
     },
   ],
-  extraExpenseTotal: 5000,
+  extraExpense: {
+    total: 5000,
+    entries: [
+      extraEntry({
+        extraEntryId: 2,
+        entryType: "expense",
+        category: "交通費",
+        description: "出張旅費",
+        billingAmount: null,
+        expenseAmount: 5000,
+      }),
+    ],
+  },
   adminCostTotal: 25000,
-  extraEntries: [
-    extraEntry({ extraEntryId: 1 }),
-    extraEntry({
-      extraEntryId: 2,
-      entryType: "expense",
-      category: "交通費",
-      description: "出張旅費",
-      billingAmount: null,
-      expenseAmount: 5000,
-    }),
-  ],
   ordinaryProfit: 105000,
   byTeam: withTeamBreakdown
     ? [
@@ -224,9 +230,8 @@ describe("ProfitLossStatement のサマリーカードと損益計算書（Issue
         withTeamBreakdown
         value={{
           ...report(true),
-          extraEntries: [],
-          extraIncomeTotals: { revenue: 0, cost: 0, grossProfit: 0 },
-          extraExpenseTotal: 0,
+          extraIncome: { revenue: 0, cost: 0, grossProfit: 0, entries: [] },
+          extraExpense: { total: 0, entries: [] },
           adminCostTotal: 20000,
         }}
       />,

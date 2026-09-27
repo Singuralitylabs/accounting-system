@@ -288,12 +288,12 @@ describe("確定明細への変換と再構成（Issue #148）", () => {
     });
     const live = buildMonthReport(input);
     const closed = buildMonthReport({ ...input, closing: snapshotOf(input) });
-    expect(closed.extraIncomeTotals).toEqual({
+    expect(closed.extraIncome).toMatchObject({
       revenue: 30000,
       cost: 5000,
       grossProfit: 25000,
     });
-    expect(closed.extraExpenseTotal).toBe(4000);
+    expect(closed.extraExpense.total).toBe(4000);
     expect(closed.adminCostTotal).toBe(closed.recurringCostTotal + 4000);
     expect(closed.grossProfitTotal).toBe(live.grossProfitTotal);
     expect(closed.adminCostTotal).toBe(live.adminCostTotal);

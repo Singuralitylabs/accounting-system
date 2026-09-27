@@ -245,6 +245,15 @@ export type RecurringCostItemBreakdown = {
   details: TitledRecurringCostLine[];
 };
 
+// 経理追加収支（収入）1 件の表示行（粗利 = 請求額 − 経費。集計側で計算する）
+export type ExtraIncomeLine = ExtraEntryLine & { grossProfit: number };
+
+// 損益計算書の売上総利益の「経理追加収支」行（収入エントリの合計と明細。Issue #164）
+export type ExtraIncomeSection = MatterTotals & { entries: ExtraIncomeLine[] };
+
+// 損益計算書の管理費合計の「経理追加収支（支出）」行（支出エントリの経費の合計と明細。Issue #164）
+export type ExtraExpenseSection = { total: number; entries: ExtraEntryLine[] };
+
 // チーム別内訳（accounting / admin のみ。全体共通の管理費は team = "全体共通"）
 export type TeamBreakdown = {
   team: string;
@@ -266,16 +275,16 @@ export type PLReportType = {
   matterTotals: MatterTotals;
   // 分類別の粗利（案件のみ。合計は matterTotals と一致。Issue #164）
   categoryBreakdown: GrossProfitBreakdown[];
-  // 経理追加収支（収入）の合計（請求額 − 経費）。売上総利益の「経理追加収支」行（Issue #164）
-  extraIncomeTotals: MatterTotals;
+  // 経理追加収支は集計側で収入 / 支出に 1 回だけ振り分ける（画面は表示するだけ。Issue #164）。
+  // いずれも teamleader は自チーム分のみ（損益に算入済み）
+  extraIncome: ExtraIncomeSection; // 収入エントリ（売上総利益の「経理追加収支」行）
   recurringCostTotal: number; // 定期費用の合計（teamleader は自チーム分のみ算入）
   recurringCostByItem: RecurringCostItemBreakdown[]; // 費目別管理費内訳（定期費用の明細を含む）
-  extraExpenseTotal: number; // 経理追加収支（支出）の経費合計。管理費へ算入（Issue #164）
-  adminCostTotal: number; // 管理費合計 = 定期費用 + 経理追加収支（支出）（Issue #164）
+  extraExpense: ExtraExpenseSection; // 支出エントリ（管理費合計の「経理追加収支（支出）」行）
+  // 管理費合計 = 定期費用 + 経理追加収支（支出）（Issue #164）。
+  // 売上合計・粗利・経常利益と同じく、表示用に集計側で計算した値を持つ
+  adminCostTotal: number;
   orgWideRecurringCosts?: TitledRecurringCostLine[]; // teamleader 向け「全体共通（参考）」（損益に算入しない）
-  // 経理追加収支明細（収入・支出の両方。teamleader は自チーム分のみ。損益に算入済み。
-  // 収入は売上総利益、支出は管理費の内訳として表示する）
-  extraEntries: ExtraEntryLine[];
   orgWideExtraEntries?: ExtraEntryLine[]; // teamleader 向け「全体共通（参考）」（損益に算入しない）
   ordinaryProfit: number; // 経常利益 = 売上総利益 − 管理費合計
   byTeam?: TeamBreakdown[]; // チーム別内訳（accounting / admin のみ）

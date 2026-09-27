@@ -16,12 +16,11 @@ const monthReport = (month: string, closed: boolean): PLReportType => ({
   matterBreakdowns: [],
   matterTotals: { revenue: 0, cost: 0, grossProfit: 0 },
   categoryBreakdown: [],
-  extraIncomeTotals: { revenue: 0, cost: 0, grossProfit: 0 },
+  extraIncome: { revenue: 0, cost: 0, grossProfit: 0, entries: [] },
   recurringCostTotal: 20000,
   recurringCostByItem: [],
-  extraExpenseTotal: 0,
+  extraExpense: { total: 0, entries: [] },
   adminCostTotal: 20000,
-  extraEntries: [],
   ordinaryProfit: 50000,
   undated: { revenue: 0, matterCost: 0, adminCost: 0 },
   closing: closed
@@ -93,7 +92,7 @@ describe("AnnualTrendTable（Issue #152）", () => {
           months: [
             {
               ...monthReport("2026-07", false),
-              extraExpenseTotal: 5000,
+              extraExpense: { total: 5000, entries: [] },
               adminCostTotal: 25000,
               ordinaryProfit: 45000,
             },

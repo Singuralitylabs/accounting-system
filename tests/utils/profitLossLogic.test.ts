@@ -11,9 +11,11 @@ import {
   normalizeLabelInput,
   reportFlags,
   resolveTitle,
+  splitExtraEntries,
 } from "@/app/utils/profitLossLogic";
 import { buildMonthReport } from "@/app/utils/profitLossClosing";
 import {
+  ExtraEntryLine,
   ExtraEntryType,
   ProfitLossAdjustmentType,
   RecurringCostType,
@@ -430,7 +432,7 @@ describe("buildMonthReport: 売上総利益（粗利）の分類別集計", () =
 
     expect(report.categoryBreakdown).toEqual([]);
     // 収入エントリ: 請求額 → 売上、経費 → 案件費用（売上総利益の「経理追加収支」行）
-    expect(report.extraIncomeTotals).toEqual({
+    expect(report.extraIncome).toMatchObject({
       revenue: 400000,
       cost: 100000,
       grossProfit: 300000,
@@ -439,7 +441,7 @@ describe("buildMonthReport: 売上総利益（粗利）の分類別集計", () =
     expect(report.matterCostTotal).toBe(100000);
     expect(report.grossProfitTotal).toBe(300000);
     // 支出エントリ: 経費 → 管理費
-    expect(report.extraExpenseTotal).toBe(30000);
+    expect(report.extraExpense.total).toBe(30000);
     expect(report.adminCostTotal).toBe(30000);
     expect(report.ordinaryProfit).toBe(270000);
   });
@@ -474,9 +476,7 @@ describe("buildMonthReport: 売上総利益（粗利）の分類別集計", () =
     );
     expect(sum).toBe(report.matterTotals.grossProfit);
     expect(sum).toBe(350000);
-    expect(sum + report.extraIncomeTotals.grossProfit).toBe(
-      report.grossProfitTotal,
-    );
+    expect(sum + report.extraIncome.grossProfit).toBe(report.grossProfitTotal);
     expect(report.grossProfitTotal).toBe(
       report.revenueTotal - report.matterCostTotal,
     );
@@ -898,18 +898,18 @@ describe("buildMonthReport: ロール別の表示スコープ", () => {
     const report = buildMonthReport(orgWideInput(true));
 
     // 全体共通の収入エントリ（協賛金）は売上総利益に算入しない
-    expect(report.extraEntries.map((entry) => entry.team)).not.toContain(null);
-    expect(report.extraIncomeTotals).toEqual({
+    expect(report.extraIncome).toEqual({
       revenue: 0,
       cost: 0,
       grossProfit: 0,
+      entries: [],
     });
     expect(report.revenueTotal).toBe(300000);
 
     // 自チームの支出エントリ（交通費）は管理費に算入される（Issue #164）
     expect(report.matterCostTotal).toBe(50000);
     expect(report.grossProfitTotal).toBe(250000);
-    expect(report.extraExpenseTotal).toBe(5000);
+    expect(report.extraExpense.total).toBe(5000);
 
     // 参考表示側に全体共通の管理費・経理追加収支が入る
     expect(
@@ -918,7 +918,9 @@ describe("buildMonthReport: ロール別の表示スコープ", () => {
     expect(
       report.orgWideRecurringCosts?.map((detail) => detail.recurringCostId),
     ).toEqual([2]);
-    expect(report.extraEntries.map((entry) => entry.extraEntryId)).toEqual([2]);
+    expect(
+      report.extraExpense.entries.map((entry) => entry.extraEntryId),
+    ).toEqual([2]);
 
     // 管理費は自チーム分のみ（定期費用 10,000 + 支出エントリ 5,000）
     expect(report.recurringCostTotal).toBe(10000);
@@ -934,7 +936,7 @@ describe("buildMonthReport: ロール別の表示スコープ", () => {
 
     // 全体共通の収入エントリも売上・粗利に算入される
     expect(report.revenueTotal).toBe(400000);
-    expect(report.extraIncomeTotals).toEqual({
+    expect(report.extraIncome).toMatchObject({
       revenue: 100000,
       cost: 40000,
       grossProfit: 60000,
@@ -944,9 +946,12 @@ describe("buildMonthReport: ロール別の表示スコープ", () => {
     // 参考表示セクションは出さない（＝分離しない）
     expect(report.orgWideExtraEntries).toBeUndefined();
     expect(report.orgWideRecurringCosts).toBeUndefined();
-    expect(report.extraEntries.map((entry) => entry.extraEntryId)).toEqual([
-      1, 2,
-    ]);
+    expect(
+      report.extraIncome.entries.map((entry) => entry.extraEntryId),
+    ).toEqual([1]);
+    expect(
+      report.extraExpense.entries.map((entry) => entry.extraEntryId),
+    ).toEqual([2]);
 
     // 全体共通の管理費も費目別内訳・管理費合計に算入される
     expect(report.recurringCostTotal).toBe(80000);
@@ -1152,26 +1157,26 @@ describe("buildMonthReport: 案件別収支（Issue #147 / #152）", () => {
     );
 
     // 案件 ＋ 経理追加収支（収入）＝ 売上総利益（支出エントリは含まない）
-    expect(report.extraIncomeTotals).toEqual({
+    expect(report.extraIncome).toMatchObject({
       revenue: 20000,
       cost: 3000,
       grossProfit: 17000,
     });
     expect(report.revenueTotal).toBe(
-      report.matterTotals.revenue + report.extraIncomeTotals.revenue,
+      report.matterTotals.revenue + report.extraIncome.revenue,
     );
     expect(report.matterCostTotal).toBe(
-      report.matterTotals.cost + report.extraIncomeTotals.cost,
+      report.matterTotals.cost + report.extraIncome.cost,
     );
     expect(report.grossProfitTotal).toBe(
-      report.matterTotals.grossProfit + report.extraIncomeTotals.grossProfit,
+      report.matterTotals.grossProfit + report.extraIncome.grossProfit,
     );
     expect(report.grossProfitTotal).toBe(352000);
 
     // 定期費用 ＋ 経理追加収支（支出）＝ 管理費合計
-    expect(report.extraExpenseTotal).toBe(7000);
+    expect(report.extraExpense.total).toBe(7000);
     expect(report.adminCostTotal).toBe(
-      report.recurringCostTotal + report.extraExpenseTotal,
+      report.recurringCostTotal + report.extraExpense.total,
     );
     expect(report.adminCostTotal).toBe(77000);
 
@@ -1191,6 +1196,57 @@ describe("buildMonthReport: 案件別収支（Issue #147 / #152）", () => {
     expect(sum(report.byTeam!.map((t) => t.profit))).toBe(
       report.ordinaryProfit,
     );
+  });
+});
+
+describe("splitExtraEntries（Issue #164）", () => {
+  const line = (
+    overrides: Partial<ExtraEntryLine> & Pick<ExtraEntryLine, "extraEntryId">,
+  ): ExtraEntryLine => ({
+    entryType: "income",
+    category: "協賛金",
+    description: `経理追加${overrides.extraEntryId}`,
+    team: "チームA",
+    entryDate: "2026-07-10",
+    billingAmount: null,
+    expenseAmount: null,
+    ...overrides,
+  });
+
+  it("収入は請求額 − 経費を明細ごとに持って売上総利益側へ、支出は経費を管理費側へ振り分ける（マイナス・経費なしを含む）", () => {
+    const { extraIncome, extraExpense } = splitExtraEntries([
+      line({ extraEntryId: 1, billingAmount: 50000, expenseAmount: 10000 }),
+      line({ extraEntryId: 2, billingAmount: 20000 }), // 経費なし
+      line({ extraEntryId: 3, billingAmount: -5000 }), // マイナス（減額調整）
+      line({ extraEntryId: 4, entryType: "expense", expenseAmount: 3000 }),
+      line({ extraEntryId: 5, entryType: "expense", expenseAmount: -1000 }),
+    ]);
+    expect(extraIncome).toMatchObject({
+      revenue: 65000,
+      cost: 10000,
+      grossProfit: 55000,
+    });
+    expect(
+      extraIncome.entries.map(({ extraEntryId, grossProfit }) => ({
+        extraEntryId,
+        grossProfit,
+      })),
+    ).toEqual([
+      { extraEntryId: 1, grossProfit: 40000 },
+      { extraEntryId: 2, grossProfit: 20000 },
+      { extraEntryId: 3, grossProfit: -5000 },
+    ]);
+    expect(extraExpense.total).toBe(2000);
+    expect(extraExpense.entries.map((entry) => entry.extraEntryId)).toEqual([
+      4, 5,
+    ]);
+  });
+
+  it("エントリが無ければ合計 0・明細なし", () => {
+    expect(splitExtraEntries([])).toEqual({
+      extraIncome: { revenue: 0, cost: 0, grossProfit: 0, entries: [] },
+      extraExpense: { total: 0, entries: [] },
+    });
   });
 });
 
@@ -1236,6 +1292,52 @@ describe("buildMonthReport: 月未確定（日付未入力）", () => {
     expect(report.matterCostTotal).toBe(20000);
     expect(report.grossProfitTotal).toBe(80000);
     expect(report.adminCostTotal).toBe(0);
+  });
+
+  it("teamleader は全体共通（team IS NULL）の日付未入力エントリを月未確定に数えない（月次の集計と同じ範囲。Issue #164）", () => {
+    const extraEntries = [
+      extraEntry({
+        id: 1,
+        team: null,
+        entry_date: null,
+        billing_amount: 90000,
+        expense_amount: 8000,
+      }),
+      extraEntry({
+        id: 2,
+        team: null,
+        entry_type: "expense",
+        category: "交通費",
+        entry_date: null,
+        expense_amount: 4000,
+        payment_method: "現金",
+      }),
+      extraEntry({
+        id: 3,
+        team: "チームA",
+        entry_type: "expense",
+        category: "交通費",
+        entry_date: null,
+        expense_amount: 1000,
+        payment_method: "現金",
+      }),
+    ];
+    const teamLeader = buildMonthReport(
+      buildInput({ isTeamLeader: true, extraEntries }),
+    );
+    expect(teamLeader.undated).toEqual({
+      revenue: 0,
+      matterCost: 0,
+      adminCost: 1000, // 自チームの支出エントリのみ
+    });
+    const accounting = buildMonthReport(
+      buildInput({ isTeamLeader: false, extraEntries }),
+    );
+    expect(accounting.undated).toEqual({
+      revenue: 90000,
+      matterCost: 8000,
+      adminCost: 5000,
+    });
   });
 
   it("月未確定のデータがない場合は 0 になる", () => {

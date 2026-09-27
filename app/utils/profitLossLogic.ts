@@ -10,6 +10,8 @@ import {
   DisplayTitle,
   ExtraEntryLine,
   ExtraEntryType,
+  ExtraExpenseSection,
+  ExtraIncomeSection,
   GrossProfitBreakdown,
   MatterBreakdown,
   MatterTotals,
@@ -431,9 +433,41 @@ const extraEntryCost = (entry: ExtraEntryLine): number =>
 const extraEntryAdminCost = (entry: ExtraEntryLine): number =>
   isIncomeExtraEntry(entry) ? 0 : (entry.expenseAmount ?? 0);
 
-// 経理追加収支（収入）1 件の粗利への寄与（請求額 − 経費）。支出エントリは 0
-export const extraEntryGrossProfit = (entry: ExtraEntryLine): number =>
-  extraEntryRevenue(entry) - extraEntryCost(entry);
+// 売上・費用から 売上 / 費用 / 粗利 の組を作る
+const toTotals = (revenue: number, cost: number): MatterTotals => ({
+  revenue,
+  cost,
+  grossProfit: revenue - cost,
+});
+
+// 経理追加収支を収入（売上総利益の「経理追加収支」行）と支出（管理費の
+// 「経理追加収支（支出）」行）に振り分け、それぞれの合計と明細を作る（Issue #164）。
+// 振り分けは上の算入先の関数だけで行い、画面側では振り分け直さない
+export const splitExtraEntries = (
+  entries: readonly ExtraEntryLine[],
+): { extraIncome: ExtraIncomeSection; extraExpense: ExtraExpenseSection } => {
+  let revenue = 0;
+  let cost = 0;
+  let expenseTotal = 0;
+  const incomeEntries: ExtraIncomeSection["entries"] = [];
+  const expenseEntries: ExtraExpenseSection["entries"] = [];
+  entries.forEach((entry) => {
+    if (isIncomeExtraEntry(entry)) {
+      const entryRevenue = extraEntryRevenue(entry);
+      const entryCost = extraEntryCost(entry);
+      revenue += entryRevenue;
+      cost += entryCost;
+      incomeEntries.push({ ...entry, grossProfit: entryRevenue - entryCost });
+    } else {
+      expenseTotal += extraEntryAdminCost(entry);
+      expenseEntries.push(entry);
+    }
+  });
+  return {
+    extraIncome: { ...toTotals(revenue, cost), entries: incomeEntries },
+    extraExpense: { total: expenseTotal, entries: expenseEntries },
+  };
+};
 
 // 取得済みの行から、指定月に計上される明細行（ライブ集計）を組み立てる。
 // ロールによる算入 / 参考表示の振り分けは行わない（aggregateMonthLines 側で行う）。
@@ -615,7 +649,7 @@ export const sumMatterBreakdowns = (
 ): MatterTotals => {
   const revenue = matters.reduce((sum, matter) => sum + matter.revenue, 0);
   const cost = matters.reduce((sum, matter) => sum + matter.cost, 0);
-  return { revenue, cost, grossProfit: revenue - cost };
+  return toTotals(revenue, cost);
 };
 
 // 分類別の粗利（案件の売上分類の大分類ごとに 売上 − 案件費用）。
@@ -696,22 +730,10 @@ export const aggregateMonthLines = ({
     lines.costs,
   );
   const matterTotals = sumMatterBreakdowns(matterBreakdowns);
-  const extraIncomeRevenue = countedExtraEntries.reduce(
-    (sum, entry) => sum + extraEntryRevenue(entry),
-    0,
-  );
-  const extraIncomeCost = countedExtraEntries.reduce(
-    (sum, entry) => sum + extraEntryCost(entry),
-    0,
-  );
-  const extraIncomeTotals = {
-    revenue: extraIncomeRevenue,
-    cost: extraIncomeCost,
-    grossProfit: extraIncomeRevenue - extraIncomeCost,
-  };
+  const { extraIncome, extraExpense } = splitExtraEntries(countedExtraEntries);
   // 売上合計・案件費用合計は、案件の売上・費用に経理追加収支（収入）の請求額・経費を加えたもの
-  const revenueTotal = matterTotals.revenue + extraIncomeTotals.revenue;
-  const matterCostTotal = matterTotals.cost + extraIncomeTotals.cost;
+  const revenueTotal = matterTotals.revenue + extraIncome.revenue;
+  const matterCostTotal = matterTotals.cost + extraIncome.cost;
   const grossProfitTotal = revenueTotal - matterCostTotal;
 
   // ===== 管理費（定期費用。費目別。明細は展開表示に使う） =====
@@ -736,11 +758,7 @@ export const aggregateMonthLines = ({
     0,
   );
   // 経理追加収支（支出）の経費は管理費へ算入する（Issue #164）
-  const extraExpenseTotal = countedExtraEntries.reduce(
-    (sum, entry) => sum + extraEntryAdminCost(entry),
-    0,
-  );
-  const adminCostTotal = recurringCostTotal + extraExpenseTotal;
+  const adminCostTotal = recurringCostTotal + extraExpense.total;
 
   // ===== チーム別内訳（accounting / admin のみ） =====
   let byTeam: TeamBreakdown[] | undefined;
@@ -795,13 +813,12 @@ export const aggregateMonthLines = ({
     matterBreakdowns,
     matterTotals,
     categoryBreakdown,
-    extraIncomeTotals,
+    extraIncome,
     recurringCostTotal,
     recurringCostByItem,
-    extraExpenseTotal,
+    extraExpense,
     adminCostTotal,
     orgWideRecurringCosts,
-    extraEntries: countedExtraEntries,
     orgWideExtraEntries,
     ordinaryProfit: grossProfitTotal - adminCostTotal,
     byTeam,
@@ -814,16 +831,20 @@ export const aggregateMonthLines = ({
 
 // 月未確定（案件開始日・日付未入力）の売上・費用。下書きの案件は除く。
 // 経理追加収支（支出）の経費は案件費用ではなく管理費（adminCost）に数える（Issue #164）。
+// teamleader は月次の集計（aggregateMonthLines）と同じく、全体共通（team IS NULL）の
+// 経理追加収支を数えない（RLS では全体共通の行も読めるため、ここでも除外する）。
 // 確定済みの月でも常にライブの値を表示する（Issue #148）
 export const computeUndated = (
   businessRows: BusinessRow[],
   costRows: CostRow[],
   extraEntries: ExtraEntryType[],
+  isTeamLeader: boolean,
 ): PLReportType["undated"] => {
   const isUndatedMatter = (matter: MatterOfRow) =>
     !isDraftMatter(matter) && matter.start_date === null;
   const undatedExtraEntries = extraEntries
     .filter((entry) => entry.entry_date === null)
+    .filter((entry) => !isTeamLeader || entry.team !== null)
     .map(toExtraEntryLine);
   return {
     revenue:

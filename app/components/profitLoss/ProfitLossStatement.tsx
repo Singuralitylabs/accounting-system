@@ -16,10 +16,7 @@ import {
 } from "@/app/utils/formatter";
 import { formatEntryType } from "@/app/utils/extraEntry";
 import { teamLabel } from "@/app/utils/constants";
-import {
-  extraEntryGrossProfit,
-  isIncomeExtraEntry,
-} from "@/app/utils/profitLossLogic";
+import { isIncomeExtraEntry } from "@/app/utils/profitLossLogic";
 import {
   Alert,
   Badge,
@@ -191,7 +188,7 @@ const toExtraEntryAmountLines = (
   entry: ExtraEntryLine,
 ): ExtraEntryAmountLine[] => {
   const lines: ExtraEntryAmountLine[] = [];
-  if (entry.entryType === "income") {
+  if (isIncomeExtraEntry(entry)) {
     lines.push({
       key: `extra-${entry.extraEntryId}-billing`,
       description: entry.description,
@@ -229,11 +226,10 @@ const ProfitLossStatement = ({
   const { expandedRows, toggleRow, expandAll, collapseAll } = useExpandedRows([
     GROSS_MATTER_KEY,
   ]);
-  // 経理追加収支は収入を売上総利益、支出を管理費の内訳に表示する（Issue #164）
-  const incomeExtraEntries = report.extraEntries.filter(isIncomeExtraEntry);
-  const expenseExtraEntries = report.extraEntries.filter(
-    (entry) => !isIncomeExtraEntry(entry),
-  );
+  // 経理追加収支は収入を売上総利益、支出を管理費の内訳に表示する（Issue #164。
+  // 振り分けは集計側 splitExtraEntries で済んでいるため、ここでは表示するだけ）
+  const incomeExtraEntries = report.extraIncome.entries;
+  const expenseExtraEntries = report.extraExpense.entries;
   const expandableKeys = [
     ...(report.categoryBreakdown.length > 0 ? [GROSS_MATTER_KEY] : []),
     ...(incomeExtraEntries.length > 0 ? [GROSS_EXTRA_KEY] : []),
@@ -468,11 +464,11 @@ const ProfitLossStatement = ({
                   label="経理追加収支"
                   note={revenueCostNote(
                     "請求",
-                    report.extraIncomeTotals.revenue,
+                    report.extraIncome.revenue,
                     "経費",
-                    report.extraIncomeTotals.cost,
+                    report.extraIncome.cost,
                   )}
-                  amount={report.extraIncomeTotals.grossProfit}
+                  amount={report.extraIncome.grossProfit}
                   colorBySign
                   isExpanded={expandedRows.has(GROSS_EXTRA_KEY)}
                   onToggle={() => toggleRow(GROSS_EXTRA_KEY)}
@@ -489,7 +485,7 @@ const ProfitLossStatement = ({
                           ? ` − 経費 ${formatCurrency(entry.expenseAmount)}`
                           : ""
                       }）`}
-                      amount={extraEntryGrossProfit(entry)}
+                      amount={entry.grossProfit}
                       colorBySign
                     />
                   ))}
@@ -504,7 +500,7 @@ const ProfitLossStatement = ({
                   <span className="text-xs text-gray-500 font-normal ml-2">
                     （定期費用 {formatCurrency(report.recurringCostTotal)} ＋
                     経理追加収支（支出）{" "}
-                    {formatCurrency(report.extraExpenseTotal)}）
+                    {formatCurrency(report.extraExpense.total)}）
                   </span>
                 )}
               </Table.Td>
@@ -602,7 +598,7 @@ const ProfitLossStatement = ({
               <>
                 <BreakdownHeadingRow
                   label="経理追加収支（支出）"
-                  amount={report.extraExpenseTotal}
+                  amount={report.extraExpense.total}
                   isExpanded={expandedRows.has(ADMIN_EXTRA_KEY)}
                   onToggle={() => toggleRow(ADMIN_EXTRA_KEY)}
                 />

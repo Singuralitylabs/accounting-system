@@ -155,7 +155,11 @@ const ProfitLossView = ({
                 <Group justify="flex-end" className="mb-4">
                   <CopyPreviousExtraEntriesButton
                     month={month}
-                    hasExistingEntries={report.extraEntries.length > 0}
+                    hasExistingEntries={
+                      report.extraIncome.entries.length +
+                        report.extraExpense.entries.length >
+                      0
+                    }
                     isClosed={!!report.closing}
                   />
                 </Group>
