@@ -6,7 +6,9 @@ import { LoadingSpinner } from "../components/LoadingSpinner";
 const BudgetDeclarationsPage = () => {
   return (
     <main>
-      <PageTitle title="事前収支申告" />
+      <div className="mx-auto max-w-5xl px-4 pt-6">
+        <PageTitle title="事前収支申告" />
+      </div>
       <Suspense fallback={<LoadingSpinner />}>
         <DynamicBudgetDeclarations />
       </Suspense>

@@ -4,7 +4,9 @@ import PageTitle from "./components/PageTitle";
 export default function NotFound() {
   return (
     <main>
-      <PageTitle title="ページが見つかりません" />
+      <div className="mx-auto max-w-5xl px-4 pt-6">
+        <PageTitle title="ページが見つかりません" />
+      </div>
       <div className="flex flex-col justify-center items-center gap-6 mt-8">
         <p className="text-center text-gray-700">
           指定されたページは存在しません。

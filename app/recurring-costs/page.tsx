@@ -6,7 +6,9 @@ import { LoadingSpinner } from "../components/LoadingSpinner";
 const RecurringCostsPage = () => {
   return (
     <main>
-      <PageTitle title="定期費用マスタ" />
+      <div className="mx-auto max-w-6xl px-4 pt-6">
+        <PageTitle title="定期費用マスタ" />
+      </div>
       <Suspense fallback={<LoadingSpinner />}>
         <DynamicRecurringCosts />
       </Suspense>

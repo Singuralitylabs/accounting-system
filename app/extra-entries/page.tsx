@@ -6,7 +6,9 @@ import { LoadingSpinner } from "../components/LoadingSpinner";
 const ExtraEntriesPage = () => {
   return (
     <main>
-      <PageTitle title="経理追加収支" />
+      <div className="px-4 pt-6">
+        <PageTitle title="経理追加収支" />
+      </div>
       <Suspense fallback={<LoadingSpinner />}>
         <DynamicExtraEntries />
       </Suspense>

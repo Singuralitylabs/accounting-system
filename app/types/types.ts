@@ -2,6 +2,7 @@ import { Database } from "../lib/database.types";
 
 export type PageTitleProps = {
   title: string;
+  description?: string;
 };
 
 type MattersTable = Database["public"]["Tables"]["matters"];

@@ -6,7 +6,9 @@ import { LoadingSpinner } from "../../components/LoadingSpinner";
 const BudgetRecurringItemsPage = () => {
   return (
     <main>
-      <PageTitle title="定期明細" />
+      <div className="mx-auto max-w-6xl px-4 pt-6">
+        <PageTitle title="定期明細" />
+      </div>
       <Suspense fallback={<LoadingSpinner />}>
         <DynamicBudgetRecurringItems />
       </Suspense>

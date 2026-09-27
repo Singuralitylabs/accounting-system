@@ -1,12 +1,10 @@
-import PageTitle from "../../components/PageTitle";
 import { Suspense } from "react";
 import DynamicAccounting from "../../components/dynamic/DynamicAccounting";
 import { LoadingSpinner } from "../../components/LoadingSpinner";
 
 const AccountingMatterPage = () => {
   return (
-    <main>
-      <PageTitle title="経理用 案件一覧" />
+    <main className="pt-6">
       <Suspense fallback={<LoadingSpinner />}>
         <DynamicAccounting />
       </Suspense>
