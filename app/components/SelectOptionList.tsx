@@ -3,6 +3,7 @@
 import { Button, LoadingOverlay, Table, Title } from "@mantine/core";
 import { SelectOptionType } from "../types/types";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { bulkUpsertSelectOptions } from "../utils/supabase/selectOptions";
 import { notifyError, notifySuccess } from "../utils/notify";
 import { confirmAction } from "../utils/confirmAction";
@@ -40,6 +41,7 @@ const SelectOptionList = ({
     })[]
   >(optionList.map((option) => ({ ...option, isNew: false })));
   const [isLoading, setIsLoading] = useState(false);
+  const router = useRouter();
 
   const OPTION_TITLES: Record<string, string> = {
     team: "チーム",
@@ -123,6 +125,9 @@ const SelectOptionList = ({
 
       await bulkUpsertSelectOptions(optionClass, updatedOptionList);
       notifySuccess(`${optionTitle}情報を更新しました。`);
+      // 同じページのユーザーリスト（チーム欄）はサーバで取得した選択肢を props で
+      // 受け取っているため、Server Component を再描画して最新の選択肢を反映する
+      router.refresh();
     } catch (error) {
       console.error(`${optionTitle}情報の保存に失敗しました。`, error);
       notifyError(`${optionTitle}情報の保存に失敗しました。`);

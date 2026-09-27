@@ -1,6 +1,6 @@
 "use client";
 
-import { Table, Title, LoadingOverlay } from "@mantine/core";
+import { Table, Text, Title, LoadingOverlay } from "@mantine/core";
 import { ProfilesType } from "../types/types";
 import { useState } from "react";
 import updateProfile from "../utils/supabase/updateProfile";
@@ -19,7 +19,23 @@ const elementListOfUser = [
 ];
 export const classList = ["public", "teamleader", "accounting", "admin"];
 
-const UserList = ({ userList }: { userList: ProfilesType[] }) => {
+// チーム欄の選択肢。Select は value が data に無いと空表示になるため、
+// 選択肢に無い現在値（無効化・名前変更されたチーム、選択肢の取得失敗時）も先頭に補い、
+// 管理者が現在の所属を確認できるようにする。
+export const teamOptionsFor = (team: string | null, teamList: string[]) =>
+  team && !teamList.includes(team) ? [team, ...teamList] : teamList;
+
+type Props = {
+  userList: ProfilesType[];
+  // チームの選択肢。サーバ側（DynamicDashboard）で取得済みのものを受け取る。
+  // 行ごとにクライアントから取得すると、行数分の Server Action が直列に走り
+  // チーム欄だけ表示が遅れるため（Select は value が data に無いと空表示になる）。
+  teamList: string[];
+  // チームの選択肢の取得に失敗したか（チーム欄の選択肢が現在値のみになる旨を表示する）
+  teamListError?: boolean;
+};
+
+const UserList = ({ userList, teamList, teamListError = false }: Props) => {
   const [updatedUserList, setUpdatedUserList] =
     useState<ProfilesType[]>(userList);
   const [isLoading, setIsLoading] = useState(false);
@@ -70,6 +86,11 @@ const UserList = ({ userList }: { userList: ProfilesType[] }) => {
       <Title order={2} className="pb-4">
         ユーザーリスト
       </Title>
+      {teamListError && (
+        <Text c="red" size="sm" className="pb-4">
+          チームの選択肢を取得できませんでした。チーム欄は現在の値のみ表示しています。
+        </Text>
+      )}
       {!isMobile ? (
         <Table>
           <Table.Thead>{tableHeads}</Table.Thead>
@@ -78,6 +99,7 @@ const UserList = ({ userList }: { userList: ProfilesType[] }) => {
               <UserTable
                 key={user.id}
                 userInfo={user}
+                teamList={teamList}
                 onUpdateUserList={handleUpdateUserList}
                 onSaveUser={handleSave}
               />
@@ -89,6 +111,7 @@ const UserList = ({ userList }: { userList: ProfilesType[] }) => {
           <UserCard
             key={user.id}
             userInfo={user}
+            teamList={teamList}
             onUpdateUserList={handleUpdateUserList}
             onSaveUser={handleSave}
           />
