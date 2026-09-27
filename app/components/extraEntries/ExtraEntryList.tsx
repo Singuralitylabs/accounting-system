@@ -480,6 +480,7 @@ const ExtraEntryList = ({
         </p>
         <Button
           type="button"
+          className="shrink-0"
           disabled={upsertMutation.isPending || isSwitchingMonth}
           onClick={handleSave}
         >

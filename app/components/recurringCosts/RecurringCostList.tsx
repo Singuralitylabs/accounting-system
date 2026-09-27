@@ -141,12 +141,13 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
   return (
     <div className="px-4 pb-8 max-w-6xl mx-auto relative">
       <LoadingOverlay visible={upsertMutation.isPending} />
-      <div className="flex justify-between items-center mb-4">
+      <div className="flex justify-between items-center mb-4 gap-4">
         <p className="text-sm text-gray-600">
           定期的にかかる管理費を登録します。支払月（適用開始月を起点に支払サイクルごと）の損益計算書に支払額が全額算入されます。損益計算書で確定済みの月には変更が反映されません（反映するには損益計算書でその月の「確定済み」をオフにしてから再度オンにします）。
         </p>
         <Button
           type="button"
+          className="shrink-0"
           disabled={upsertMutation.isPending}
           onClick={handleSave}
         >
