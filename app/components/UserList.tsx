@@ -19,7 +19,15 @@ const elementListOfUser = [
 ];
 export const classList = ["public", "teamleader", "accounting", "admin"];
 
-const UserList = ({ userList }: { userList: ProfilesType[] }) => {
+type Props = {
+  userList: ProfilesType[];
+  // チームの選択肢。サーバ側（DynamicDashboard）で取得済みのものを受け取る。
+  // 行ごとにクライアントから取得すると、行数分の Server Action が直列に走り
+  // チーム欄だけ表示が遅れるため（Select は value が data に無いと空表示になる）。
+  teamList: string[];
+};
+
+const UserList = ({ userList, teamList }: Props) => {
   const [updatedUserList, setUpdatedUserList] =
     useState<ProfilesType[]>(userList);
   const [isLoading, setIsLoading] = useState(false);
@@ -78,6 +86,7 @@ const UserList = ({ userList }: { userList: ProfilesType[] }) => {
               <UserTable
                 key={user.id}
                 userInfo={user}
+                teamList={teamList}
                 onUpdateUserList={handleUpdateUserList}
                 onSaveUser={handleSave}
               />
@@ -89,6 +98,7 @@ const UserList = ({ userList }: { userList: ProfilesType[] }) => {
           <UserCard
             key={user.id}
             userInfo={user}
+            teamList={teamList}
             onUpdateUserList={handleUpdateUserList}
             onSaveUser={handleSave}
           />

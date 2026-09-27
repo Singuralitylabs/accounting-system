@@ -1,28 +1,20 @@
 import { Button, Select, Stack, Text, TextInput } from "@mantine/core";
 import { ProfilesType } from "../types/types";
 import { classList } from "./UserList";
-import { useEffect, useState } from "react";
-import { getSelectOptions } from "../utils/supabase/selectOptions";
 
 type Props = {
   userInfo: ProfilesType;
+  teamList: string[];
   onUpdateUserList: (userId: number, updates: Partial<ProfilesType>) => void;
   onSaveUser: (userId: number) => void;
 };
 
-const UserCard = ({ userInfo, onUpdateUserList, onSaveUser }: Props) => {
-  const [teamOptions, setTeamOptions] = useState<string[]>([]);
-
-  useEffect(() => {
-    const fetchTeamOptions = async () => {
-      const { options } = await getSelectOptions("team");
-      if (options) {
-        setTeamOptions(options.map((option) => option.value));
-      }
-    };
-    fetchTeamOptions();
-  }, []);
-
+const UserCard = ({
+  userInfo,
+  teamList,
+  onUpdateUserList,
+  onSaveUser,
+}: Props) => {
   return (
     <div className="py-4 border-b border-gray-200">
       <Stack>
@@ -69,7 +61,7 @@ const UserCard = ({ userInfo, onUpdateUserList, onSaveUser }: Props) => {
             チーム
           </Text>
           <Select
-            data={teamOptions}
+            data={teamList}
             value={userInfo.team || ""}
             onChange={(value) => onUpdateUserList(userInfo.id, { team: value })}
             placeholder={"チームを選択"}

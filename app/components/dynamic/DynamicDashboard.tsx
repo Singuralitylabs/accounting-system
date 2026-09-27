@@ -45,7 +45,10 @@ const DynamicDashboard = async () => {
 
   return (
     <main className="p-4">
-      <UserList userList={userInfoList} />
+      <UserList
+        userList={userInfoList}
+        teamList={teamList.map((option) => option.value)}
+      />
       <div className="p-4">
         <Title order={2} className="py-4">
           項目管理
