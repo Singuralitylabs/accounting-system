@@ -12,6 +12,10 @@ import {
 import { AdjustmentTarget } from "@/app/types/types";
 import { useSaveProfitLossAdjustment } from "@/app/hooks/useProfitLossAdjustments";
 import { formatCurrency } from "@/app/utils/formatter";
+import {
+  SAVE_ADJUSTMENT_TOAST,
+  resolveSaveAdjustmentOutcome,
+} from "@/app/utils/profitLossAdjustmentToast";
 import { confirmAction } from "@/app/utils/confirmAction";
 import { notifyError, notifySuccess, toErrorMessage } from "@/app/utils/notify";
 
@@ -79,17 +83,22 @@ const ProfitLossAdjustmentModal = ({
     if (!confirmed) return;
 
     try {
-      // 実際に削除されたか保存されたかはサーバ側（元データの再取得を伴う差分計算）の
-      // 結果で判断する。willRevert は保存前の見込み（画面表示時点の古い sourceAmount
-      // に基づく）でしかなく、その間に元データが変わっていると一致しない場合がある
-      const { deleted } = await saveMutation.mutateAsync({
+      // 実際に削除・保存・変更なしのいずれかはサーバ側（元データの再取得を伴う
+      // 差分計算）の結果で判断する。willRevert は保存前の見込み（画面表示時点の
+      // 古い sourceAmount に基づく）でしかなく、その間に元データが変わっていると
+      // 一致しない場合がある。差分 0 で削除対象が無い場合（Issue #139。別タブで
+      // 先に削除済み等）は deleted=false・adjustmentAmount=0 が返るため、
+      // 「保存しました」ではなく「既に削除されています」として扱う
+      const { deleted, adjustmentAmount } = await saveMutation.mutateAsync({
         target,
         targetMonth,
         actualAmount,
         reason: reason.trim(),
       });
       notifySuccess(
-        deleted ? "実績額修正を削除しました。" : "実績額を保存しました。",
+        SAVE_ADJUSTMENT_TOAST[
+          resolveSaveAdjustmentOutcome(deleted, adjustmentAmount)
+        ],
       );
       onClose();
     } catch (error) {

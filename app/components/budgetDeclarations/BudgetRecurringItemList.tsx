@@ -160,12 +160,13 @@ const BudgetRecurringItemList = ({
       >
         ← 事前収支申告一覧に戻る
       </Link>
-      <div className="flex justify-between items-center mb-4 mt-2">
+      <div className="flex justify-between items-center mb-4 mt-2 gap-4">
         <p className="text-sm text-gray-600">
           毎月固定で発生する収入・支出を登録します。適用期間内の対象月で新規の事前収支申告を作成すると、明細として自動で取り込まれます（取り込み後は申告ごとに編集・削除できます）。金額改定は既存行の適用終了月を設定して打ち切り、新しい行を追加してください。
         </p>
         <Button
           type="button"
+          className="shrink-0"
           disabled={saveMutation.isPending}
           onClick={handleSave}
         >

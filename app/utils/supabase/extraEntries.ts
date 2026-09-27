@@ -1,43 +1,43 @@
 "use server";
 
-import { ExtraEntryInListType } from "../../types/types";
+import { AccessFailure, ExtraEntryInListType } from "../../types/types";
 import {
   buildCopiedExtraEntries,
   excludeDuplicateExtraEntries,
+  toExtraEntryDbRow as toDbRow,
 } from "../extraEntry";
-import { addMonths, toFirstOfMonth } from "../formatter";
+import { addMonths, currentJstMonth, isMonthKey } from "../formatter";
+import {
+  datedOrUndatedFilter,
+  reportRangeBounds,
+} from "../profitLossLogic";
+import {
+  CLOSED_MONTH_LOCK_MESSAGE,
+  findExtraEntryLockViolations,
+  isClosedMonth,
+} from "../profitLossClosing";
+import { fetchClosedMonthKeys } from "./closedMonthsQuery";
+import { fetchAllByIds } from "./paging";
 import { createServerSupabase } from "./clients";
 
-// 一覧の行データを DB 書き込み用の形に変換する（INSERT / UPDATE 共通）
-// 種別ごとの項目の整合性（収入=請求額あり・決済方法なし / 支出=経費・決済方法あり、
-// 収入専用項目なし）はここで揃え、DB の CHECK 制約
-// （extra_entries_type_fields_check）でも担保する。
-// updated_at は DB トリガー（update_extra_entries_updated_at）が now() で設定する
-const toDbRow = (entry: ExtraEntryInListType) => {
-  const isIncome = entry.entry_type === "income";
-  return {
-    entry_type: entry.entry_type,
-    category: entry.category,
-    entry_date: entry.entry_date,
-    invoice_number: isIncome ? entry.invoice_number : null,
-    description: entry.description,
-    billing_target: isIncome ? entry.billing_target : null,
-    manager_id: entry.manager_id,
-    team: entry.team,
-    billing_amount: isIncome ? entry.billing_amount : null,
-    // 経費は収入時は任意（未入力 = null）、支出時は必須
-    expense_amount: entry.expense_amount,
-    payment_method: isIncome ? null : entry.payment_method,
-  };
-};
-
-// 経理追加収支一覧の取得（RLS により権限に応じた行のみ返る）
-export const getExtraEntryList = async () => {
+// 経理追加収支一覧の取得（RLS により権限に応じた行のみ返る）。
+// 対象月のエントリ（entry_date が対象月に属する行）と月未確定（entry_date が
+// NULL）の行だけを取得する（「期間内 OR NULL」。損益計算書の選択月の明細と同じ範囲）。
+export const getExtraEntryList = async (month: string) => {
+  if (!isMonthKey(month)) {
+    console.error(`経理追加収支の対象月の形式が不正です: ${month}`);
+    return {
+      extraEntryList: null,
+      error: { message: "対象月の形式が不正です。" },
+    };
+  }
   const supabase = createServerSupabase();
+  const bounds = reportRangeBounds({ startMonth: month, endMonth: month });
 
   const { data: extraEntryList, error } = await supabase
     .from("extra_entries")
     .select("*")
+    .or(datedOrUndatedFilter("entry_date", bounds))
     .order("entry_date", { ascending: false, nullsFirst: true })
     .order("id", { ascending: false });
 
@@ -48,80 +48,135 @@ export const getExtraEntryList = async () => {
   return { extraEntryList, error };
 };
 
-// 経理追加収支の一括登録・更新・削除
-// 書き込み権限（accounting / admin のみ）は RLS で担保される
+// 確定済みの月（損益計算書の月次収支確定。Issue #148）の集合を取得する
+const fetchClosedMonths = async () => {
+  const { months, error } = await fetchClosedMonthKeys();
+  return { closedMonths: new Set(months ?? []), error };
+};
+
+export type BulkUpsertExtraEntryResult = { error?: AccessFailure };
+
+const SAVE_FAILED: AccessFailure = {
+  kind: "fetchFailed",
+  message: "経理追加収支情報の更新に失敗しました。何も保存されていません。",
+};
+
+// 経理追加収支の一括登録・更新・削除。
+// extraEntries は追加・削除・編集した行のみ（画面側で selectChangedExtraEntries により選ぶ）。
+// 送られた保存済みの行はすべて更新対象として扱う。
+// 書き込み権限（accounting / admin のみ）は RLS で担保される。
+// 確定済みの月（Issue #148）のエントリの追加・更新・削除、確定済みの月へ / からの
+// 日付の変更は RLS でも拒否されるが、UPDATE / DELETE は RLS で拒否されると 0 行更新に
+// なるだけでエラーにならない（黙って保存されない）ため、書き込み前にここで判定し、
+// 1 件でも該当すれば何も書き込まずに分かりやすいエラーを返す。
+// 更新する行が既に削除されていた（画面の読み込み後に他の利用者が削除した）場合も、
+// 書き込み前に拒否する。書き込みは save_extra_entries（1 トランザクション）で行うため、
+// 確認の後に状況が変わって失敗しても、一部だけ保存された状態は残らない
 export const bulkUpsertExtraEntry = async (
   extraEntries: ExtraEntryInListType[]
-) => {
+): Promise<BulkUpsertExtraEntryResult> => {
   const supabase = createServerSupabase();
+
+  const existingIds = Array.from(
+    new Set(extraEntries.filter((ee) => !ee.isNew).map((ee) => ee.id))
+  );
+  const [{ closedMonths, error: closingError }, originalResult] =
+    await Promise.all([
+      fetchClosedMonths(),
+      fetchAllByIds(existingIds, (chunk, afterId, limit) =>
+        supabase
+          .from("extra_entries")
+          .select("*")
+          .in("id", chunk)
+          .gt("id", afterId)
+          .order("id", { ascending: true })
+          .limit(limit)
+      ),
+    ]);
+  if (closingError || originalResult.error) {
+    console.error(
+      "経理追加収支の保存前確認に失敗しました:",
+      closingError ?? originalResult.error
+    );
+    return { error: SAVE_FAILED };
+  }
+  const originals = new Map(
+    (originalResult.data ?? []).map((row) => [row.id, row])
+  );
+  // 読み込み後に他の利用者が削除した行の更新は拒否する（削除は既に目的を果たしているため
+  // 対象から外すだけにする）
+  const deletedUpdates = extraEntries.filter(
+    (ee) => !ee.isNew && !ee.isRemoved && !originals.has(ee.id)
+  );
+  if (deletedUpdates.length > 0) {
+    return {
+      error: {
+        kind: "validationFailed",
+        message: `編集した行のうち、他の利用者に削除された行があります。画面を再読み込みしてから編集し直してください。（対象: ${deletedUpdates
+          .map((ee) => ee.description || "（内容未入力の行）")
+          .join("、")}）`,
+      },
+    };
+  }
+  const violations = findExtraEntryLockViolations(
+    extraEntries,
+    originals,
+    closedMonths
+  );
+  if (violations.length > 0) {
+    return {
+      error: {
+        kind: "validationFailed",
+        message: `${CLOSED_MONTH_LOCK_MESSAGE}（対象: ${violations.join("、")}）`,
+      },
+    };
+  }
 
   // 新規作成用
   const newEntries = extraEntries.filter((ee) => ee.isNew && !ee.isRemoved);
   // 更新用
   const updateEntries = extraEntries.filter((ee) => !ee.isNew && !ee.isRemoved);
-  // 削除用
-  const deleteEntries = extraEntries.filter((ee) => ee.isRemoved && !ee.isNew);
-
-  const operations = [];
-
-  // バルクINSERT
-  if (newEntries.length > 0) {
-    operations.push(
-      supabase.from("extra_entries").insert(newEntries.map(toDbRow))
-    );
+  // 削除用（既に削除されている行は除く）
+  const deleteEntries = extraEntries.filter(
+    (ee) => ee.isRemoved && !ee.isNew && originals.has(ee.id)
+  );
+  if (
+    newEntries.length === 0 &&
+    updateEntries.length === 0 &&
+    deleteEntries.length === 0
+  ) {
+    return {};
   }
 
-  // バルクUPDATE
-  if (updateEntries.length > 0) {
-    const updatePromises = updateEntries.map((ee) => {
-      if (!ee.id) {
-        throw new Error("更新対象の経理追加収支IDが見つかりません");
-      }
-
-      return supabase
-        .from("extra_entries")
-        .update(toDbRow(ee))
-        .eq("id", ee.id);
-    });
-    operations.push(...updatePromises);
-  }
-
-  // バルクDELETE
-  if (deleteEntries.length > 0) {
-    const deleteIds = deleteEntries
-      .map((ee) => ee.id)
-      .filter((id) => id !== undefined);
-    if (deleteIds.length > 0) {
-      operations.push(
-        supabase.from("extra_entries").delete().in("id", deleteIds)
-      );
+  // 追加・更新・削除を 1 回の RPC（= 1 トランザクション）で行う。途中で 1 件でも失敗すれば
+  // すべてロールバックされ、一部だけ保存された状態は残らない。
+  // RLS はそのまま効く（SECURITY INVOKER）。保存前の確認の後に月が確定された・行が削除された
+  // 等で更新・削除が指定件数に満たない場合は NOT_APPLIED、追加・日付の変更が確定済みの月に
+  // 当たる場合は RLS 違反（42501）になる
+  const { error: rpcError } = await supabase.rpc("save_extra_entries", {
+    p_inserts: newEntries.map(toDbRow),
+    p_updates: updateEntries.map((ee) => ({ id: ee.id, ...toDbRow(ee) })),
+    p_delete_ids: deleteEntries.map((ee) => ee.id),
+  });
+  if (rpcError) {
+    if (
+      rpcError.message.includes("NOT_APPLIED") ||
+      rpcError.code === "42501"
+    ) {
+      return {
+        error: {
+          kind: "validationFailed",
+          message:
+            "保存の途中で対象の月が確定されたか、行が他の利用者に変更・削除されたため、何も保存しませんでした。画面を再読み込みしてから保存し直してください。",
+        },
+      };
     }
+    console.error("経理追加収支情報の保存に失敗しました:", rpcError);
+    return { error: SAVE_FAILED };
   }
 
-  // 全て並列実行
-  if (operations.length > 0) {
-    const results = await Promise.all(operations);
-    const errors = results
-      .filter((result) => result.error)
-      .map((result) => result.error);
-
-    if (errors.length > 0) {
-      console.error(
-        "経理追加収支情報のバルク操作でエラーが発生しました:",
-        errors
-      );
-      throw new Error("経理追加収支情報の更新に失敗しました");
-    }
-  }
-
-  return true;
+  return {};
 };
-
-// 月キー（YYYY-MM）の範囲を [月初, 翌月初) の半開区間で返す（entry_date の絞り込み用）
-const monthDateRange = (month: string) => ({
-  start: toFirstOfMonth(month),
-  end: toFirstOfMonth(addMonths(month, 1)),
-});
 
 // 対象月の前月分の経理追加収支を取得する（損益計算書 月次タブの
 // 「前月の経理追加収支をコピー」ボタン用。ボタンの活性判定・確認ダイアログの
@@ -130,7 +185,10 @@ const monthDateRange = (month: string) => ({
 export const getPreviousMonthExtraEntries = async (month: string) => {
   const supabase = createServerSupabase();
   const previousMonth = addMonths(month, -1);
-  const { start: rangeStart, end: rangeEnd } = monthDateRange(previousMonth);
+  const { startDate: rangeStart, endExclusive: rangeEnd } = reportRangeBounds({
+    startMonth: previousMonth,
+    endMonth: previousMonth,
+  });
 
   const { data: extraEntryList, error } = await supabase
     .from("extra_entries")
@@ -166,14 +224,43 @@ export const copyExtraEntriesFromPreviousMonth = async (
   sourceIds: number[],
   targetMonth: string,
 ) => {
+  // 不正な月キーは沈黙の空表示にせず取得失敗として扱う（getProfitLossReport と同方針）
+  if (!isMonthKey(targetMonth)) {
+    console.error(
+      `経理追加収支の前月コピーの対象月の形式が不正です: ${targetMonth}`,
+    );
+    return {
+      insertedCount: 0,
+      skippedCount: 0,
+      error: { message: "対象月の形式が不正です。" },
+    };
+  }
   if (sourceIds.length === 0) {
     return { insertedCount: 0, skippedCount: 0, error: null };
   }
 
+  // 確定済みの月（Issue #148）へのコピーは RLS でも拒否されるが、分かりやすいエラーにする
+  const { closedMonths, error: closingError } = await fetchClosedMonths();
+  if (closingError) {
+    console.error("確定済みの月の取得に失敗しました:", closingError);
+    return { insertedCount: 0, skippedCount: 0, error: closingError };
+  }
+  if (isClosedMonth(closedMonths, targetMonth)) {
+    return {
+      insertedCount: 0,
+      skippedCount: 0,
+      error: null,
+      closedMonthError: CLOSED_MONTH_LOCK_MESSAGE,
+    };
+  }
+
   const supabase = createServerSupabase();
   const previousMonth = addMonths(targetMonth, -1);
-  const { start: previousRangeStart, end: previousRangeEnd } =
-    monthDateRange(previousMonth);
+  const { startDate: previousRangeStart, endExclusive: previousRangeEnd } =
+    reportRangeBounds({
+      startMonth: previousMonth,
+      endMonth: previousMonth,
+    });
 
   const { data: sourceEntries, error: sourceError } = await supabase
     .from("extra_entries")
@@ -192,8 +279,8 @@ export const copyExtraEntriesFromPreviousMonth = async (
     return { insertedCount: 0, skippedCount: 0, error: null };
   }
 
-  const { start: targetRangeStart, end: targetRangeEnd } =
-    monthDateRange(targetMonth);
+  const { startDate: targetRangeStart, endExclusive: targetRangeEnd } =
+    reportRangeBounds({ startMonth: targetMonth, endMonth: targetMonth });
   const { data: existingEntries, error: existingError } = await supabase
     .from("extra_entries")
     .select("*")
@@ -221,4 +308,33 @@ export const copyExtraEntriesFromPreviousMonth = async (
   }
 
   return { insertedCount: newRows.length, skippedCount, error: null };
+};
+
+// 内容・請求先のサジェスト用の過去の入力値を取得する（直近12ヶ月＋月未確定分。
+// 一覧は対象月だけを表示するため、他の月の過去入力も候補に出るよう別に取得する）。
+// 新しい月の行が 0 件でも先月までの入力値が候補に出る（4.19.3）。
+// 補助的な表示のため、取得に失敗しても呼び出し側で空配列にフォールバックする
+export const getExtraEntrySuggestions = async () => {
+  const supabase = createServerSupabase();
+  const currentMonth = currentJstMonth();
+  const bounds = reportRangeBounds({
+    startMonth: addMonths(currentMonth, -11),
+    endMonth: currentMonth,
+  });
+
+  const { data: suggestionList, error } = await supabase
+    .from("extra_entries")
+    .select("description,billing_target")
+    .or(datedOrUndatedFilter("entry_date", bounds))
+    .order("entry_date", { ascending: false, nullsFirst: false })
+    .limit(1000);
+
+  if (error) {
+    console.error(
+      "経理追加収支のサジェスト候補の取得に失敗しました:",
+      error,
+    );
+  }
+
+  return { suggestionList, error };
 };

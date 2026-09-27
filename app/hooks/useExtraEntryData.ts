@@ -1,35 +1,93 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   getExtraEntryList,
+  getExtraEntrySuggestions,
   bulkUpsertExtraEntry,
   getPreviousMonthExtraEntries,
   copyExtraEntriesFromPreviousMonth,
 } from "../utils/supabase/extraEntries";
 import { ExtraEntryInListType, ExtraEntryType } from "../types/types";
 
-// 経理追加収支一覧
-export const useExtraEntryList = (initialData?: ExtraEntryType[] | null) => {
+// 経理追加収支一覧（対象月のエントリ＋月未確定のエントリ）。
+// 月を切り替えている間は前月の表を残す（毎回フルスピナーにしない）
+export const useExtraEntryList = (
+  month: string,
+  initialData?: ExtraEntryType[] | null,
+  // initialData をサーバで取得した時刻。渡さないと TanStack Query は
+  // 「今」シードされたものとして扱い、GC 後に古い initialData が
+  // 新鮮なデータとして再表示される（QueryProvider は refetchOnMount: false）。
+  initialDataUpdatedAt?: number,
+) => {
   return useQuery({
-    queryKey: ["extraEntries", "all"],
+    queryKey: ["extraEntries", "list", month],
     queryFn: async () => {
-      const { extraEntryList, error } = await getExtraEntryList();
+      const { extraEntryList, error } = await getExtraEntryList(month);
       if (error) {
         throw new Error("経理追加収支情報の取得に失敗しました");
       }
       return extraEntryList ?? [];
     },
     initialData: initialData ?? undefined,
+    initialDataUpdatedAt: initialData ? initialDataUpdatedAt : undefined,
+    enabled: !!month,
     staleTime: 2 * 60 * 1000, // 2分
+    // 月を切り替えている間は前月の表を残す（毎回フルスピナーにしない）
+    placeholderData: keepPreviousData,
   });
 };
+
+// 内容・請求先のサジェスト候補（直近12ヶ月＋月未確定分の過去の入力値）。
+// 補助的な表示のため staleTime を長めにし、保存時の ["extraEntries"] 無効化で追従する
+export type ExtraEntrySuggestion = Pick<
+  ExtraEntryType,
+  "description" | "billing_target"
+>;
+
+export const useExtraEntrySuggestions = (
+  initialData?: ExtraEntrySuggestion[] | null,
+) => {
+  return useQuery({
+    queryKey: ["extraEntries", "suggestions"],
+    queryFn: async () => {
+      const { suggestionList, error } = await getExtraEntrySuggestions();
+      if (error) {
+        throw new Error("経理追加収支のサジェスト候補の取得に失敗しました");
+      }
+      return suggestionList ?? [];
+    },
+    initialData: initialData ?? undefined,
+    staleTime: 10 * 60 * 1000, // 10分
+  });
+};
+
+// サーバが保存を拒否・失敗として返したことを表すエラー（何も書き込まれていない。
+// 保存は 1 トランザクションのため一部だけ保存されることはない）。
+// 通信の失敗など結果が分からない場合と画面の案内を分けるために区別する
+export class ExtraEntryValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ExtraEntryValidationError";
+  }
+}
 
 // 経理追加収支の一括登録・更新・削除
 export const useUpsertExtraEntry = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (extraEntries: ExtraEntryInListType[]) =>
-      bulkUpsertExtraEntry(extraEntries),
+    mutationFn: async (extraEntries: ExtraEntryInListType[]) => {
+      const result = await bulkUpsertExtraEntry(extraEntries);
+      if (result.error) {
+        // 保存前の検証（確定済みの月の編集ロック等）で拒否された、または保存に失敗した。
+        // いずれも何も書き込まれていない
+        throw new ExtraEntryValidationError(result.error.message);
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["extraEntries"] });
       // 経理追加収支の変更は月次・年間推移の損益レポートに影響するため、損益側もまとめて無効化する
@@ -68,6 +126,9 @@ export const useCopyExtraEntriesFromPreviousMonth = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
+    // 非冪等な書き込みのため、グローバル retry による mutationFn 再実行を防ぐ
+    // （useSaveBudgetRecurringItems / useSaveBudgetDeclaration と同方針）
+    retry: 0,
     mutationFn: async ({
       sourceIds,
       targetMonth,
@@ -75,8 +136,11 @@ export const useCopyExtraEntriesFromPreviousMonth = () => {
       sourceIds: number[];
       targetMonth: string;
     }) => {
-      const { insertedCount, skippedCount, error } =
+      const { insertedCount, skippedCount, error, closedMonthError } =
         await copyExtraEntriesFromPreviousMonth(sourceIds, targetMonth);
+      if (closedMonthError) {
+        throw new Error(closedMonthError);
+      }
       if (error) {
         throw new Error("経理追加収支の前月コピーに失敗しました");
       }

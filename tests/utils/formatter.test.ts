@@ -8,6 +8,7 @@ import {
   formatMonthHeader,
   formatMonthLabel,
   formatTimeToJp,
+  isMonthKey,
   parseDateString,
   toDateString,
   toFirstOfMonth,
@@ -146,6 +147,18 @@ describe("toFirstOfMonth", () => {
 
   it("日付文字列（YYYY-MM-DD）も月初日に丸める", () => {
     expect(toFirstOfMonth("2026-10-25")).toBe("2026-10-01");
+  });
+});
+
+describe("isMonthKey", () => {
+  it("YYYY-MM 形式のみ true", () => {
+    expect(isMonthKey("2026-07")).toBe(true);
+    expect(isMonthKey("2026-12")).toBe(true);
+    expect(isMonthKey("2026-7")).toBe(false);
+    expect(isMonthKey("2026-13")).toBe(false);
+    expect(isMonthKey("2026-00")).toBe(false);
+    expect(isMonthKey("2026-07-01")).toBe(false);
+    expect(isMonthKey("")).toBe(false);
   });
 });
 

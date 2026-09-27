@@ -12,6 +12,9 @@ interface CustomMonthPickerProps {
   onChange: (month: string | null) => void;
   className?: string;
   isClearable?: boolean;
+  // 月の選択肢に付ける目印（"YYYY-MM" で判定）。"alert" は強調色、"closed" は下線で示す
+  // （損益計算書の確定済みの月・確定後に未反映の変更がある月の表示に使う）
+  getMonthIndicator?: (month: string) => "alert" | "closed" | null;
 }
 
 export const CustomMonthPicker = ({
@@ -23,6 +26,7 @@ export const CustomMonthPicker = ({
   onChange,
   className = "",
   isClearable = false,
+  getMonthIndicator,
 }: CustomMonthPickerProps) => {
   return (
     <MonthPickerInput
@@ -35,6 +39,29 @@ export const CustomMonthPicker = ({
       valueFormat="YYYY/MM"
       value={value ? new Date(`${value}-01T00:00:00`) : null}
       onChange={(date) => onChange(date ? toMonthString(date) : null)}
+      getMonthControlProps={
+        getMonthIndicator
+          ? (date) => {
+              const indicator = getMonthIndicator(toMonthString(date));
+              if (indicator === "alert") {
+                return {
+                  style: {
+                    color: "var(--mantine-color-orange-7)",
+                    fontWeight: 700,
+                  },
+                  title: "確定後に未反映の変更があります",
+                };
+              }
+              if (indicator === "closed") {
+                return {
+                  style: { textDecoration: "underline" },
+                  title: "確定済み",
+                };
+              }
+              return {};
+            }
+          : undefined
+      }
     />
   );
 };

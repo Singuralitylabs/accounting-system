@@ -48,6 +48,12 @@ const { useMatterDetail, idleMutation } = vi.hoisted(() => {
   };
 });
 
+// 案件詳細モーダルの確定済みの月の注意表示（Issue #149）は TanStack Query を使うため、
+// QueryClientProvider を持たない本テストでは確定済みの月なしとしてスタブする
+vi.mock("@/app/hooks/useClosedMonths", () => ({
+  useClosedMonths: () => ({ closedMonths: new Set<string>() }),
+}));
+
 vi.mock("@/app/hooks/useMatterData", () => ({
   useMatterDetail,
   useUpdateMatter: () => idleMutation,

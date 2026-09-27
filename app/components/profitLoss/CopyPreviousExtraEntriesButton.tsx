@@ -7,11 +7,13 @@ import {
 } from "@/app/hooks/useExtraEntryData";
 import { confirmAction } from "@/app/utils/confirmAction";
 import { addMonths, formatMonthLabel } from "@/app/utils/formatter";
-import { notifyError, notifySuccess } from "@/app/utils/notify";
+import { notifyError, notifySuccess, toErrorMessage } from "@/app/utils/notify";
+import { CLOSED_MONTH_LOCK_MESSAGE } from "@/app/utils/profitLossClosing";
 
 type Props = {
   month: string; // 表示中の対象月（"YYYY-MM"）
   hasExistingEntries: boolean; // 当月に既に経理追加収支があるか（追記になる旨の案内用）
+  isClosed: boolean; // 当月が確定済みか（Issue #148。確定中はコピーできない）
 };
 
 // 損益計算書 月次タブの「前月の経理追加収支をコピー」ボタン。
@@ -20,6 +22,7 @@ type Props = {
 const CopyPreviousExtraEntriesButton = ({
   month,
   hasExistingEntries,
+  isClosed,
 }: Props) => {
   const previousMonth = addMonths(month, -1);
   const {
@@ -30,13 +33,15 @@ const CopyPreviousExtraEntriesButton = ({
   const copyMutation = useCopyExtraEntriesFromPreviousMonth();
 
   const previousCount = previousEntries?.length ?? 0;
-  const disabledReason = isLoading
-    ? "前月の経理追加収支を確認しています…"
-    : isError
-      ? "前月の経理追加収支の確認に失敗しました。"
-      : previousCount === 0
-        ? "前月の経理追加収支がありません。"
-        : null;
+  const disabledReason = isClosed
+    ? CLOSED_MONTH_LOCK_MESSAGE
+    : isLoading
+      ? "前月の経理追加収支を確認しています…"
+      : isError
+        ? "前月の経理追加収支の確認に失敗しました。"
+        : previousCount === 0
+          ? "前月の経理追加収支がありません。"
+          : null;
 
   const handleCopy = async () => {
     if (!previousEntries?.length) return;
@@ -70,7 +75,9 @@ const CopyPreviousExtraEntriesButton = ({
       }
     } catch (error) {
       console.error("経理追加収支の前月コピーに失敗しました:", error);
-      notifyError("経理追加収支の前月コピーに失敗しました。");
+      notifyError(
+        toErrorMessage(error, "経理追加収支の前月コピーに失敗しました。"),
+      );
     }
   };
 

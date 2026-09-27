@@ -1,28 +1,20 @@
 import { Button, Group, Select, Table, TextInput } from "@mantine/core";
 import { ProfilesType } from "../types/types";
-import { classList } from "./UserList";
-import { useEffect, useState } from "react";
-import { getSelectOptions } from "../utils/supabase/selectOptions";
+import { classList, teamOptionsFor } from "./UserList";
 
 type Props = {
   userInfo: ProfilesType;
+  teamList: string[];
   onUpdateUserList: (userId: number, updates: Partial<ProfilesType>) => void;
   onSaveUser: (userId: number) => void;
 };
 
-const UserTable = ({ userInfo, onUpdateUserList, onSaveUser }: Props) => {
-  const [teamOptions, setTeamOptions] = useState<string[]>([]);
-
-  useEffect(() => {
-    const fetchTeamOptions = async () => {
-      const { options } = await getSelectOptions("team");
-      if (options) {
-        setTeamOptions(options.map((option) => option.value));
-      }
-    };
-    fetchTeamOptions();
-  }, []);
-
+const UserTable = ({
+  userInfo,
+  teamList,
+  onUpdateUserList,
+  onSaveUser,
+}: Props) => {
   return (
     <Table.Tr key={userInfo.id}>
       <Table.Td>{userInfo.id}</Table.Td>
@@ -44,7 +36,7 @@ const UserTable = ({ userInfo, onUpdateUserList, onSaveUser }: Props) => {
       </Table.Td>
       <Table.Td>
         <Select
-          data={teamOptions}
+          data={teamOptionsFor(userInfo.team, teamList)}
           value={userInfo.team || ""}
           onChange={(value) => onUpdateUserList(userInfo.id, { team: value })}
           placeholder={"チームを選択"}
