@@ -347,6 +347,22 @@ const ProfitLossStatement = ({
   const changedKeys = new Set(pendingDiffs.map((diff) => diff.key));
   const changedMatterIds = new Set(pendingDiffs.map((diff) => diff.matterId));
 
+  const matterProfitTable = (
+    <MatterProfitTable
+      matters={report.matterBreakdowns}
+      totals={report.matterTotals}
+      canEditAdjustments={canEditAdjustments}
+      isClosed={isClosed}
+      changedKeys={changedKeys}
+      changedMatterIds={changedMatterIds}
+      loadingMatterId={loadingMatterId}
+      onShowMatter={handleShowMatter}
+      onEditAdjustment={openAdjustmentModal}
+      canEditLabels={canEditLabels}
+      onEditTitle={openLabelModal}
+    />
+  );
+
   return (
     <div>
       {/* 確定後の案件の変更（差分一覧・反映・見送り。経理担当者・管理者のみ） */}
@@ -487,7 +503,8 @@ const ProfitLossStatement = ({
                 {expenseExtraEntries.length > 0 && (
                   <span className="text-xs text-gray-500 font-normal ml-2">
                     （定期費用 {formatCurrency(report.recurringCostTotal)} ＋
-                    経理追加収支 {formatCurrency(report.extraExpenseTotal)}）
+                    経理追加収支（支出）{" "}
+                    {formatCurrency(report.extraExpenseTotal)}）
                   </span>
                 )}
               </Table.Td>
@@ -621,44 +638,36 @@ const ProfitLossStatement = ({
 
       {/* 収支の内訳（Issue #152。案件別 / チーム別をタブで切り替える。分類別は Issue #164 で
           損益計算書の「案件」行の内訳に統合した。
-          チーム別は accounting / admin のみデータが入る。非表示のタブも描画したままにする
-          Mantine v7 の既定（keepMounted）で、タブを切り替えても案件別収支の展開状態を保つ） */}
-      <Tabs
-        value={breakdownTab}
-        onChange={(value) =>
-          onBreakdownTabChange(
-            (value as BreakdownTab | null) ?? DEFAULT_BREAKDOWN_TAB,
-          )
-        }
-        className="mb-6"
-      >
-        <Tabs.List>
-          <Tabs.Tab value="matter">案件別</Tabs.Tab>
-          {report.byTeam && <Tabs.Tab value="team">チーム別</Tabs.Tab>}
-        </Tabs.List>
+          チーム別は accounting / admin のみデータが入る。チーム別内訳の無いロールは
+          タブが 1 つになるため、タブを出さずに案件別収支だけを表示する。
+          非表示のタブも描画したままにする Mantine v7 の既定（keepMounted）で、
+          タブを切り替えても案件別収支の展開状態を保つ） */}
+      {report.byTeam ? (
+        <Tabs
+          value={breakdownTab}
+          onChange={(value) =>
+            onBreakdownTabChange(
+              (value as BreakdownTab | null) ?? DEFAULT_BREAKDOWN_TAB,
+            )
+          }
+          className="mb-6"
+        >
+          <Tabs.List>
+            <Tabs.Tab value="matter">案件別</Tabs.Tab>
+            <Tabs.Tab value="team">チーム別</Tabs.Tab>
+          </Tabs.List>
 
-        <Tabs.Panel value="matter" className="pt-4">
-          <MatterProfitTable
-            matters={report.matterBreakdowns}
-            totals={report.matterTotals}
-            canEditAdjustments={canEditAdjustments}
-            isClosed={isClosed}
-            changedKeys={changedKeys}
-            changedMatterIds={changedMatterIds}
-            loadingMatterId={loadingMatterId}
-            onShowMatter={handleShowMatter}
-            onEditAdjustment={openAdjustmentModal}
-            canEditLabels={canEditLabels}
-            onEditTitle={openLabelModal}
-          />
-        </Tabs.Panel>
+          <Tabs.Panel value="matter" className="pt-4">
+            {matterProfitTable}
+          </Tabs.Panel>
 
-        {report.byTeam && (
           <Tabs.Panel value="team" className="pt-4">
             <TeamProfitTable byTeam={report.byTeam} />
           </Tabs.Panel>
-        )}
-      </Tabs>
+        </Tabs>
+      ) : (
+        <div className="mb-6">{matterProfitTable}</div>
+      )}
 
       {/* 対象行が当月に存在しない損益調整（案件開始日の変更等）。削除を促す */}
       {report.orphanedAdjustments && report.orphanedAdjustments.length > 0 && (

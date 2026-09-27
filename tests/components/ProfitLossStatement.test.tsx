@@ -201,7 +201,7 @@ describe("ProfitLossStatement のサマリーカードと損益計算書（Issue
     const adminRow = plRow("管理費合計");
     expect(adminRow).toHaveTextContent("￥25,000");
     expect(adminRow).toHaveTextContent(
-      "（定期費用 ￥20,000 ＋ 経理追加収支 ￥5,000）",
+      "（定期費用 ￥20,000 ＋ 経理追加収支（支出） ￥5,000）",
     );
     const expenseRow = plRow("経理追加収支（支出）");
     expect(expenseRow).toHaveTextContent("￥5,000");
@@ -307,12 +307,14 @@ describe("ProfitLossStatement の表示順と収支の内訳タブ（Issue #152 
     ).toBeVisible();
   });
 
-  it("チーム別内訳を持たないロール（チームリーダー）には案件別タブのみ", () => {
+  it("チーム別内訳を持たないロール（チームリーダー）にはタブを出さず案件別収支のみ表示する", () => {
     renderWithMantine(<Controlled withTeamBreakdown={false} />);
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("tab", { name: "チーム別" }),
-    ).not.toBeInTheDocument();
-    expect(screen.getAllByRole("tab")).toHaveLength(1);
+      screen.getByRole("columnheader", { name: "案件別収支" }),
+    ).toBeVisible();
+    expect(screen.getByText("案件X")).toBeVisible();
   });
 });
 
