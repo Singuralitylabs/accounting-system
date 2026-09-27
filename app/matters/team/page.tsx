@@ -10,7 +10,9 @@ const TeamMatterPage = async () => {
   return (
     <main className="pt-6">
       {teamName ? (
-        <p className="mb-2 px-8 text-sm text-gray-600">{teamName}</p>
+        <h1 className="mb-2 px-8 text-sm font-normal text-gray-600">
+          {teamName}
+        </h1>
       ) : null}
       <Suspense fallback={<LoadingSpinner />}>
         <DynamicTeamMatterList />

@@ -8,6 +8,7 @@ const HomePage = async () => {
 
   return (
     <main className="bg-slate-50 min-h-[60vh] px-4 pb-12 pt-6">
+      <h1 className="sr-only">ページ一覧</h1>
       <NavigationHub items={items} />
     </main>
   );
