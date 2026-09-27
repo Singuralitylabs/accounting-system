@@ -1,4 +1,7 @@
-import { getExtraEntryList } from "@/app/utils/supabase/extraEntries";
+import {
+  getExtraEntryList,
+  getExtraEntrySuggestions,
+} from "@/app/utils/supabase/extraEntries";
 import { getAllUserInfo } from "@/app/utils/supabase/profiles";
 import { getSelectOptions } from "@/app/utils/supabase/selectOptions";
 import { resolveExtraEntryMonth } from "@/app/utils/extraEntry";
@@ -19,6 +22,7 @@ const DynamicExtraEntries = async ({ monthParam }: Props = {}) => {
     paymentMethodResult,
     teamResult,
     { userInfoList, error: userInfoError },
+    { suggestionList, error: suggestionError },
   ] = await Promise.all([
     getExtraEntryList(initialMonth),
     getSelectOptions("extra_income_category"),
@@ -26,6 +30,7 @@ const DynamicExtraEntries = async ({ monthParam }: Props = {}) => {
     getSelectOptions("payment_method"),
     getSelectOptions("team"),
     getAllUserInfo(),
+    getExtraEntrySuggestions(),
   ]);
 
   // 取得に失敗した結果を空配列として描画すると「0 件」と区別が付かず、
@@ -48,6 +53,15 @@ const DynamicExtraEntries = async ({ monthParam }: Props = {}) => {
     throw new Error("ユーザー情報の取得に失敗しました。");
   }
 
+  // サジェスト候補は補助的な表示のため、取得に失敗しても空配列で描画する
+  // （クライアント側で再取得される）
+  if (suggestionError) {
+    console.error(
+      "経理追加収支のサジェスト候補の取得に失敗しました:",
+      suggestionError,
+    );
+  }
+
   return (
     <main>
       <ExtraEntryList
@@ -66,6 +80,7 @@ const DynamicExtraEntries = async ({ monthParam }: Props = {}) => {
           (option) => option.value,
         )}
         teamList={teamResult.options.map((option) => option.value)}
+        initialSuggestions={suggestionList ?? []}
         memberList={userInfoList.map((user) => ({
           value: String(user.id),
           label: user.name,

@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-query";
 import {
   getExtraEntryList,
+  getExtraEntrySuggestions,
   bulkUpsertExtraEntry,
   getPreviousMonthExtraEntries,
   copyExtraEntriesFromPreviousMonth,
@@ -37,6 +38,30 @@ export const useExtraEntryList = (
     staleTime: 2 * 60 * 1000, // 2分
     // 月を切り替えている間は前月の表を残す（毎回フルスピナーにしない）
     placeholderData: keepPreviousData,
+  });
+};
+
+// 内容・請求先のサジェスト候補（直近12ヶ月＋月未確定分の過去の入力値）。
+// 補助的な表示のため staleTime を長めにし、保存時の ["extraEntries"] 無効化で追従する
+export type ExtraEntrySuggestion = Pick<
+  ExtraEntryType,
+  "description" | "billing_target"
+>;
+
+export const useExtraEntrySuggestions = (
+  initialData?: ExtraEntrySuggestion[] | null,
+) => {
+  return useQuery({
+    queryKey: ["extraEntries", "suggestions"],
+    queryFn: async () => {
+      const { suggestionList, error } = await getExtraEntrySuggestions();
+      if (error) {
+        throw new Error("経理追加収支のサジェスト候補の取得に失敗しました");
+      }
+      return suggestionList ?? [];
+    },
+    initialData: initialData ?? undefined,
+    staleTime: 10 * 60 * 1000, // 10分
   });
 };
 

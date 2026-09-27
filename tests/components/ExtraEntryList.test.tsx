@@ -4,6 +4,7 @@ import { fireEvent, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ExtraEntryList from "@/app/components/extraEntries/ExtraEntryList";
 import { ExtraEntryType } from "@/app/types/types";
+import type { ExtraEntrySuggestion } from "@/app/hooks/useExtraEntryData";
 import { notifyError } from "@/app/utils/notify";
 import { confirmAction } from "@/app/utils/confirmAction";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
@@ -17,6 +18,8 @@ const extraEntryListOverrides = vi.hoisted(() => ({
     isLoading?: boolean;
     isError?: boolean;
     isPlaceholderData?: boolean;
+    isFetching?: boolean;
+    isStale?: boolean;
   },
 }));
 const closedMonthsOverrides = vi.hoisted(() => ({
@@ -25,6 +28,9 @@ const closedMonthsOverrides = vi.hoisted(() => ({
     isLoading?: boolean;
     isError?: boolean;
   },
+}));
+const suggestionsState = vi.hoisted(() => ({
+  value: [] as ExtraEntrySuggestion[],
 }));
 vi.mock("@/app/hooks/useExtraEntryData", () => ({
   useExtraEntryList: (
@@ -36,8 +42,11 @@ vi.mock("@/app/hooks/useExtraEntryData", () => ({
     isLoading: false,
     isError: false,
     isPlaceholderData: false,
+    isFetching: false,
+    isStale: false,
     ...extraEntryListOverrides.value,
   }),
+  useExtraEntrySuggestions: () => ({ data: suggestionsState.value }),
   useUpsertExtraEntry: () => ({ mutateAsync, isPending: false }),
   ExtraEntryValidationError: class extends Error {},
 }));
@@ -122,6 +131,7 @@ const renderList = (initialData: ExtraEntryType[], initialMonth = "2026-09") =>
       expenseCategoryList={["交通費"]}
       paymentMethodList={["現金"]}
       teamList={["シンラボ"]}
+      initialSuggestions={[]}
       memberList={[{ value: "1", label: "経理太郎" }]}
     />,
   );
@@ -133,6 +143,7 @@ const resetMocks = () => {
   vi.mocked(confirmAction).mockResolvedValue(true);
   extraEntryListOverrides.value = {};
   closedMonthsOverrides.value = {};
+  suggestionsState.value = [];
 };
 
 describe("ExtraEntryList の一括保存", () => {
@@ -249,6 +260,28 @@ describe("ExtraEntryList の月別表示（Issue #157）", () => {
       "disabled",
       true,
     );
+  });
+
+  it("キャッシュ済みのstaleな月への切替中（再取得中）は保存できない", () => {
+    extraEntryListOverrides.value = { isFetching: true, isStale: true };
+    renderList([entry({ id: 2, description: "9月協賛" })]);
+
+    expect(screen.getByRole("button", { name: "保存" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
+  it("他の月の過去入力も内容の候補に出る", async () => {
+    suggestionsState.value = [
+      { description: "先月の定例収入", billing_target: "先月の請求先" },
+    ];
+    renderList([entry({ id: 2, description: "9月協賛" })]);
+    fireEvent.change(screen.getByDisplayValue("9月協賛"), {
+      target: { value: "先月" },
+    });
+
+    expect(await screen.findByText("先月の定例収入")).toBeTruthy();
   });
 });
 

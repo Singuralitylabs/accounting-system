@@ -2,17 +2,22 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   getExtraEntryList,
+  getExtraEntrySuggestions,
   getRecurringCostList,
   getAllUserInfo,
   getSelectOptions,
 } = vi.hoisted(() => ({
   getExtraEntryList: vi.fn(),
+  getExtraEntrySuggestions: vi.fn(),
   getRecurringCostList: vi.fn(),
   getAllUserInfo: vi.fn(),
   getSelectOptions: vi.fn(),
 }));
 
-vi.mock("@/app/utils/supabase/extraEntries", () => ({ getExtraEntryList }));
+vi.mock("@/app/utils/supabase/extraEntries", () => ({
+  getExtraEntryList,
+  getExtraEntrySuggestions,
+}));
 vi.mock("@/app/utils/supabase/recurringCosts", () => ({
   getRecurringCostList,
 }));
@@ -38,11 +43,16 @@ const okOptions = { options: [{ id: 1, value: "開発" }], error: null };
 describe("Dynamic* サーバコンポーネントの取得エラー", () => {
   beforeEach(() => {
     getExtraEntryList.mockReset();
+    getExtraEntrySuggestions.mockReset();
     getRecurringCostList.mockReset();
     getAllUserInfo.mockReset();
     getSelectOptions.mockReset();
     getSelectOptions.mockResolvedValue(okOptions);
     getExtraEntryList.mockResolvedValue({ extraEntryList: [], error: null });
+    getExtraEntrySuggestions.mockResolvedValue({
+      suggestionList: [],
+      error: null,
+    });
     getRecurringCostList.mockResolvedValue({
       recurringCostList: [],
       error: null,

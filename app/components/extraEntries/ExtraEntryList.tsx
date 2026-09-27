@@ -3,7 +3,9 @@
 import { ExtraEntryInListType, ExtraEntryType } from "@/app/types/types";
 import {
   ExtraEntryValidationError,
+  ExtraEntrySuggestion,
   useExtraEntryList,
+  useExtraEntrySuggestions,
   useUpsertExtraEntry,
 } from "@/app/hooks/useExtraEntryData";
 import { useClosedMonths } from "@/app/hooks/useClosedMonths";
@@ -48,6 +50,8 @@ type Props = {
   expenseCategoryList: string[];
   paymentMethodList: string[];
   teamList: string[];
+  // 内容・請求先のサジェスト用の過去の入力値（直近12ヶ月＋月未確定分）
+  initialSuggestions: ExtraEntrySuggestion[];
   memberList: { value: string; label: string }[];
 };
 
@@ -69,6 +73,7 @@ const ExtraEntryList = ({
   expenseCategoryList,
   paymentMethodList,
   teamList,
+  initialSuggestions,
   memberList,
 }: Props) => {
   // 対象月（`?month=` で引き継いだ月または当月）。一覧には対象月のエントリと
@@ -78,6 +83,8 @@ const ExtraEntryList = ({
     data: extraEntryList,
     isError,
     isPlaceholderData,
+    isFetching,
+    isStale,
   } = useExtraEntryList(
     month,
     month === initialMonth ? initialData : undefined,
@@ -91,8 +98,10 @@ const ExtraEntryList = ({
     isLoading: isClosedLoading,
     isError: isClosedError,
   } = useClosedMonths();
-  // 月切替中（新しい月の取得中）は前月の行を残したまま、編集・保存できないようにする
-  const isSwitchingMonth = isPlaceholderData;
+  // 月切替中（新しい月の取得中）は前月の行を残したまま、編集・保存できないようにする。
+  // キャッシュ済みの stale な月への切替では placeholder を経由しないため、
+  // 再取得が終わるまで（isFetching && isStale）もロックする
+  const isSwitchingMonth = isPlaceholderData || (isFetching && isStale);
   const isMonthClosed = isClosedMonth(closedMonths, month);
   // 確定済みの月の情報がまだ無い（取得中・取得失敗）間は、確定済みか判定できない
   // ため追加ボタンを無効にする（保存はロック判定・RLS で拒否されるが、仕様どおり
@@ -100,6 +109,8 @@ const ExtraEntryList = ({
   const isClosedUnknown = isClosedLoading || isClosedError;
   // 切替中・保存中はすべての入力を無効化する
   const formLocked = isSwitchingMonth || upsertMutation.isPending;
+  // 追加は対象月が確定済みでなく、確定済みかが判明し、ロックされていないときだけ
+  const canAddRow = !isMonthClosed && !isClosedUnknown && !formLocked;
   // 最新の保存済みの行（編集ロックは変更前の日付で判定する）
   const originals = useMemo(
     () => toRowMap(extraEntryList ?? initialData),
@@ -132,14 +143,25 @@ const ExtraEntryList = ({
   const incomeRows = visibleRows.filter((row) => row.entry_type === "income");
   const expenseRows = visibleRows.filter((row) => row.entry_type === "expense");
 
-  // 内容・請求先のサジェスト候補（編集中の行も含めた過去の入力値）
+  // 内容・請求先のサジェスト候補（直近12ヶ月＋月未確定分の過去の入力値と、
+  // 編集中の行も含めた表示中の行の入力値）
+  const { data: suggestionEntries } =
+    useExtraEntrySuggestions(initialSuggestions);
   const descriptionSuggestions = useMemo(
-    () => toSuggestions(visibleRows.map((row) => row.description)),
-    [visibleRows],
+    () =>
+      toSuggestions([
+        ...(suggestionEntries ?? []).map((row) => row.description),
+        ...visibleRows.map((row) => row.description),
+      ]),
+    [suggestionEntries, visibleRows],
   );
   const billingTargetSuggestions = useMemo(
-    () => toSuggestions(visibleRows.map((row) => row.billing_target)),
-    [visibleRows],
+    () =>
+      toSuggestions([
+        ...(suggestionEntries ?? []).map((row) => row.billing_target),
+        ...visibleRows.map((row) => row.billing_target),
+      ]),
+    [suggestionEntries, visibleRows],
   );
 
   // 未保存の編集がある状態で月を変えようとしたら確認し、破棄して切り替える。
@@ -168,7 +190,7 @@ const ExtraEntryList = ({
   };
 
   const handleAddRow = (entryType: "income" | "expense") => {
-    if (isMonthClosed || isClosedUnknown || formLocked) return;
+    if (!canAddRow) return;
     const newId =
       rows.length > 0 ? Math.max(...rows.map((row) => row.id)) + 1 : 1;
     const newRow: ExtraEntryInListType = {
@@ -408,222 +430,233 @@ const ExtraEntryList = ({
     </button>
   );
 
+  const monthPicker = (
+    <div className="mb-4 max-w-xs">
+      <CustomMonthPicker
+        label="対象月"
+        placeholder="対象月を選択"
+        value={month}
+        onChange={handleChangeMonth}
+        getMonthIndicator={(m) => (closedMonths.has(m) ? "closed" : null)}
+      />
+    </div>
+  );
+
+  // 一覧がまだ無い（初回・月切替の取得失敗／読み込み中）は、月ピッカーと
+  // Alert／読み込み中表示だけを返す
+  if (!extraEntryList) {
+    return (
+      <div className="px-4 pb-8 relative">
+        {monthPicker}
+        {isError ? (
+          <Alert color="red" title="経理追加収支情報の取得に失敗しました">
+            時間をおいてページを再読み込みしてください。
+          </Alert>
+        ) : (
+          <p className="py-6 text-center text-gray-500">読み込み中…</p>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="px-4 pb-8 relative">
       <LoadingOverlay visible={upsertMutation.isPending || isSwitchingMonth} />
-      <div className="mb-4 max-w-xs">
-        <CustomMonthPicker
-          label="対象月"
-          placeholder="対象月を選択"
-          value={month}
-          onChange={handleChangeMonth}
-          getMonthIndicator={(m) => (closedMonths.has(m) ? "closed" : null)}
-        />
-      </div>
-      {extraEntryList ? (
-        <>
-          {isError && (
-            <Alert
-              color="red"
-              title="最新の経理追加収支情報の取得に失敗しました"
-              className="mb-4"
-            >
-              表示中の内容は取得済みのものです。時間をおいてページを再読み込みしてください。
-            </Alert>
-          )}
-          <div className="flex justify-between items-center mb-4 gap-4">
-            <p className="text-sm text-gray-600">
-              案件に紐づかない収入・支出を登録します。日付の属する月の損益計算書に算入されます（日付未入力は月未確定）。
-              一覧には対象月のエントリと月未確定のエントリのみ表示され、日付を別の月に変更して保存した行はその月の一覧に移ります。
-              金額は税別で、マイナス値による減額調整も登録できます。損益計算書で確定済みの月のエントリは編集・削除できません（確定済みの月の日付も選べません）。
-            </p>
-            <Button
-              type="button"
-              disabled={upsertMutation.isPending || isSwitchingMonth}
-              onClick={handleSave}
-            >
-              保存
-            </Button>
-          </div>
-
-          {/* ===== 収入 ===== */}
-          <Title order={3} className="mb-2">
-            収入
-          </Title>
-          <div className="overflow-x-auto border border-gray-300 rounded bg-slate-50 p-4 mb-8">
-            <Table verticalSpacing="sm" className="whitespace-nowrap">
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th className="min-w-36">分類</Table.Th>
-                  <Table.Th className="min-w-40">日付</Table.Th>
-                  <Table.Th className="min-w-44">内容</Table.Th>
-                  <Table.Th className="min-w-32">請求書番号</Table.Th>
-                  <Table.Th className="min-w-40">請求先</Table.Th>
-                  <Table.Th className="min-w-32">責任者</Table.Th>
-                  <Table.Th className="min-w-32">チーム</Table.Th>
-                  <Table.Th className="min-w-36">請求額（税別）</Table.Th>
-                  <Table.Th className="min-w-36">経費（税別）</Table.Th>
-                  <Table.Th className="w-12" />
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {incomeRows.map((row) => (
-                  <Table.Tr key={row.id}>
-                    <Table.Td>
-                      {renderCategorySelect(row, incomeCategoryList)}
-                    </Table.Td>
-                    <Table.Td>{renderDatePicker(row)}</Table.Td>
-                    <Table.Td>{renderDescriptionInput(row)}</Table.Td>
-                    <Table.Td>
-                      <TextInput
-                        value={row.invoice_number ?? ""}
-                        placeholder="請求書番号"
-                        disabled={isRowLocked(row) || formLocked}
-                        onChange={(event) =>
-                          handleUpdateRow(row.id, {
-                            invoice_number: event.target.value || null,
-                          })
-                        }
-                      />
-                    </Table.Td>
-                    <Table.Td>
-                      <Autocomplete
-                        value={row.billing_target ?? ""}
-                        placeholder="請求先"
-                        data={billingTargetSuggestions}
-                        disabled={isRowLocked(row) || formLocked}
-                        onChange={(value) =>
-                          handleUpdateRow(row.id, {
-                            billing_target: value || null,
-                          })
-                        }
-                      />
-                    </Table.Td>
-                    <Table.Td>{renderManagerSelect(row)}</Table.Td>
-                    <Table.Td>{renderTeamSelect(row)}</Table.Td>
-                    <Table.Td>
-                      <NumberInput
-                        value={row.billing_amount ?? ""}
-                        step={1000}
-                        thousandSeparator=","
-                        prefix="¥"
-                        disabled={isRowLocked(row) || formLocked}
-                        // マイナス金額（減額調整）を許容するため min は設定しない
-                        onChange={(value) =>
-                          handleUpdateRow(row.id, {
-                            billing_amount:
-                              typeof value === "number" ? value : null,
-                          })
-                        }
-                      />
-                    </Table.Td>
-                    <Table.Td>{renderExpenseAmountInput(row, "任意")}</Table.Td>
-                    <Table.Td>{renderRemoveButton(row)}</Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-            {incomeRows.length === 0 && (
-              <p className="text-center text-gray-500 py-6">
-                収入が登録されていません。
-              </p>
-            )}
-            <Button
-              type="button"
-              fullWidth
-              className="mt-4"
-              color="dark"
-              variant="outline"
-              rightSection={<CiSquarePlus />}
-              disabled={isMonthClosed || isClosedUnknown || formLocked}
-              onClick={() => handleAddRow("income")}
-            >
-              収入を追加
-            </Button>
-            {isMonthClosed && (
-              <p className="mt-2 text-center text-sm text-gray-600">
-                {CLOSED_MONTH_LOCK_MESSAGE}のため追加できません。
-              </p>
-            )}
-          </div>
-
-          {/* ===== 支出 ===== */}
-          <Title order={3} className="mb-2">
-            支出
-          </Title>
-          <div className="overflow-x-auto border border-gray-300 rounded bg-slate-50 p-4">
-            <Table verticalSpacing="sm" className="whitespace-nowrap">
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th className="min-w-36">分類</Table.Th>
-                  <Table.Th className="min-w-40">日付</Table.Th>
-                  <Table.Th className="min-w-44">内容</Table.Th>
-                  <Table.Th className="min-w-32">責任者</Table.Th>
-                  <Table.Th className="min-w-32">チーム</Table.Th>
-                  <Table.Th className="min-w-36">経費（税別）</Table.Th>
-                  <Table.Th className="min-w-36">決済方法</Table.Th>
-                  <Table.Th className="w-12" />
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {expenseRows.map((row) => (
-                  <Table.Tr key={row.id}>
-                    <Table.Td>
-                      {renderCategorySelect(row, expenseCategoryList)}
-                    </Table.Td>
-                    <Table.Td>{renderDatePicker(row)}</Table.Td>
-                    <Table.Td>{renderDescriptionInput(row)}</Table.Td>
-                    <Table.Td>{renderManagerSelect(row)}</Table.Td>
-                    <Table.Td>{renderTeamSelect(row)}</Table.Td>
-                    <Table.Td>{renderExpenseAmountInput(row)}</Table.Td>
-                    <Table.Td>
-                      <Select
-                        value={row.payment_method}
-                        placeholder="決済方法を選択"
-                        data={paymentMethodList}
-                        disabled={isRowLocked(row) || formLocked}
-                        onChange={(selected) =>
-                          handleUpdateRow(row.id, { payment_method: selected })
-                        }
-                        allowDeselect={false}
-                      />
-                    </Table.Td>
-                    <Table.Td>{renderRemoveButton(row)}</Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-            {expenseRows.length === 0 && (
-              <p className="text-center text-gray-500 py-6">
-                支出が登録されていません。
-              </p>
-            )}
-            <Button
-              type="button"
-              fullWidth
-              className="mt-4"
-              color="dark"
-              variant="outline"
-              rightSection={<CiSquarePlus />}
-              disabled={isMonthClosed || isClosedUnknown || formLocked}
-              onClick={() => handleAddRow("expense")}
-            >
-              支出を追加
-            </Button>
-            {isMonthClosed && (
-              <p className="mt-2 text-center text-sm text-gray-600">
-                {CLOSED_MONTH_LOCK_MESSAGE}のため追加できません。
-              </p>
-            )}
-          </div>
-        </>
-      ) : isError ? (
-        <Alert color="red" title="経理追加収支情報の取得に失敗しました">
-          時間をおいてページを再読み込みしてください。
+      {monthPicker}
+      {isError && (
+        <Alert
+          color="red"
+          title="最新の経理追加収支情報の取得に失敗しました"
+          className="mb-4"
+        >
+          表示中の内容は取得済みのものです。時間をおいてページを再読み込みしてください。
         </Alert>
-      ) : (
-        <p className="py-6 text-center text-gray-500">読み込み中…</p>
       )}
+      <div className="flex justify-between items-center mb-4 gap-4">
+        <p className="text-sm text-gray-600">
+          案件に紐づかない収入・支出を登録します。日付の属する月の損益計算書に算入されます（日付未入力は月未確定）。
+          一覧には対象月のエントリと月未確定のエントリのみ表示され、日付を別の月に変更して保存した行はその月の一覧に移ります。
+          金額は税別で、マイナス値による減額調整も登録できます。損益計算書で確定済みの月のエントリは編集・削除できません（確定済みの月の日付も選べません）。
+        </p>
+        <Button
+          type="button"
+          disabled={upsertMutation.isPending || isSwitchingMonth}
+          onClick={handleSave}
+        >
+          保存
+        </Button>
+      </div>
+
+      {/* ===== 収入 ===== */}
+      <Title order={3} className="mb-2">
+        収入
+      </Title>
+      <div className="overflow-x-auto border border-gray-300 rounded bg-slate-50 p-4 mb-8">
+        <Table verticalSpacing="sm" className="whitespace-nowrap">
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th className="min-w-36">分類</Table.Th>
+              <Table.Th className="min-w-40">日付</Table.Th>
+              <Table.Th className="min-w-44">内容</Table.Th>
+              <Table.Th className="min-w-32">請求書番号</Table.Th>
+              <Table.Th className="min-w-40">請求先</Table.Th>
+              <Table.Th className="min-w-32">責任者</Table.Th>
+              <Table.Th className="min-w-32">チーム</Table.Th>
+              <Table.Th className="min-w-36">請求額（税別）</Table.Th>
+              <Table.Th className="min-w-36">経費（税別）</Table.Th>
+              <Table.Th className="w-12" />
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {incomeRows.map((row) => (
+              <Table.Tr key={row.id}>
+                <Table.Td>
+                  {renderCategorySelect(row, incomeCategoryList)}
+                </Table.Td>
+                <Table.Td>{renderDatePicker(row)}</Table.Td>
+                <Table.Td>{renderDescriptionInput(row)}</Table.Td>
+                <Table.Td>
+                  <TextInput
+                    value={row.invoice_number ?? ""}
+                    placeholder="請求書番号"
+                    disabled={isRowLocked(row) || formLocked}
+                    onChange={(event) =>
+                      handleUpdateRow(row.id, {
+                        invoice_number: event.target.value || null,
+                      })
+                    }
+                  />
+                </Table.Td>
+                <Table.Td>
+                  <Autocomplete
+                    value={row.billing_target ?? ""}
+                    placeholder="請求先"
+                    data={billingTargetSuggestions}
+                    disabled={isRowLocked(row) || formLocked}
+                    onChange={(value) =>
+                      handleUpdateRow(row.id, {
+                        billing_target: value || null,
+                      })
+                    }
+                  />
+                </Table.Td>
+                <Table.Td>{renderManagerSelect(row)}</Table.Td>
+                <Table.Td>{renderTeamSelect(row)}</Table.Td>
+                <Table.Td>
+                  <NumberInput
+                    value={row.billing_amount ?? ""}
+                    step={1000}
+                    thousandSeparator=","
+                    prefix="¥"
+                    disabled={isRowLocked(row) || formLocked}
+                    // マイナス金額（減額調整）を許容するため min は設定しない
+                    onChange={(value) =>
+                      handleUpdateRow(row.id, {
+                        billing_amount:
+                          typeof value === "number" ? value : null,
+                      })
+                    }
+                  />
+                </Table.Td>
+                <Table.Td>{renderExpenseAmountInput(row, "任意")}</Table.Td>
+                <Table.Td>{renderRemoveButton(row)}</Table.Td>
+              </Table.Tr>
+            ))}
+          </Table.Tbody>
+        </Table>
+        {incomeRows.length === 0 && (
+          <p className="text-center text-gray-500 py-6">
+            収入が登録されていません。
+          </p>
+        )}
+        <Button
+          type="button"
+          fullWidth
+          className="mt-4"
+          color="dark"
+          variant="outline"
+          rightSection={<CiSquarePlus />}
+          disabled={!canAddRow}
+          onClick={() => handleAddRow("income")}
+        >
+          収入を追加
+        </Button>
+        {isMonthClosed && (
+          <p className="mt-2 text-center text-sm text-gray-600">
+            {CLOSED_MONTH_LOCK_MESSAGE}のため追加できません。
+          </p>
+        )}
+      </div>
+
+      {/* ===== 支出 ===== */}
+      <Title order={3} className="mb-2">
+        支出
+      </Title>
+      <div className="overflow-x-auto border border-gray-300 rounded bg-slate-50 p-4">
+        <Table verticalSpacing="sm" className="whitespace-nowrap">
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th className="min-w-36">分類</Table.Th>
+              <Table.Th className="min-w-40">日付</Table.Th>
+              <Table.Th className="min-w-44">内容</Table.Th>
+              <Table.Th className="min-w-32">責任者</Table.Th>
+              <Table.Th className="min-w-32">チーム</Table.Th>
+              <Table.Th className="min-w-36">経費（税別）</Table.Th>
+              <Table.Th className="min-w-36">決済方法</Table.Th>
+              <Table.Th className="w-12" />
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {expenseRows.map((row) => (
+              <Table.Tr key={row.id}>
+                <Table.Td>
+                  {renderCategorySelect(row, expenseCategoryList)}
+                </Table.Td>
+                <Table.Td>{renderDatePicker(row)}</Table.Td>
+                <Table.Td>{renderDescriptionInput(row)}</Table.Td>
+                <Table.Td>{renderManagerSelect(row)}</Table.Td>
+                <Table.Td>{renderTeamSelect(row)}</Table.Td>
+                <Table.Td>{renderExpenseAmountInput(row)}</Table.Td>
+                <Table.Td>
+                  <Select
+                    value={row.payment_method}
+                    placeholder="決済方法を選択"
+                    data={paymentMethodList}
+                    disabled={isRowLocked(row) || formLocked}
+                    onChange={(selected) =>
+                      handleUpdateRow(row.id, { payment_method: selected })
+                    }
+                    allowDeselect={false}
+                  />
+                </Table.Td>
+                <Table.Td>{renderRemoveButton(row)}</Table.Td>
+              </Table.Tr>
+            ))}
+          </Table.Tbody>
+        </Table>
+        {expenseRows.length === 0 && (
+          <p className="text-center text-gray-500 py-6">
+            支出が登録されていません。
+          </p>
+        )}
+        <Button
+          type="button"
+          fullWidth
+          className="mt-4"
+          color="dark"
+          variant="outline"
+          rightSection={<CiSquarePlus />}
+          disabled={!canAddRow}
+          onClick={() => handleAddRow("expense")}
+        >
+          支出を追加
+        </Button>
+        {isMonthClosed && (
+          <p className="mt-2 text-center text-sm text-gray-600">
+            {CLOSED_MONTH_LOCK_MESSAGE}のため追加できません。
+          </p>
+        )}
+      </div>
     </div>
   );
 };
