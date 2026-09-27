@@ -4,7 +4,7 @@ import { LoadingSpinner } from "../components/LoadingSpinner";
 
 const UserMatterPage = () => {
   return (
-    <main className="pt-6">
+    <main>
       <h1 className="sr-only">案件カード</h1>
       <Suspense fallback={<LoadingSpinner />}>
         <DynamicMatterList />

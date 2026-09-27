@@ -8,12 +8,11 @@ const TeamMatterPage = async () => {
   const teamName = profileInfo?.team || "";
 
   return (
-    <main className="pt-6">
-      {teamName ? (
-        <h1 className="mb-2 px-8 text-sm font-normal text-gray-600">
-          {teamName}
-        </h1>
-      ) : null}
+    <main>
+      <h1 className="mb-2 px-8 text-sm font-normal text-gray-600">
+        <span className="sr-only">チーム案件一覧 </span>
+        {teamName}
+      </h1>
       <Suspense fallback={<LoadingSpinner />}>
         <DynamicTeamMatterList />
       </Suspense>
