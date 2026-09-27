@@ -1,6 +1,6 @@
 import { Button, Select, Stack, Text, TextInput } from "@mantine/core";
 import { ProfilesType } from "../types/types";
-import { classList } from "./UserList";
+import { classList, teamOptionsFor } from "./UserList";
 
 type Props = {
   userInfo: ProfilesType;
@@ -61,7 +61,7 @@ const UserCard = ({
             チーム
           </Text>
           <Select
-            data={teamList}
+            data={teamOptionsFor(userInfo.team, teamList)}
             value={userInfo.team || ""}
             onChange={(value) => onUpdateUserList(userInfo.id, { team: value })}
             placeholder={"チームを選択"}

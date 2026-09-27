@@ -5,40 +5,45 @@ import { Title } from "@mantine/core";
 import SelectOptionList from "../SelectOptionList";
 
 const DynamicDashboard = async () => {
-  const { userInfoList, error: userInfoError } = await getAllUserInfo();
+  // ユーザー一覧と選択肢（React.cache で 1 クエリにまとまる）は互いに独立なので並列に取得する
+  const [
+    { userInfoList, error: userInfoError },
+    { options: teamList, error: teamError },
+    { options: categoryList, error: categoryError },
+    { options: itemList, error: itemError },
+    { options: incomeCategoryList, error: incomeCategoryError },
+    { options: expenseCategoryList, error: expenseCategoryError },
+    { options: paymentMethodList, error: paymentMethodError },
+  ] = await Promise.all([
+    getAllUserInfo(),
+    getSelectOptions("team"),
+    getSelectOptions("category"),
+    getSelectOptions("item"),
+    getSelectOptions("extra_income_category"),
+    getSelectOptions("extra_expense_category"),
+    getSelectOptions("payment_method"),
+  ]);
   // ユーザー一覧はこのページの主要コンテンツであり、取得失敗を「0 件」として
   // 描画すると利用者が気付けない。失敗時は throw して
   // ルートの error boundary（app/dashboard/error.tsx）に処理させる。
   if (userInfoError || !userInfoList) {
     throw new Error("ユーザー情報の取得に失敗しました。");
   }
-  const { options: teamList, error: teamError } =
-    await getSelectOptions("team");
   if (teamError) {
     console.error("チーム情報の取得に失敗しました。", teamError);
   }
-  const { options: categoryList, error: categoryError } =
-    await getSelectOptions("category");
   if (categoryError) {
     console.error("カテゴリ情報の取得に失敗しました。", categoryError);
   }
-  const { options: itemList, error: itemError } =
-    await getSelectOptions("item");
   if (itemError) {
     console.error("アイテム情報の取得に失敗しました。", itemError);
   }
-  const { options: incomeCategoryList, error: incomeCategoryError } =
-    await getSelectOptions("extra_income_category");
   if (incomeCategoryError) {
     console.error("収入分類情報の取得に失敗しました。", incomeCategoryError);
   }
-  const { options: expenseCategoryList, error: expenseCategoryError } =
-    await getSelectOptions("extra_expense_category");
   if (expenseCategoryError) {
     console.error("支出分類情報の取得に失敗しました。", expenseCategoryError);
   }
-  const { options: paymentMethodList, error: paymentMethodError } =
-    await getSelectOptions("payment_method");
   if (paymentMethodError) {
     console.error("決済方法情報の取得に失敗しました。", paymentMethodError);
   }
@@ -48,6 +53,7 @@ const DynamicDashboard = async () => {
       <UserList
         userList={userInfoList}
         teamList={teamList.map((option) => option.value)}
+        teamListError={!!teamError}
       />
       <div className="p-4">
         <Title order={2} className="py-4">

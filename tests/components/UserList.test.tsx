@@ -6,13 +6,8 @@ import UserList from "@/app/components/UserList";
 import type { ProfilesType } from "@/app/types/types";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
 
-const { getSelectOptions, viewport } = vi.hoisted(() => ({
-  getSelectOptions: vi.fn(),
-  viewport: { width: 1024 },
-}));
+const { viewport } = vi.hoisted(() => ({ viewport: { width: 1024 } }));
 
-// チームの選択肢は props で受け取るため、行ごとの取得（Server Action）は走らない
-vi.mock("@/app/utils/supabase/selectOptions", () => ({ getSelectOptions }));
 vi.mock("@/app/utils/supabase/updateProfile", () => ({ default: vi.fn() }));
 
 vi.mock("@mantine/hooks", async (importOriginal) => {
@@ -43,32 +38,47 @@ const userList = [
     user_id: "00000000-0000-0000-0000-000000000002",
     name: "佐藤花子",
     email: "hanako@future-tech-association.org",
-    team: "チームB",
+    team: "旧チーム",
   }),
 ];
 const teamList = ["チームA", "チームB"];
 
+// Select は value が data に無いと表示欄が空になる（hidden input には値が入る）ため、
+// 表示用の input の値で確認する
+const teamInputValues = () =>
+  screen
+    .getAllByPlaceholderText("チームを選択")
+    .map((input) => (input as HTMLInputElement).value);
+
 describe("UserList", () => {
   beforeEach(() => {
-    getSelectOptions.mockReset();
+    viewport.width = 1024;
   });
 
   it.each([
     ["PC（テーブル）", 1024],
     ["モバイル（カード）", 375],
   ])(
-    "%s: 初回描画からチームが表示され、行ごとの選択肢取得は行わない",
+    "%s: 初回描画から、選択肢に無いチームも含めてチームが表示される",
     (_label, width) => {
       viewport.width = width;
       renderWithMantine(<UserList userList={userList} teamList={teamList} />);
 
-      // Select は value が data に無いと表示欄が空になる（hidden input には値が入る）ため、
-      // 表示用の input の値で確認する
-      const teamInputs = screen.getAllByPlaceholderText("チームを選択");
+      expect(teamInputValues()).toEqual(["チームA", "旧チーム"]);
       expect(
-        teamInputs.map((input) => (input as HTMLInputElement).value),
-      ).toEqual(["チームA", "チームB"]);
-      expect(getSelectOptions).not.toHaveBeenCalled();
+        screen.queryByText(/チームの選択肢を取得できませんでした/),
+      ).not.toBeInTheDocument();
     },
   );
+
+  it("チームの選択肢の取得に失敗した場合は、その旨を表示し現在の値は表示を保つ", () => {
+    renderWithMantine(
+      <UserList userList={userList} teamList={[]} teamListError />,
+    );
+
+    expect(
+      screen.getByText(/チームの選択肢を取得できませんでした/),
+    ).toBeInTheDocument();
+    expect(teamInputValues()).toEqual(["チームA", "旧チーム"]);
+  });
 });
