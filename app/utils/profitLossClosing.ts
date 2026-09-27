@@ -430,6 +430,7 @@ export const buildMonthReport = (
       input.businessRows,
       input.costRows,
       input.extraEntries,
+      input.isTeamLeader,
     ),
     orphanedAdjustments: labelIndex
       ? markIncludedInClosing(

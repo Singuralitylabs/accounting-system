@@ -22,4 +22,31 @@ describe("useExpandedRows", () => {
     act(() => result.current.collapseAll(["item-通信費"]));
     expect(result.current.expandedRows.size).toBe(0);
   });
+
+  it("initialKeys の行を初期表示で開き、閉じた後は再レンダーしても開き直さない（Issue #164）", () => {
+    const { result, rerender } = renderHook(
+      ({ initialKeys }: { initialKeys: string[] }) =>
+        useExpandedRows(initialKeys),
+      { initialProps: { initialKeys: ["gross:matter"] } },
+    );
+    expect(Array.from(result.current.expandedRows)).toEqual(["gross:matter"]);
+
+    // 初期表示で開いた行もトグル・collapseAll で閉じられる
+    act(() => result.current.toggleRow("gross:matter"));
+    expect(result.current.expandedRows.has("gross:matter")).toBe(false);
+    act(() => result.current.expandAll(["gross:matter", "recurring:通信費"]));
+    act(() => result.current.collapseAll(["gross:matter"]));
+    expect(Array.from(result.current.expandedRows)).toEqual([
+      "recurring:通信費",
+    ]);
+
+    // 初期値は初回だけ使う（再レンダーで initialKeys を渡し直しても状態を上書きしない）
+    rerender({ initialKeys: ["gross:matter"] });
+    expect(result.current.expandedRows.has("gross:matter")).toBe(false);
+  });
+
+  it("initialKeys を省略すると全行閉じた状態で始まる", () => {
+    const { result } = renderHook(() => useExpandedRows());
+    expect(result.current.expandedRows.size).toBe(0);
+  });
 });

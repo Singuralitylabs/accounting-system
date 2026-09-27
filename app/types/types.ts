@@ -183,7 +183,8 @@ export type ExtraEntryLine = {
   team: string | null; // NULL = 全体共通
   entryDate: string | null;
   billingAmount: number | null; // 請求額（収入のみ）→ 売上
-  expenseAmount: number | null; // 経費 → 案件費用
+  // 経費。収入エントリは案件費用（売上総利益）へ、支出エントリは管理費へ算入する（Issue #164）
+  expenseAmount: number | null;
 };
 
 // 1 ヶ月分の明細行（ロールによる算入 / 参考表示の振り分け前）
@@ -209,7 +210,7 @@ export type MatterBreakdown = DisplayTitle & {
   // 明細の分類・チーム（重複なし。売上明細 → 費用明細の各 ID 昇順で最初に現れた順）。
   // 通常は案件内で 1 件だが、確定済みの月で一部の明細だけ反映した場合など、
   // 同じ案件でも明細によって分類・チームが異なることがある（その場合は 2 件以上）。
-  // 分類別収支・チーム別収支は明細ごとの分類・チームで振り分ける
+  // 分類別の粗利・チーム別収支は明細ごとの分類・チームで振り分ける
   categories: string[];
   teams: string[];
   revenue: number; // 売上明細の実績額合計
@@ -219,14 +220,19 @@ export type MatterBreakdown = DisplayTitle & {
   costs: TitledCostLine[]; // ID の昇順
 };
 
-// 案件別収支の合計（案件の売上・費用のみ。売上合計・案件費用合計は経理追加収支を加えたもの）
-export type MatterTotals = {
+// 売上・費用・粗利の組（grossProfit = revenue − cost）
+export type ProfitTotals = {
   revenue: number;
   cost: number;
   grossProfit: number;
 };
 
-// 分類別収支（売上分類の大分類ごとに 売上 − 案件費用 を集計）
+// 案件別収支の合計（案件の売上・費用のみ。経理追加収支は含まない）。
+// 損益計算書の売上総利益の「案件」行と、案件別収支の「案件の合計」行で同じ値を表示する（Issue #164）
+export type MatterTotals = ProfitTotals;
+
+// 分類別の粗利（案件の売上分類の大分類ごとに 売上 − 案件費用 を集計。経理追加収支は含まない。
+// 損益計算書の売上総利益の「案件」行の内訳として表示する。Issue #164）
 export type GrossProfitBreakdown = {
   category: string;
   revenue: number;
@@ -241,32 +247,52 @@ export type RecurringCostItemBreakdown = {
   details: TitledRecurringCostLine[];
 };
 
+// 経理追加収支（収入）1 件の表示行（粗利 = 請求額 − 経費。集計側で計算する）
+export type ExtraIncomeLine = ExtraEntryLine & { grossProfit: number };
+
+// 損益計算書の売上総利益の「経理追加収支」行（収入エントリの合計と明細。Issue #164）
+export type ExtraIncomeSection = ProfitTotals & { entries: ExtraIncomeLine[] };
+
+// 損益計算書の管理費合計の「経理追加収支（支出）」行（支出エントリの経費の合計と明細。Issue #164）
+export type ExtraExpenseSection = { total: number; entries: ExtraEntryLine[] };
+
 // チーム別内訳（accounting / admin のみ。全体共通の管理費は team = "全体共通"）
 export type TeamBreakdown = {
   team: string;
-  revenue: number;
-  matterCost: number;
+  revenue: number; // 案件の売上 + 経理追加収支（収入）の請求額
+  matterCost: number; // 案件費用 + 経理追加収支（収入）の経費
   grossProfit: number;
-  recurringCost: number;
+  adminCost: number; // 管理費 = 定期費用 + 経理追加収支（支出）の経費（Issue #164）
   profit: number;
 };
 
 export type PLReportType = {
   month: string; // "YYYY-MM"
-  revenueTotal: number; // 売上合計（経理追加収支の収入を含む）
-  matterCostTotal: number; // 案件費用合計（経理追加収支の経費を含む）
+  revenueTotal: number; // 売上合計（案件の売上 + 経理追加収支（収入）の請求額）
+  // 案件費用合計（案件費用 + 経理追加収支（収入）の経費。支出エントリの経費は管理費へ算入する。Issue #164）
+  matterCostTotal: number;
   grossProfitTotal: number; // 売上総利益（粗利）= 売上合計 − 案件費用合計
   matterBreakdowns: MatterBreakdown[]; // 案件別収支（案件 ID の昇順。経理追加収支は含まない。Issue #152）
-  matterTotals: MatterTotals; // 案件別収支の合計（経理追加収支を含まない。Issue #152）
-  categoryBreakdown: GrossProfitBreakdown[]; // 分類別収支（経理追加収支を含む。合計は売上総利益と一致）
-  recurringCostTotal: number; // 管理費合計（teamleader は自チーム分のみ算入）
+  // 案件の合計（経理追加収支を含まない）。売上総利益の「案件」行と案件別収支の合計行（Issue #164）
+  matterTotals: MatterTotals;
+  // 分類別の粗利（案件のみ。合計は matterTotals と一致。Issue #164）
+  categoryBreakdown: GrossProfitBreakdown[];
+  // 経理追加収支は集計側で収入 / 支出に 1 回だけ振り分ける（画面は表示するだけ。Issue #164）。
+  // いずれも teamleader は自チーム分のみ（損益に算入済み）
+  extraIncome: ExtraIncomeSection; // 収入エントリ（売上総利益の「経理追加収支」行）
+  recurringCostTotal: number; // 定期費用の合計（teamleader は自チーム分のみ算入）
   recurringCostByItem: RecurringCostItemBreakdown[]; // 費目別管理費内訳（定期費用の明細を含む）
+  extraExpense: ExtraExpenseSection; // 支出エントリ（管理費合計の「経理追加収支（支出）」行）
+  // 管理費合計 = 定期費用 + 経理追加収支（支出）（Issue #164）。
+  // 売上合計・粗利・経常利益と同じく、表示用に集計側で計算した値を持つ
+  adminCostTotal: number;
   orgWideRecurringCosts?: TitledRecurringCostLine[]; // teamleader 向け「全体共通（参考）」（損益に算入しない）
-  extraEntries: ExtraEntryLine[]; // 経理追加収支明細（teamleader は自チーム分のみ。損益に算入済み）
   orgWideExtraEntries?: ExtraEntryLine[]; // teamleader 向け「全体共通（参考）」（損益に算入しない）
-  ordinaryProfit: number; // 経常利益 = 粗利合計 − 管理費合計（= 売上 − 案件費用 − 管理費）
+  ordinaryProfit: number; // 経常利益 = 売上総利益 − 管理費合計
   byTeam?: TeamBreakdown[]; // チーム別内訳（accounting / admin のみ）
-  undated: { revenue: number; matterCost: number }; // 月未確定（案件開始日・日付未入力。下書きの案件は除く）
+  // 月未確定（案件開始日・日付未入力。下書きの案件は除く）。
+  // adminCost は日付未入力の経理追加収支（支出）の経費（Issue #164）
+  undated: { revenue: number; matterCost: number; adminCost: number };
   // 対象月に調整はあるが対象行が当月に存在しない（案件開始日の変更等）ため、
   // 損益に反映されず削除待ちの調整（accounting / admin のみ。includeTeamBreakdown と同じロール判定）
   orphanedAdjustments?: OrphanedAdjustmentType[];

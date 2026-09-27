@@ -9,8 +9,13 @@ import {
   PLReportType,
 } from "@/app/types/types";
 import { getMatterInfoById } from "@/app/utils/supabase/profitLossReport";
-import { formatCurrency, formatMonthLabel } from "@/app/utils/formatter";
-import { formatEntryType } from "@/app/utils/extraEntry";
+import {
+  formatCurrency,
+  formatDateToJp,
+  formatMonthLabel,
+} from "@/app/utils/formatter";
+import { formatEntryType, isIncomeExtraEntry } from "@/app/utils/extraEntry";
+import { teamLabel } from "@/app/utils/constants";
 import {
   Alert,
   Badge,
@@ -22,13 +27,11 @@ import {
   Text,
   Tooltip,
 } from "@mantine/core";
-import { Fragment, useState } from "react";
+import { Fragment, ReactNode, useState } from "react";
 import { MatterCardDetail } from "../modal/MatterCardDetail";
-import ExtraEntrySection from "./ExtraEntrySection";
 import ProfitLossAdjustmentModal from "./ProfitLossAdjustmentModal";
 import ProfitLossLabelModal from "./ProfitLossLabelModal";
 import MatterProfitTable from "./MatterProfitTable";
-import CategoryProfitTable from "./CategoryProfitTable";
 import TeamProfitTable from "./TeamProfitTable";
 import ClosingDiffPanel from "./ClosingDiffPanel";
 import {
@@ -48,8 +51,9 @@ import { confirmAction } from "@/app/utils/confirmAction";
 import { useDeleteProfitLossAdjustment } from "@/app/hooks/useProfitLossAdjustments";
 import { CLOSED_MONTH_LOCK_MESSAGE } from "@/app/utils/profitLossClosing";
 
-// 収支の内訳タブ（Issue #152）
-export type BreakdownTab = "matter" | "category" | "team";
+// 収支の内訳タブ（Issue #152）。分類別は損益計算書の売上総利益の「案件」行の内訳に
+// 統合したためタブを持たない（Issue #164）
+export type BreakdownTab = "matter" | "team";
 export const DEFAULT_BREAKDOWN_TAB: BreakdownTab = "matter";
 // 表示するタブ。チーム別タブはチーム別内訳のあるロール（accounting / admin）のみのため、
 // 内訳が無ければ案件別を表示する（選択は親の ProfitLossView が持ち、ここで解決して渡す）
@@ -59,8 +63,101 @@ export const resolveBreakdownTab = (
 ): BreakdownTab =>
   tab === "team" && !hasTeamBreakdown ? DEFAULT_BREAKDOWN_TAB : tab;
 
-// 管理費の費目行の展開キー
+// 損益計算書の展開行のキー（Issue #164）。費目は利用者のマスタ値のため種別のプレフィックスを付ける
+const GROSS_MATTER_KEY = "gross:matter"; // 売上総利益 > 案件（分類別の粗利）
+const GROSS_EXTRA_KEY = "gross:extra"; // 売上総利益 > 経理追加収支（収入）
+const ADMIN_EXTRA_KEY = "admin:extra"; // 管理費 > 経理追加収支（支出）
 const recurringRowKey = (item: string) => `recurring:${item}`;
+
+// 「売上 X − 費用 Y」の注記の本文（括弧なし）。費用が null（収入エントリの経費なし）なら売上のみ。
+// 見出し行・分類行・明細行の注記はすべてこれで組み、書式を揃える
+const revenueCostText = (
+  revenueLabel: string,
+  revenue: number,
+  costLabel: string,
+  cost: number | null,
+) =>
+  cost === null
+    ? `${revenueLabel} ${formatCurrency(revenue)}`
+    : `${revenueLabel} ${formatCurrency(revenue)} − ${costLabel} ${formatCurrency(cost)}`;
+
+// 「（売上 X − 費用 Y）」の注記
+const revenueCostNote = (
+  revenueLabel: string,
+  revenue: number,
+  costLabel: string,
+  cost: number,
+) => `（${revenueCostText(revenueLabel, revenue, costLabel, cost)}）`;
+
+// 損益計算書の内訳の見出し行（子の階層）。onToggle があれば展開できる
+const BreakdownHeadingRow = ({
+  label,
+  note,
+  amount,
+  colorBySign = false,
+  isExpanded = false,
+  onToggle,
+}: {
+  label: ReactNode;
+  note?: string;
+  amount: number;
+  colorBySign?: boolean;
+  isExpanded?: boolean;
+  onToggle?: () => void;
+}) => (
+  <Table.Tr {...(onToggle ? expandableRowProps(onToggle) : {})}>
+    <Table.Td className="text-gray-700" style={INDENT.child}>
+      {onToggle ? (
+        <ExpandToggle isExpanded={isExpanded} onToggle={onToggle}>
+          {label}
+        </ExpandToggle>
+      ) : (
+        label
+      )}
+      {note && <span className="text-xs text-gray-500 ml-2">{note}</span>}
+    </Table.Td>
+    <Table.Td />
+    <Table.Td />
+    <Table.Td
+      className={`text-right ${colorBySign ? amountColor(amount) : ""}`}
+    >
+      {formatCurrency(amount)}
+    </Table.Td>
+    <Table.Td />
+  </Table.Tr>
+);
+
+// 損益計算書の内訳の明細行（孫の階層。元データ / 調整の無い行）
+const BreakdownDetailRow = ({
+  label,
+  note,
+  amount,
+  colorBySign = false,
+}: {
+  label: string;
+  note: string;
+  amount: number;
+  colorBySign?: boolean;
+}) => (
+  <Table.Tr className="bg-gray-50">
+    <Table.Td className="text-gray-600" style={INDENT.detail}>
+      {label}
+      <span className="text-xs text-gray-500 ml-2">{note}</span>
+    </Table.Td>
+    <Table.Td />
+    <Table.Td />
+    <Table.Td
+      className={`text-right ${colorBySign ? amountColor(amount) : "text-gray-600"}`}
+    >
+      {formatCurrency(amount)}
+    </Table.Td>
+    <Table.Td />
+  </Table.Tr>
+);
+
+// 経理追加収支の明細の補足（分類 / チーム / 日付）
+const extraEntryAttributes = (entry: ExtraEntryLine) =>
+  `${entry.category} / ${teamLabel(entry.team)} / ${formatDateToJp(entry.entryDate)}`;
 
 type Props = {
   report: PLReportType;
@@ -101,7 +198,7 @@ const toExtraEntryAmountLines = (
   entry: ExtraEntryLine,
 ): ExtraEntryAmountLine[] => {
   const lines: ExtraEntryAmountLine[] = [];
-  if (entry.entryType === "income") {
+  if (isIncomeExtraEntry(entry)) {
     lines.push({
       key: `extra-${entry.extraEntryId}-billing`,
       description: entry.description,
@@ -134,11 +231,28 @@ const ProfitLossStatement = ({
   breakdownTab = DEFAULT_BREAKDOWN_TAB,
   onBreakdownTabChange = () => {},
 }: Props) => {
-  // 管理費の費目行の展開状態（案件別収支の展開状態は MatterProfitTable が持つ）
-  const { expandedRows, toggleRow, expandAll, collapseAll } = useExpandedRows();
-  const recurringKeys = report.recurringCostByItem.map((breakdown) =>
-    recurringRowKey(breakdown.item),
-  );
+  // 損益計算書の展開状態（案件別収支の展開状態は MatterProfitTable が持つ）。
+  // 案件の分類別の粗利は初期表示で開いておく（Issue #164）
+  const { expandedRows, toggleRow, expandAll, collapseAll } = useExpandedRows([
+    GROSS_MATTER_KEY,
+  ]);
+  // 経理追加収支は収入を売上総利益、支出を管理費の内訳に表示する（Issue #164。
+  // 振り分けは集計側 splitExtraEntries で済んでいるため、ここでは表示するだけ）
+  const incomeExtraEntries = report.extraIncome.entries;
+  const expenseExtraEntries = report.extraExpense.entries;
+  // 展開できる行の有無はここだけで判定し、描画条件と「すべて開く / 閉じる」の対象キーの
+  // 両方で同じ値を使う（片方だけ直して一括開閉が効かなくなるのを防ぐ）
+  const canExpandMatter = report.categoryBreakdown.length > 0;
+  const hasIncomeExtra = incomeExtraEntries.length > 0;
+  const hasExpenseExtra = expenseExtraEntries.length > 0;
+  const expandableKeys = [
+    ...(canExpandMatter ? [GROSS_MATTER_KEY] : []),
+    ...(hasIncomeExtra ? [GROSS_EXTRA_KEY] : []),
+    ...report.recurringCostByItem.map((breakdown) =>
+      recurringRowKey(breakdown.item),
+    ),
+    ...(hasExpenseExtra ? [ADMIN_EXTRA_KEY] : []),
+  ];
   const [selectedMatter, setSelectedMatter] =
     useState<MatterInfoWithUserNameType | null>(null);
   const [isModalOpened, setIsModalOpened] = useState(false);
@@ -220,24 +334,17 @@ const ProfitLossStatement = ({
   const isClosed = !!report.closing;
 
   const hasUndated =
-    report.undated.revenue !== 0 || report.undated.matterCost !== 0;
+    report.undated.revenue !== 0 ||
+    report.undated.matterCost !== 0 ||
+    report.undated.adminCost !== 0;
 
+  // 案件費用・管理費は損益計算書の行で確認できるため、カードは 3 指標のみ（Issue #164）
   const summaryCards = [
     { label: "売上", value: report.revenueTotal, color: "text-green-700" },
-    {
-      label: "案件費用",
-      value: report.matterCostTotal,
-      color: "text-red-600",
-    },
     {
       label: "粗利",
       value: report.grossProfitTotal,
       color: amountColor(report.grossProfitTotal),
-    },
-    {
-      label: "管理費",
-      value: report.recurringCostTotal,
-      color: "text-red-600",
     },
     {
       label: "経常利益",
@@ -251,6 +358,22 @@ const ProfitLossStatement = ({
   const changedKeys = new Set(pendingDiffs.map((diff) => diff.key));
   const changedMatterIds = new Set(pendingDiffs.map((diff) => diff.matterId));
 
+  const matterProfitTable = (
+    <MatterProfitTable
+      matters={report.matterBreakdowns}
+      totals={report.matterTotals}
+      canEditAdjustments={canEditAdjustments}
+      isClosed={isClosed}
+      changedKeys={changedKeys}
+      changedMatterIds={changedMatterIds}
+      loadingMatterId={loadingMatterId}
+      onShowMatter={handleShowMatter}
+      onEditAdjustment={openAdjustmentModal}
+      canEditLabels={canEditLabels}
+      onEditTitle={openLabelModal}
+    />
+  );
+
   return (
     <div>
       {/* 確定後の案件の変更（差分一覧・反映・見送り。経理担当者・管理者のみ） */}
@@ -261,7 +384,7 @@ const ProfitLossStatement = ({
       />
 
       {/* サマリーカード */}
-      <SimpleGrid cols={{ base: 2, md: 5 }} className="mb-6">
+      <SimpleGrid cols={{ base: 1, xs: 3 }} className="mb-6">
         {summaryCards.map((card) => (
           <Paper key={card.label} withBorder p="md" radius="md">
             <Text size="sm" c="dimmed">
@@ -274,7 +397,7 @@ const ProfitLossStatement = ({
         ))}
       </SimpleGrid>
 
-      {/* 粗利 → 管理費 → 経常利益 */}
+      {/* 売上総利益（案件 / 経理追加収支（収入））→ 管理費（定期費用 / 経理追加収支（支出））→ 経常利益（Issue #164） */}
       <Paper withBorder radius="md" className="overflow-x-auto mb-6">
         <Table verticalSpacing="sm" highlightOnHover>
           <Table.Thead>
@@ -286,22 +409,26 @@ const ProfitLossStatement = ({
               {/* 列見出しの名前は「操作」（一括開閉のボタンの文言を列名として読み上げないようにする） */}
               <Table.Th className="w-36" aria-label="操作">
                 <ExpandAllButtons
-                  label="管理費の内訳"
-                  disabled={recurringKeys.length === 0}
-                  onExpandAll={() => expandAll(recurringKeys)}
-                  onCollapseAll={() => collapseAll(recurringKeys)}
+                  label="損益計算書の内訳"
+                  disabled={expandableKeys.length === 0}
+                  onExpandAll={() => expandAll(expandableKeys)}
+                  onCollapseAll={() => collapseAll(expandableKeys)}
                 />
               </Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {/* 売上総利益（粗利）= 売上合計 − 案件費用合計（案件と経理追加収支） */}
+            {/* 売上総利益（粗利）= 案件 + 経理追加収支（収入） */}
             <Table.Tr className="bg-slate-50">
               <Table.Td className="font-bold">
                 売上総利益（粗利）
                 <span className="text-xs text-gray-500 font-normal ml-2">
-                  （売上 {formatCurrency(report.revenueTotal)} − 案件費用{" "}
-                  {formatCurrency(report.matterCostTotal)}）
+                  {revenueCostNote(
+                    "売上",
+                    report.revenueTotal,
+                    "案件費用",
+                    report.matterCostTotal,
+                  )}
                 </span>
               </Table.Td>
               <Table.Td />
@@ -316,13 +443,84 @@ const ProfitLossStatement = ({
               <Table.Td />
             </Table.Tr>
 
-            {/* 管理費合計（費目別内訳。展開で定期費用の明細を表示） */}
+            {/* 案件（案件別収支の「案件の合計」と一致）→ 分類別の粗利 */}
+            <BreakdownHeadingRow
+              label="案件"
+              note={revenueCostNote(
+                "売上",
+                report.matterTotals.revenue,
+                "費用",
+                report.matterTotals.cost,
+              )}
+              amount={report.matterTotals.grossProfit}
+              colorBySign
+              isExpanded={expandedRows.has(GROSS_MATTER_KEY)}
+              onToggle={
+                canExpandMatter ? () => toggleRow(GROSS_MATTER_KEY) : undefined
+              }
+            />
+            {canExpandMatter &&
+              expandedRows.has(GROSS_MATTER_KEY) &&
+              report.categoryBreakdown.map((row) => (
+                <BreakdownDetailRow
+                  key={`category-${row.category}`}
+                  label={row.category}
+                  note={revenueCostNote("売上", row.revenue, "費用", row.cost)}
+                  amount={row.grossProfit}
+                  colorBySign
+                />
+              ))}
+
+            {/* 経理追加収支（収入）: 請求額 − 経費（収入に紐づく経費） */}
+            {hasIncomeExtra && (
+              <>
+                <BreakdownHeadingRow
+                  label="経理追加収支"
+                  note={revenueCostNote(
+                    "請求",
+                    report.extraIncome.revenue,
+                    "経費",
+                    report.extraIncome.cost,
+                  )}
+                  amount={report.extraIncome.grossProfit}
+                  colorBySign
+                  isExpanded={expandedRows.has(GROSS_EXTRA_KEY)}
+                  onToggle={() => toggleRow(GROSS_EXTRA_KEY)}
+                />
+                {expandedRows.has(GROSS_EXTRA_KEY) &&
+                  incomeExtraEntries.map((entry) => (
+                    <BreakdownDetailRow
+                      key={`extra-income-${entry.extraEntryId}`}
+                      label={entry.description}
+                      note={`（${extraEntryAttributes(entry)} / ${revenueCostText(
+                        "請求",
+                        entry.billingAmount ?? 0,
+                        "経費",
+                        entry.expenseAmount,
+                      )}）`}
+                      amount={entry.grossProfit}
+                      colorBySign
+                    />
+                  ))}
+              </>
+            )}
+
+            {/* 管理費合計 = 定期費用（費目別。展開で明細）+ 経理追加収支（支出） */}
             <Table.Tr className="bg-slate-50">
-              <Table.Td className="font-bold">管理費合計</Table.Td>
+              <Table.Td className="font-bold">
+                管理費合計
+                {hasExpenseExtra && (
+                  <span className="text-xs text-gray-500 font-normal ml-2">
+                    （定期費用 {formatCurrency(report.recurringCostTotal)} ＋
+                    経理追加収支（支出）{" "}
+                    {formatCurrency(report.extraExpense.total)}）
+                  </span>
+                )}
+              </Table.Td>
               <Table.Td />
               <Table.Td />
               <Table.Td className="text-right font-bold">
-                {formatCurrency(report.recurringCostTotal)}
+                {formatCurrency(report.adminCostTotal)}
               </Table.Td>
               <Table.Td />
             </Table.Tr>
@@ -331,22 +529,12 @@ const ProfitLossStatement = ({
               const isExpanded = expandedRows.has(rowKey);
               return (
                 <Fragment key={rowKey}>
-                  <Table.Tr {...expandableRowProps(() => toggleRow(rowKey))}>
-                    <Table.Td className="text-gray-700" style={INDENT.child}>
-                      <ExpandToggle
-                        isExpanded={isExpanded}
-                        onToggle={() => toggleRow(rowKey)}
-                      >
-                        {breakdown.item}
-                      </ExpandToggle>
-                    </Table.Td>
-                    <Table.Td />
-                    <Table.Td />
-                    <Table.Td className="text-right">
-                      {formatCurrency(breakdown.amount)}
-                    </Table.Td>
-                    <Table.Td />
-                  </Table.Tr>
+                  <BreakdownHeadingRow
+                    label={breakdown.item}
+                    amount={breakdown.amount}
+                    isExpanded={isExpanded}
+                    onToggle={() => toggleRow(rowKey)}
+                  />
                   {isExpanded &&
                     breakdown.details.map((detail) => (
                       <Table.Tr
@@ -418,7 +606,28 @@ const ProfitLossStatement = ({
               );
             })}
 
-            {/* 経常利益 = 粗利合計 − 管理費合計 */}
+            {/* 経理追加収支（支出）: 経費を管理費へ算入する */}
+            {hasExpenseExtra && (
+              <>
+                <BreakdownHeadingRow
+                  label="経理追加収支（支出）"
+                  amount={report.extraExpense.total}
+                  isExpanded={expandedRows.has(ADMIN_EXTRA_KEY)}
+                  onToggle={() => toggleRow(ADMIN_EXTRA_KEY)}
+                />
+                {expandedRows.has(ADMIN_EXTRA_KEY) &&
+                  expenseExtraEntries.map((entry) => (
+                    <BreakdownDetailRow
+                      key={`extra-expense-${entry.extraEntryId}`}
+                      label={entry.description}
+                      note={`（${extraEntryAttributes(entry)}）`}
+                      amount={entry.expenseAmount ?? 0}
+                    />
+                  ))}
+              </>
+            )}
+
+            {/* 経常利益 = 売上総利益 − 管理費合計 */}
             <Table.Tr className="bg-slate-100 border-t-2 border-gray-400">
               <Table.Td className="font-bold text-lg">経常利益</Table.Td>
               <Table.Td />
@@ -436,56 +645,38 @@ const ProfitLossStatement = ({
         </Table>
       </Paper>
 
-      {/* 収支の内訳（Issue #152。案件別 / 分類別 / チーム別をタブで切り替える。
-          チーム別は accounting / admin のみデータが入る。非表示のタブも描画したままにする
-          Mantine v7 の既定（keepMounted）で、タブを切り替えても案件別収支の展開状態を保つ） */}
-      <Tabs
-        value={breakdownTab}
-        onChange={(value) =>
-          onBreakdownTabChange(
-            (value as BreakdownTab | null) ?? DEFAULT_BREAKDOWN_TAB,
-          )
-        }
-        className="mb-6"
-      >
-        <Tabs.List>
-          <Tabs.Tab value="matter">案件別</Tabs.Tab>
-          <Tabs.Tab value="category">分類別</Tabs.Tab>
-          {report.byTeam && <Tabs.Tab value="team">チーム別</Tabs.Tab>}
-        </Tabs.List>
+      {/* 収支の内訳（Issue #152。案件別 / チーム別をタブで切り替える。分類別は Issue #164 で
+          損益計算書の「案件」行の内訳に統合した。
+          チーム別は accounting / admin のみデータが入る。チーム別内訳の無いロールは
+          タブが 1 つになるため、タブを出さずに案件別収支だけを表示する。
+          非表示のタブも描画したままにする Mantine v7 の既定（keepMounted）で、
+          タブを切り替えても案件別収支の展開状態を保つ） */}
+      {report.byTeam ? (
+        <Tabs
+          value={breakdownTab}
+          onChange={(value) =>
+            onBreakdownTabChange(
+              (value as BreakdownTab | null) ?? DEFAULT_BREAKDOWN_TAB,
+            )
+          }
+          className="mb-6"
+        >
+          <Tabs.List>
+            <Tabs.Tab value="matter">案件別</Tabs.Tab>
+            <Tabs.Tab value="team">チーム別</Tabs.Tab>
+          </Tabs.List>
 
-        <Tabs.Panel value="matter" className="pt-4">
-          <MatterProfitTable
-            matters={report.matterBreakdowns}
-            totals={report.matterTotals}
-            hasExtraEntries={report.extraEntries.length > 0}
-            canEditAdjustments={canEditAdjustments}
-            isClosed={isClosed}
-            changedKeys={changedKeys}
-            changedMatterIds={changedMatterIds}
-            loadingMatterId={loadingMatterId}
-            onShowMatter={handleShowMatter}
-            onEditAdjustment={openAdjustmentModal}
-            canEditLabels={canEditLabels}
-            onEditTitle={openLabelModal}
-          />
-        </Tabs.Panel>
+          <Tabs.Panel value="matter" className="pt-4">
+            {matterProfitTable}
+          </Tabs.Panel>
 
-        <Tabs.Panel value="category" className="pt-4">
-          <CategoryProfitTable
-            breakdown={report.categoryBreakdown}
-            revenueTotal={report.revenueTotal}
-            matterCostTotal={report.matterCostTotal}
-            grossProfitTotal={report.grossProfitTotal}
-          />
-        </Tabs.Panel>
-
-        {report.byTeam && (
           <Tabs.Panel value="team" className="pt-4">
             <TeamProfitTable byTeam={report.byTeam} />
           </Tabs.Panel>
-        )}
-      </Tabs>
+        </Tabs>
+      ) : (
+        <div className="mb-6">{matterProfitTable}</div>
+      )}
 
       {/* 対象行が当月に存在しない損益調整（案件開始日の変更等）。削除を促す */}
       {report.orphanedAdjustments && report.orphanedAdjustments.length > 0 && (
@@ -566,12 +757,6 @@ const ProfitLossStatement = ({
         </Alert>
       )}
 
-      {/* 経理追加収支: 明細一覧（管理リンクはページ上部の AccountingMasterActions） */}
-      <ExtraEntrySection
-        extraEntries={report.extraEntries}
-        hasTeamBreakdown={!!report.byTeam}
-      />
-
       {/* 全体共通（参考）: teamleader のみデータが入る */}
       {((report.orgWideRecurringCosts &&
         report.orgWideRecurringCosts.length > 0) ||
@@ -628,7 +813,10 @@ const ProfitLossStatement = ({
         <Alert color="yellow" title="月未確定のデータがあります">
           案件開始日・経理追加収支の日付が未入力のため、月次集計に含まれていないデータがあります（売上:
           {formatCurrency(report.undated.revenue)} / 案件費用:
-          {formatCurrency(report.undated.matterCost)}）。
+          {formatCurrency(report.undated.matterCost)}
+          {report.undated.adminCost !== 0 &&
+            ` / 管理費: ${formatCurrency(report.undated.adminCost)}`}
+          ）。
         </Alert>
       )}
 

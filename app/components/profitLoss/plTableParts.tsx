@@ -1,6 +1,6 @@
 "use client";
 
-// 損益計算書の各表（案件別収支・分類別収支・管理費）で共通に使う表示部品
+// 損益計算書の各表（損益計算書本表・案件別収支）で共通に使う表示部品
 
 import { AdjustableAmount, DisplayTitle } from "@/app/types/types";
 import { formatCurrency } from "@/app/utils/formatter";
@@ -28,9 +28,11 @@ export const amountColor = (value: number) =>
   value < 0 ? "text-red-600" : "text-green-700";
 
 // 行の展開状態（キーの集合）。種別が異なっても同名になりうるため、
-// キーには種別のプレフィックスを付けて使う
-export const useExpandedRows = () => {
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+// キーには種別のプレフィックスを付けて使う。initialKeys は初期表示で開いておく行
+export const useExpandedRows = (initialKeys: readonly string[] = []) => {
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(
+    () => new Set(initialKeys),
+  );
   const toggleRow = (key: string) => {
     setExpandedRows((prev) => {
       const next = new Set(prev);

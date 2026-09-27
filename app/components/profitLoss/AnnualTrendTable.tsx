@@ -31,7 +31,7 @@ const AnnualTrendTable = ({
     { label: "売上", getValue: (m) => m.revenueTotal },
     { label: "案件費用", getValue: (m) => m.matterCostTotal },
     { label: "粗利", getValue: (m) => m.grossProfitTotal, colorBySign: true },
-    { label: "管理費", getValue: (m) => m.recurringCostTotal },
+    { label: "管理費", getValue: (m) => m.adminCostTotal },
     {
       label: "経常利益",
       getValue: (m) => m.ordinaryProfit,

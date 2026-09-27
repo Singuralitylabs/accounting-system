@@ -16,11 +16,13 @@ const monthReport = (month: string, closed: boolean): PLReportType => ({
   matterBreakdowns: [],
   matterTotals: { revenue: 0, cost: 0, grossProfit: 0 },
   categoryBreakdown: [],
+  extraIncome: { revenue: 0, cost: 0, grossProfit: 0, entries: [] },
   recurringCostTotal: 20000,
   recurringCostByItem: [],
-  extraEntries: [],
+  extraExpense: { total: 0, entries: [] },
+  adminCostTotal: 20000,
   ordinaryProfit: 50000,
-  undated: { revenue: 0, matterCost: 0 },
+  undated: { revenue: 0, matterCost: 0, adminCost: 0 },
   closing: closed
     ? {
         month,
@@ -80,5 +82,25 @@ describe("AnnualTrendTable（Issue #152）", () => {
     expect(
       document.querySelectorAll(`.${CSS.escape(CLOSED_MONTH_COLUMN_CLASS)}`),
     ).toHaveLength(0);
+  });
+
+  it("管理費の行は定期費用と経理追加収支（支出）の合計（adminCostTotal）を表示する（Issue #164）", () => {
+    renderWithMantine(
+      <AnnualTrendTable
+        trend={{
+          fiscalYear: 2026,
+          months: [
+            {
+              ...monthReport("2026-07", false),
+              extraExpense: { total: 5000, entries: [] },
+              adminCostTotal: 25000,
+              ordinaryProfit: 45000,
+            },
+          ],
+        }}
+      />,
+    );
+    const adminRow = screen.getByText("管理費").closest("tr")!;
+    expect(within(adminRow).getAllByText("￥25,000")).toHaveLength(2); // 7月 + 年度合計
   });
 });

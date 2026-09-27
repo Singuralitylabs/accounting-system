@@ -53,7 +53,7 @@ const ProfitLossView = ({
   const currentFiscalYear = monthToFiscalYear(initialMonth);
 
   const [activeTab, setActiveTab] = useState<string | null>("monthly");
-  // 月次の収支の内訳タブ（Issue #152）。月を切り替えても維持する
+  // 月次の収支の内訳タブ（Issue #152。案件別 / チーム別）。月を切り替えても維持する
   const [breakdownTab, setBreakdownTab] = useState<BreakdownTab>(
     DEFAULT_BREAKDOWN_TAB,
   );
@@ -155,7 +155,11 @@ const ProfitLossView = ({
                 <Group justify="flex-end" className="mb-4">
                   <CopyPreviousExtraEntriesButton
                     month={month}
-                    hasExistingEntries={report.extraEntries.length > 0}
+                    hasExistingEntries={
+                      report.extraIncome.entries.length +
+                        report.extraExpense.entries.length >
+                      0
+                    }
                     isClosed={!!report.closing}
                   />
                 </Group>

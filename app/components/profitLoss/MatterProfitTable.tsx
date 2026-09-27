@@ -37,9 +37,8 @@ import {
 
 type Props = {
   matters: MatterBreakdown[];
-  totals: MatterTotals; // 案件の合計（集計側で計算した PLReportType.matterTotals）
-  // 経理追加収支（案件外）があるか。この表には含めないため、売上総利益と一致しない旨を注記する
-  hasExtraEntries: boolean;
+  // 案件の合計（集計側で計算した PLReportType.matterTotals。損益計算書の「案件」行と同じ値）
+  totals: MatterTotals;
   canEditAdjustments: boolean; // 実績額修正の操作を表示するか（accounting / admin）
   isClosed?: boolean; // 確定済みの月か（Issue #148。実績額修正を無効化する）
   // 確定後に未処理の変更がある明細（"business:1" 形式）・案件（Issue #149。変更アイコンを付ける）
@@ -75,9 +74,10 @@ const ChangedIcon = ({ label }: { label: string }) => (
 );
 
 // 明細によって分類・チームが異なる案件の目印（Issue #152。確定済みの月で一部の明細
-// だけ反映した場合など。分類別収支・チーム別収支は明細ごとの分類・チームで集計している）
+// だけ反映した場合など。分類別の粗利・チーム別収支は明細ごとの分類・チームで集計している）
 const MixedValuesIcon = ({ kind }: { kind: "分類" | "チーム" }) => {
-  const label = `明細によって${kind}が異なります（確定後に一部の明細だけ反映した場合など）。${kind}別収支は明細ごとの${kind}で集計しています`;
+  const target = kind === "分類" ? "損益計算書の分類別の粗利" : "チーム別収支";
+  const label = `明細によって${kind}が異なります（確定後に一部の明細だけ反映した場合など）。${target}は明細ごとの${kind}で集計しています`;
   return (
     <Tooltip label={label} multiline w={280}>
       <span
@@ -124,11 +124,10 @@ const AmountCells = ({
 // 案件別収支（案件 → 案件内訳。Issue #147、#152 でチームの階層を廃止しチームは列で表示）。
 // 案件は ID の昇順、案件内訳は売上明細 → 費用明細（各 ID 昇順）で、
 // 並び順は集計側（buildMatterBreakdowns）で確定済みのものをそのまま表示する。
-// 経理追加収支は案件ではないため含めない（損益計算書の下の「経理追加収支」に表示する）
+// 経理追加収支は案件ではないため含めない（損益計算書の売上総利益・管理費の内訳に表示する）
 const MatterProfitTable = ({
   matters,
   totals,
-  hasExtraEntries,
   canEditAdjustments,
   isClosed = false,
   changedKeys = new Set<string>(),
@@ -366,11 +365,9 @@ const MatterProfitTable = ({
           </Table.Tr>
         </Table.Tbody>
       </Table>
-      {hasExtraEntries && (
-        <Text size="xs" c="dimmed" px="md" py="xs">
-          経理追加収支（案件外）はこの表に含みません（下の「経理追加収支」を参照）。売上総利益には経理追加収支も含まれるため、案件の合計とは一致しません。
-        </Text>
-      )}
+      <Text size="xs" c="dimmed" px="md" py="xs">
+        案件の合計は、損益計算書の売上総利益の「案件」行と一致します（経理追加収支は案件ではないため、この表には含みません）。
+      </Text>
     </Paper>
   );
 };
