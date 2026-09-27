@@ -1,14 +1,19 @@
 import { PageTitleProps } from "../types/types";
 
-const PageTitle: React.FC<PageTitleProps> = ({ title, description }) => {
+type Props = PageTitleProps & {
+  // タイトル位置合わせ用のレイアウトクラス（各ページのコンテンツ幅に合わせる。
+  // 幅の定義を呼び出し側に集約し、PageTitle 側に重複させない）
+  className?: string;
+};
+
+const PageTitle: React.FC<Props> = ({ title, className }) => {
   return (
-    <div className="mb-4 border-b border-gray-200 pb-3">
-      <h1 className="border-l-4 border-gray-800 pl-3 text-xl font-semibold text-gray-900 sm:text-2xl">
-        {title}
-      </h1>
-      {description ? (
-        <p className="mt-1 pl-4 text-sm text-gray-600">{description}</p>
-      ) : null}
+    <div className={className}>
+      <div className="mb-4 border-b border-gray-200 pb-3">
+        <h1 className="border-l-4 border-gray-800 pl-3 text-xl font-semibold text-gray-900 sm:text-2xl">
+          {title}
+        </h1>
+      </div>
     </div>
   );
 };
