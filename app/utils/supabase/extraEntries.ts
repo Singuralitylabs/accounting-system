@@ -8,6 +8,10 @@ import {
 } from "../extraEntry";
 import { addMonths, isMonthKey, toFirstOfMonth } from "../formatter";
 import {
+  datedOrUndatedFilter,
+  reportRangeBounds,
+} from "../profitLossLogic";
+import {
   CLOSED_MONTH_LOCK_MESSAGE,
   findExtraEntryLockViolations,
   isClosedMonth,
@@ -16,13 +20,24 @@ import { fetchClosedMonthKeys } from "./closedMonthsQuery";
 import { fetchAllByIds } from "./paging";
 import { createServerSupabase } from "./clients";
 
-// 経理追加収支一覧の取得（RLS により権限に応じた行のみ返る）
-export const getExtraEntryList = async () => {
+// 経理追加収支一覧の取得（RLS により権限に応じた行のみ返る）。
+// 対象月のエントリ（entry_date が対象月に属する行）と月未確定（entry_date が
+// NULL）の行だけを取得する（「期間内 OR NULL」。損益計算書の選択月の明細と同じ範囲）。
+export const getExtraEntryList = async (month: string) => {
+  if (!isMonthKey(month)) {
+    console.error(`経理追加収支の対象月の形式が不正です: ${month}`);
+    return {
+      extraEntryList: null,
+      error: { message: "対象月の形式が不正です。" },
+    };
+  }
   const supabase = createServerSupabase();
+  const bounds = reportRangeBounds({ startMonth: month, endMonth: month });
 
   const { data: extraEntryList, error } = await supabase
     .from("extra_entries")
     .select("*")
+    .or(datedOrUndatedFilter("entry_date", bounds))
     .order("entry_date", { ascending: false, nullsFirst: true })
     .order("id", { ascending: false });
 

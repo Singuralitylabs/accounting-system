@@ -8,6 +8,7 @@ vi.mock("@/app/utils/supabase/clients", () => ({ createServerSupabase }));
 
 import { bulkUpsertExtraEntry } from "@/app/utils/supabase/extraEntries";
 import { copyExtraEntriesFromPreviousMonth } from "@/app/utils/supabase/extraEntries";
+import { getExtraEntryList } from "@/app/utils/supabase/extraEntries";
 
 const saved = (
   id: number,
@@ -203,6 +204,50 @@ describe("copyExtraEntriesFromPreviousMonth の対象月検証（Issue #140）",
     const result = await copyExtraEntriesFromPreviousMonth([], "2026-09");
 
     expect(result).toEqual({ insertedCount: 0, skippedCount: 0, error: null });
+    expect(createServerSupabase).not.toHaveBeenCalled();
+  });
+});
+
+describe("getExtraEntryList の月条件（Issue #157）", () => {
+  beforeEach(() => {
+    createServerSupabase.mockReset();
+  });
+
+  // 対象月の範囲内 OR 月未確定（NULL）の絞り込み条件が付くことを検証する
+  const setupList = () => {
+    let orCondition = "";
+    const terminal = Promise.resolve({ data: [], error: null });
+    const secondOrder = { order: () => terminal };
+    const firstOrder = { order: () => secondOrder };
+    const query = {
+      select: () => query,
+      or: (condition: string) => {
+        orCondition = condition;
+        return firstOrder;
+      },
+    };
+    createServerSupabase.mockReturnValue({
+      from: () => query,
+    });
+    return () => orCondition;
+  };
+
+  it("対象月の期間内 OR NULL で絞る（損益計算書の選択月の明細と同じ範囲）", async () => {
+    const getOrCondition = setupList();
+
+    const result = await getExtraEntryList("2026-09");
+
+    expect(result.error).toBeNull();
+    expect(getOrCondition()).toBe(
+      "and(entry_date.gte.2026-09-01,entry_date.lt.2026-10-01),entry_date.is.null",
+    );
+  });
+
+  it("不正な月キーは DB に行かずエラーを返す", async () => {
+    const result = await getExtraEntryList("2026-09-15");
+
+    expect(result.extraEntryList).toBeNull();
+    expect(result.error).toBeTruthy();
     expect(createServerSupabase).not.toHaveBeenCalled();
   });
 });

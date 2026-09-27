@@ -6,6 +6,8 @@ import Link from "next/link";
 type Props = {
   canEditRecurringCosts: boolean; // ROUTE_PERMISSIONS["/recurring-costs"] 判定
   canEditExtraEntries: boolean; // ROUTE_PERMISSIONS["/extra-entries"] 判定
+  // 損益計算書で表示中の対象月（"YYYY-MM"）。経理追加収支の管理リンクに `?month=` として引き継ぐ
+  month?: string;
 };
 
 // 損益計算書ページから経理マスタ系（定期費用マスタ・経理追加収支）への導線。
@@ -15,6 +17,7 @@ type Props = {
 const AccountingMasterActions = ({
   canEditRecurringCosts,
   canEditExtraEntries,
+  month,
 }: Props) => {
   if (!canEditRecurringCosts && !canEditExtraEntries) {
     return null;
@@ -35,7 +38,7 @@ const AccountingMasterActions = ({
       {canEditExtraEntries && (
         <Button
           component={Link}
-          href="/extra-entries"
+          href={month ? `/extra-entries?month=${month}` : "/extra-entries"}
           size="xs"
           variant="light"
         >

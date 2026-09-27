@@ -6,6 +6,7 @@ import {
   formatEntryType,
   shiftDateToMonth,
   isExtraEntryUnchanged,
+  resolveExtraEntryMonth,
   selectChangedExtraEntries,
 } from "@/app/utils/extraEntry";
 import { ExtraEntryType } from "@/app/types/types";
@@ -244,6 +245,23 @@ describe("isExtraEntryUnchanged", () => {
     expect(
       isExtraEntryUnchanged(original, asRow({ description: "出張2" })),
     ).toBe(false);
+  });
+});
+
+describe("resolveExtraEntryMonth", () => {
+  // 2026-09-15 00:00 JST（UTC 2026-09-14 15:00）
+  const now = new Date(Date.UTC(2026, 8, 14, 15, 0, 0));
+
+  it("有効な `?month=` はそのまま対象月にする", () => {
+    expect(resolveExtraEntryMonth("2026-08", now)).toBe("2026-08");
+  });
+
+  it("無効・未指定の `?month=` は当月（JST）にする", () => {
+    expect(resolveExtraEntryMonth(undefined, now)).toBe("2026-09");
+    expect(resolveExtraEntryMonth(null, now)).toBe("2026-09");
+    expect(resolveExtraEntryMonth("", now)).toBe("2026-09");
+    expect(resolveExtraEntryMonth("2026-13", now)).toBe("2026-09");
+    expect(resolveExtraEntryMonth("2026-09-15", now)).toBe("2026-09");
   });
 });
 

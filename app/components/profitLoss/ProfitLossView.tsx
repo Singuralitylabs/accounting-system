@@ -95,6 +95,7 @@ const ProfitLossView = ({
       <AccountingMasterActions
         canEditRecurringCosts={canEditRecurringCosts}
         canEditExtraEntries={canEditExtraEntries}
+        month={month}
       />
       {canClose && (
         <ClosingDiffBanner

@@ -1,9 +1,17 @@
 import { getExtraEntryList } from "@/app/utils/supabase/extraEntries";
 import { getAllUserInfo } from "@/app/utils/supabase/profiles";
 import { getSelectOptions } from "@/app/utils/supabase/selectOptions";
+import { resolveExtraEntryMonth } from "@/app/utils/extraEntry";
 import ExtraEntryList from "../extraEntries/ExtraEntryList";
 
-const DynamicExtraEntries = async () => {
+type Props = {
+  monthParam?: string;
+};
+
+const DynamicExtraEntries = async ({ monthParam }: Props = {}) => {
+  // 初期の対象月: `?month=YYYY-MM` が有効ならその月、無効・未指定なら当月（JST）。
+  // 損益計算書の「経理追加収支を管理」ボタンは表示中の対象月を `?month=` に付けて遷移する
+  const initialMonth = resolveExtraEntryMonth(monthParam);
   const [
     { extraEntryList, error: extraEntryError },
     incomeCategoryResult,
@@ -12,7 +20,7 @@ const DynamicExtraEntries = async () => {
     teamResult,
     { userInfoList, error: userInfoError },
   ] = await Promise.all([
-    getExtraEntryList(),
+    getExtraEntryList(initialMonth),
     getSelectOptions("extra_income_category"),
     getSelectOptions("extra_expense_category"),
     getSelectOptions("payment_method"),
@@ -43,6 +51,7 @@ const DynamicExtraEntries = async () => {
   return (
     <main>
       <ExtraEntryList
+        initialMonth={initialMonth}
         initialData={extraEntryList}
         incomeCategoryList={incomeCategoryResult.options.map(
           (option) => option.value,

@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   getExtraEntryList,
   bulkUpsertExtraEntry,
@@ -7,19 +12,26 @@ import {
 } from "../utils/supabase/extraEntries";
 import { ExtraEntryInListType, ExtraEntryType } from "../types/types";
 
-// 経理追加収支一覧
-export const useExtraEntryList = (initialData?: ExtraEntryType[] | null) => {
+// 経理追加収支一覧（対象月のエントリ＋月未確定のエントリ）。
+// 月を切り替えている間は前月の表を残す（毎回フルスピナーにしない）
+export const useExtraEntryList = (
+  month: string,
+  initialData?: ExtraEntryType[] | null,
+) => {
   return useQuery({
-    queryKey: ["extraEntries", "all"],
+    queryKey: ["extraEntries", "list", month],
     queryFn: async () => {
-      const { extraEntryList, error } = await getExtraEntryList();
+      const { extraEntryList, error } = await getExtraEntryList(month);
       if (error) {
         throw new Error("経理追加収支情報の取得に失敗しました");
       }
       return extraEntryList ?? [];
     },
     initialData: initialData ?? undefined,
+    enabled: !!month,
     staleTime: 2 * 60 * 1000, // 2分
+    // 月を切り替えている間は前月の表を残す（毎回フルスピナーにしない）
+    placeholderData: keepPreviousData,
   });
 };
 
