@@ -256,7 +256,8 @@ describe("SelectOptionList", () => {
           insertedValues.push(first.value);
           return {
             insertedIds: [{ tempId: first.id, id: nextDbId++ }],
-            error: "選択肢の追加に失敗しました。",
+            updatedIds: [1],
+            error: "項目の追加に失敗しました。",
           };
         },
       );
@@ -274,6 +275,9 @@ describe("SelectOptionList", () => {
       });
       fireEvent.click(screen.getByRole("button", { name: "更新" }));
       await waitFor(() => expect(notifyError).toHaveBeenCalled());
+      expect(notifyError).toHaveBeenCalledWith(
+        "チーム情報の保存に失敗しました。項目の追加に失敗しました。一部の項目は保存済みです。",
+      );
       expect(refresh).not.toHaveBeenCalled();
       // 一部しか保存できていないため、未保存の変更ありのまま
       expect(screen.getByRole("button", { name: "更新" })).toBeEnabled();
@@ -289,6 +293,180 @@ describe("SelectOptionList", () => {
       );
       expect(insertedValues).toEqual(["チームB", "チームC"]);
     });
+  });
+
+  it("保存の応答を待つ間に別の行を編集しても、応答後に編集内容を上書きせず「変更あり」のままにする", async () => {
+    let resolveSave: (value: unknown) => void = () => {};
+    bulkUpsertSelectOptions.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+    renderWithMantine(
+      <SelectOptionList
+        optionClass="team"
+        optionList={[
+          { id: 1, value: "チームA", display_order: 1, is_active: true },
+          { id: 2, value: "チームB", display_order: 2, is_active: true },
+        ]}
+      />,
+    );
+
+    editOption();
+    fireEvent.click(screen.getByRole("button", { name: "チーム追加" }));
+    fireEvent.change(screen.getByDisplayValue(""), {
+      target: { value: "チームC" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    await waitFor(() => expect(bulkUpsertSelectOptions).toHaveBeenCalled());
+    const [, sent] = bulkUpsertSelectOptions.mock.calls[0];
+    const tempId = sent.find(
+      (option: { value: string }) => option.value === "チームC",
+    ).id;
+
+    // 保存の応答待ちの間（LoadingOverlay はフォーカスを閉じ込めない）に別の行を編集する
+    fireEvent.change(screen.getByDisplayValue("チームB"), {
+      target: { value: "チームB2" },
+    });
+    resolveSave({ insertedIds: [{ tempId, id: 100 }], updatedIds: [1, 2] });
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+
+    // 応答後も編集内容が残り、保存した内容（送った内容）との差分で「変更あり」になる
+    expect(screen.getByDisplayValue("チームB2")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("チームA2")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("チームC")).toBeInTheDocument();
+    const saveButton = screen.getByRole("button", { name: "更新" });
+    expect(saveButton).toBeEnabled();
+
+    // 続けて保存すると、追加した行は DB の id（UPDATE）として、編集した行とともに送る
+    bulkUpsertSelectOptions.mockResolvedValueOnce({
+      insertedIds: [],
+      updatedIds: [1, 2, 100],
+    });
+    fireEvent.click(saveButton);
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
+    const [, resent] = bulkUpsertSelectOptions.mock.calls[1];
+    expect(resent).toEqual([
+      expect.objectContaining({ id: 1, value: "チームA2", isNew: false }),
+      expect.objectContaining({ id: 2, value: "チームB2", isNew: false }),
+      expect.objectContaining({ id: 100, value: "チームC", isNew: false }),
+    ]);
+    expect(screen.getByRole("button", { name: "更新" })).toBeDisabled();
+  });
+
+  it("同じ名前の項目がある場合は、サーバのメッセージを表示する（何も保存されていなければ「一部の項目は保存済み」を添えない）", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const duplicate =
+      "「チームA」と同じ名前の項目が既にあります（削除済みの項目を含む）。名前を変えるか、既存の項目を使ってください。";
+    bulkUpsertSelectOptions.mockResolvedValue({
+      insertedIds: [],
+      // 変更していない行の UPDATE だけが成功した
+      updatedIds: [1],
+      error: duplicate,
+    });
+    renderWithMantine(
+      <SelectOptionList optionClass="team" optionList={optionList} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "チーム追加" }));
+    fireEvent.change(screen.getByDisplayValue(""), {
+      target: { value: "チームA" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+
+    await waitFor(() => expect(notifyError).toHaveBeenCalled());
+    expect(notifyError).toHaveBeenCalledWith(
+      `チーム情報の保存に失敗しました。${duplicate}`,
+    );
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("途中まで保存できた場合は、通知に「一部の項目は保存済みです」を添える", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    bulkUpsertSelectOptions.mockResolvedValue({
+      insertedIds: [],
+      // 名前を変えた行の UPDATE は成功し、別の行が失敗した
+      updatedIds: [1],
+      error: "項目の更新に失敗しました。",
+    });
+    renderWithMantine(
+      <SelectOptionList
+        optionClass="team"
+        optionList={[
+          { id: 1, value: "チームA", display_order: 1, is_active: true },
+          { id: 2, value: "チームB", display_order: 2, is_active: true },
+        ]}
+      />,
+    );
+
+    editOption();
+    fireEvent.change(screen.getByDisplayValue("チームB"), {
+      target: { value: "チームB2" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+
+    await waitFor(() => expect(notifyError).toHaveBeenCalled());
+    expect(notifyError).toHaveBeenCalledWith(
+      "チーム情報の保存に失敗しました。項目の更新に失敗しました。一部の項目は保存済みです。",
+    );
+  });
+
+  it("削除して保存した項目と同じ名前を追加し、削除済みの行が再び有効になった場合は、その行を 1 行として扱う", async () => {
+    bulkUpsertSelectOptions.mockResolvedValueOnce({
+      insertedIds: [],
+      updatedIds: [1],
+    });
+    renderWithMantine(
+      <SelectOptionList optionClass="team" optionList={optionList} />,
+    );
+
+    // チームA を削除して保存する（画面には無効化した行として残る）
+    const removeButton = screen
+      .getByDisplayValue("チームA")
+      .closest("tr")
+      ?.querySelector("button");
+    fireEvent.click(removeButton as HTMLButtonElement);
+    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+
+    // 同じ名前を追加して保存すると、サーバは削除済みの行（id: 1）を再び有効にする
+    fireEvent.click(screen.getByRole("button", { name: "チーム追加" }));
+    fireEvent.change(screen.getByDisplayValue(""), {
+      target: { value: "チームA" },
+    });
+    bulkUpsertSelectOptions.mockImplementationOnce(
+      async (
+        _optionClass: string,
+        options: { id: number; isNew: boolean }[],
+      ) => ({
+        insertedIds: [
+          { tempId: options.find((option) => option.isNew)!.id, id: 1 },
+        ],
+        updatedIds: [1],
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
+    expect(screen.getAllByDisplayValue("チームA")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "更新" })).toBeDisabled();
+
+    // 続けて名前を変えて保存すると、id: 1 の行を有効なまま 1 回だけ送る
+    bulkUpsertSelectOptions.mockResolvedValueOnce({
+      insertedIds: [],
+      updatedIds: [1],
+    });
+    editOption();
+    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(3));
+    expect(bulkUpsertSelectOptions.mock.calls[2][1]).toEqual([
+      expect.objectContaining({
+        id: 1,
+        value: "チームA2",
+        is_active: true,
+        isNew: false,
+      }),
+    ]);
   });
 
   it("未保存の変更が無い間は「更新」を押せない", () => {

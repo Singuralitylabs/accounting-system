@@ -3,6 +3,7 @@
 import { User } from "@supabase/supabase-js";
 import { AccessFailure } from "../../types/types";
 import { isAllowedEmailDomain } from "../constants";
+import { hasClassAccess } from "../permissions";
 import {
   formatUserValidationErrors,
   ProfileUpdateInput,
@@ -11,7 +12,6 @@ import {
 } from "../userList";
 import { getCachedProfileInfo, getCachedProfileInfoById } from "./requestCache";
 import { createServerSupabase } from "./clients";
-import { getAuthorizedViewer } from "./viewerAccess";
 
 export const getProfileInfo = async () => {
   try {
@@ -190,20 +190,32 @@ const PROFILES_SAVE_FAILED: AccessFailure = {
 export const bulkUpdateProfiles = async (
   updates: ProfileUpdateInput[],
 ): Promise<BulkUpdateProfilesResult> => {
-  const { error: accessError } = await getAuthorizedViewer(
-    ["admin"],
-    "ユーザー管理",
-  );
-  if (accessError) {
-    // getAuthorizedViewer のメッセージは閲覧向け（「〜の取得に失敗しました」等）のため、
-    // 保存向けの文言に置き換える（種別はそのまま）
+  // viewerAccess.ts の getAuthorizedViewer は閲覧向け（ログ・メッセージが「〜の閲覧権限が
+  // ありません」等）で、かつ profiles.ts を import する（循環 import になる）ため使わず、
+  // 同じ「プロフィール取得 → hasClassAccess」をここで行い、保存の権限エラーとして記録する
+  const { profileInfo, error: profileError } = await getProfileInfo();
+  if (profileError || !profileInfo) {
+    console.error(
+      "ユーザー情報の保存前に、保存する人の権限を確認できませんでした。",
+      profileError,
+    );
     return {
       error: {
-        kind: accessError.kind,
+        kind: "fetchFailed",
         message:
-          accessError.kind === "forbidden"
-            ? "ユーザー情報を保存する権限がありません（管理者のみ）。何も保存されていません。"
-            : "権限を確認できなかったため、何も保存しませんでした。時間をおいて保存し直してください。",
+          "権限を確認できなかったため、何も保存しませんでした。時間をおいて保存し直してください。",
+      },
+    };
+  }
+  if (!hasClassAccess(["admin"], profileInfo.class)) {
+    console.error(
+      `ユーザー情報を保存する権限がありません（管理者のみ）。profiles.id: ${profileInfo.id}`,
+    );
+    return {
+      error: {
+        kind: "forbidden",
+        message:
+          "ユーザー情報を保存する権限がありません（管理者のみ）。何も保存されていません。",
       },
     };
   }

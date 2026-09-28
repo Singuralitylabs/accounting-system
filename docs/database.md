@@ -718,7 +718,7 @@ GRANT EXECUTE ON FUNCTION public.validate_member_ids(bigint[]) TO authenticated;
 - クライアントからの upsert は使わない（INSERT ポリシー `auth.uid() = user_id` に弾かれるため）
 - EXECUTE は authenticated のみ（`REVOKE ... FROM PUBLIC, anon`）
 - 呼び出し側は `app/utils/supabase/profiles.ts` の `bulkUpdateProfiles`。`INVALID_INPUT`（22023）/ `NOT_APPLIED` / 42501 は「何も保存しなかった」旨の利用者向けメッセージに変換する。画面からは変更した行だけが送られる
-- `bulkUpdateProfiles` は Server Action として公開されるため、RLS に加えて `getAuthorizedViewer(["admin"], ...)` で呼び出し元が admin であることを確認し（多層防御）、admin 以外は RPC を呼ばずに権限エラーを返す（RLS 上は admin 以外でも自分の `slack_id` を更新できるが、この経路では変更させない）
+- `bulkUpdateProfiles` は Server Action として公開されるため、RLS に加えて呼び出し元のプロフィール（`getProfileInfo`）の権限を `hasClassAccess(["admin"], ...)` で確認し（多層防御）、admin 以外は RPC を呼ばずに権限エラーを返す（RLS 上は admin 以外でも自分の `slack_id` を更新できるが、この経路では変更させない）
 
 ```sql
 CREATE OR REPLACE FUNCTION public.update_profiles(p_updates jsonb)

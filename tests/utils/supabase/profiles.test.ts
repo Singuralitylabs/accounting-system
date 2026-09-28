@@ -1,19 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { createServerSupabase, getAuthorizedViewer } = vi.hoisted(() => ({
+const { createServerSupabase, getCachedProfileInfo } = vi.hoisted(() => ({
   createServerSupabase: vi.fn(),
-  getAuthorizedViewer: vi.fn(),
+  getCachedProfileInfo: vi.fn(),
 }));
 
 vi.mock("@/app/utils/supabase/clients", () => ({
   createServerSupabase,
 }));
-vi.mock("@/app/utils/supabase/viewerAccess", () => ({ getAuthorizedViewer }));
-
-// getAllUserInfo / bulkUpdateProfiles は参照しないが、requestCache 経由の react cache を
-// テスト環境に持ち込まないためモックする
+// bulkUpdateProfiles は保存する人のプロフィール（getProfileInfo → getCachedProfileInfo）で
+// 権限を確認する。requestCache 経由の react cache をテスト環境に持ち込まないためモックする
 vi.mock("@/app/utils/supabase/requestCache", () => ({
-  getCachedProfileInfo: vi.fn(),
+  getCachedProfileInfo,
   getCachedProfileInfoById: vi.fn(),
 }));
 
@@ -82,48 +80,61 @@ describe("bulkUpdateProfiles", () => {
     rpc.mockReset();
     createServerSupabase.mockClear();
     createServerSupabase.mockReturnValue({ rpc });
-    getAuthorizedViewer.mockReset();
-    getAuthorizedViewer.mockResolvedValue({
+    getCachedProfileInfo.mockReset();
+    getCachedProfileInfo.mockResolvedValue({
       profileInfo: { id: 99, class: "admin" },
     });
   });
 
-  it("admin に限定して権限を確認する", async () => {
+  it("保存する人のプロフィールで権限を確認する", async () => {
     rpc.mockResolvedValue({ data: null, error: null });
 
     await bulkUpdateProfiles(updates);
 
-    expect(getAuthorizedViewer).toHaveBeenCalledWith(
-      ["admin"],
-      expect.any(String),
-    );
+    expect(getCachedProfileInfo).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledTimes(1);
   });
 
-  it("admin 以外は、入力チェック・書き込みをせずに権限エラーを返す（送った名前も返さない）", async () => {
-    getAuthorizedViewer.mockResolvedValue({
-      error: { kind: "forbidden", message: "ユーザー管理の閲覧権限がありません。" },
-    });
+  it.each(["teamleader", "accounting", "public"])(
+    "admin 以外（%s）は、入力チェック・書き込みをせずに保存の権限エラーを返す（送った名前も返さない）",
+    async (profileClass) => {
+      getCachedProfileInfo.mockResolvedValue({
+        profileInfo: { id: 5, class: profileClass },
+      });
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
 
-    // 自分の Slack ID だけの変更（RLS 上は admin 以外でも書き込める）も拒否する
-    const ownSlackId = await bulkUpdateProfiles([
-      { id: 5, name: "自分", class: "public", team: null, slack_id: "U5" },
-    ]);
-    // 入力エラーのある内容でも、入力チェックのメッセージ（送った名前）を返さない
-    const invalid = await bulkUpdateProfiles([{ ...updates[0], team: null }]);
+      // 自分の Slack ID だけの変更（RLS 上は admin 以外でも書き込める）も拒否する
+      const ownSlackId = await bulkUpdateProfiles([
+        { id: 5, name: "自分", class: "public", team: null, slack_id: "U5" },
+      ]);
+      // 入力エラーのある内容でも、入力チェックのメッセージ（送った名前）を返さない
+      const invalid = await bulkUpdateProfiles([{ ...updates[0], team: null }]);
 
-    for (const result of [ownSlackId, invalid]) {
-      expect(result.error?.kind).toBe("forbidden");
-      expect(result.error?.message).toContain("権限がありません");
-      expect(result.error?.message).not.toContain("山田");
-    }
-    expect(createServerSupabase).not.toHaveBeenCalled();
-    expect(rpc).not.toHaveBeenCalled();
-  });
+      for (const result of [ownSlackId, invalid]) {
+        expect(result.error?.kind).toBe("forbidden");
+        expect(result.error?.message).toContain("保存する権限がありません");
+        expect(result.error?.message).not.toContain("山田");
+      }
+      // ログも閲覧ではなく保存の権限エラーとして残す
+      expect(consoleError).toHaveBeenCalledWith(
+        expect.stringContaining("保存する権限がありません"),
+      );
+      expect(consoleError).not.toHaveBeenCalledWith(
+        expect.stringContaining("閲覧権限"),
+      );
+      expect(createServerSupabase).not.toHaveBeenCalled();
+      expect(rpc).not.toHaveBeenCalled();
+      consoleError.mockRestore();
+    },
+  );
 
   it("権限を確認できなければ、書き込みをせずにエラーを返す", async () => {
-    getAuthorizedViewer.mockResolvedValue({
-      error: { kind: "fetchFailed", message: "ユーザー管理の取得に失敗しました。" },
+    getCachedProfileInfo.mockResolvedValue({
+      error: new Error("ユーザー認証情報の取得に失敗しました。"),
     });
+    vi.spyOn(console, "error").mockImplementation(() => {});
 
     const result = await bulkUpdateProfiles(updates);
 

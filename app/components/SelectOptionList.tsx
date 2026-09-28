@@ -62,18 +62,48 @@ export const hasOptionListChanges = (
   rows: OptionRow[],
 ) => optionRowsKey(baseline) !== optionRowsKey(rows);
 
-// 保存で INSERT された行を、仮 id から DB の id に置き換えて保存済み（isNew: false）にする。
+// 保存で追加された行を、仮 id から DB の id に置き換えて保存済み（isNew: false）にする。
 // これを baseline・表示にすることで、再取得（router.refresh）が届く前に続けて保存しても
-// 同じ行を再び INSERT せず、保存済みの行の削除も無効化（UPDATE）として送られる
+// 同じ行を再び追加せず、保存済みの行の削除も無効化（UPDATE）として送られる。
+// 削除済みの行を再び有効にした場合（同じ名前の行を削除してから追加した場合）は、
+// 追加した行がその行の id になるため、画面に残っている削除済みの同じ id の行は除く
 export const applyInsertedOptionIds = (
   rows: OptionRow[],
   insertedIds: InsertedSelectOptionId[],
 ): OptionRow[] => {
   const idByTempId = new Map(insertedIds.map(({ tempId, id }) => [tempId, id]));
-  return rows.map((row) => {
-    const id = row.isNew ? idByTempId.get(row.id) : undefined;
-    return id === undefined ? row : { ...row, id, isNew: false };
-  });
+  const insertedDbIds = new Set(insertedIds.map(({ id }) => id));
+  return rows
+    .filter((row) => row.isNew || !insertedDbIds.has(row.id))
+    .map((row) => {
+      const id = row.isNew ? idByTempId.get(row.id) : undefined;
+      return id === undefined ? row : { ...row, id, isNew: false };
+    });
+};
+
+// 追加してすぐ削除した行（保存していない行）を除く
+const withoutDiscardedNewRows = (rows: OptionRow[]) =>
+  rows.filter((row) => !(row.isNew && !row.is_active));
+
+// 保存が途中で失敗したとき、保存できた行に変更した内容が含まれていたか
+// （追加できた行がある、または UPDATE できた既存の行が baseline から変わっていた）
+export const hasPartiallySavedChanges = (
+  baseline: OptionRow[],
+  sentRows: OptionRow[],
+  insertedIds: InsertedSelectOptionId[],
+  updatedIds: number[],
+) => {
+  if (insertedIds.length > 0) return true;
+  const baselineKeyById = new Map(
+    baseline.map((row) => [row.id, optionRowsKey([row])]),
+  );
+  const updated = new Set(updatedIds);
+  return sentRows.some(
+    (row) =>
+      !row.isNew &&
+      updated.has(row.id) &&
+      baselineKeyById.get(row.id) !== optionRowsKey([row]),
+  );
 };
 
 const SelectOptionList = ({
@@ -198,26 +228,37 @@ const SelectOptionList = ({
       );
       if (!confirmed) return;
 
-      const { insertedIds, error } = await bulkUpsertSelectOptions(
+      // 送った時点の内容（保存の応答を待つ間にも編集できるため、保存結果の baseline は
+      // これから作り、表示には最新の編集内容に id の置き換えだけを適用する）
+      const sentRows = updatedOptionList;
+      const { insertedIds, updatedIds, error } = await bulkUpsertSelectOptions(
         optionClass,
-        updatedOptionList,
+        sentRows,
       );
-      // INSERT できた行は DB の id に置き換える（途中で失敗した場合も、保存し直したときに
-      // 同じ行を再び INSERT しないように）
-      const savedRows = applyInsertedOptionIds(updatedOptionList, insertedIds);
+      // 追加できた行は DB の id に置き換える（途中で失敗した場合も、保存し直したときに
+      // 同じ行を再び追加しないように）
+      setUpdatedOptionList((prev) => applyInsertedOptionIds(prev, insertedIds));
       if (error) {
-        setUpdatedOptionList(savedRows);
         console.error(`${optionTitle}情報の保存に失敗しました。`, error);
-        notifyError(`${optionTitle}情報の保存に失敗しました。`);
+        const partiallySaved = hasPartiallySavedChanges(
+          baseline,
+          sentRows,
+          insertedIds,
+          updatedIds ?? [],
+        );
+        notifyError(
+          `${optionTitle}情報の保存に失敗しました。${error}${
+            partiallySaved ? "一部の項目は保存済みです。" : ""
+          }`,
+        );
         return;
       }
-      // 保存した状態を新しい baseline・表示にする（未保存の変更なしになる）。
-      // 追加してすぐ削除した行は保存していないため除く
-      const nextRows = savedRows.filter(
-        (row) => !(row.isNew && !row.is_active),
+      // 送った内容を新しい baseline にする（保存の応答を待つ間に編集していなければ、
+      // 未保存の変更なしになる）。追加してすぐ削除した行は保存していないため除く
+      setBaseline(
+        withoutDiscardedNewRows(applyInsertedOptionIds(sentRows, insertedIds)),
       );
-      setUpdatedOptionList(nextRows);
-      setBaseline(nextRows);
+      setUpdatedOptionList((prev) => withoutDiscardedNewRows(prev));
       // 編集中に届いて保留していた props（この保存より前の内容）を同期済みとして扱い、
       // 保存した値が保存前の内容でいったん戻って見えないようにする（次に届く props から反映する）
       syncedOptionListRef.current = latestOptionListRef.current;
