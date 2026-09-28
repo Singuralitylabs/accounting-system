@@ -126,7 +126,10 @@ jobs:
           fi
           HTTP_STATUS=$(head -n1 "$RESP_FILE" | tr -d '\r' | sed -nE 's#^HTTP/[0-9.]+ ([0-9]{3}).*#\1#p')
           if [ -z "$HTTP_STATUS" ]; then
-            # ステータス行が取れない場合は gh のエラーメッセージ（例: gh: Not Found (HTTP 404)）から拾う
+            # 通常は上のステータス行で取れる。標準出力の先頭にステータス行が無い場合（接続段階での失敗や、
+            # gh の仕様変更で --include の出力形式が変わった場合）のフォールバックとして、
+            # gh のエラーメッセージ（例: gh: Not Found (HTTP 404)）から拾う。どちらでも取れなければ空のまま
+            # 「HTTP 応答なし」として扱う。
             HTTP_STATUS=$(sed -nE 's#.*\(HTTP ([0-9]{3})\).*#\1#p' "$ERR_FILE" | head -n1)
           fi
           # ヘッダと本文を区切る空行より後ろを本文として取り出す
@@ -209,6 +212,8 @@ jobs:
             # HEAD と一致するマージ済み PR を選ぶ。コミットと PR の関連付け（commits/{sha}/pulls）は
             # マージコミットや既定ブランチ外のコミットで PR が返らない場合があるため使わない。
             # --paginate の出力はページごとの配列が連なるため jq -s で 1 つの配列にまとめる。
+            # 毎回全件をページングするが、release 向け PR は数件〜数十件で負荷は問題にならない。search API
+            # （is:merged 等での絞り込み）は反映遅延・レート制限があるため、検証の確実性を優先して使わない。
             # merge_commit_sha は新しい REST API バージョン（2026-03-10）で PR オブジェクトから削除されているため、
             # gh の既定バージョンが上がっても値を取れるよう API バージョンを 2022-11-28 に固定する。
             if ! RELEASE_PRS=$(gh api --paginate -H 'X-GitHub-Api-Version: 2022-11-28' \
