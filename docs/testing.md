@@ -285,7 +285,7 @@ TypeScript と型生成の運用によって、型の破綻を早期に検知す
 - `/extra-entries` を 2 つのブラウザで開き、A で行を削除して保存した後、B でその行を編集して保存すると「他の利用者に削除された行があります…」と表示され、B の他の追加・編集も保存されないこと。B で編集していない行は、A が保存した内容のまま上書きされないこと
 - `/extra-entries` を 2 つのブラウザで開き、A で 9 月の行の追加と 7 月の行の編集を入力したまま、B（損益計算書）で 7 月を確定してから A で保存すると、「何も保存しませんでした」と表示され、9 月の追加も保存されていないこと
 - 「確定済み」を 2 つのブラウザでオフにすると、後からオフにした側は成功扱いにならず再読み込みを促されること
-- 確定と、同じ月への損益調整・経理追加収支の保存の同時実行（Issue #171。画面では時間幅が狭く再現できないため psql 2 セッションで確認する）: セッション A で accounting として `BEGIN;` → `save_extra_entries`（または `save_profit_loss_adjustment`、損益調整の直接の DELETE）で当月に書き込み → `SELECT pg_sleep(3); COMMIT;`、その 1 秒後にセッション B で accounting として当月の `save_profit_loss_closing` → コミット後に再集計して違えば取り直す。B の確定が A のコミットまで待ち、確定値に A の書き込みが含まれること。逆に B の確定のコミット前（`save_profit_loss_closing` の後に `pg_sleep`）に A が書き込むと、A は B のコミットまで待って `MONTH_CLOSED` で拒否されること。どちらの順でも「確定値 = ライブ集計」になること（手順と SQL は Issue #171 の PR を参照）
+- 確定と、同じ月への損益調整・経理追加収支の保存の同時実行（Issue #171。画面では時間幅が狭く再現できないため psql 2 セッションで確認する）: セッション A で accounting として `BEGIN;` → `save_extra_entries`（または `save_profit_loss_adjustment`、損益調整の直接の DELETE）で当月に書き込み → `SELECT pg_sleep(3); COMMIT;`、その 1 秒後にセッション B で accounting として当月の `save_profit_loss_closing` → コミット後に再集計して違えば取り直す。B の確定が A のコミットまで待ち、確定値に A の書き込みが含まれること。逆に B の確定のコミット前（`save_profit_loss_closing` の後に `pg_sleep`）に A が書き込むと、A は B のコミットまで待って `MONTH_CLOSED` で拒否されること。どちらの順でも「確定値 = ライブ集計」になること（手順と SQL は下の「確定と書き込みの同時実行の再現手順（Issue #171）」）
 - teamleader が自分で作成した他チームの案件に accounting が損益調整を付けると、その月が未確定でも確定済みでも teamleader の画面で同じ実績額・調整額・調整理由が表示されること（確定 / 解除で表示が変わらないこと）
 
 #### 案件詳細モーダル
@@ -297,6 +297,111 @@ TypeScript と型生成の運用によって、型の破綻を早期に検知す
 | `/matters` から自分の案件を開く                    | 表示（編集可） | 同左             | 同左              | 同左  |
 | `/matters/team` から他メンバーの自チーム案件を開く | 対象外         | 表示（参照中心） | 対象外            | 表示  |
 | `/matters/accounting` から任意案件を開く           | 対象外         | 対象外           | 表示（経理用 UI） | 表示  |
+
+#### 確定と書き込みの同時実行の再現手順（Issue #171）
+
+月次収支の確定と、同じ月への経理追加収支・損益調整の保存が同時に走ったときに、書き込みが「確定値に含まれる」か「確定済みとして拒否される」のどちらかになる（確定値から漏れない）ことを、ローカル DB（`supabase db reset` 直後）に psql を 2 本つないで確認する。画面では時間幅が狭く再現できないため、`pg_sleep` でコミットを遅らせる。確定側（セッション B）は `closeProfitLossMonth` の「集計 → `save_profit_loss_closing` → コミット後に再集計 → 違えば取り直し」を SQL で模す（集計はアプリの `buildLiveMonthLines` の代わりに、経理追加収支と管理費（定期費用・損益調整）だけを補助関数で組み立てる）。
+
+準備（postgres で 1 回。経理担当者 A / B と定期費用 1 件、補助関数 2 つ）:
+
+```sql
+INSERT INTO auth.users (id, email) VALUES
+  ('11111111-1111-1111-1111-111111111111', 'a@example.com'),
+  ('22222222-2222-2222-2222-222222222222', 'b@example.com');
+INSERT INTO profiles (user_id, email, name, class) VALUES   -- profiles.id は 1（A）・2（B）
+  ('11111111-1111-1111-1111-111111111111', 'a@example.com', '経理A', 'accounting'),
+  ('22222222-2222-2222-2222-222222222222', 'b@example.com', '経理B', 'accounting');
+INSERT INTO recurring_costs (name, item, price, start_month)       -- id は 1
+  VALUES ('サーバ代', '通信費', 10000, '2026-01-01');
+
+-- 当月のライブ集計（経理追加収支 + 管理費と損益調整）を save_profit_loss_closing の p_lines の形で返す
+CREATE FUNCTION public.pl171_live_lines(p_month date) RETURNS jsonb LANGUAGE sql AS $$
+  SELECT coalesce(jsonb_agg(l ORDER BY l->>'source_type', (l->>'source_id')::bigint), '[]'::jsonb) FROM (
+    SELECT jsonb_build_object('source_type', 'extra_entry', 'source_id', e.id, 'name', e.description,
+      'category', e.category, 'team', e.team, 'entry_type', e.entry_type, 'entry_date', e.entry_date,
+      'billing_amount', e.billing_amount, 'expense_amount', e.expense_amount)
+    FROM public.extra_entries e WHERE date_trunc('month', e.entry_date)::date = p_month
+    UNION ALL
+    SELECT jsonb_build_object('source_type', 'recurring_cost', 'source_id', rc.id, 'name', rc.name,
+      'item', rc.item, 'team', rc.team, 'payment_cycle', rc.payment_cycle, 'source_amount', rc.price,
+      'adjustment_amount', coalesce(a.adjustment_amount, 0),
+      'actual_amount', rc.price + coalesce(a.adjustment_amount, 0), 'adjustment_reason', a.reason)
+    FROM public.recurring_costs rc
+    LEFT JOIN public.profit_loss_adjustments a ON a.recurring_cost_id = rc.id AND a.target_month = p_month
+  ) s(l)
+$$;
+-- 確定明細を同じ形で返す
+CREATE FUNCTION public.pl171_closed_lines(p_month date) RETURNS jsonb LANGUAGE sql AS $$
+  SELECT coalesce(jsonb_agg(l ORDER BY l->>'source_type', (l->>'source_id')::bigint), '[]'::jsonb) FROM (
+    SELECT CASE WHEN cl.source_type = 'extra_entry' THEN
+      jsonb_build_object('source_type', cl.source_type, 'source_id', cl.source_id, 'name', cl.name,
+        'category', cl.category, 'team', cl.team, 'entry_type', cl.entry_type, 'entry_date', cl.entry_date,
+        'billing_amount', cl.billing_amount, 'expense_amount', cl.expense_amount)
+    ELSE
+      jsonb_build_object('source_type', cl.source_type, 'source_id', cl.source_id, 'name', cl.name,
+        'item', cl.item, 'team', cl.team, 'payment_cycle', cl.payment_cycle, 'source_amount', cl.source_amount,
+        'adjustment_amount', cl.adjustment_amount, 'actual_amount', cl.actual_amount,
+        'adjustment_reason', cl.adjustment_reason)
+    END
+    FROM public.profit_loss_closing_lines cl
+    JOIN public.profit_loss_closings c ON c.id = cl.closing_id
+    WHERE c.target_month = p_month
+  ) s(l)
+$$;
+```
+
+セッション A（経理担当者 A の書き込み。`:hold` 秒おいてコミット）:
+
+```sql
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', true);
+SELECT public.save_extra_entries(
+  '[{"entry_type":"income","category":"協賛金","entry_date":"2026-09-15","description":"A の追加","manager_id":1,"billing_amount":50000}]',
+  '[]', '{}');
+-- 損益調整で確認する場合は上の代わりに次のいずれか
+--   SELECT * FROM public.save_profit_loss_adjustment(NULL, NULL, 1, '2026-09-01', 12000, '値上げ分');
+--   DELETE FROM public.profit_loss_adjustments WHERE target_month = '2026-09-01';  -- 事前に 9 月の調整を 1 件入れておく
+SELECT pg_sleep(:hold);
+COMMIT;
+```
+
+セッション B（経理担当者 B の確定。`:hold` 秒おいてコミットし、コミット後に再集計して違えば取り直す）:
+
+```sql
+SELECT public.pl171_live_lines('2026-09-01') AS lines \gset
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}', true);
+SELECT id AS closing_id FROM public.save_profit_loss_closing('2026-09-01', :'lines'::jsonb) \gset
+SELECT pg_sleep(:hold);
+COMMIT;
+SELECT public.pl171_live_lines('2026-09-01') AS verified \gset
+SELECT (:'lines'::jsonb = :'verified'::jsonb) AS same \gset
+\if :same
+  \echo 再集計 = 確定値（取り直しなし）
+\else
+  \echo 再集計が確定値と異なる → 取り直し
+  BEGIN;
+  SET LOCAL ROLE authenticated;
+  SELECT set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}', true);
+  SELECT id FROM public.save_profit_loss_closing('2026-09-01', :'verified'::jsonb, :closing_id);
+  COMMIT;
+\endif
+```
+
+確認（postgres。両セッションの終了後）:
+
+```sql
+SELECT public.pl171_live_lines('2026-09-01') = public.pl171_closed_lines('2026-09-01') AS "確定値 = ライブ";
+```
+
+| シナリオ                                                                                     | 実行順                                                             | 期待結果（migration 34 以降）                                                                                                                                            | 修正前（migration 34 適用前）                                                                             |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| 1. 書き込みが先（Issue の順序）: A の書き込み（未コミット）→ B の確定・再集計 → A のコミット | A を `-v hold=3` で開始し、その 1 秒後に B を `-v hold=0` で開始   | B の `save_profit_loss_closing` が A のコミットまで待つ。B は「取り直し」と表示し、確認が `t`（A の書き込みが確定値に含まれる）                                          | B は A を待たず「取り直しなし」で終わり、確認が `f`（A の書き込みが確定値から漏れたまま月がロックされる） |
+| 2. 確定が先: B の確定（未コミット）→ A の書き込み → B のコミット・再集計                     | B を `-v hold=2` で開始し、その 0.5 秒後に A を `-v hold=4` で開始 | A の書き込みが B のコミットまで待ち、`ERROR: MONTH_CLOSED`（`DETAIL: 2026-09 の月は確定済みのため変更できません`）でロールバックされる。B は「取り直しなし」、確認が `t` | A の書き込みが通り、B のコミット後にコミットされて確認が `f`                                              |
+
+各シナリオの前に確定を解除し、A の書き込みを消しておく（`DELETE FROM profit_loss_closings WHERE target_month = '2026-09-01'; DELETE FROM extra_entries WHERE entry_date >= '2026-09-01';`。損益調整で確認した場合は `profit_loss_adjustments` も）。確認後は補助関数を削除する（`DROP FUNCTION public.pl171_live_lines(date), public.pl171_closed_lines(date);`）か `supabase db reset` する。
 
 ## 4. CI / ツール構成
 
