@@ -455,6 +455,7 @@ jobs:
           fi
 
           if [ "$HAS_MIGRATIONS_CHANGED" = "true" ]; then
+            # shellcheck disable=SC2016 # 書式文字列中のバッククォートは Markdown のコード表記（展開させない）
             MIGRATIONS_CHANGED_SECTION=$(printf '**適用済みマイグレーションの変更・削除（後方互換の検出対象外）:**\n\n`release` に含まれるファイルは本番に適用済みである前提で、内容を変更しても再適用されません。意図した変更か、`supabase migration list` の履歴と不整合が生じないかを確認してください（前回リリースで未適用のまま残ったファイルがある場合は、下の migration list で確認してください）。\n\n%s' "$MIGRATIONS_CHANGED_LIST")
           else
             MIGRATIONS_CHANGED_SECTION=""
@@ -466,11 +467,23 @@ jobs:
             MIGRATION_NOTICE=""
           fi
 
-          BODY=$(cat <<EOF
+          # 本文テンプレートは <<'EOF'（クォート付き）の固定文字列として扱い、テンプレート中の
+          # バッククォートや $(...) をコマンドとして実行させない（Issue #168）。差し込み値は
+          # envsubst に変数名を列挙して明示的に展開する（列挙外の $ 表記は文字列のまま残る）。
+          # envsubst は 1 パスで置換するため、差し込み値（サマリー等）に含まれる ${...} も再展開されない。
+          # envsubst は環境変数しか参照しないため、このステップ内で組み立てた値は export する。
+          if ! command -v envsubst >/dev/null 2>&1; then
+            echo "::error::envsubst（gettext-base）が見つかりません。PR 本文を組み立てられないため中断します。"
+            exit 1
+          fi
+          export SUMMARY_SECTION BREAKING_SECTION MIGRATIONS_CHANGED_SECTION MIGRATION_NOTICE
+          # shellcheck disable=SC2016 # envsubst に渡す変数名の一覧であり、シェルでは展開しない
+          BODY_VARS='${VERSION} ${SUMMARY_SECTION} ${BREAKING_SECTION} ${MIGRATIONS_LIST} ${MIGRATIONS_CHANGED_SECTION} ${BREAKING_LIST} ${ENV_ADDED_LIST} ${ENV_CODE_LIST} ${MIGRATION_NOTICE} ${MIGRATION_LIST_BODY}'
+          TEMPLATE=$(cat <<'EOF'
           ## リリース ${VERSION}
 
-          このPRは \`main\` ブランチを \`release\` ブランチへマージするためのリリース PR です。
-          マージ後に \`create-release.yml\` が起動し、承認後に Git タグと GitHub Release が作成されます。
+          このPRは `main` ブランチを `release` ブランチへマージするためのリリース PR です。
+          マージ後に `create-release.yml` が起動し、承認後に Git タグと GitHub Release が作成されます。
 
           ${SUMMARY_SECTION}
 
@@ -498,9 +511,9 @@ jobs:
 
           ### マージ前チェックリスト
 
-          - [ ] 上記マイグレーションを本番 Supabase に適用済み（\`supabase migration list\` で履歴一致を確認。\`db push\` は手動実行）
+          - [ ] 上記マイグレーションを本番 Supabase に適用済み（`supabase migration list` で履歴一致を確認。`db push` は手動実行）
           - [ ] 上記環境変数を本番環境（Vercel）に登録済み
-          - [ ] 本番 Supabase の Exposed schemas に \`private\` が含まれていないこと（docs/database.md 5.12）
+          - [ ] 本番 Supabase の Exposed schemas に `private` が含まれていないこと（docs/database.md 5.12）
           - [ ] Custom Access Token Hook の有効化はマイグレーション適用後に行うこと（該当リリースのみ。docs/database.md）
           - [ ] 本番 DB のバックアップを取得した（無料プランのため取得できない場合は、追加系マイグレーションに限り省略可と判断した理由を記載）
           - [ ] 後方互換でない変更が無いか確認済み（ある場合はリリース分割の判断済み）
@@ -508,6 +521,21 @@ jobs:
           - [ ] 本番動作確認後に create-release の承認を行うことを把握している（手順は docs/release.md）
           EOF
           )
+
+          # テンプレート中の ${...} と BODY_VARS の列挙が食い違っていたら失敗させる。列挙漏れの変数は
+          # 展開されずに ${...} のまま PR 本文に出てしまい、列挙だけ残った変数は不要な設定になるため。
+          # 照合するのは ${NAME} 形式のみ。差し込む変数は必ず ${NAME} で書き、テンプレートに $ を文字どおり書くときは ${...} 形式を使わないこと。
+          TEMPLATE_VARS=$(printf '%s\n' "$TEMPLATE" | grep -oE '\$\{[A-Za-z_][A-Za-z0-9_]*\}' | sort -u || true)
+          LISTED_VARS=$(printf '%s\n' "$BODY_VARS" | tr ' ' '\n' | sed '/^$/d' | sort -u)
+          if [ "$TEMPLATE_VARS" != "$LISTED_VARS" ]; then
+            echo "::error::PR 本文テンプレートの差し込み変数と BODY_VARS の列挙が一致しません。"
+            echo "テンプレートにあって BODY_VARS に無い変数:"
+            comm -23 <(printf '%s\n' "$TEMPLATE_VARS") <(printf '%s\n' "$LISTED_VARS")
+            echo "BODY_VARS にあってテンプレートに無い変数:"
+            comm -13 <(printf '%s\n' "$TEMPLATE_VARS") <(printf '%s\n' "$LISTED_VARS")
+            exit 1
+          fi
+          BODY=$(printf '%s\n' "$TEMPLATE" | envsubst "$BODY_VARS")
 
           # Draft で作成する（マイグレーション適用前の誤マージ防止）。
           gh pr create \

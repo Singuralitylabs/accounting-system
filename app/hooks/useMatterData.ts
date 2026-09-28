@@ -131,7 +131,8 @@ export const useUpdateMatter = () => {
 
   return useMutation({
     // コスト・取引先の isNew INSERT を含む非冪等更新のため、
-    // グローバル retry: 1 による mutationFn 再実行を防ぐ
+    // mutationFn の自動再実行を防ぐ（QueryProvider の既定も retry: 0 だが、既定が
+    // 変わっても再実行されないよう明示する）
     retry: 0,
     mutationFn: (data: {
       matterInfo: MatterType;
@@ -179,7 +180,8 @@ export const useCreateMatter = () => {
 
   return useMutation({
     // addMatterInfo は matter INSERT 後にコスト・取引先を入れる非冪等処理。
-    // グローバル retry: 1 だと一時失敗で案件行が重複する
+    // 自動で再実行すると一時失敗で案件行が重複するため、再実行しない（QueryProvider の
+    // 既定も retry: 0 だが、既定が変わっても再実行されないよう明示する）
     retry: 0,
     mutationFn: (data: {
       matterInfo: MatterType;
@@ -238,8 +240,8 @@ export const useSlackNotification = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    // Slack 送信は非冪等な副作用のため、グローバル設定（retry: 1）による
-    // mutationFn 全体の自動再実行＝通知の二重送信を防ぐ
+    // Slack 送信は非冪等な副作用のため、mutationFn 全体の自動再実行＝通知の二重送信を
+    // 防ぐ（QueryProvider の既定も retry: 0 だが、既定が変わっても再実行されないよう明示する）
     retry: 0,
     mutationFn: async (data: {
       matters: MatterInfoWithUserNameType[];
