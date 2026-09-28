@@ -483,6 +483,10 @@ describe(
       expect(
         screen.queryByText("最新の経理追加収支情報を取得できませんでした"),
       ).toBeNull();
+      // 再取得中はオーバーレイでロックしているため、赤い警告も出さない
+      expect(
+        screen.queryByText("最新の経理追加収支情報の取得に失敗しました"),
+      ).toBeNull();
     });
 
     it("staleTime の経過による再取得の失敗（無効化されていない）では、従来どおり編集・保存できる", () => {
