@@ -73,4 +73,32 @@ describe("SelectOptionList", () => {
     expect(bulkUpsertSelectOptions).not.toHaveBeenCalled();
     expect(refresh).not.toHaveBeenCalled();
   });
+
+  it("サーバの選択肢が変わったら、未保存の変更が無ければ同期し、編集中なら編集内容を保つ", () => {
+    const { rerender } = renderWithMantine(
+      <SelectOptionList optionClass="team" optionList={optionList} />,
+    );
+    const refreshed = [
+      { id: 1, value: "チームA", display_order: 1, is_active: true },
+      { id: 2, value: "チームB", display_order: 2, is_active: true },
+    ];
+
+    rerender(<SelectOptionList optionClass="team" optionList={refreshed} />);
+    expect(screen.getByDisplayValue("チームB")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByDisplayValue("チームA"), {
+      target: { value: "チームA2" },
+    });
+    rerender(
+      <SelectOptionList
+        optionClass="team"
+        optionList={[
+          ...refreshed,
+          { id: 3, value: "チームC", display_order: 3, is_active: true },
+        ]}
+      />,
+    );
+    expect(screen.getByDisplayValue("チームA2")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("チームC")).not.toBeInTheDocument();
+  });
 });

@@ -710,7 +710,7 @@ GRANT EXECUTE ON FUNCTION public.validate_member_ids(bigint[]) TO authenticated;
 - 画面を経由しない呼び出し（admin による PostgREST への直接の RPC・細工した Server Action の入力）でも意図しない上書きをしないよう、次のいずれかに当たる入力は例外 `INVALID_INPUT`（SQLSTATE 22023）で全体を拒否する（何も更新しない）
   - `p_updates` が配列でない / 要素がオブジェクトでない
   - 必須キー（`id` / `class` / `team` / `slack_id`）が欠けている（欠けたキーを NULL で上書きしない）
-  - `id` が正の整数でない（null を含む）/ 同じ `id` が複数ある（値が同じでも拒否。どの値が勝つか不定にしない）
+  - `id` が 1 以上の bigint の範囲の整数でない（null・0・小数・bigint の範囲外を含む）/ 同じ `id` が複数ある（値が同じでも拒否。どの値が勝つか不定にしない）
   - `class` が許可値（`public` / `teamleader` / `accounting` / `admin`）の文字列でない
   - `team` / `slack_id` が文字列でも null でもない
 - teamleader のチーム必須などの業務上の入力チェックはアプリ側（`app/utils/userList.ts` の `validateUserUpdates`。画面と Server Action の両方。権限が許可値かもここで確認する）で行う
@@ -745,7 +745,12 @@ BEGIN
     WHERE jsonb_typeof(e.elem) <> 'object'
       OR NOT (e.elem ?& ARRAY['id', 'class', 'team', 'slack_id'])
       OR jsonb_typeof(e.elem -> 'id') <> 'number'
-      OR (e.elem ->> 'id') !~ '^[0-9]+$'
+      -- 1 以上の整数で bigint の範囲内（19 桁は上限と文字列で比較する）
+      OR (e.elem ->> 'id') !~ '^[1-9][0-9]{0,18}$'
+      OR (
+        length(e.elem ->> 'id') = 19
+        AND (e.elem ->> 'id') COLLATE "C" > '9223372036854775807'
+      )
       OR jsonb_typeof(e.elem -> 'class') <> 'string'
       OR (e.elem ->> 'class') NOT IN ('public', 'teamleader', 'accounting', 'admin')
       OR jsonb_typeof(e.elem -> 'team') NOT IN ('string', 'null')

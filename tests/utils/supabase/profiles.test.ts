@@ -142,22 +142,35 @@ describe("bulkUpdateProfiles", () => {
     },
   );
 
-  it.each([
-    ["message", { message: "INVALID_INPUT" }],
-    ["SQLSTATE 22023", { message: "invalid parameter", code: "22023" }],
-  ])(
-    "不正な入力（INVALID_INPUT）は、何も保存していないことを利用者に分かるメッセージに変換する（%s で判定）",
-    async (_label, rpcError) => {
-      rpc.mockResolvedValue({ data: null, error: rpcError });
+  it("不正な入力（INVALID_INPUT）は、何も保存していないことを利用者に分かるメッセージに変換する", async () => {
+    rpc.mockResolvedValue({
+      data: null,
+      error: { message: "INVALID_INPUT", code: "22023" },
+    });
 
-      const result = await bulkUpdateProfiles(updates);
+    const result = await bulkUpdateProfiles(updates);
 
-      expect(result.error?.kind).toBe("validationFailed");
-      expect(result.error?.message).toContain("入力内容が正しくない");
-      expect(result.error?.message).toContain("何も保存しませんでした");
-      expect(result.error?.message).not.toContain("INVALID_INPUT");
-    },
-  );
+    expect(result.error?.kind).toBe("validationFailed");
+    expect(result.error?.message).toContain("入力内容が正しくない");
+    expect(result.error?.message).toContain("何も保存しませんでした");
+    expect(result.error?.message).not.toContain("INVALID_INPUT");
+  });
+
+  it("SQLSTATE 22023 でも INVALID_INPUT 以外の失敗は、入力の不正として扱わない", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    rpc.mockResolvedValue({
+      data: null,
+      error: { message: "invalid parameter value", code: "22023" },
+    });
+
+    const result = await bulkUpdateProfiles(updates);
+
+    expect(result.error?.kind).toBe("fetchFailed");
+    expect(result.error?.message).toContain("何も保存されていません");
+    consoleError.mockRestore();
+  });
 
   it("権限が許可値以外なら RPC を呼ばずに拒否する", async () => {
     const result = await bulkUpdateProfiles([

@@ -2,7 +2,7 @@
 
 import { Button, LoadingOverlay, Table, Title } from "@mantine/core";
 import { SelectOptionType } from "../types/types";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { bulkUpsertSelectOptions } from "../utils/supabase/selectOptions";
 import { notifyError, notifySuccess } from "../utils/notify";
@@ -24,6 +24,40 @@ import {
 } from "@dnd-kit/sortable";
 import { SortableTableRow } from "./SortableTableRow";
 import { CiSquarePlus } from "react-icons/ci";
+import { useReportDashboardUnsavedChanges } from "./dashboard/DashboardUnsavedChanges";
+
+type OptionRow = Pick<
+  SelectOptionType,
+  "id" | "value" | "display_order" | "is_active"
+> & { isNew: boolean };
+
+const toOptionRows = (
+  optionList: Pick<
+    SelectOptionType,
+    "id" | "value" | "display_order" | "is_active"
+  >[],
+): OptionRow[] => optionList.map((option) => ({ ...option, isNew: false }));
+
+// 変更の有無の比較用（並び順・項目名・表示順・有効 / 無効・追加した行）。
+// 追加してすぐ削除した行は保存されないため比較から除く
+const optionRowsKey = (rows: OptionRow[]) =>
+  JSON.stringify(
+    rows
+      .filter((row) => !(row.isNew && !row.is_active))
+      .map((row) => [
+        row.id,
+        row.isNew,
+        row.value,
+        row.display_order,
+        row.is_active,
+      ]),
+  );
+
+// 保存済みの状態（baseline）から編集されているか
+export const hasOptionListChanges = (
+  baseline: OptionRow[],
+  rows: OptionRow[],
+) => optionRowsKey(baseline) !== optionRowsKey(rows);
 
 const SelectOptionList = ({
   optionClass,
@@ -35,13 +69,31 @@ const SelectOptionList = ({
     "id" | "value" | "display_order" | "is_active"
   >[];
 }) => {
-  const [updatedOptionList, setUpdatedOptionList] = useState<
-    (Pick<SelectOptionType, "id" | "value" | "display_order" | "is_active"> & {
-      isNew: boolean;
-    })[]
-  >(optionList.map((option) => ({ ...option, isNew: false })));
+  const [updatedOptionList, setUpdatedOptionList] = useState<OptionRow[]>(() =>
+    toOptionRows(optionList),
+  );
+  // 画面に読み込んだ時点（または直前の保存成功時点）の状態。これと比べて未保存の変更が
+  // あるかを管理画面のメニュー（DashboardNav）に知らせ、切り替え前の確認に使う
+  const [baseline, setBaseline] = useState<OptionRow[]>(() =>
+    toOptionRows(optionList),
+  );
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
+  const hasChanges = hasOptionListChanges(baseline, updatedOptionList);
+  useReportDashboardUnsavedChanges(hasChanges);
+
+  // 保存後の再取得（router.refresh）などでサーバの選択肢が変わったら、未保存の変更が
+  // 無い場合に限り表示を同期する（保存で追加した行に DB の id を反映する。編集中の
+  // 内容は黙って破棄しない。編集を終えて変更が無くなった時点で同期する）
+  const syncedOptionListRef = useRef(optionList);
+  useEffect(() => {
+    if (!hasChanges && optionList !== syncedOptionListRef.current) {
+      syncedOptionListRef.current = optionList;
+      const rows = toOptionRows(optionList);
+      setUpdatedOptionList(rows);
+      setBaseline(rows);
+    }
+  }, [optionList, hasChanges]);
 
   const OPTION_TITLES: Record<string, string> = {
     team: "チーム",
@@ -124,6 +176,8 @@ const SelectOptionList = ({
       if (!confirmed) return;
 
       await bulkUpsertSelectOptions(optionClass, updatedOptionList);
+      // 保存した状態を新しい baseline にする（未保存の変更なしになる）
+      setBaseline(updatedOptionList);
       notifySuccess(`${optionTitle}情報を更新しました。`);
       // ユーザー管理画面（/dashboard/users）のチーム欄などはサーバで取得した選択肢を
       // props で受け取っているため、Server Component を再描画し、クライアントの

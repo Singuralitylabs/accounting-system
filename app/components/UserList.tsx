@@ -92,15 +92,25 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
     : new Map<number, UserValidationErrors>();
 
   // 保存後の再取得（router.refresh）などでサーバの一覧が変わったら、未保存の変更が
-  // 無い場合に限り表示を同期する（編集中の内容は黙って破棄しない）
-  const hasChangesRef = useRef(hasChanges);
-  hasChangesRef.current = hasChanges;
+  // 無い場合に限り表示を同期する（編集中の内容は黙って破棄しない）。
+  // 編集中に届いた最新の一覧は、変更が無くなった時点（「変更を破棄」・値を元に戻した・
+  // 保存に成功した）で同期する。同期済みの一覧を ref で覚え、届いていた最新値を取りこぼして
+  // 古い baseline のまま次の保存で他の管理者の値を上書きしないようにする
+  const syncedUserListRef = useRef(userList);
+  const syncedTeamListRef = useRef(teamList);
   useEffect(() => {
-    if (!hasChangesRef.current) {
-      setRows(sortUserList(userList, teamList));
-      setBaseline(toRowMap(userList));
+    if (hasChanges) return;
+    if (
+      userList === syncedUserListRef.current &&
+      teamList === syncedTeamListRef.current
+    ) {
+      return;
     }
-  }, [userList, teamList]);
+    syncedUserListRef.current = userList;
+    syncedTeamListRef.current = teamList;
+    setRows(sortUserList(userList, teamList));
+    setBaseline(toRowMap(userList));
+  }, [userList, teamList, hasChanges]);
 
   // 管理画面のサイドメニュー / タブ（DashboardNav）からの画面切り替え前の確認に使う
   useReportDashboardUnsavedChanges(hasChanges);
@@ -133,7 +143,8 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
     );
   };
 
-  // 変更を破棄して、読み込み時点（直前の保存成功時点）の値に戻す
+  // 変更を破棄して、読み込み時点（直前の保存成功時点）の値に戻す。編集中に新しい一覧が
+  // 届いていた場合は、変更が無くなった直後の同期（上の useEffect）で最新値に置き換わる
   const handleDiscard = () => {
     setRows((prev) => prev.map((user) => baseline.get(user.id) ?? user));
     setShowErrors(false);

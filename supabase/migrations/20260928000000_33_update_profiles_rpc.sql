@@ -21,7 +21,8 @@
 -- 全体を拒否する（何も更新しない）:
 --   - 配列でない / 要素がオブジェクトでない
 --   - 必須キー（id / class / team / slack_id）が欠けている（欠けたキーを NULL で上書きしない）
---   - id が正の整数でない（null を含む）/ 同じ id が複数ある（どの値が勝つか不定にしない）
+--   - id が 1 以上の bigint の範囲の整数でない（null・0・小数・範囲外を含む）/ 同じ id が複数ある
+--     （どの値が勝つか不定にしない）
 --   - class が許可値（public / teamleader / accounting / admin）の文字列でない
 --   - team / slack_id が文字列でも null でもない
 -- teamleader のチーム必須などの業務上の入力チェックは呼び出し側（app/utils/userList.ts の
@@ -52,7 +53,12 @@ BEGIN
     WHERE jsonb_typeof(e.elem) <> 'object'
       OR NOT (e.elem ?& ARRAY['id', 'class', 'team', 'slack_id'])
       OR jsonb_typeof(e.elem -> 'id') <> 'number'
-      OR (e.elem ->> 'id') !~ '^[0-9]+$'
+      -- 1 以上の整数で bigint の範囲内（19 桁は上限と文字列で比較する）
+      OR (e.elem ->> 'id') !~ '^[1-9][0-9]{0,18}$'
+      OR (
+        length(e.elem ->> 'id') = 19
+        AND (e.elem ->> 'id') COLLATE "C" > '9223372036854775807'
+      )
       OR jsonb_typeof(e.elem -> 'class') <> 'string'
       OR (e.elem ->> 'class') NOT IN ('public', 'teamleader', 'accounting', 'admin')
       OR jsonb_typeof(e.elem -> 'team') NOT IN ('string', 'null')

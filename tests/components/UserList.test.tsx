@@ -309,6 +309,59 @@ describe("UserList", () => {
       expect(inputValue("一般 次郎の Slack ID")).toBe("U000001");
       expect(screen.getByText("1 件変更あり")).toBeInTheDocument();
     });
+
+    it("編集中に届いた最新の一覧は、「変更を破棄」した時点で反映して並べ直す", () => {
+      const { rerender } = renderWithMantine(
+        <UserList userList={unsortedUserList} teamList={teamList} />,
+      );
+
+      changeSlackId("経理 太郎", "U-EDIT");
+      rerender(<UserList userList={refreshedUserList} teamList={teamList} />);
+      fireEvent.click(discardButton());
+
+      // 読み込み時点の古い値ではなく、届いていた最新の一覧になる
+      expect(displayedNames()).toEqual([
+        "一般 次郎",
+        "管理 花子",
+        "経理 太郎",
+        "リーダー A",
+        "リーダー B",
+        "リーダー 旧",
+      ]);
+      expect(inputValue("一般 次郎の Slack ID")).toBe("U-NEW");
+      expect(inputValue("経理 太郎の Slack ID")).toBe("U000001");
+      expect(screen.getByText("変更はありません")).toBeInTheDocument();
+    });
+
+    it("編集中に届いた最新の一覧は、編集した値を元に戻して変更が無くなった時点でも反映する", () => {
+      const { rerender } = renderWithMantine(
+        <UserList userList={unsortedUserList} teamList={teamList} />,
+      );
+
+      changeSlackId("経理 太郎", "U-EDIT");
+      rerender(<UserList userList={refreshedUserList} teamList={teamList} />);
+      changeSlackId("経理 太郎", "U000001");
+
+      expect(inputValue("一般 次郎の Slack ID")).toBe("U-NEW");
+      expect(displayedNames()[0]).toBe("一般 次郎");
+    });
+
+    it("保存に成功した直後（再取得が届く前）に編集して破棄すると、保存した値に戻る", async () => {
+      renderWithMantine(
+        <UserList userList={unsortedUserList} teamList={teamList} />,
+      );
+
+      changeSlackId("経理 太郎", "U-SAVED");
+      fireEvent.click(saveButton());
+      await waitFor(() => expect(refresh).toHaveBeenCalled());
+
+      changeSlackId("経理 太郎", "U-AGAIN");
+      fireEvent.click(discardButton());
+
+      // 再取得前の古い props（U000001）ではなく、保存した値に戻る
+      expect(inputValue("経理 太郎の Slack ID")).toBe("U-SAVED");
+      expect(screen.getByText("変更はありません")).toBeInTheDocument();
+    });
   });
 
   describe.each([

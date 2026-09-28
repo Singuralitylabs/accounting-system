@@ -208,11 +208,9 @@ export const bulkUpdateProfiles = async (
   });
   if (rpcError) {
     // 不正な入力（キーの欠落・id の重複や null・許可値以外の権限など）は
-    // update_profiles が INVALID_INPUT（22023）で全体を拒否する
-    if (
-      rpcError.message.includes("INVALID_INPUT") ||
-      rpcError.code === "22023"
-    ) {
+    // update_profiles が INVALID_INPUT（22023）で全体を拒否する。22023 は他の原因でも
+    // 返り得るため、例外のメッセージで判定する
+    if (rpcError.message.includes("INVALID_INPUT")) {
       return {
         error: {
           kind: "validationFailed",
