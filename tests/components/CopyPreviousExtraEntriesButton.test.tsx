@@ -161,4 +161,20 @@ describe("CopyPreviousExtraEntriesButton の件数表示", () => {
     );
     expect(notifySuccess).not.toHaveBeenCalled();
   });
+
+  it("コピーが失敗扱いになっても一覧を取り直す（結果を読めなかっただけで行は登録済みの可能性があるため）", async () => {
+    copyExtraEntriesFromPreviousMonth.mockResolvedValue({
+      insertedCount: 0,
+      skippedCount: 0,
+      error: { message: "前月コピーの結果を確認できませんでした。" },
+    });
+    renderButton();
+    await clickCopy();
+
+    await vi.waitFor(() => expect(notifyError).toHaveBeenCalled());
+    // 前月分の一覧（["extraEntries", ...]）が無効化され、表示中のため取り直される
+    await vi.waitFor(() =>
+      expect(getPreviousMonthExtraEntries).toHaveBeenCalledTimes(2),
+    );
+  });
 });

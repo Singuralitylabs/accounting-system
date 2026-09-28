@@ -312,7 +312,8 @@ export const copyExtraEntriesFromPreviousMonth = async (
     !Number.isInteger(counts.skipped_count)
   ) {
     // 関数は常に 1 行を返す。想定外の応答は件数を表示できないため失敗として扱う
-    // （コピーはコミット済みの可能性があるが、やり直しても同一内容の行はスキップされる）
+    // （コピーはコミット済みの可能性があるが、やり直しても同一内容の行はスキップされる。
+    // 呼び出し側のフックは失敗時も一覧を取り直す）
     console.error("経理追加収支の前月コピーの結果が不正です:", copyResult);
     return {
       insertedCount: 0,

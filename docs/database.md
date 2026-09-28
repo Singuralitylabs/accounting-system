@@ -1144,11 +1144,11 @@ CREATE POLICY "extra_entries_delete_policy" ON extra_entries
 - advisory lock の名前空間（第 1 キー）: `140` = 前月コピー（本関数）、`148` = 月次収支確定と書き込みの直列化（`private.lock_pl_month`、5.14）。別の用途で advisory lock を使う場合は、これらと異なる値にする
 - デッドロック: コピーは前月コピーのロック（140）を取った後に、INSERT のトリガー（6.4）で確定の月ロック（148）の共有ロックを取る。確定（`save_profit_loss_closing`）と一括保存（`save_extra_entries`）は 140 を取らないため、待ちの循環は生じない（先のコピーが確定を待っている間、後のコピーは先のコピーを待つだけ。確定が先なら、コピーは確定のコミットを待ってから `MONTH_CLOSED` で拒否される）
 - ロック取得後の確認が先のコピーのコミットを見られるのは、READ COMMITTED で VOLATILE な plpgsql 関数が文ごとに新しいスナップショットを取るため（ロックの取得と、確認を含む INSERT を別の文にしている）。PostgREST のトランザクションは READ COMMITTED（既定）であることを前提にする
-- 同一内容の判定: entry_type・分類・内容・責任者・チーム・請求額・経費がすべて一致する当月の行があれば除く（NULL 同士も一致とみなす）。entry_date（対象月内で共通）・請求書番号（コピーでは常に空）・請求先・決済方法は比較しない。`p_rows` の中の同一内容の行どうしは除かない（前月に同一内容の行が複数あればすべてコピーする）
+- 同一内容の判定: entry_type・分類・内容・責任者・チーム・請求額・経費がすべて一致する当月の行があれば除く（NULL 同士も一致とみなす）。entry_date（対象月内で共通）・請求書番号（コピーでは常に空）・請求先・決済方法は比較しない。判定の相手は当月の既存行だけで、`p_rows` の中の同一内容の行どうしは除かない（当月に同一内容の行が無ければ、前月に同一内容の行が複数あってもすべてコピーする。当月に 1 件でもあれば、`p_rows` の中の同じ内容の行はすべてスキップする。従来のアプリ側の判定と同じ）
 - 一意制約（部分インデックス + `ON CONFLICT DO NOTHING`）にしない理由: 同一内容の明細（同じ日の交通費 2 件など）は正当に存在し得るため、重複判定のキーは一意ではない。既存データにある同一内容の行もそのまま残る
 - `p_rows` の各行の `entry_date` はすべて `p_target_month` の月内でなければならず、それ以外（NULL を含む）が混ざると `INVALID_INPUT`（22023）で全体を拒否する（他の月の行はロックで守られないため）。`p_target_month` が NULL・`p_rows` が配列でない・要素がオブジェクトでない場合も `INVALID_INPUT`
 - 戻り値は 1 行（`inserted_count` = 登録した件数、`skipped_count` = 当月に同一内容の行があるため除いた件数）。`p_rows` が空なら 0 / 0
-- SECURITY INVOKER（既定）。上記の RLS（書き込みは経理担当者・管理者のみ・確定済みの月の編集ロック）と確定との直列化トリガー（6.4）がそのまま適用される。既存行の確認も RLS 越しに行う（コピーできる経理担当者・管理者は全行を参照できる）。確定済みの月へのコピーは、登録する行があれば `MONTH_CLOSED`（42501）で拒否される（全行が同一内容でスキップされる場合は何も書き込まず、登録 0 件で正常に終わる）
+- SECURITY INVOKER（既定）。ロックを取る前に `public.auth_user_class()` が経理担当者・管理者かを確認し、それ以外は `FORBIDDEN`（42501）で拒否する（書き込めない利用者が、何も INSERT されない入力で月のロックを持ち続け、経理担当のコピーを待たせることを防ぐ。`save_profit_loss_closing` と同じ判定）。上記の RLS（書き込みは経理担当者・管理者のみ・確定済みの月の編集ロック）と確定との直列化トリガー（6.4）もそのまま適用される。既存行の確認も RLS 越しに行う（コピーできる経理担当者・管理者は全行を参照できる）。確定済みの月へのコピーは、登録する行があれば `MONTH_CLOSED`（42501）で拒否される（全行が同一内容でスキップされる場合は何も書き込まず、登録 0 件で正常に終わる）
 - EXECUTE は authenticated のみ（`REVOKE ... FROM PUBLIC, anon`）。`private.lock_extra_entries_copy` は `pg_advisory_*` の EXECUTE 権限に左右されないよう SECURITY DEFINER（`private.lock_pl_month` と同じ）
 - 呼び出し側（`app/utils/supabase/extraEntries.ts` の `copyExtraEntriesFromPreviousMonth`）は、確定済みの月の確認・複製元の取得（id 指定 + 前月の日付範囲）・行の組み立て（`app/utils/extraEntry.ts` の `buildCopiedExtraEntries`）までを行い、既存行の確認と INSERT は本関数に任せる
 - 同時実行の再現手順は `docs/testing.md` 3.7「前月コピーの同時実行の再現手順」

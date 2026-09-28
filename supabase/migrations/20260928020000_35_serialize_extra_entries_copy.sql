@@ -68,12 +68,16 @@ GRANT EXECUTE ON FUNCTION private.lock_extra_entries_copy(date) TO authenticated
 -- 同一内容の判定: entry_type・分類・内容・責任者・チーム・請求額・経費がすべて一致する行
 -- （NULL 同士も一致とみなす）。entry_date は対象月内で共通のため比較せず、請求書番号
 -- （コピーでは常に空）・請求先（自由入力の補足情報）・決済方法は比較しない（従来のアプリ側の
--- 判定と同じ）。p_rows の中の同一内容の行どうしは除かない
--- （前月に同一内容の行が複数あればすべてコピーする）。
+-- 判定と同じ）。判定の相手は当月の既存行だけで、p_rows の中の同一内容の行どうしは除かない
+-- （当月に同一内容の行が無ければ、前月に同一内容の行が複数あってもすべてコピーする。当月に
+-- 1 件でもあれば、p_rows の中の同じ内容の行はすべてスキップする）。
 --
 -- SECURITY INVOKER（既定）にし、extra_entries の RLS（書き込みは accounting / admin のみ・
 -- 確定済みの月の編集ロック）と、確定との直列化トリガー（migration 34）をそのまま適用する。
 -- 既存行の確認も RLS 越しに行う（コピーできる accounting / admin は全行を参照できる）。
+-- ロックを取る前に accounting / admin かを確認し、それ以外は FORBIDDEN（42501）で拒否する
+-- （書き込めない利用者が、何も INSERT されない入力で月のロックを持ち続け、経理担当の
+-- コピーを待たせることができないようにする。save_profit_loss_closing と同じ判定）。
 CREATE OR REPLACE FUNCTION public.copy_extra_entries(
   p_target_month date,
   p_rows jsonb
@@ -88,6 +92,11 @@ DECLARE
   v_total integer;
   v_inserted integer;
 BEGIN
+  IF public.auth_user_class() IS NULL
+     OR public.auth_user_class() NOT IN ('admin', 'accounting') THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
   IF p_target_month IS NULL
     OR p_rows IS NULL
     OR pg_catalog.jsonb_typeof(p_rows) <> 'array'

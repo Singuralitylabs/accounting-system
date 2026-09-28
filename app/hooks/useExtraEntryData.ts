@@ -146,7 +146,9 @@ export const useCopyExtraEntriesFromPreviousMonth = () => {
       }
       return { insertedCount, skippedCount };
     },
-    onSuccess: () => {
+    // 失敗した場合も一覧を取り直す（コピーの結果（件数）を読めずに失敗扱いにした場合でも、
+    // 行は登録済みの可能性があるため。何も書き込まれていない失敗では取り直すだけで害はない）
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["extraEntries"] });
       // 経理追加収支の変更は月次・年間推移の損益レポートに影響するため、損益側もまとめて無効化する
       queryClient.invalidateQueries({ queryKey: ["profitLoss"] });
