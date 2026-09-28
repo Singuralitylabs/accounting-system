@@ -235,9 +235,14 @@ const ProfitLossView = ({
                 trend={trend}
                 diffCountByMonth={diffCountByMonth}
               />
-              {/* 表と同じデータで売上・利益の推移を描く（Issue #177） */}
+              {/* 表と同じデータで売上・利益の推移を描く（Issue #177）。
+                  Tabs は既定（keepMounted）で非表示のパネルもマウントしたままにするため、
+                  グラフは年間推移タブの表示中だけ描画する（非表示のパネル内では幅 0 で
+                  再計測・再描画され、データの再取得のたびに見えないグラフも描き直すため）。
+                  Tabs.Panel の keepMounted={false} は Tabs 側の keepMounted と OR で
+                  判定され効かず、Tabs 全体で外すと月次タブの展開状態なども失われる */}
               <AnnualTrendChartFrame fiscalYear={trend.fiscalYear}>
-                <AnnualTrendChart trend={trend} />
+                {activeTab === "annual" && <AnnualTrendChart trend={trend} />}
               </AnnualTrendChartFrame>
             </>
           )}
