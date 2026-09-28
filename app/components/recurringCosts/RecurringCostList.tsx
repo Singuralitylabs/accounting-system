@@ -45,6 +45,7 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
     isInvalidated,
     isFetching,
     isError,
+    isPaused,
     refetch,
   } = useRecurringCostList(initialData);
   const upsertMutation = useUpsertRecurringCost();
@@ -58,28 +59,36 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
   // 編集中フラグ。バックグラウンド再取得（再接続時など）で
   // 保存前の編集内容が黙って破棄されるのを防ぐ
   const [isDirty, setIsDirty] = useState(false);
-  // 保存に失敗したか。追加・更新・削除は並列に送るため、失敗しても一部だけ反映されている
-  // （または応答だけ失われて反映済みの）可能性がある。このまま編集を続けて保存すると新規行が
-  // 二重に登録されうるため、一覧を取り直す（フックの onError で無効化済み。成功するまで
-  // 無効化は解けない）まで編集・保存を止め、取り直した一覧（実際の状態）に同期する
-  const [saveFailed, setSaveFailed] = useState(false);
-  const needsReload = saveFailed && isInvalidated;
+  // 保存後の再取得待ち。保存に成功した（saved）か、失敗した（failed）か。
+  // - saved: 表示中の一覧（キャッシュ）は保存前のもので、保存した新規行が含まれない。
+  //   そのまま同期・編集させると、再取得に失敗した場合に保存が消えたように見え、
+  //   入力し直して二重に登録されうる（Issue #170 と同じ）
+  // - failed: 追加・更新・削除は並列に送るため、一部だけ反映されている（または応答だけ
+  //   失われて反映済みの）可能性があり、そのまま保存し直すと新規行が二重に登録されうる
+  // いずれもフックが一覧を無効化するので、再取得に成功して無効化が解けるまで同期と
+  // 編集・保存を止め、取り直した一覧（実際の状態）に同期する
+  const [awaitingRefresh, setAwaitingRefresh] = useState<
+    "saved" | "failed" | null
+  >(null);
+  const needsReload = awaitingRefresh !== null && isInvalidated;
+  // 再取得を試みたが取得できていない（失敗・オフラインで一時停止）
+  const reloadStalled = needsReload && !isFetching && (isError || isPaused);
   const formLocked = upsertMutation.isPending || needsReload;
 
   // 保存後の再取得などでサーバ状態が変わったらローカル編集状態をリセットする
-  // （編集中・保存失敗後の再取得待ちは同期しない）
+  // （編集中・保存後の再取得待ちは同期しない）
   useEffect(() => {
     if (recurringCostList && !isDirty && !needsReload) {
       setRows(toListRows(recurringCostList));
     }
   }, [recurringCostList, isDirty, needsReload]);
 
-  // 再取得に成功して無効化が解けたら、保存失敗後の待ち状態を終える
+  // 再取得に成功して無効化が解けたら、保存後の再取得待ちを終える
   useEffect(() => {
-    if (saveFailed && !isInvalidated && !isFetching) {
-      setSaveFailed(false);
+    if (awaitingRefresh && !isInvalidated && !isFetching) {
+      setAwaitingRefresh(null);
     }
-  }, [saveFailed, isInvalidated, isFetching]);
+  }, [awaitingRefresh, isInvalidated, isFetching]);
 
   const handleUpdateRow = (
     id: number,
@@ -147,11 +156,14 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
 
     try {
       await upsertMutation.mutateAsync(rows);
-      setIsDirty(false); // 保存成功後は再取得結果との同期を再開する
+      // 保存後の再取得（フックの onSuccess で無効化済み）が届くまで、保存前のキャッシュで
+      // 画面を上書きせず、保存した内容を表示したまま編集・保存を止める
+      setAwaitingRefresh("saved");
+      setIsDirty(false);
       notifySuccess("定期費用情報を更新しました。");
     } catch (error) {
       console.error("定期費用情報の保存に失敗しました。", error);
-      setSaveFailed(true);
+      setAwaitingRefresh("failed");
       setIsDirty(false);
       notifyError(
         "定期費用情報の更新に失敗しました。一部のみ反映されている可能性があるため、最新の内容を取得して表示します。反映されていない変更は入力し直してください。",
@@ -166,14 +178,22 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
       <LoadingOverlay
         visible={upsertMutation.isPending || (needsReload && isFetching)}
       />
-      {needsReload && !isFetching && isError && (
+      {reloadStalled && (
         <Alert
           color="yellow"
-          title="保存結果を確認できず、最新の定期費用情報も取得できませんでした"
+          title={
+            awaitingRefresh === "saved"
+              ? "保存は完了しましたが、最新の定期費用情報を取得できませんでした"
+              : "保存結果を確認できず、最新の定期費用情報も取得できませんでした"
+          }
           className="mb-4"
         >
           <p>
-            表示中の内容は保存しようとした時点のもので、実際にどこまで反映されたかは分かりません。二重登録を防ぐため、最新の内容を取得できるまで編集・保存はできません。
+            {awaitingRefresh === "saved"
+              ? "表示中の内容は保存した時点のものです。"
+              : "表示中の内容は保存しようとした時点のもので、実際にどこまで反映されたかは分かりません。"}
+            二重登録を防ぐため、最新の内容を取得できるまで編集・保存はできません。
+            {isPaused && "通信が回復すると自動で取得します。"}
           </p>
           <Button
             type="button"

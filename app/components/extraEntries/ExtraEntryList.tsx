@@ -325,12 +325,12 @@ const ExtraEntryList = ({
 
     try {
       await upsertMutation.mutateAsync(changedRows);
-      // 保存に成功した時点の一覧の取得時刻を控え、これより新しい一覧が届くまで同期しない
-      // （保存の完了時に進行中だった再取得は onSuccess の無効化で取り消されるため、
-      // これ以降に届く一覧は保存後のもの）
-      // （保存中にバックグラウンド再取得が完了していた場合も、その一覧を「保存前」として扱う）
+      // 保存後の再取得待ちにする。フックの onSuccess で一覧が無効化されており、再取得に
+      // 成功して無効化が解けるまで（isAwaitingRefresh の間）は保存前のキャッシュで同期しない。
+      // 保存の完了時に進行中だった再取得は無効化で取り消されるため、無効化を解くのは
+      // 保存後に取得した一覧だけ
       setSavedSnapshot({ month, kind: "saved" });
-      setIsDirty(false); // 保存成功後は再取得結果との同期を再開する
+      setIsDirty(false);
       notifySuccess("経理追加収支情報を更新しました。");
     } catch (error) {
       console.error("経理追加収支情報の保存に失敗しました。", error);

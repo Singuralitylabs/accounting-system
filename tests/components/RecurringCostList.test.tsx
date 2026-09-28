@@ -1,11 +1,15 @@
 // @vitest-environment jsdom
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  onlineManager,
+} from "@tanstack/react-query";
 import { fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import RecurringCostList from "@/app/components/recurringCosts/RecurringCostList";
 import { RecurringCostType } from "@/app/types/types";
-import { notifyError } from "@/app/utils/notify";
+import { notifyError, notifySuccess } from "@/app/utils/notify";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
 
 // 定期費用の保存は追加・更新・削除を並列に送るため、失敗しても一部だけ反映されている
@@ -103,6 +107,7 @@ describe("RecurringCostList の保存失敗後の扱い", { timeout: 15000 }, ()
   });
 
   afterEach(() => {
+    onlineManager.setOnline(true);
     vi.restoreAllMocks();
   });
 
@@ -152,4 +157,100 @@ describe("RecurringCostList の保存失敗後の扱い", { timeout: 15000 }, ()
     expect(getRecurringCostList).toHaveBeenCalled();
     expect(screen.getByDisplayValue("サーバ代（改定）")).toBeTruthy();
   });
+
+  it("オフラインで取り直しが一時停止しても、理由と「再読み込み」を表示する", async () => {
+    getRecurringCostList.mockResolvedValue({
+      recurringCostList: [cost({ id: 1 })],
+      error: null,
+    });
+    renderList([cost({ id: 1 })]);
+    // 保存の失敗と同時に通信が切れた状態にする（再取得は paused になる）
+    bulkUpsertRecurringCost.mockImplementation(async () => {
+      onlineManager.setOnline(false);
+      throw new Error("定期費用情報の更新に失敗しました");
+    });
+
+    await editAndSave();
+
+    expect(
+      await screen.findByText(
+        "保存結果を確認できず、最新の定期費用情報も取得できませんでした",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText(/通信が回復すると自動で取得します/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "保存" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
 });
+
+describe(
+  "RecurringCostList の保存成功後の扱い（Issue #170 と同じ経路）",
+  { timeout: 15000 },
+  () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      bulkUpsertRecurringCost.mockResolvedValue(undefined);
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("保存後の取り直しに失敗しても、保存前の一覧で上書きせず編集・保存を止める", async () => {
+      getRecurringCostList.mockResolvedValue({
+        recurringCostList: null,
+        error: { message: "network" },
+      });
+      renderList([cost({ id: 1 })]);
+
+      fireEvent.change(screen.getByDisplayValue("サーバ代"), {
+        target: { value: "サーバ代（改定）" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
+      await vi.waitFor(() => expect(notifySuccess).toHaveBeenCalled());
+
+      expect(
+        await screen.findByText(
+          "保存は完了しましたが、最新の定期費用情報を取得できませんでした",
+        ),
+      ).toBeTruthy();
+      // 保存した内容を表示したまま（保存前の「サーバ代」に戻らない）
+      expect(screen.getByDisplayValue("サーバ代（改定）")).toBeTruthy();
+      expect(screen.queryByDisplayValue("サーバ代")).toBeNull();
+      expect(screen.getByRole("button", { name: "保存" })).toHaveProperty(
+        "disabled",
+        true,
+      );
+      expect(
+        screen.getByRole("button", { name: "定期費用追加" }),
+      ).toHaveProperty("disabled", true);
+    });
+
+    it("保存後に取り直せたら、取り直した一覧に同期して編集を再開できる", async () => {
+      getRecurringCostList.mockResolvedValue({
+        recurringCostList: [
+          cost({ id: 1, name: "サーバ代（改定）" }),
+          cost({ id: 2, name: "他の利用者が追加" }),
+        ],
+        error: null,
+      });
+      renderList([cost({ id: 1 })]);
+
+      fireEvent.change(screen.getByDisplayValue("サーバ代"), {
+        target: { value: "サーバ代（改定）" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+      expect(await screen.findByDisplayValue("他の利用者が追加")).toBeTruthy();
+      await vi.waitFor(() =>
+        expect(screen.getByRole("button", { name: "保存" })).toHaveProperty(
+          "disabled",
+          false,
+        ),
+      );
+    });
+  },
+);
