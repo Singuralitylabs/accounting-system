@@ -8,6 +8,10 @@ import {
   toAnnualTrendChartData,
 } from "@/app/utils/profitLossChart";
 import { CompositeChart, CompositeChartSeries } from "@mantine/charts";
+// グラフのスタイルは全ページ共通の layout ではなくここで読み込む（このコンポーネントは
+// next/dynamic で遅延読み込みされるため、/profit-loss の年間推移を開いたときだけ読み込まれる）。
+// @mantine/core のスタイル（layout で読み込み済み）より後に適用される
+import "@mantine/charts/styles.css";
 import { ANNUAL_TREND_CHART_HEIGHT } from "./AnnualTrendChartFrame";
 
 type Props = {
