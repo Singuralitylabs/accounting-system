@@ -19,7 +19,7 @@ on:
 
 # タグ push と GitHub Release 作成に contents: write、
 # リリース PR 本文からのサマリー抽出と、手動実行時の対象コミット検証
-# （GET /repos/{repo}/commits/{sha}/pulls）に pull-requests: read を使う。
+# （GET /repos/{repo}/pulls）に pull-requests: read を使う。
 # 承認ゲートの保護ルール確認（GET /repos/{repo}/environments/{name}）に actions: read を使う。
 # いずれも必要最小限であり、書き込みはタグ・Release 作成に限定する（db push 等は含まない）。
 permissions:
@@ -118,7 +118,8 @@ jobs:
           ERR_FILE=$(mktemp)
           # --include でステータス行（例: HTTP/2.0 404 Not Found）とヘッダを本文の前に出力させる。
           # gh api は 4xx / 5xx で非ゼロ終了するが、その場合も応答はファイルに残るため判定を続ける。
-          if gh api --include "repos/${GITHUB_REPOSITORY}/environments/${ENV_NAME}" >"$RESP_FILE" 2>"$ERR_FILE"; then
+          # 応答形式が gh の既定 API バージョンの更新で変わらないよう、バージョンを固定する。
+          if gh api --include -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${GITHUB_REPOSITORY}/environments/${ENV_NAME}" >"$RESP_FILE" 2>"$ERR_FILE"; then
             GH_EXIT=0
           else
             GH_EXIT=$?
@@ -204,18 +205,20 @@ jobs:
             # 手動起動時は現時点の release HEAD を対象とし、リリース PR のマージコミットか検証する。
             SHA=$(git rev-parse HEAD)
             # API エラーは握りつぶさず失敗させる（検証できない場合はタグを付けない）。
-            # コミットに紐づく PR を直接引く（GET /repos/{repo}/commits/{sha}/pulls。pull-requests: read で足りる）。
-            # PR 一覧を件数上限付きで遡る方式と違い、対象 PR より後の release 向け PR の件数に左右されない。
-            # 既定ブランチ（main）に無いコミットでは merged / open の PR が返るため、その中から
-            # 「base が release・マージ済み・マージコミットが HEAD」の PR を選ぶ。--paginate の出力は
-            # ページごとの配列が連なるため jq -s で 1 つの配列にまとめる。
-            if ! ASSOCIATED_PRS=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/commits/${SHA}/pulls?per_page=100"); then
-              echo "::error::release HEAD（${SHA}）に紐づく PR を取得できませんでした（上記の gh のエラーを参照）。検証できないためタグを付けずに中断します。"
+            # release 向けのクローズ済み PR をすべて取得し（--paginate で件数上限なし）、マージコミットが
+            # HEAD と一致するマージ済み PR を選ぶ。コミットと PR の関連付け（commits/{sha}/pulls）は
+            # マージコミットや既定ブランチ外のコミットで PR が返らない場合があるため使わない。
+            # --paginate の出力はページごとの配列が連なるため jq -s で 1 つの配列にまとめる。
+            # merge_commit_sha は新しい REST API バージョン（2026-03-10）で PR オブジェクトから削除されているため、
+            # gh の既定バージョンが上がっても値を取れるよう API バージョンを 2022-11-28 に固定する。
+            if ! RELEASE_PRS=$(gh api --paginate -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "repos/${GITHUB_REPOSITORY}/pulls?state=closed&base=release&per_page=100"); then
+              echo "::error::release 向けのクローズ済み PR 一覧を取得できませんでした（上記の gh のエラーを参照）。検証できないためタグを付けずに中断します。"
               exit 1
             fi
-            if ! PR_JSON=$(printf '%s' "$ASSOCIATED_PRS" | jq -c -s --arg sha "$SHA" \
-              '[add // [] | .[] | select(.base.ref == "release" and .state == "closed" and .merged_at != null and .merge_commit_sha == $sha)] | first // empty'); then
-              echo "::error::release HEAD（${SHA}）に紐づく PR の応答を解析できませんでした。検証できないためタグを付けずに中断します。"
+            if ! PR_JSON=$(printf '%s' "$RELEASE_PRS" | jq -c -s --arg sha "$SHA" \
+              '[add // [] | .[] | select(.base.ref == "release" and .merged_at != null and .merge_commit_sha == $sha)] | first // empty'); then
+              echo "::error::release 向けの PR 一覧の応答を解析できませんでした。検証できないためタグを付けずに中断します。"
               exit 1
             fi
             if [ -z "$PR_JSON" ]; then

@@ -524,6 +524,7 @@ jobs:
 
           # テンプレート中の ${...} と BODY_VARS の列挙が食い違っていたら失敗させる。列挙漏れの変数は
           # 展開されずに ${...} のまま PR 本文に出てしまい、列挙だけ残った変数は不要な設定になるため。
+          # 照合するのは ${NAME} 形式のみ。差し込む変数は必ず ${NAME} で書き、テンプレートに $ を文字どおり書くときは ${...} 形式を使わないこと。
           TEMPLATE_VARS=$(printf '%s\n' "$TEMPLATE" | grep -oE '\$\{[A-Za-z_][A-Za-z0-9_]*\}' | sort -u || true)
           LISTED_VARS=$(printf '%s\n' "$BODY_VARS" | tr ' ' '\n' | sed '/^$/d' | sort -u)
           if [ "$TEMPLATE_VARS" != "$LISTED_VARS" ]; then
