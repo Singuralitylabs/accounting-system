@@ -334,6 +334,40 @@ describe("BudgetDeclarationReminderSettings", () => {
     expect(updateBudgetDeclarationReminderTargetDays).not.toHaveBeenCalled();
   });
 
+  it("確認ダイアログの表示中はキャンセルボタンを無効化し、× ボタンを出さず、Esc・オーバーレイのクリックでも閉じない", async () => {
+    let resolveConfirm: (value: boolean) => void = () => {};
+    confirmAction.mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        resolveConfirm = resolve;
+      }),
+    );
+
+    renderWithMantine(
+      <BudgetDeclarationReminderSettings initialTargetDays={[15]} />,
+    );
+
+    await openModal();
+    const cancelButton = screen.getByRole("button", { name: "キャンセル" });
+    expect(cancelButton).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "閉じる" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(cancelButton).toBeDisabled());
+    expect(
+      screen.queryByRole("button", { name: "閉じる" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    clickOverlay();
+    await waitLongerThanTransition();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    // 確認をキャンセルすると閉じる手段が元に戻る
+    resolveConfirm(false);
+    await waitFor(() => expect(cancelButton).not.toBeDisabled());
+    expect(screen.getByRole("button", { name: "閉じる" })).toBeInTheDocument();
+  });
+
   it("確認ダイアログを Esc で閉じても設定モーダルは開いたまま（未保存の選択も保持）", async () => {
     // 実際の confirmAction（@mantine/modals の確認ダイアログ）を使う
     const actual = await vi.importActual<
@@ -370,7 +404,7 @@ describe("BudgetDeclarationReminderSettings", () => {
     ).toBeInTheDocument();
   });
 
-  it("保存中はキャンセル・× ボタン・Esc・オーバーレイのクリックでモーダルを閉じられない", async () => {
+  it("保存中はキャンセルボタンを無効化し、× ボタンを出さず、Esc・オーバーレイのクリックでもモーダルを閉じられない", async () => {
     confirmAction.mockResolvedValue(true);
     let resolveUpdate: (value: { error?: undefined }) => void = () => {};
     updateBudgetDeclarationReminderTargetDays.mockReturnValue(
@@ -390,8 +424,14 @@ describe("BudgetDeclarationReminderSettings", () => {
       expect(updateBudgetDeclarationReminderTargetDays).toHaveBeenCalled(),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "キャンセル" }));
-    fireEvent.click(screen.getByRole("button", { name: "閉じる" }));
+    const cancelButton = screen.getByRole("button", { name: "キャンセル" });
+    await waitFor(() => expect(cancelButton).toBeDisabled());
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: "閉じる" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(cancelButton);
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     clickOverlay();
 

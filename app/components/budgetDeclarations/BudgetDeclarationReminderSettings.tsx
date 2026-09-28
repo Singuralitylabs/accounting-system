@@ -46,6 +46,9 @@ const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
   const [isConfirming, setIsConfirming] = useState(false);
 
   const isFetchFailed = initialTargetDays === null;
+  // 保存中・確認ダイアログ表示中は閉じる操作を受け付けないため、閉じる手段
+  // （キャンセル / × / Esc / オーバーレイのクリック）自体も無効化して見た目を揃える
+  const isBusy = isLoading || isConfirming;
 
   const openModal = () => {
     // キャンセル等で閉じたときの未保存の選択は破棄し、開くたびに
@@ -56,8 +59,9 @@ const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
 
   const closeModal = () => {
     // 保存中は閉じない（閉じた後に保存結果が反映されて表示と食い違うのを防ぐ）。
-    // 確認ダイアログ表示中も閉じない（確認をキャンセルしたら開いたままにするため）
-    if (isLoading || isConfirming) return;
+    // 確認ダイアログ表示中も閉じない（確認をキャンセルしたら開いたままにするため）。
+    // 閉じる手段は isBusy 中は無効化しているが、念のためここでもガードする
+    if (isBusy) return;
     setOpened(false);
   };
 
@@ -118,6 +122,9 @@ const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
         onClose={closeModal}
         title="リマインド設定"
         size="lg"
+        withCloseButton={!isBusy}
+        closeOnEscape={!isBusy}
+        closeOnClickOutside={!isBusy}
         closeButtonProps={{ "aria-label": "閉じる" }}
       >
         {isFetchFailed ? (
@@ -161,16 +168,12 @@ const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
               </Group>
             </Chip.Group>
             <Group justify="flex-end" mt="lg">
-              <Button variant="default" onClick={closeModal}>
+              <Button variant="default" disabled={isBusy} onClick={closeModal}>
                 キャンセル
               </Button>
               {/* 確認ダイアログ表示中も無効化する（二重クリックで確認ダイアログが
                   積まれ、同じ値で 2 回保存されるのを防ぐ） */}
-              <Button
-                type="button"
-                disabled={isLoading || isConfirming}
-                onClick={handleSave}
-              >
+              <Button type="button" disabled={isBusy} onClick={handleSave}>
                 保存
               </Button>
             </Group>
