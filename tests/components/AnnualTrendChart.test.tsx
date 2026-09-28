@@ -95,6 +95,62 @@ describe("AnnualTrendChart（Issue #177）", () => {
     });
   });
 
+  it("凡例にカーソルを合わせるとその系列以外が薄くなり、外すと元に戻る", () => {
+    const { container } = renderWithMantine(<AnnualTrendChart trend={trend} />);
+
+    // 折れ線は色で系列を見分ける（AnnualTrendChart の系列定義の色）
+    const lineOpacities = () =>
+      Object.fromEntries(
+        Array.from(container.querySelectorAll("path.recharts-line-curve")).map(
+          (path) => [
+            path.getAttribute("stroke"),
+            path.getAttribute("stroke-opacity"),
+          ],
+        ),
+      );
+    const barOpacities = () =>
+      Array.from(
+        container.querySelectorAll(".recharts-bar-rectangle path"),
+      ).map((bar) => bar.getAttribute("fill-opacity"));
+    const legendItem = (name: string) =>
+      Array.from(
+        container.querySelectorAll(".mantine-ChartLegend-legendItem"),
+      ).find((item) => item.textContent === name)!;
+
+    const notDimmed = {
+      "#2a78d6": "1",
+      "#eb6834": "1",
+      "#1baf7a": "1",
+      "#eda100": "1",
+    };
+    expect(lineOpacities()).toEqual(notDimmed);
+    expect(barOpacities()).toEqual(["1", "1", "1"]);
+
+    // 凡例の payload の dataKey が系列名と一致していないと、どの系列も強調されない
+    fireEvent.mouseEnter(legendItem("粗利"));
+    expect(lineOpacities()).toEqual({
+      "#2a78d6": "0.5",
+      "#eb6834": "0.5",
+      "#1baf7a": "1", // 粗利だけ元の濃さ
+      "#eda100": "0.5",
+    });
+    expect(barOpacities()).toEqual(["0.1", "0.1", "0.1"]);
+
+    fireEvent.mouseLeave(legendItem("粗利"));
+    expect(lineOpacities()).toEqual(notDimmed);
+    expect(barOpacities()).toEqual(["1", "1", "1"]);
+
+    // 棒（経常利益）の凡例では、棒が元の濃さのまま折れ線が薄くなる
+    fireEvent.mouseEnter(legendItem("経常利益"));
+    expect(barOpacities()).toEqual(["1", "1", "1"]);
+    expect(Object.values(lineOpacities())).toEqual([
+      "0.5",
+      "0.5",
+      "0.5",
+      "0.5",
+    ]);
+  });
+
   it("縦軸の目盛りは「万」の短い表記にする", () => {
     const { container } = renderWithMantine(<AnnualTrendChart trend={trend} />);
     const ticks = Array.from(
