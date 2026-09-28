@@ -1124,7 +1124,7 @@ CREATE POLICY "extra_entries_delete_policy" ON extra_entries
     );
 ```
 
-> **確定中の編集ロック（Issue #148、migration 27）**: 上記の INSERT / UPDATE / DELETE ポリシーには、損益計算書で確定済みの月のエントリを変更できないよう `NOT private.is_pl_month_closed(entry_date)` が追加されている（UPDATE は USING = 変更前の月、WITH CHECK = 変更後の月）。詳細は 5.14。
+> **確定中の編集ロック（Issue #148、migration 27）**: 上記の INSERT / UPDATE / DELETE ポリシーには、損益計算書で確定済みの月のエントリを変更できないよう `NOT private.is_pl_month_closed(entry_date)` が追加されている（UPDATE は USING = 変更前の月、WITH CHECK = 変更後の月）。確定と同時に走った書き込みは、確定との直列化トリガー（6.4、Issue #171）が確定値に含めるか `MONTH_CLOSED` で拒否する。詳細は 5.14。
 
 #### 一括保存の原子的な書き込み（`save_extra_entries`。migration 30）
 
@@ -1494,7 +1494,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE profit_loss_adjustments TO authent
 REVOKE ALL ON TABLE profit_loss_adjustments FROM anon;
 ```
 
-> **確定中の編集ロック（Issue #148、migration 27）**: 上記の INSERT / UPDATE / DELETE ポリシーには、損益計算書で確定済みの月の調整を変更できないよう `NOT private.is_pl_month_closed(target_month)` が追加されている。`save_profit_loss_adjustment` も確定済みの月は `MONTH_CLOSED` 例外を返す。詳細は 5.14。
+> **確定中の編集ロック（Issue #148、migration 27）**: 上記の INSERT / UPDATE / DELETE ポリシーには、損益計算書で確定済みの月の調整を変更できないよう `NOT private.is_pl_month_closed(target_month)` が追加されている。`save_profit_loss_adjustment` も確定済みの月は `MONTH_CLOSED` 例外を返す。確定と同時に走った書き込みは、確定との直列化トリガー（6.4、Issue #171）が確定値に含めるか `MONTH_CLOSED` で拒否する。詳細は 5.14。
 
 #### 実績額修正の原子的な保存（`save_profit_loss_adjustment`）
 
@@ -1734,10 +1734,27 @@ GRANT SELECT ON TABLE profit_loss_closing_lines TO authenticated;
 - recurring_costs のポリシーは変更しない（定期費用マスタは確定済みの月があっても編集できる。確定済みの月の表示は確定明細から行うため影響しない）
 - 案件の明細・定期費用の削除に伴う損益調整の CASCADE 削除は参照整合性のアクションで、RLS は適用されないため妨げられない
 - UPDATE / DELETE は RLS で拒否されても 0 行更新になるだけでエラーにならないため、アプリ側（`bulkUpsertExtraEntry` / `deleteProfitLossAdjustment`）は書き込み前の判定・削除件数の確認で利用者にエラーを返す。経理追加収支画面は全行をまとめて保存するため、保存済みで編集していない行は UPDATE せず、ロックの判定からも外す（確定済みの月の行を触らずに他の月の行を保存できる）
+- migration 34（Issue #171）以降、両テーブルには確定との直列化トリガー（6.4）がある。RLS より先に BEFORE トリガーが判定するため、確定済みの月への INSERT と、確定済みの月への日付・対象月の変更（UPDATE の変更後の月）は、RLS 違反ではなく `MONTH_CLOSED`（どちらも SQLSTATE 42501）で拒否される。確定済みの月の行の UPDATE / DELETE は従来どおり RLS の USING で対象外になり 0 行になる（トリガーは発火しない）。アプリ側は `save_extra_entries` の 42501・`save_profit_loss_adjustment` / 損益調整の DELETE / 経理追加収支の前月コピーの `MONTH_CLOSED` を確定済みのエラーとして表示する
+
+#### 確定と書き込みの直列化（Issue #171、migration 34）
+
+RLS の `is_pl_month_closed` は書き込みの文のスナップショットで評価されるため、READ COMMITTED では次の順序で書き込みが確定値から漏れていた: ① 経理担当 A が当月の損益調整・経理追加収支を書き込む（RLS の評価時点では未確定で通る。未コミット）→ ② 経理担当 B の確定がコミットされ、直後の再集計（`closeProfitLossMonth` の取り直し）も A の書き込みを見ずに終わる → ③ A がコミットする（確定値に含まれないまま以後ロックされ、経理追加収支・管理費の調整は確定後の変更検知の対象外のため誰も気付けない）。
+
+これを月単位の advisory lock（`private.lock_pl_month`、6.4）で直列化する。確定（`save_profit_loss_closing`）は対象月の**排他ロック**を、損益調整・経理追加収支の書き込み（トリガー）は行の月の**共有ロック**を取り、書き込み側はロック取得後に確定済みかを判定し直す。書き込みは必ず次のどちらかになる:
+
+- 確定より先にロックを取った書き込み: 確定はその書き込みの終了（コミット / ロールバック）まで待つ。書き込みは確定のコミットより前にコミットされるため、確定のコミット後の再集計に必ず含まれ、違いがあれば確定値を取り直す
+- 確定が先にロックを取った場合: 書き込みは確定のコミットまで待ち、ロック取得後の判定で確定済みとして `MONTH_CLOSED` で拒否される（トランザクションごとロールバック。`save_extra_entries` の一括保存も全体がロールバックされる）
+
+前提と注意:
+
+- ロック取得後の判定が確定のコミットを見られるのは、READ COMMITTED で VOLATILE な plpgsql 関数が文（式）ごとに新しいスナップショットを取るため（トリガー内でロックの取得と判定を別の文にしている）。PostgREST のトランザクションは READ COMMITTED（既定）であることを前提にする
+- デッドロック: 書き込み側は共有ロックのため書き込み同士は競合せず、複数の月にまたがる書き込み（一括保存・日付の変更）がどの順でロックを取っても互いを待たない。確定側は 1 つの月の排他ロックしか取らず、取得後に書き込み側が持ちうるロック（行ロック・他の月のロック）を待たないため、確定と書き込みの間でも待ちの循環は生じない
+- 確定の解除（ヘッダの DELETE）・反映・見送りはロックを取らない（解除と競合した書き込みは、解除のコミット前に判定すれば確定済みとして拒否されるだけで、確定値から漏れることはない）
+- 同じ仕組みで塞がない経路: 案件（matters / business / costs）は確定済みの月でも編集でき、確定後の変更は確定明細とライブ集計の差分検知（5.15）で検出される。定期費用（recurring_costs）は確定済みの月があっても編集できる設計で、確定後の変更は確定値に影響させない（確定の前後にまたがった変更も確定後の変更と同じ扱い。ロックで拒否されるわけではないため「漏れたままロックされる」ことにはならない）
 
 #### 確定（`save_profit_loss_closing`）
 
-`save_profit_loss_closing(p_target_month date, p_lines jsonb, p_closing_id bigint DEFAULT NULL)`（SECURITY DEFINER。経理担当者・管理者以外は `FORBIDDEN`）は、ヘッダの追加と明細の全置換（既存明細の DELETE → `jsonb_to_recordset(p_lines)` の INSERT）を 1 回の関数呼び出し（= 1 トランザクション）で行う。途中で失敗（明細の CHECK 違反など）すると確定前の状態に完全にロールバックされる。`p_closing_id` が NULL のときは新規の確定のみ受け付け（`INSERT ... ON CONFLICT (target_month) DO NOTHING`）、既に確定済みの月なら `ALREADY_CLOSED` を返す（未確定の表示のまま残った古い画面から確定し、他の経理担当者の確定・見送りを黙って上書きしないため。Server Action は再読み込みを促す）。`p_closing_id` を指定したときは、確定直後の再検証による取り直しに限り、同じ月・自分が確定したヘッダ（id 一致）の確定者・確定日時を更新して反映者・反映日時をクリアし、見送り記録・明細を置き換える。一致しなければ（確定の直後に解除・確定し直された）`CLOSING_CHANGED`。closed_by / closed_by_name は `auth.uid()` から解決し、クライアントからは受け取らない。明細はサーバ（`app/utils/supabase/profitLossClosings.ts` の `closeProfitLossMonth`）が当月をライブ集計し直して組み立てる（クライアントから送られた金額は使わない）。集計から確定のコミットまでの間はまだ編集ロックが掛かっていないため、コミット後（= ロック後）にもう一度集計し、違いがあれば同じ関数に自分の確定の id を渡して取り直す（その間に他の経理担当者が保存した損益調整・経理追加収支が、確定値から漏れたままロックされるのを防ぐ）。確定解除はヘッダの DELETE（明細・見送り記録は CASCADE）。
+`save_profit_loss_closing(p_target_month date, p_lines jsonb, p_closing_id bigint DEFAULT NULL)`（SECURITY DEFINER。経理担当者・管理者以外は `FORBIDDEN`）は、ヘッダの追加と明細の全置換（既存明細の DELETE → `jsonb_to_recordset(p_lines)` の INSERT）を 1 回の関数呼び出し（= 1 トランザクション）で行う。途中で失敗（明細の CHECK 違反など）すると確定前の状態に完全にロールバックされる。`p_closing_id` が NULL のときは新規の確定のみ受け付け（`INSERT ... ON CONFLICT (target_month) DO NOTHING`）、既に確定済みの月なら `ALREADY_CLOSED` を返す（未確定の表示のまま残った古い画面から確定し、他の経理担当者の確定・見送りを黙って上書きしないため。Server Action は再読み込みを促す）。`p_closing_id` を指定したときは、確定直後の再検証による取り直しに限り、同じ月・自分が確定したヘッダ（id 一致）の確定者・確定日時を更新して反映者・反映日時をクリアし、見送り記録・明細を置き換える。一致しなければ（確定の直後に解除・確定し直された）`CLOSING_CHANGED`。closed_by / closed_by_name は `auth.uid()` から解決し、クライアントからは受け取らない。明細はサーバ（`app/utils/supabase/profitLossClosings.ts` の `closeProfitLossMonth`）が当月をライブ集計し直して組み立てる（クライアントから送られた金額は使わない）。集計から確定のコミットまでの間はまだ編集ロックが掛かっていないため、コミット後（= ロック後）にもう一度集計し、違いがあれば同じ関数に自分の確定の id を渡して取り直す（その間に他の経理担当者が保存した損益調整・経理追加収支が、確定値から漏れたままロックされるのを防ぐ）。migration 34（Issue #171）以降、関数は権限の判定の後・ヘッダと明細を書く前に対象月の排他ロック（`private.lock_pl_month(p_target_month, true)`）を取り、同じ月への損益調整・経理追加収支の書き込みと直列化する（確定のコミットをまたいだ書き込みもこの再集計に含まれるか、確定済みとして拒否される。上の「確定と書き込みの直列化」）。確定解除はヘッダの DELETE（明細・見送り記録は CASCADE）。
 
 ### 5.15 profit_loss_closing_dismissals テーブルと反映・見送りの関数
 
@@ -1868,6 +1885,24 @@ CREATE TRIGGER detect_matters_updates
 ```sql
 -- この機能はアプリケーション側で実装
 -- データベース側ではトリガーではなく、アプリケーションロジックで対応
+```
+
+### 6.4 月次収支確定との直列化トリガー（Issue #171、migration 34）
+
+損益調整（profit_loss_adjustments）・経理追加収支（extra_entries）の書き込みを、同じ月の確定（`save_profit_loss_closing`）と月単位の advisory lock で直列化する BEFORE 行トリガー。RLS の編集ロック（5.14）は文のスナップショットで評価されるため、「書き込みが RLS を通過（未確定）→ 確定のコミットと直後の再集計 → 書き込みのコミット」の順で進むと、書き込みが確定値から漏れたまま以後ロックされていた。その対策（設計の詳細は 5.14 の「確定と書き込みの直列化」）。
+
+- `private.lock_pl_month(p_month date, p_exclusive boolean)`: 月単位の advisory lock（`pg_advisory_xact_lock(148, YYYYMM)` / `pg_advisory_xact_lock_shared(148, YYYYMM)`。第 1 キー 148 は本機能の名前空間）。トランザクション終了まで保持。NULL は何もしない。SECURITY DEFINER・`SET search_path = ''`。EXECUTE は authenticated のみ
+- `private.guard_pl_closed_month_write()`: トリガー関数（SECURITY INVOKER・`SET search_path = ''`）。`TG_ARGV[0]` の列（月）について、`row_security_active` が true（RLS が適用される利用者の書き込み）のときだけ、書き込んだ行の月（INSERT は新しい行、DELETE は元の行、UPDATE は変更前と変更後の両方）の**共有ロック**を取り、ロック取得後に別の文（= 新しいスナップショット）で `private.is_pl_month_closed` を判定し直し、確定済みなら `MONTH_CLOSED`（SQLSTATE 42501）で拒否する
+- RLS をバイパスするロール（service_role・テーブル所有者）と、案件の明細・定期費用の削除に伴う損益調整の CASCADE 削除（参照整合性のアクションはテーブル所有者の権限で実行され、その中で発火する BEFORE トリガーでは `row_security_active` が false）は、従来どおり編集ロックの対象外で何もしない
+
+```sql
+CREATE TRIGGER guard_pl_closed_month_profit_loss_adjustments
+    BEFORE INSERT OR UPDATE OR DELETE ON profit_loss_adjustments
+    FOR EACH ROW EXECUTE FUNCTION private.guard_pl_closed_month_write('target_month');
+
+CREATE TRIGGER guard_pl_closed_month_extra_entries
+    BEFORE INSERT OR UPDATE OR DELETE ON extra_entries
+    FOR EACH ROW EXECUTE FUNCTION private.guard_pl_closed_month_write('entry_date');
 ```
 
 ## 7. 認証フック（Custom Access Token Hook）

@@ -152,7 +152,8 @@ export const bulkUpsertExtraEntry = async (
   // すべてロールバックされ、一部だけ保存された状態は残らない。
   // RLS はそのまま効く（SECURITY INVOKER）。保存前の確認の後に月が確定された・行が削除された
   // 等で更新・削除が指定件数に満たない場合は NOT_APPLIED、追加・日付の変更が確定済みの月に
-  // 当たる場合は RLS 違反（42501）になる
+  // 当たる場合と、保存の途中で同じ月が確定された場合（確定との直列化。Issue #171）は
+  // 書き込みのトリガーの MONTH_CLOSED（42501）になる
   const { error: rpcError } = await supabase.rpc("save_extra_entries", {
     p_inserts: newEntries.map(toDbRow),
     p_updates: updateEntries.map((ee) => ({ id: ee.id, ...toDbRow(ee) })),
@@ -302,6 +303,16 @@ export const copyExtraEntriesFromPreviousMonth = async (
     .from("extra_entries")
     .insert(newRows);
 
+  // 上の確認の後に対象月が確定された場合（確定済みの月への書き込み・確定との直列化で
+  // 拒否された場合。Issue #171）は、確定済みの月へのコピーとして分かりやすいエラーにする
+  if (insertError?.message.includes("MONTH_CLOSED")) {
+    return {
+      insertedCount: 0,
+      skippedCount: 0,
+      error: null,
+      closedMonthError: CLOSED_MONTH_LOCK_MESSAGE,
+    };
+  }
   if (insertError) {
     console.error("経理追加収支の前月コピーに失敗しました:", insertError);
     return { insertedCount: 0, skippedCount: 0, error: insertError };
