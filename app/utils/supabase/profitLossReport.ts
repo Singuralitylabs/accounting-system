@@ -95,12 +95,17 @@ export const getAnnualTrend = async (
   }
 
   // 年度の全期間を 1 回のクエリで取得し、月別にバケット分けする
-  // （月単位まで絞ると12回クエリになるため年度範囲で絞る）
+  // （月単位まで絞ると12回クエリになるため年度範囲で絞る）。
+  // 年間推移（AnnualTrendTable）は月別の合計だけを表示し、案件・明細のタイトルを
+  // 表示しないため、表示タイトルは取得しない（Issue #172）
   const months = fiscalYearMonths(fiscalYear);
-  const rows = await fetchReportSourceRows({
-    startMonth: months[0],
-    endMonth: months[months.length - 1],
-  });
+  const rows = await fetchReportSourceRows(
+    {
+      startMonth: months[0],
+      endMonth: months[months.length - 1],
+    },
+    { includeLabels: false },
+  );
   if (!rows) {
     return null;
   }
