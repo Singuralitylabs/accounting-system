@@ -1035,6 +1035,7 @@ export type Database = {
           undone_count: number
         }[]
       }
+      update_profiles: { Args: { p_updates: Json }; Returns: undefined }
       validate_member_ids: {
         Args: { target_ids: number[] }
         Returns: {

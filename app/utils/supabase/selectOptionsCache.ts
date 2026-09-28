@@ -12,7 +12,7 @@ type OptionsByTypeName = Record<string, ActiveSelectOptionType[]>;
 
 export type ActiveSelectOptionsResult = {
   optionsByType: OptionsByTypeName;
-  // 取得失敗時に呼び出し元（DynamicDashboard のエラー表示など）が
+  // 取得失敗時に呼び出し元（DynamicDashboardOptions のエラー表示など）が
   // 空の選択肢と区別できるよう、エラーを結果に含めて伝播する
   error: Error | null;
 };

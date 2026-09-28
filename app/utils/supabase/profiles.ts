@@ -1,8 +1,15 @@
 "use server";
 
 import { User } from "@supabase/supabase-js";
-import { AccessFailure, ProfilesType } from "../../types/types";
+import { AccessFailure } from "../../types/types";
 import { isAllowedEmailDomain } from "../constants";
+import { hasClassAccess } from "../permissions";
+import {
+  formatUserValidationErrors,
+  ProfileUpdateInput,
+  toProfileDbRow,
+  validateUserUpdates,
+} from "../userList";
 import { getCachedProfileInfo, getCachedProfileInfoById } from "./requestCache";
 import { createServerSupabase } from "./clients";
 
@@ -160,36 +167,108 @@ export const insertUserInfo = async ({
   }
 };
 
-export const updateUserInfo = async ({
-  profile,
-}: {
-  profile: ProfilesType;
-}) => {
-  const supabase = createServerSupabase();
+export type BulkUpdateProfilesResult = { error?: AccessFailure };
 
-  try {
-    const { error: updateError } = await supabase
-      .from("profiles")
-      .update({
-        slack_id: profile.slack_id,
-        class: profile.class,
-        team: profile.team,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", profile.id)
-      .select();
+const PROFILES_SAVE_FAILED: AccessFailure = {
+  kind: "fetchFailed",
+  message: "ユーザー情報の保存に失敗しました。何も保存されていません。",
+};
 
-    if (updateError) {
-      console.error(
-        `profilesテーブルへの${profile.id}の更新処理で失敗しました。`,
-        updateError
-      );
-      return { error: updateError };
-    }
-
-    return { error: null };
-  } catch (error) {
-    console.error("Unexpected error during update Profile:", error);
-    return { error };
+// 管理画面のユーザーリストの一括保存（権限・チーム・Slack ID）。
+// updates は変更した行のみ（画面側で selectChangedUsers により選ぶ）。
+// 書き込みは update_profiles（migration 33。1 トランザクション・1 文の UPDATE）で行い、
+// 1 件でも保存できなければすべてロールバックされる（一部だけ保存された状態は残らない）。
+// 他人の行を更新できるのは admin だけで、RLS（SECURITY INVOKER）で担保される。
+// Server Action として公開されるため、RLS に加えてここでも admin であることを確認する
+// （多層防御）。admin 以外は入力チェック・書き込みの前に権限エラーを返す（RLS 上は自分の
+// Slack ID を変えられる admin 以外の利用者も、この画面の保存経路では何も変えられない。
+// 入力チェックのエラーメッセージに含まれる他人の名前も返さない）。
+// RLS で弾かれた行・存在しない行があると NOT_APPLIED、admin 以外が権限・チームを
+// 変えようとすると RLS 違反（42501）、不正な入力は INVALID_INPUT（22023）になる。
+// Server Action として公開されるため、画面側と同じ入力チェックをここでも行い、
+// 書き込む列は toProfileDbRow で権限・チーム・Slack ID に限定する
+export const bulkUpdateProfiles = async (
+  updates: ProfileUpdateInput[],
+): Promise<BulkUpdateProfilesResult> => {
+  // viewerAccess.ts の getAuthorizedViewer は閲覧向け（ログ・メッセージが「〜の閲覧権限が
+  // ありません」等）で、かつ profiles.ts を import する（循環 import になる）ため使わず、
+  // 同じ「プロフィール取得 → hasClassAccess」をここで行い、保存の権限エラーとして記録する
+  const { profileInfo, error: profileError } = await getProfileInfo();
+  if (profileError || !profileInfo) {
+    console.error(
+      "ユーザー情報の保存前に、保存する人の権限を確認できませんでした。",
+      profileError,
+    );
+    return {
+      error: {
+        kind: "fetchFailed",
+        message:
+          "権限を確認できなかったため、何も保存しませんでした。時間をおいて保存し直してください。",
+      },
+    };
   }
+  if (!hasClassAccess(["admin"], profileInfo.class)) {
+    console.error(
+      `ユーザー情報を保存する権限がありません（管理者のみ）。profiles.id: ${profileInfo.id}`,
+    );
+    return {
+      error: {
+        kind: "forbidden",
+        message:
+          "ユーザー情報を保存する権限がありません（管理者のみ）。何も保存されていません。",
+      },
+    };
+  }
+
+  if (updates.length === 0) {
+    return {};
+  }
+
+  const validationErrors = validateUserUpdates(updates);
+  if (validationErrors.size > 0) {
+    return {
+      error: {
+        kind: "validationFailed",
+        message: `入力内容に誤りがあるため、何も保存しませんでした。（${formatUserValidationErrors(
+          updates,
+          validationErrors,
+        ).join("、")}）`,
+      },
+    };
+  }
+
+  const supabase = createServerSupabase();
+  const { error: rpcError } = await supabase.rpc("update_profiles", {
+    p_updates: updates.map(toProfileDbRow),
+  });
+  if (rpcError) {
+    // 不正な入力（キーの欠落・id の重複や null・許可値以外の権限など）は
+    // update_profiles が INVALID_INPUT（22023）で全体を拒否する。22023 は他の原因でも
+    // 返り得るため、例外のメッセージで判定する
+    if (rpcError.message.includes("INVALID_INPUT")) {
+      return {
+        error: {
+          kind: "validationFailed",
+          message:
+            "入力内容が正しくないため、何も保存しませんでした。画面を再読み込みしてから保存し直してください。",
+        },
+      };
+    }
+    if (
+      rpcError.message.includes("NOT_APPLIED") ||
+      rpcError.code === "42501"
+    ) {
+      return {
+        error: {
+          kind: "validationFailed",
+          message:
+            "保存できないユーザーが含まれていたため、何も保存しませんでした。管理者権限が外れたか、ユーザーが削除された可能性があります。画面を再読み込みしてから保存し直してください。",
+        },
+      };
+    }
+    console.error("ユーザー情報の保存に失敗しました:", rpcError);
+    return { error: PROFILES_SAVE_FAILED };
+  }
+
+  return {};
 };

@@ -350,7 +350,7 @@ CHECK (1 <= ALL(target_days) AND 31 >= ALL(target_days))
 
 読み取り: cron ルートは `app/utils/supabase/budgetDeclarationReminderData.ts` の `getBudgetDeclarationReminderTargetDays()` で取得する。**取得失敗（DB エラー・行が存在しない・`createServiceRoleSupabase()` が投げる例外を含む）の場合は `app/utils/budgetDeclarationReminder.ts` の `DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS`（`[15, 18, 20]`）にフォールバックし、リマインドが無応答で止まらないようにする。** このフォールバックは「対象日を空にして意図的に停止した」状態でも取得が一時的に失敗すればデフォルト値に戻ってしまう trade-off を内包するが、cron を無応答で止めないことを優先している（fail-open）。
 
-編集: `/budget-declarations`（事前収支申告画面）の「リマインド設定」セクションから admin / accounting が編集できる（Issue #97）。`app/utils/supabase/budgetDeclarationReminderSettings.ts` の `getBudgetDeclarationReminderSettings()` / `updateBudgetDeclarationReminderTargetDays()`（いずれも Server Action）を使い、`createServerSupabase()`（anon キー + RLS）経由で `getAuthorizedViewer(["admin", "accounting"], ...)` による多層防御を行う（service role クライアントは使わない）。保存対象は `id = 1` の既存行への UPDATE のみ（RLS 上 INSERT / DELETE は不可）。保存前に `app/utils/budgetDeclarationReminder.ts` の `normalizeBudgetDeclarationReminderTargetDays`（範囲チェック / 重複排除 / 昇順ソート）で正規化する。teamleader / public にはセクション自体を描画せず、Server Action 側でも `getAuthorizedViewer` により拒否する。
+編集: `/budget-declarations`（事前収支申告画面）の「リマインド設定」ボタンから開くモーダルで admin / accounting が編集できる（Issue #97。モーダル化は Issue #173）。`app/utils/supabase/budgetDeclarationReminderSettings.ts` の `getBudgetDeclarationReminderSettings()` / `updateBudgetDeclarationReminderTargetDays()`（いずれも Server Action）を使い、`createServerSupabase()`（anon キー + RLS）経由で `getAuthorizedViewer(["admin", "accounting"], ...)` による多層防御を行う（service role クライアントは使わない）。保存対象は `id = 1` の既存行への UPDATE のみ（RLS 上 INSERT / DELETE は不可）。保存前に `app/utils/budgetDeclarationReminder.ts` の `normalizeBudgetDeclarationReminderTargetDays`（範囲チェック / 重複排除 / 昇順ソート）で正規化する。teamleader / public にはボタン自体を描画せず、Server Action 側でも `getAuthorizedViewer` により拒否する。
 
 ### 3.12 budget_recurring_items テーブル
 
@@ -700,6 +700,90 @@ REVOKE EXECUTE ON FUNCTION public.validate_member_ids(bigint[]) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.validate_member_ids(bigint[]) TO authenticated;
 ```
 
+#### ユーザーリストの一括更新（`update_profiles`。migration 33）
+
+管理画面のユーザー管理（/dashboard/users）の一括保存は `update_profiles(p_updates jsonb)` を 1 回呼ぶだけで行う（関数呼び出し = 1 トランザクション）。変更した行の `class` / `team` / `slack_id` / `updated_at` を `jsonb_to_recordset` で展開した 1 文の UPDATE で更新し、1 件でも更新できなければすべてロールバックされるため、一部だけ保存された状態は残らない。
+
+- SECURITY INVOKER（既定）。上記の UPDATE ポリシー（他人の行を更新できるのは admin だけ。admin 以外は自分の行のみ、かつ class / team を変えない場合に限る）がそのまま適用される
+- RLS の USING で弾かれた UPDATE はエラーにならず 0 行になるだけのため（従来の 1 件ずつの UPDATE では黙って成功扱いになっていた）、更新した行数が指定した件数に満たなければ例外 `NOT_APPLIED` で全体をロールバックする（保存の途中で管理者権限が外れた、ユーザーが削除された、存在しない id を指定した等）。admin 以外が class / team を変えようとした場合は WITH CHECK 違反（42501）で全体がロールバックされる
+- WITH CHECK の `auth_user_class()` は文の開始時点のスナップショットで評価されるため、admin が自分の権限を下げる変更と他のユーザーの変更を同じ呼び出しに含めても、行の順序によらず全行が admin として判定される
+- 画面を経由しない呼び出し（admin による PostgREST への直接の RPC・細工した Server Action の入力）でも意図しない上書きをしないよう、次のいずれかに当たる入力は例外 `INVALID_INPUT`（SQLSTATE 22023）で全体を拒否する（何も更新しない）
+  - `p_updates` が配列でない / 要素がオブジェクトでない
+  - 必須キー（`id` / `class` / `team` / `slack_id`）が欠けている（欠けたキーを NULL で上書きしない）
+  - `id` が 1 以上の bigint の範囲の整数でない（null・0・小数・bigint の範囲外を含む）/ 同じ `id` が複数ある（値が同じでも拒否。どの値が勝つか不定にしない）
+  - `class` が許可値（`public` / `teamleader` / `accounting` / `admin`）の文字列でない
+  - `team` / `slack_id` が文字列でも null でもない
+- teamleader のチーム必須などの業務上の入力チェックはアプリ側（`app/utils/userList.ts` の `validateUserUpdates`。画面と Server Action の両方。権限が許可値かもここで確認する）で行う
+- `updated_at` は関数内で `now()` を設定するが、既存の BEFORE UPDATE トリガー（`update_profiles_updated_at`。[6.1](#61-updated_at-更新トリガー)）でも設定される
+- クライアントからの upsert は使わない（INSERT ポリシー `auth.uid() = user_id` に弾かれるため）
+- EXECUTE は authenticated のみ（`REVOKE ... FROM PUBLIC, anon`）
+- 呼び出し側は `app/utils/supabase/profiles.ts` の `bulkUpdateProfiles`。`INVALID_INPUT`（22023）/ `NOT_APPLIED` / 42501 は「何も保存しなかった」旨の利用者向けメッセージに変換する。画面からは変更した行だけが送られる
+- `bulkUpdateProfiles` は Server Action として公開されるため、RLS に加えて呼び出し元のプロフィール（`getProfileInfo`）の権限を `hasClassAccess(["admin"], ...)` で確認し（多層防御）、admin 以外は RPC を呼ばずに権限エラーを返す（RLS 上は admin 以外でも自分の `slack_id` を更新できるが、この経路では変更させない）
+
+```sql
+CREATE OR REPLACE FUNCTION public.update_profiles(p_updates jsonb)
+RETURNS void LANGUAGE plpgsql SET search_path = ''
+AS $$
+DECLARE
+  v_count integer;
+  v_expected integer;
+  v_total integer;
+BEGIN
+  IF p_updates IS NULL THEN
+    RETURN;
+  END IF;
+  IF jsonb_typeof(p_updates) <> 'array' THEN
+    RAISE EXCEPTION 'INVALID_INPUT' USING ERRCODE = '22023';
+  END IF;
+  IF jsonb_array_length(p_updates) = 0 THEN
+    RETURN;
+  END IF;
+
+  -- 要素の形・必須キー・id・class の許可値・team / slack_id の型を検証する
+  IF EXISTS (
+    SELECT 1
+    FROM jsonb_array_elements(p_updates) AS e(elem)
+    WHERE jsonb_typeof(e.elem) <> 'object'
+      OR NOT (e.elem ?& ARRAY['id', 'class', 'team', 'slack_id'])
+      OR jsonb_typeof(e.elem -> 'id') <> 'number'
+      -- 1 以上の整数で bigint の範囲内（19 桁は上限と文字列で比較する）
+      OR (e.elem ->> 'id') !~ '^[1-9][0-9]{0,18}$'
+      OR (
+        length(e.elem ->> 'id') = 19
+        AND (e.elem ->> 'id') COLLATE "C" > '9223372036854775807'
+      )
+      OR jsonb_typeof(e.elem -> 'class') <> 'string'
+      OR (e.elem ->> 'class') NOT IN ('public', 'teamleader', 'accounting', 'admin')
+      OR jsonb_typeof(e.elem -> 'team') NOT IN ('string', 'null')
+      OR jsonb_typeof(e.elem -> 'slack_id') NOT IN ('string', 'null')
+  ) THEN
+    RAISE EXCEPTION 'INVALID_INPUT' USING ERRCODE = '22023';
+  END IF;
+
+  -- 同じ id の重複は拒否する
+  SELECT count(*), count(DISTINCT u.id) INTO v_total, v_expected
+  FROM jsonb_to_recordset(p_updates) AS u(id bigint);
+  IF v_total <> v_expected THEN
+    RAISE EXCEPTION 'INVALID_INPUT' USING ERRCODE = '22023';
+  END IF;
+
+  UPDATE public.profiles p SET
+    class = u.class, team = u.team, slack_id = u.slack_id, updated_at = now()
+  FROM jsonb_to_recordset(p_updates) AS u(
+    id bigint, class text, team text, slack_id text
+  )
+  WHERE p.id = u.id;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  IF v_count < v_expected THEN
+    RAISE EXCEPTION 'NOT_APPLIED';
+  END IF;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.update_profiles(jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.update_profiles(jsonb) TO authenticated;
+```
+
 ### 5.2 matters テーブル
 
 ```sql
@@ -1009,6 +1093,8 @@ CREATE POLICY "Admin can delete select options" ON select_options
         )
     );
 ```
+
+- UPDATE は RLS で拒否されても（対象の行が削除されていても）0 行更新になるだけでエラーにならないため、項目管理の保存（`app/utils/supabase/selectOptions.ts` の `bulkUpsertSelectOptions`）は UPDATE に `.select("id")` を付け、更新できた行が 0 行なら失敗として利用者にエラーを返す
 
 ### 5.6 recurring_costs テーブル
 
