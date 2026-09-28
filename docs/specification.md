@@ -393,9 +393,19 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 #### 4.14.2 機能
 
 - ユーザー一覧表示
-- ユーザー権限の変更（public/accounting/admin）
+- ユーザー権限の変更（public/teamleader/accounting/admin）。teamleader 以外に変更するとチームは空になる（PC・モバイル共通）
+- ユーザーのチームの設定（teamleader の場合は必須）
 - ユーザー Slack ID の設定
-- 設定の保存
+- 設定の一括保存
+  - 複数ユーザーの権限・チーム・Slack ID を編集し、リスト上部の「一括保存」を 1 回押すとまとめて保存する（行ごとの保存ボタンは無い）
+  - 画面に読み込んだ時点（または直前の保存成功時点）の値と比べて、権限・チーム・Slack ID が変わった行をハイライトし、「N 件変更あり」と件数を表示する。変更が無い間は「一括保存」「変更を破棄」を押せない
+  - 「変更を破棄」で読み込み時点（直前の保存成功時点）の値に戻す
+  - 保存前にクライアント側で入力をチェックし、エラーをまとめて表示する（権限は必須・teamleader はチームが必須）。エラーがあれば保存しない
+  - 保存前に「N 件のユーザー情報を保存しますか？」と確認する
+  - 保存は変更した行だけを 1 回の RPC（`update_profiles`。[database.md 5.1](database.md#51-profiles-テーブル)）で行い、1 件でも保存できなければ（管理者権限が外れた・ユーザーが削除された等）どの行も保存しない。失敗時はエラーを表示し、編集内容は画面に残す
+  - 保存に成功したら、保存した値を新しい基準（ハイライト・件数の比較元）にし、画面を再取得する
+  - 未保存の変更がある状態でリロード・タブを閉じようとすると、ブラウザの確認ダイアログで警告する
+- 既知の制約：権限を変更しても、middleware が参照する JWT のクレーム（`user_class`）には、対象ユーザーのトークンが更新される（最大で約 1 時間後）か再ログインするまで反映されない（CLAUDE.md「認可」参照）
 
 #### 4.14.3 画面
 
@@ -1101,11 +1111,13 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
   - 各画面は URL で直接開ける（リロードしても同じ画面を表示する）
 - ユーザー管理（/dashboard/users）の構成要素
   - ユーザーリストセクション
-    - ユーザー情報（ID、名前、メール、権限、チーム、Slack ID）
-    - 権限選択ドロップダウン（public/teamleader/accounting/admin）
+    - 変更件数（「N 件変更あり」）
+    - 「変更を破棄」ボタン・「一括保存」ボタン（リスト上部。変更が無い間は押せない）
+    - 入力エラーのまとめ表示（保存を試みて入力エラーがあった場合）
+    - ユーザー情報（ID、名前、メール、権限、チーム、Slack ID）。変更した行はハイライトし「変更あり」を表示する
+    - 権限選択ドロップダウン（public/teamleader/accounting/admin。必須）
     - チーム選択ドロップダウン（teamleader の場合必須）
     - Slack ID 入力フィールド
-    - 保存ボタン
   - ユーザー一覧の取得に失敗した場合は画面全体をエラー表示（再試行ボタン）にする。チームの選択肢の取得に失敗した場合は、その旨を表示し、チーム欄は現在の値のみ表示する
 - 項目管理（/dashboard/options）の構成要素
   - 次の 6 種の選択肢リストをカードで並べる（PC は 3 列のグリッド）
@@ -1278,7 +1290,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 | getProfileInfoById                        | 指定ユーザーのプロフィール取得                                    | userId: string                        | {profileInfo, error}       |
 | getAllUserInfo                            | 全ユーザー情報の取得                                              | -                                     | {userInfoList, error}      |
 | insertUserInfo                            | ユーザー情報の登録                                                | {user, name, email}                   | {error}                    |
-| updateUserInfo                            | ユーザー情報の更新                                                | {profile}                             | {error}                    |
+| bulkUpdateProfiles                        | ユーザー情報（権限・チーム・Slack ID）の一括更新                  | updates: ProfileUpdateInput[]         | {error?}                   |
 | getAllMatterInfoList                      | 全案件情報の取得                                                  | -                                     | MatterType[]               |
 | getUserMatterInfoList                     | ユーザーの案件情報の取得                                          | -                                     | MatterType[]               |
 | getTeamMatterInfoList                     | チームの案件情報の取得                                            | -                                     | MatterType[]               |
@@ -1320,7 +1332,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 | editMatterInfo                               | 案件情報の更新処理                                                                   | utils/supabase/editMatterInfo.ts                |
 | deleteMatter                                 | 案件の削除処理                                                                       | utils/supabase/deleteMatter.ts                  |
 | checkMatterInfoList                          | 案件の完了処理                                                                       | utils/supabase/checkMatterInfoList.ts           |
-| updateProfile                                | ユーザープロフィールの更新処理                                                       | utils/supabase/updateProfile.ts                 |
+| selectChangedUsers / validateUserUpdates     | ユーザーリストの変更行の抽出・保存前の入力チェック                                   | utils/userList.ts                               |
 | sendMessageToSlack                           | Slack 通知の送信処理                                                                 | utils/slack/sendMessageToSlack.ts               |
 | formatCurrency                               | 金額のフォーマット                                                                   | utils/formatter.ts                              |
 | formatTimeToJp                               | 日時のフォーマット                                                                   | utils/formatter.ts                              |

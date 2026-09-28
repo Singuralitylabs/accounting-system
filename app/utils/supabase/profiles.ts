@@ -1,8 +1,14 @@
 "use server";
 
 import { User } from "@supabase/supabase-js";
-import { AccessFailure, ProfilesType } from "../../types/types";
+import { AccessFailure } from "../../types/types";
 import { isAllowedEmailDomain } from "../constants";
+import {
+  formatUserValidationErrors,
+  ProfileUpdateInput,
+  toProfileDbRow,
+  validateUserUpdates,
+} from "../userList";
 import { getCachedProfileInfo, getCachedProfileInfoById } from "./requestCache";
 import { createServerSupabase } from "./clients";
 
@@ -160,36 +166,62 @@ export const insertUserInfo = async ({
   }
 };
 
-export const updateUserInfo = async ({
-  profile,
-}: {
-  profile: ProfilesType;
-}) => {
-  const supabase = createServerSupabase();
+export type BulkUpdateProfilesResult = { error?: AccessFailure };
 
-  try {
-    const { error: updateError } = await supabase
-      .from("profiles")
-      .update({
-        slack_id: profile.slack_id,
-        class: profile.class,
-        team: profile.team,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", profile.id)
-      .select();
+const PROFILES_SAVE_FAILED: AccessFailure = {
+  kind: "fetchFailed",
+  message: "ユーザー情報の保存に失敗しました。何も保存されていません。",
+};
 
-    if (updateError) {
-      console.error(
-        `profilesテーブルへの${profile.id}の更新処理で失敗しました。`,
-        updateError
-      );
-      return { error: updateError };
-    }
-
-    return { error: null };
-  } catch (error) {
-    console.error("Unexpected error during update Profile:", error);
-    return { error };
+// 管理画面のユーザーリストの一括保存（権限・チーム・Slack ID）。
+// updates は変更した行のみ（画面側で selectChangedUsers により選ぶ）。
+// 書き込みは update_profiles（migration 33。1 トランザクション・1 文の UPDATE）で行い、
+// 1 件でも保存できなければすべてロールバックされる（一部だけ保存された状態は残らない）。
+// 他人の行を更新できるのは admin だけで、RLS（SECURITY INVOKER）で担保される。
+// RLS で弾かれた行・存在しない行があると NOT_APPLIED、admin 以外が権限・チームを
+// 変えようとすると RLS 違反（42501）になる。
+// Server Action として公開されるため、画面側と同じ入力チェックをここでも行い、
+// 書き込む列は toProfileDbRow で権限・チーム・Slack ID に限定する
+export const bulkUpdateProfiles = async (
+  updates: ProfileUpdateInput[],
+): Promise<BulkUpdateProfilesResult> => {
+  if (updates.length === 0) {
+    return {};
   }
+
+  const validationErrors = validateUserUpdates(updates);
+  if (validationErrors.size > 0) {
+    return {
+      error: {
+        kind: "validationFailed",
+        message: `入力内容に誤りがあるため、何も保存しませんでした。（${formatUserValidationErrors(
+          updates,
+          validationErrors,
+        ).join("、")}）`,
+      },
+    };
+  }
+
+  const supabase = createServerSupabase();
+  const { error: rpcError } = await supabase.rpc("update_profiles", {
+    p_updates: updates.map(toProfileDbRow),
+  });
+  if (rpcError) {
+    if (
+      rpcError.message.includes("NOT_APPLIED") ||
+      rpcError.code === "42501"
+    ) {
+      return {
+        error: {
+          kind: "validationFailed",
+          message:
+            "保存できないユーザーが含まれていたため、何も保存しませんでした。管理者権限が外れたか、ユーザーが削除された可能性があります。画面を再読み込みしてから保存し直してください。",
+        },
+      };
+    }
+    console.error("ユーザー情報の保存に失敗しました:", rpcError);
+    return { error: PROFILES_SAVE_FAILED };
+  }
+
+  return {};
 };

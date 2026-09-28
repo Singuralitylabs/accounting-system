@@ -1,10 +1,26 @@
 "use client";
 
-import { Table, Text, Title, LoadingOverlay } from "@mantine/core";
+import {
+  Alert,
+  Button,
+  Group,
+  LoadingOverlay,
+  Table,
+  Text,
+  Title,
+} from "@mantine/core";
 import { ProfilesType } from "../types/types";
-import { useState } from "react";
-import updateProfile from "../utils/supabase/updateProfile";
-import { notifyError, notifySuccess, toErrorMessage } from "../utils/notify";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { bulkUpdateProfiles } from "../utils/supabase/profiles";
+import { notifyError, notifySuccess } from "../utils/notify";
+import { confirmAction } from "../utils/confirmAction";
+import {
+  formatUserValidationErrors,
+  selectChangedUsers,
+  UserValidationErrors,
+  validateUserUpdates,
+} from "../utils/userList";
 import { useViewportSize } from "@mantine/hooks";
 import UserCard from "./UserCard";
 import UserTable from "./UserTable";
@@ -35,41 +51,135 @@ type Props = {
   teamListError?: boolean;
 };
 
+const toRowMap = (users: ProfilesType[]) =>
+  new Map(users.map((user) => [user.id, user]));
+
 const UserList = ({ userList, teamList, teamListError = false }: Props) => {
-  const [updatedUserList, setUpdatedUserList] =
-    useState<ProfilesType[]>(userList);
-  const [isLoading, setIsLoading] = useState(false);
+  const router = useRouter();
+  const [rows, setRows] = useState<ProfilesType[]>(userList);
+  // 画面に読み込んだ時点（または直前の保存成功時点）の行。これと比べて変更した行を
+  // ハイライトし、保存時は変更した行だけを送る（ExtraEntryList と同じ方式）
+  const [baseline, setBaseline] = useState(() => toRowMap(userList));
+  const [isSaving, setIsSaving] = useState(false);
+  // 保存を試みて入力エラーがあったか。以降は入力のたびにエラー表示を更新する
+  const [showErrors, setShowErrors] = useState(false);
 
   const { width } = useViewportSize();
   const isMobile = width < 768;
+
+  const changedRows = useMemo(
+    () => selectChangedUsers(rows, baseline),
+    [rows, baseline],
+  );
+  const changedIds = useMemo(
+    () => new Set(changedRows.map((row) => row.id)),
+    [changedRows],
+  );
+  const hasChanges = changedRows.length > 0;
+  const validationErrors = useMemo(
+    () => validateUserUpdates(changedRows),
+    [changedRows],
+  );
+  const visibleErrors = showErrors
+    ? validationErrors
+    : new Map<number, UserValidationErrors>();
+
+  // 保存後の再取得（router.refresh）などでサーバの一覧が変わったら、未保存の変更が
+  // 無い場合に限り表示を同期する（編集中の内容は黙って破棄しない）
+  const hasChangesRef = useRef(hasChanges);
+  hasChangesRef.current = hasChanges;
+  useEffect(() => {
+    if (!hasChangesRef.current) {
+      setRows(userList);
+      setBaseline(toRowMap(userList));
+    }
+  }, [userList]);
+
+  // 未保存の変更がある状態でリロード・タブを閉じようとしたら警告する
+  useEffect(() => {
+    if (!hasChanges) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      // 古いブラウザは returnValue の設定で警告を出す
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasChanges]);
 
   const handleUpdateUserList = (
     userId: number,
     updates: Partial<ProfilesType>,
   ) => {
-    setUpdatedUserList(
-      updatedUserList.map((user) =>
-        user.id === userId ? { ...user, ...updates } : user,
+    // teamleader 以外に変更したらチームを空にする（PC・モバイル共通）
+    const normalized: Partial<ProfilesType> =
+      "class" in updates && updates.class !== "teamleader"
+        ? { ...updates, team: null }
+        : updates;
+    setRows((prev) =>
+      prev.map((user) =>
+        user.id === userId ? { ...user, ...normalized } : user,
       ),
     );
   };
 
-  const handleSave = async (userId: number) => {
-    setIsLoading(true);
+  // 変更を破棄して、読み込み時点（直前の保存成功時点）の値に戻す
+  const handleDiscard = () => {
+    setRows((prev) => prev.map((user) => baseline.get(user.id) ?? user));
+    setShowErrors(false);
+  };
+
+  const handleSave = async () => {
+    if (!hasChanges || isSaving) return;
+    if (validationErrors.size > 0) {
+      setShowErrors(true);
+      return;
+    }
+
+    const confirmed = await confirmAction(
+      `${changedRows.length} 件のユーザー情報を保存しますか？`,
+    );
+    if (!confirmed) return;
+
+    setIsSaving(true);
     try {
-      const user = updatedUserList.find((user) => user.id === userId);
-      if (!user) {
+      // 書き込みに必要な項目だけを送る（name はサーバ側のエラーメッセージ用）
+      const { error } = await bulkUpdateProfiles(
+        changedRows.map(({ id, name, class: userClass, team, slack_id }) => ({
+          id,
+          name,
+          class: userClass,
+          team,
+          slack_id,
+        })),
+      );
+      if (error) {
+        // 何も保存されていない。編集内容は画面に残す
+        notifyError(error.message);
         return;
       }
-      await updateProfile({ profile: user });
-      notifySuccess("ユーザー情報を保存しました。");
+      // 保存した値を新しい baseline にする（ハイライト・件数が消える）
+      setBaseline((prev) => {
+        const next = new Map(prev);
+        changedRows.forEach((row) => next.set(row.id, row));
+        return next;
+      });
+      setShowErrors(false);
+      notifySuccess(`${changedRows.length} 件のユーザー情報を保存しました。`);
+      router.refresh();
     } catch (error) {
+      // 通信の失敗などで保存できたかどうか分からない（保存は 1 トランザクションのため、
+      // 保存されていればすべて、されていなければ何も反映されていない）
       console.error("ユーザー情報の保存に失敗しました:", error);
-      notifyError(toErrorMessage(error, "ユーザー情報の保存に失敗しました。"));
+      notifyError(
+        "ユーザー情報の保存結果を確認できませんでした。画面を再読み込みして内容を確認してください。",
+      );
     } finally {
-      setIsLoading(false);
+      setIsSaving(false);
     }
   };
+
+  const errorMessages = formatUserValidationErrors(changedRows, visibleErrors);
 
   const tableHeads = (
     <Table.Tr key={elementListOfUser[0]}>
@@ -91,33 +201,67 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
           チームの選択肢を取得できませんでした。チーム欄は現在の値のみ表示しています。
         </Text>
       )}
+      <Group justify="space-between" className="pb-4">
+        <Text size="sm" c={hasChanges ? "orange.8" : "dimmed"} fw={500}>
+          {hasChanges ? `${changedRows.length} 件変更あり` : "変更はありません"}
+        </Text>
+        <Group gap="xs">
+          <Button
+            variant="default"
+            disabled={!hasChanges || isSaving}
+            onClick={handleDiscard}
+          >
+            変更を破棄
+          </Button>
+          <Button
+            color="green"
+            disabled={!hasChanges || isSaving}
+            onClick={handleSave}
+          >
+            一括保存
+          </Button>
+        </Group>
+      </Group>
+      {errorMessages.length > 0 && (
+        <Alert color="red" title="入力内容を確認してください" className="mb-4">
+          <ul className="list-disc pl-5">
+            {errorMessages.map((message) => (
+              <li key={message}>{message}</li>
+            ))}
+          </ul>
+        </Alert>
+      )}
       {!isMobile ? (
         <Table>
           <Table.Thead>{tableHeads}</Table.Thead>
           <Table.Tbody>
-            {updatedUserList.map((user) => (
+            {rows.map((user) => (
               <UserTable
                 key={user.id}
                 userInfo={user}
                 teamList={teamList}
+                isChanged={changedIds.has(user.id)}
+                errors={visibleErrors.get(user.id)}
+                disabled={isSaving}
                 onUpdateUserList={handleUpdateUserList}
-                onSaveUser={handleSave}
               />
             ))}
           </Table.Tbody>
         </Table>
       ) : (
-        updatedUserList.map((user) => (
+        rows.map((user) => (
           <UserCard
             key={user.id}
             userInfo={user}
             teamList={teamList}
+            isChanged={changedIds.has(user.id)}
+            errors={visibleErrors.get(user.id)}
+            disabled={isSaving}
             onUpdateUserList={handleUpdateUserList}
-            onSaveUser={handleSave}
           />
         ))
       )}
-      <LoadingOverlay visible={isLoading} />
+      <LoadingOverlay visible={isSaving} />
     </div>
   );
 };
