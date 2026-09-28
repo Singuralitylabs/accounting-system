@@ -38,6 +38,10 @@ export const useExtraEntryList = (
     initialDataUpdatedAt: initialData ? initialDataUpdatedAt : undefined,
     enabled: !!month,
     staleTime: 2 * 60 * 1000, // 2分
+    // 画面を離れている間に無効化された一覧（損益計算書での前月コピー・確定の後など）は、
+    // 開き直したときに取り直す（QueryProvider の既定は refetchOnMount: false。
+    // 古い一覧のまま編集して二重登録するのを防ぐ。Issue #170）
+    refetchOnMount: (query) => query.state.isInvalidated,
     // 月を切り替えている間は前月の表を残す（毎回フルスピナーにしない）
     placeholderData: keepPreviousData,
   });
@@ -47,7 +51,10 @@ export const useExtraEntryList = (
   // （Issue #170）。isStale は staleTime の経過でも true になるため区別できない
   const isInvalidated =
     queryClient.getQueryState(queryKey)?.isInvalidated ?? false;
-  return { ...query, isInvalidated };
+  // 現時点（描画時点ではなく呼び出した時点）の一覧の取得時刻。保存の完了時に読む
+  const getDataUpdatedAt = () =>
+    queryClient.getQueryState(queryKey)?.dataUpdatedAt ?? 0;
+  return { ...query, isInvalidated, getDataUpdatedAt };
 };
 
 // 内容・請求先のサジェスト候補（直近12ヶ月＋月未確定分の過去の入力値）。

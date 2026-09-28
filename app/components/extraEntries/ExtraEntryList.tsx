@@ -36,7 +36,7 @@ import {
   Title,
   Tooltip,
 } from "@mantine/core";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CiSquarePlus } from "react-icons/ci";
 import { RiDeleteBin6Line } from "react-icons/ri";
 import { CustomDatePicker } from "../CustomDatePicker";
@@ -88,6 +88,7 @@ const ExtraEntryList = ({
     isPaused,
     isInvalidated,
     dataUpdatedAt,
+    getDataUpdatedAt,
     refetch,
   } = useExtraEntryList(
     month,
@@ -106,10 +107,6 @@ const ExtraEntryList = ({
   // キャッシュ済みの stale な月への切替では placeholder を経由しないため、
   // 再取得が終わるまで（isFetching && isStale）もロックする
   const isSwitchingMonth = isPlaceholderData || (isFetching && isStale);
-  // 表示中の一覧の取得時刻。保存に成功した時点の値を控えるために、最後に描画した値を持つ
-  // （保存中にバックグラウンド再取得が完了した場合も、その一覧を「保存前」として扱う）
-  const dataUpdatedAtRef = useRef(dataUpdatedAt);
-  dataUpdatedAtRef.current = dataUpdatedAt;
   // 保存に成功した時点の対象月と一覧の取得時刻。保存後の再取得で新しい一覧が届くまでは
   // 保存前の古い一覧で画面を上書きせず、保存した内容を表示したままにする（Issue #170）
   const [savedSnapshot, setSavedSnapshot] = useState<{
@@ -327,7 +324,8 @@ const ExtraEntryList = ({
       // 保存に成功した時点の一覧の取得時刻を控え、これより新しい一覧が届くまで同期しない
       // （保存の完了時に進行中だった再取得は onSuccess の無効化で取り消されるため、
       // これ以降に届く一覧は保存後のもの）
-      setSavedSnapshot({ month, dataUpdatedAt: dataUpdatedAtRef.current });
+      // （保存中にバックグラウンド再取得が完了していた場合も、その一覧を「保存前」として扱う）
+      setSavedSnapshot({ month, dataUpdatedAt: getDataUpdatedAt() });
       setIsDirty(false); // 保存成功後は再取得結果との同期を再開する
       notifySuccess("経理追加収支情報を更新しました。");
     } catch (error) {
@@ -528,7 +526,8 @@ const ExtraEntryList = ({
           </Button>
         </Alert>
       ) : (
-        isError && (
+        isError &&
+        !isFetching && (
           <Alert
             color="red"
             title="最新の経理追加収支情報の取得に失敗しました"
