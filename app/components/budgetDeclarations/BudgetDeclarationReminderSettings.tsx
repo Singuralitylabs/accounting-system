@@ -164,7 +164,13 @@ const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
               <Button variant="default" onClick={closeModal}>
                 キャンセル
               </Button>
-              <Button type="button" disabled={isLoading} onClick={handleSave}>
+              {/* 確認ダイアログ表示中も無効化する（二重クリックで確認ダイアログが
+                  積まれ、同じ値で 2 回保存されるのを防ぐ） */}
+              <Button
+                type="button"
+                disabled={isLoading || isConfirming}
+                onClick={handleSave}
+              >
                 保存
               </Button>
             </Group>

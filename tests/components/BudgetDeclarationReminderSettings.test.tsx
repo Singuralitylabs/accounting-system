@@ -308,6 +308,32 @@ describe("BudgetDeclarationReminderSettings", () => {
     expect(screen.getByRole("checkbox", { name: "15" })).toBeChecked();
   });
 
+  it("確認ダイアログの表示中は保存ボタンを無効化し、二重に確認・保存しない", async () => {
+    let resolveConfirm: (value: boolean) => void = () => {};
+    confirmAction.mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        resolveConfirm = resolve;
+      }),
+    );
+
+    renderWithMantine(
+      <BudgetDeclarationReminderSettings initialTargetDays={[15]} />,
+    );
+
+    await openModal();
+    const saveButton = screen.getByRole("button", { name: "保存" });
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(saveButton).toBeDisabled());
+    fireEvent.click(saveButton);
+    expect(confirmAction).toHaveBeenCalledTimes(1);
+
+    // 確認をキャンセルすると再び押せるようになる
+    resolveConfirm(false);
+    await waitFor(() => expect(saveButton).not.toBeDisabled());
+    expect(updateBudgetDeclarationReminderTargetDays).not.toHaveBeenCalled();
+  });
+
   it("確認ダイアログを Esc で閉じても設定モーダルは開いたまま（未保存の選択も保持）", async () => {
     // 実際の confirmAction（@mantine/modals の確認ダイアログ）を使う
     const actual = await vi.importActual<
