@@ -28,6 +28,9 @@ export const useUpsertRecurringCost = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
+    // 新規行の INSERT を含む非冪等な書き込みのため、グローバル retry による
+    // mutationFn 再実行（一部の操作だけ失敗した場合などの二重登録）を防ぐ
+    retry: 0,
     mutationFn: (recurringCosts: RecurringCostInListType[]) =>
       bulkUpsertRecurringCost(recurringCosts),
     onSuccess: () => {

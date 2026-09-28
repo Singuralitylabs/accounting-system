@@ -85,6 +85,8 @@ const ExtraEntryList = ({
     isPlaceholderData,
     isFetching,
     isStale,
+    dataUpdatedAt,
+    refetch,
   } = useExtraEntryList(
     month,
     month === initialMonth ? initialData : undefined,
@@ -102,13 +104,28 @@ const ExtraEntryList = ({
   // キャッシュ済みの stale な月への切替では placeholder を経由しないため、
   // 再取得が終わるまで（isFetching && isStale）もロックする
   const isSwitchingMonth = isPlaceholderData || (isFetching && isStale);
+  // 保存に成功した時点の対象月と、そのとき表示していた一覧の取得時刻（dataUpdatedAt）。
+  // 保存後の再取得が終わるまで（一覧が保存前に取得したもののままの間）は、
+  // 保存前の古い一覧で画面を上書きしない。再取得がリトライ込みで失敗した場合も、
+  // 保存した行を残したまま再読み込みを促す（Issue #170）
+  const [savedSnapshot, setSavedSnapshot] = useState<{
+    month: string;
+    dataUpdatedAt: number;
+  } | null>(null);
+  const isAwaitingRefresh =
+    savedSnapshot !== null &&
+    savedSnapshot.month === month &&
+    savedSnapshot.dataUpdatedAt === dataUpdatedAt;
   const isMonthClosed = isClosedMonth(closedMonths, month);
   // 確定済みの月の情報がまだ無い（取得中・取得失敗）間は、確定済みか判定できない
   // ため追加ボタンを無効にする（保存はロック判定・RLS で拒否されるが、仕様どおり
   // 確定済みの月では押せないようにする）
   const isClosedUnknown = isClosedLoading || isClosedError;
-  // 切替中・保存中はすべての入力を無効化する
-  const formLocked = isSwitchingMonth || upsertMutation.isPending;
+  // 切替中・保存中・保存後の再取得待ちはすべての入力を無効化する。
+  // 再取得待ちの間の行には保存済みの新規行（isNew のまま）が含まれるため、
+  // 再度保存すると二重に登録されてしまう
+  const formLocked =
+    isSwitchingMonth || upsertMutation.isPending || isAwaitingRefresh;
   // 追加は対象月が確定済みでなく、確定済みかが判明し、ロックされていないときだけ
   const canAddRow = !isMonthClosed && !isClosedUnknown && !formLocked;
   // 最新の保存済みの行（編集ロックは変更前の日付で判定する）
@@ -131,13 +148,13 @@ const ExtraEntryList = ({
   const [isDirty, setIsDirty] = useState(false);
 
   // 保存後の再取得などでサーバ状態が変わったらローカル編集状態をリセットする
-  // （編集中・月切替中は同期しない）
+  // （編集中・月切替中・保存後の再取得待ちは同期しない）
   useEffect(() => {
-    if (extraEntryList && !isDirty && !isSwitchingMonth) {
+    if (extraEntryList && !isDirty && !isSwitchingMonth && !isAwaitingRefresh) {
       setRows(toListRows(extraEntryList));
       setBaseline(toRowMap(extraEntryList));
     }
-  }, [extraEntryList, isDirty, isSwitchingMonth]);
+  }, [extraEntryList, isDirty, isSwitchingMonth, isAwaitingRefresh]);
 
   const visibleRows = rows.filter((row) => !row.isRemoved);
   const incomeRows = visibleRows.filter((row) => row.entry_type === "income");
@@ -176,6 +193,8 @@ const ExtraEntryList = ({
       if (!confirmed) return;
       setIsDirty(false);
     }
+    // 別の月に移ったら再取得待ちを解く（戻ったときは、その月の取得結果に同期する）
+    setSavedSnapshot(null);
     setMonth(selected);
   };
 
@@ -288,8 +307,12 @@ const ExtraEntryList = ({
     const confirmed = await confirmAction("経理追加収支の項目を更新しますか？");
     if (!confirmed) return;
 
+    // 保存を始めた時点の一覧の取得時刻。保存後の再取得でこれより新しい一覧が
+    // 届くまで同期しない
+    const snapshotUpdatedAt = dataUpdatedAt;
     try {
       await upsertMutation.mutateAsync(changedRows);
+      setSavedSnapshot({ month, dataUpdatedAt: snapshotUpdatedAt });
       setIsDirty(false); // 保存成功後は再取得結果との同期を再開する
       notifySuccess("経理追加収支情報を更新しました。");
     } catch (error) {
@@ -463,14 +486,35 @@ const ExtraEntryList = ({
     <div className="px-4 pb-8 relative">
       <LoadingOverlay visible={upsertMutation.isPending || isSwitchingMonth} />
       {monthPicker}
-      {isError && (
+      {isError && isAwaitingRefresh ? (
         <Alert
-          color="red"
-          title="最新の経理追加収支情報の取得に失敗しました"
+          color="yellow"
+          title="保存は完了しましたが、最新の経理追加収支情報を取得できませんでした"
           className="mb-4"
         >
-          表示中の内容は取得済みのものです。時間をおいてページを再読み込みしてください。
+          <p>
+            表示中の内容は保存した時点のものです。二重登録を防ぐため、最新の内容を取得できるまで編集・保存はできません。
+          </p>
+          <Button
+            type="button"
+            size="xs"
+            variant="light"
+            className="mt-2"
+            onClick={() => refetch()}
+          >
+            再読み込み
+          </Button>
         </Alert>
+      ) : (
+        isError && (
+          <Alert
+            color="red"
+            title="最新の経理追加収支情報の取得に失敗しました"
+            className="mb-4"
+          >
+            表示中の内容は取得済みのものです。時間をおいてページを再読み込みしてください。
+          </Alert>
+        )
       )}
       <div className="flex justify-between items-center mb-4 gap-4">
         <p className="text-sm text-gray-600">
@@ -481,7 +525,7 @@ const ExtraEntryList = ({
         <Button
           type="button"
           className="shrink-0"
-          disabled={upsertMutation.isPending || isSwitchingMonth}
+          disabled={formLocked}
           onClick={handleSave}
         >
           保存

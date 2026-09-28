@@ -80,6 +80,10 @@ export const useUpsertExtraEntry = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
+    // 新規行の INSERT を含む非冪等な書き込みのため、グローバル retry による
+    // mutationFn 再実行（コミット後に応答だけ失われた場合の二重登録）を防ぐ。
+    // 検証エラー（ExtraEntryValidationError）も再実行せずすぐ表示する
+    retry: 0,
     mutationFn: async (extraEntries: ExtraEntryInListType[]) => {
       const result = await bulkUpsertExtraEntry(extraEntries);
       if (result.error) {
