@@ -80,11 +80,26 @@ Vercel の本番デプロイ後に動作確認し、問題がなければ `creat
 
 承認後にマージコミットへ注釈付きタグ `REL-TAG-X.Y.Z` が作られ、GitHub Release が公開される（自動生成ノート + PR 本文のサマリー）。自動生成ノートの起点は直前の既存 `REL-TAG-*` タグ（無ければ全履歴）。再実行しても重複作成しない（冪等）。
 
+### 手動実行（workflow_dispatch）はマージ後の再実行専用
+
+`create-release.yml` の手動実行（**Actions > Create Release > Run workflow**、`version` に `X.Y.Z`）は、**リリース PR をマージした後に**、自動実行が失敗・中断したときの再実行にだけ使う。リリース PR のマージ前に実行してはならない。
+
+- 手動実行では、その時点の `release` HEAD をタグの対象にする。そのうえで、HEAD が「リリース X.Y.Z」（`version` と同じバージョン）のマージ済み PR のマージコミットであること、その PR の head が同一リポジトリの `main` であることを検証する（`release` 向けのクローズ済み PR を API で全件取得し、マージコミットが HEAD と一致するマージ済み PR を探す。件数上限は設けていない）。条件を満たさない場合はタグを付けずに失敗する。
+  - マージ前に実行すると、HEAD は前回リリースのマージコミットになる（親が 2 つあるため squash 検出は通ってしまう）。この検証が無いと、旧ツリーに新バージョンのタグが付き、マージ後の自動実行が「タグが既に別のコミットを指している」で失敗する。
+- 次のリリースをマージして `release` HEAD が進んだ後は、前のバージョンを手動実行でタグ付けできない（HEAD が別の PR のマージコミットになるため）。その場合は、元の自動実行（`pull_request` イベント）を **Re-run jobs** で再実行する（マージコミットの SHA はイベントに固定されている）。
+  - GitHub の Re-run は元の実行から 30 日以内しかできない。30 日を過ぎた場合は自動では付けられないため、対象のマージコミットを確認したうえでタグと Release を手動で作成する。
+- 検証で特定したリリース PR の本文から、リリースサマリーを抽出する（自動実行と同じ）。
+
 ## トラブルシューティング
 
 - `release-pr.yml` が「既存のリリース PR が open」で失敗する: 既存 PR をマージ/クローズしてから再実行する。
 - `create-release.yml` が squash 検出で失敗する: release へのマージを merge commit でやり直す（PR を作り直す）。
-- `create-release.yml` が承認ゲート未設定で失敗する: `production-release` に Required reviewers を設定して再実行する。
+- `create-release.yml` が承認ゲートの確認（「承認ゲートの保護ルールを確認」ステップ）で失敗する: ログの `承認ゲート確認: GET environments/production-release → HTTP <ステータス>` 行とエラーメッセージで原因を見分ける。どの場合もタグは作られない（フェイルクローズ）。
+  - `HTTP 404`（「Environment 'production-release' が存在しません」）: Environment が未作成。**Settings > Environments** で `production-release` を作成し、Required reviewers を設定して再実行する。
+  - `HTTP 403`（「取得が拒否されました」）: トークンの権限不足、または API のレート制限。ワークフローの `permissions` に `actions: read` があるかを確認する。ログの「API メッセージ」に GitHub の応答が出る。
+  - `HTTP 200`（「Required reviewers が設定されていません」）: Environment はあるが承認者が未設定。メッセージに設定済みの保護ルール（`wait_timer` など）が出る。Required reviewers を設定して再実行する。
+  - それ以外の HTTP ステータス（5xx など）や「HTTP 応答なし」: GitHub 側の一時的な障害やネットワーク障害の可能性がある。時間をおいて再実行する。
+- `create-release.yml` の手動実行が「マージ済みのリリース PR のマージコミットではありません」「指定バージョン X.Y.Z のリリース PR ではありません」で失敗する: リリース PR のマージ前に実行したか、`version` が違う。リリース PR をマージしてから、正しい `version` で実行する（上記「手動実行はマージ後の再実行専用」を参照）。
 - `migration list` が「自動確認できませんでした」になる: Secret 未設定または DB Pause。手元で `yarn supabase migration list` を実行して確認する（リリース自体はブロックされない）。
 - タグ重複で失敗する: バージョン番号を変える。部分失敗後の再実行で同名タグが同一 SHA を指している場合は正常系として続行される。
 
