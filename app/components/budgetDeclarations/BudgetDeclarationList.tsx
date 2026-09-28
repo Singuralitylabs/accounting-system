@@ -23,7 +23,7 @@ type Props = {
   // 全チームの作成・編集ができるロールか（経理・管理者）。false ならチームリーダーの
   // 自チームのみ（一覧に並ぶ行自体が自チームのみなので、この値は選択可否の表示にのみ使う）
   canEditAllTeams: boolean;
-  // リマインド設定セクションを表示できるロールか（admin / accounting）。
+  // リマインド設定ボタン（モーダル）を表示できるロールか（admin / accounting）。
   // 省略時は false（未対応の呼び出し元で誤って表示されないようにする）
   canManageReminderSettings?: boolean;
   // 取得済みの現在の対象日。canManageReminderSettings が true でも取得失敗時は null
@@ -102,12 +102,14 @@ const BudgetDeclarationList = ({
 
   return (
     <div className="mx-auto max-w-5xl px-4 pb-8">
-      {canManageReminderSettings && (
-        <BudgetDeclarationReminderSettings
-          initialTargetDays={initialReminderTargetDays}
-        />
-      )}
       <Group justify="flex-end" className="mb-2">
+        {/* 頻繁に変更しない設定のため常時展開せず、ボタンからモーダルで開く。
+            保存済みの値を開閉をまたいで保持するため、常時マウントしておく */}
+        {canManageReminderSettings && (
+          <BudgetDeclarationReminderSettings
+            initialTargetDays={initialReminderTargetDays}
+          />
+        )}
         <Button
           component={Link}
           href="/budget-declarations/recurring"

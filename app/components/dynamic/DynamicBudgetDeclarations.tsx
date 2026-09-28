@@ -51,7 +51,7 @@ const DynamicBudgetDeclarations = async () => {
     profileInfo?.class,
   );
 
-  // リマインド設定セクションは admin / accounting にのみ描画するため、
+  // リマインド設定ボタン（モーダル）は admin / accounting にのみ描画するため、
   // 対象外のロールでは Server Action 自体を呼ばない
   // （teamleader / public に権限不足のログを残さない）
   const reminderSettings = canManageReminderSettings

@@ -49,7 +49,7 @@ vi.mock("@/app/hooks/useBudgetRecurringItemData", () => ({
 // BudgetDeclarationReminderSettings が直接 import する Server Action。
 // "use server" 経由で profiles.ts の requestCache（React cache()）まで
 // 芋づる式に読み込まれ、テスト環境では初期化に失敗するためモックする
-// （このテストでは canManageReminderSettings を渡さないため呼ばれない）
+// （このテストでは保存操作をしないため呼ばれない）
 vi.mock("@/app/utils/supabase/budgetDeclarationReminderSettings", () => ({
   updateBudgetDeclarationReminderTargetDays: vi.fn(),
 }));
@@ -146,10 +146,13 @@ describe("BudgetDeclarationList", () => {
     expect(screen.queryByDisplayValue("2026年11月")).not.toBeInTheDocument();
   });
 
-  it("canManageReminderSettings が false のときはリマインド設定セクションを表示しない", () => {
-    renderList([row()]);
+  it("canManageReminderSettings が false のときはリマインド設定ボタンを表示しない", () => {
+    renderList([row()], { props: { initialReminderTargetDays: [] } });
 
-    expect(screen.queryByText("リマインド設定")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "リマインド設定" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("リマインド無効")).not.toBeInTheDocument();
   });
 
   it("申告済みチームが0件のときは「すべて開く」を無効化する", () => {
@@ -290,7 +293,7 @@ describe("BudgetDeclarationList", () => {
     ).toBeInTheDocument();
   });
 
-  it("canManageReminderSettings が true のときはリマインド設定セクションを表示する", () => {
+  it("canManageReminderSettings が true のときは「定期明細を管理」と同じ行にリマインド設定ボタンを表示し、設定は常時展開しない", async () => {
     renderList([row()], {
       props: {
         canManageReminderSettings: true,
@@ -298,7 +301,37 @@ describe("BudgetDeclarationList", () => {
       },
     });
 
-    expect(screen.getByText("リマインド設定")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "15" })).toBeChecked();
+    const reminderButton = screen.getByRole("button", {
+      name: "リマインド設定",
+    });
+    // 「定期明細を管理」はリンクボタン（a 要素）
+    const recurringButton = screen.getByRole("link", {
+      name: "定期明細を管理",
+    });
+    expect(
+      recurringButton.parentElement?.contains(reminderButton),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("checkbox", { name: "15" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("リマインド無効")).not.toBeInTheDocument();
+
+    fireEvent.click(reminderButton);
+
+    expect(await screen.findByRole("checkbox", { name: "15" })).toBeChecked();
+  });
+
+  it("canManageReminderSettings が true で保存済みの対象日が0件のときは「リマインド無効」バッジを表示する", () => {
+    renderList([row()], {
+      props: {
+        canManageReminderSettings: true,
+        initialReminderTargetDays: [],
+      },
+    });
+
+    expect(
+      screen.getByRole("button", { name: "リマインド設定" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("リマインド無効")).toBeInTheDocument();
   });
 });
