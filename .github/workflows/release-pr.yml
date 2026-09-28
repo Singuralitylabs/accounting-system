@@ -479,7 +479,7 @@ jobs:
           export SUMMARY_SECTION BREAKING_SECTION MIGRATIONS_CHANGED_SECTION MIGRATION_NOTICE
           # shellcheck disable=SC2016 # envsubst に渡す変数名の一覧であり、シェルでは展開しない
           BODY_VARS='${VERSION} ${SUMMARY_SECTION} ${BREAKING_SECTION} ${MIGRATIONS_LIST} ${MIGRATIONS_CHANGED_SECTION} ${BREAKING_LIST} ${ENV_ADDED_LIST} ${ENV_CODE_LIST} ${MIGRATION_NOTICE} ${MIGRATION_LIST_BODY}'
-          BODY=$(envsubst "$BODY_VARS" <<'EOF'
+          TEMPLATE=$(cat <<'EOF'
           ## リリース ${VERSION}
 
           このPRは `main` ブランチを `release` ブランチへマージするためのリリース PR です。
@@ -521,6 +521,20 @@ jobs:
           - [ ] 本番動作確認後に create-release の承認を行うことを把握している（手順は docs/release.md）
           EOF
           )
+
+          # テンプレート中の ${...} と BODY_VARS の列挙が食い違っていたら失敗させる。列挙漏れの変数は
+          # 展開されずに ${...} のまま PR 本文に出てしまい、列挙だけ残った変数は不要な設定になるため。
+          TEMPLATE_VARS=$(printf '%s\n' "$TEMPLATE" | grep -oE '\$\{[A-Za-z_][A-Za-z0-9_]*\}' | sort -u || true)
+          LISTED_VARS=$(printf '%s\n' "$BODY_VARS" | tr ' ' '\n' | sed '/^$/d' | sort -u)
+          if [ "$TEMPLATE_VARS" != "$LISTED_VARS" ]; then
+            echo "::error::PR 本文テンプレートの差し込み変数と BODY_VARS の列挙が一致しません。"
+            echo "テンプレートにあって BODY_VARS に無い変数:"
+            comm -23 <(printf '%s\n' "$TEMPLATE_VARS") <(printf '%s\n' "$LISTED_VARS")
+            echo "BODY_VARS にあってテンプレートに無い変数:"
+            comm -13 <(printf '%s\n' "$TEMPLATE_VARS") <(printf '%s\n' "$LISTED_VARS")
+            exit 1
+          fi
+          BODY=$(printf '%s\n' "$TEMPLATE" | envsubst "$BODY_VARS")
 
           # Draft で作成する（マイグレーション適用前の誤マージ防止）。
           gh pr create \

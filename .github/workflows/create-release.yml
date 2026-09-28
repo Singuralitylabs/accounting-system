@@ -18,7 +18,8 @@ on:
         type: string
 
 # タグ push と GitHub Release 作成に contents: write、
-# リリース PR 本文からのサマリー抽出に pull-requests: read を使う。
+# リリース PR 本文からのサマリー抽出と、手動実行時の対象コミット検証
+# （GET /repos/{repo}/commits/{sha}/pulls）に pull-requests: read を使う。
 # 承認ゲートの保護ルール確認（GET /repos/{repo}/environments/{name}）に actions: read を使う。
 # いずれも必要最小限であり、書き込みはタグ・Release 作成に限定する（db push 等は含まない）。
 permissions:
@@ -141,8 +142,11 @@ jobs:
 
           case "${HTTP_STATUS:-}" in
             200)
-              if ! RULES=$(printf '%s' "$RESP_BODY" | jq -r '.protection_rules[]?.type'); then
-                echo "::error::Environment '${ENV_NAME}' の応答（HTTP 200）を解析できませんでした。承認ゲートを確認できないため中断します。"
+              # 本文が空・JSON オブジェクトでない場合は「未設定」と誤表示せず解析エラーとして扱う
+              # （jq -e は入力が空だと結果なしで非ゼロ終了する）。
+              if ! printf '%s' "$RESP_BODY" | jq -e 'type == "object"' >/dev/null 2>&1 \
+                || ! RULES=$(printf '%s' "$RESP_BODY" | jq -r '.protection_rules[]?.type'); then
+                echo "::error::Environment '${ENV_NAME}' の応答（HTTP 200）を解析できませんでした（本文が空、または JSON オブジェクトではありません）。承認ゲートを確認できないため中断します。"
                 exit 1
               fi
               if ! printf '%s\n' "$RULES" | grep -qx 'required_reviewers'; then
@@ -200,21 +204,29 @@ jobs:
             # 手動起動時は現時点の release HEAD を対象とし、リリース PR のマージコミットか検証する。
             SHA=$(git rev-parse HEAD)
             # API エラーは握りつぶさず失敗させる（検証できない場合はタグを付けない）。
-            if ! MERGED_PRS=$(gh pr list -R "$GITHUB_REPOSITORY" --base release --state merged --limit 50 \
-              --json number,title,headRefName,isCrossRepository,mergeCommit); then
-              echo "::error::マージ済みのリリース PR 一覧を取得できませんでした（上記の gh のエラーを参照）。検証できないためタグを付けずに中断します。"
+            # コミットに紐づく PR を直接引く（GET /repos/{repo}/commits/{sha}/pulls。pull-requests: read で足りる）。
+            # PR 一覧を件数上限付きで遡る方式と違い、対象 PR より後の release 向け PR の件数に左右されない。
+            # 既定ブランチ（main）に無いコミットでは merged / open の PR が返るため、その中から
+            # 「base が release・マージ済み・マージコミットが HEAD」の PR を選ぶ。--paginate の出力は
+            # ページごとの配列が連なるため jq -s で 1 つの配列にまとめる。
+            if ! ASSOCIATED_PRS=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/commits/${SHA}/pulls?per_page=100"); then
+              echo "::error::release HEAD（${SHA}）に紐づく PR を取得できませんでした（上記の gh のエラーを参照）。検証できないためタグを付けずに中断します。"
               exit 1
             fi
-            PR_JSON=$(printf '%s' "$MERGED_PRS" \
-              | jq -c --arg sha "$SHA" '[.[] | select(.mergeCommit.oid == $sha)] | first // empty')
+            if ! PR_JSON=$(printf '%s' "$ASSOCIATED_PRS" | jq -c -s --arg sha "$SHA" \
+              '[add // [] | .[] | select(.base.ref == "release" and .state == "closed" and .merged_at != null and .merge_commit_sha == $sha)] | first // empty'); then
+              echo "::error::release HEAD（${SHA}）に紐づく PR の応答を解析できませんでした。検証できないためタグを付けずに中断します。"
+              exit 1
+            fi
             if [ -z "$PR_JSON" ]; then
               echo "::error::release HEAD（${SHA}）はマージ済みのリリース PR のマージコミットではありません。手動実行はリリース PR「リリース ${VERSION}」をマージした後の再実行専用です（リリース PR のマージ前に実行していないか確認してください）。"
               exit 1
             fi
             PR_NUMBER=$(printf '%s' "$PR_JSON" | jq -r '.number')
             PR_TITLE=$(printf '%s' "$PR_JSON" | jq -r '.title')
-            PR_HEAD_REF=$(printf '%s' "$PR_JSON" | jq -r '.headRefName')
-            PR_CROSS_REPO=$(printf '%s' "$PR_JSON" | jq -r '.isCrossRepository')
+            PR_HEAD_REF=$(printf '%s' "$PR_JSON" | jq -r '.head.ref')
+            # head のリポジトリが削除済みの fork では head.repo が null になるため、別リポジトリとして扱う。
+            PR_CROSS_REPO=$(printf '%s' "$PR_JSON" | jq -r --arg repo "$GITHUB_REPOSITORY" '((.head.repo.full_name // "") | ascii_downcase) != ($repo | ascii_downcase)')
             # バージョンの取り出しは pull_request 経路（バージョン抽出ステップ）と同じ規則にする。
             PR_VERSION=""
             if printf '%s' "$PR_TITLE" | grep -Eq '^リリース[[:space:]　]'; then
