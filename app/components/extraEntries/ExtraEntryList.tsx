@@ -87,8 +87,6 @@ const ExtraEntryList = ({
     isStale,
     isPaused,
     isInvalidated,
-    dataUpdatedAt,
-    getDataUpdatedAt,
     refetch,
   } = useExtraEntryList(
     month,
@@ -107,23 +105,21 @@ const ExtraEntryList = ({
   // キャッシュ済みの stale な月への切替では placeholder を経由しないため、
   // 再取得が終わるまで（isFetching && isStale）もロックする
   const isSwitchingMonth = isPlaceholderData || (isFetching && isStale);
-  // 保存に成功した時点の対象月と一覧の取得時刻。保存後の再取得で新しい一覧が届くまでは
-  // 保存前の古い一覧で画面を上書きせず、保存した内容を表示したままにする（Issue #170）
+  // 保存した対象月と、保存に成功した（saved）か、通信の失敗などで保存できたか分からない
+  // （unknown）か。保存後（unknown のときも）フックが一覧を無効化するので、再取得に成功して
+  // 無効化が解けるまでは、保存前の古い一覧で画面を上書きせず、保存しようとした内容を表示した
+  // まま編集・保存を止める（Issue #170）。unknown のときも、応答だけ失われてコミット済みの
+  // 可能性があるため、編集を続けて再度保存すると新規行が二重に登録されうる
   const [savedSnapshot, setSavedSnapshot] = useState<{
     month: string;
-    dataUpdatedAt: number;
+    kind: "saved" | "unknown";
   } | null>(null);
   const isAwaitingRefresh =
-    savedSnapshot !== null &&
-    savedSnapshot.month === month &&
-    savedSnapshot.dataUpdatedAt === dataUpdatedAt;
+    savedSnapshot !== null && savedSnapshot.month === month && isInvalidated;
   // 無効化された一覧（保存・確定などで古いと分かっている）を取り直せないまま表示している。
   // 月を切り替えて戻った・画面を開き直した場合も含め、二重登録や上書きを防ぐため
   // 最新の一覧を取得できるまで編集・保存を止め、再読み込みを促す（Issue #170）
-  const isOutdated =
-    (isInvalidated || isAwaitingRefresh) &&
-    !isFetching &&
-    (isError || isPaused);
+  const isOutdated = isInvalidated && !isFetching && (isError || isPaused);
   const isMonthClosed = isClosedMonth(closedMonths, month);
   // 確定済みの月の情報がまだ無い（取得中・取得失敗）間は、確定済みか判定できない
   // ため追加ボタンを無効にする（保存はロック判定・RLS で拒否されるが、仕様どおり
@@ -166,6 +162,14 @@ const ExtraEntryList = ({
       setBaseline(toRowMap(extraEntryList));
     }
   }, [extraEntryList, isDirty, isSwitchingMonth, isAwaitingRefresh]);
+
+  // 再取得に成功して無効化が解けたら、保存後の待ち状態を終える（後で別の理由で
+  // 無効化されたときに、保存後の待ちと取り違えないようにする）
+  useEffect(() => {
+    if (savedSnapshot && !isInvalidated && !isFetching) {
+      setSavedSnapshot(null);
+    }
+  }, [savedSnapshot, isInvalidated, isFetching]);
 
   const visibleRows = rows.filter((row) => !row.isRemoved);
   const incomeRows = visibleRows.filter((row) => row.entry_type === "income");
@@ -325,7 +329,7 @@ const ExtraEntryList = ({
       // （保存の完了時に進行中だった再取得は onSuccess の無効化で取り消されるため、
       // これ以降に届く一覧は保存後のもの）
       // （保存中にバックグラウンド再取得が完了していた場合も、その一覧を「保存前」として扱う）
-      setSavedSnapshot({ month, dataUpdatedAt: getDataUpdatedAt() });
+      setSavedSnapshot({ month, kind: "saved" });
       setIsDirty(false); // 保存成功後は再取得結果との同期を再開する
       notifySuccess("経理追加収支情報を更新しました。");
     } catch (error) {
@@ -336,9 +340,14 @@ const ExtraEntryList = ({
         return;
       }
       // 通信の失敗などで保存できたかどうか分からない（保存は 1 トランザクションのため、
-      // 保存されていればすべて、されていなければ何も反映されていない）
+      // 保存されていればすべて、されていなければ何も反映されていない）。
+      // 応答だけ失われてコミット済みの可能性があるため、再度保存すると新規行が二重に
+      // 登録されうる。一覧を取り直す（フックの onError で無効化済み）まで編集・保存を止め、
+      // 取り直した一覧（実際の保存結果）に同期する
+      setSavedSnapshot({ month, kind: "unknown" });
+      setIsDirty(false);
       notifyError(
-        "経理追加収支情報の更新結果を確認できませんでした。画面を再読み込みして内容を確認してください。",
+        "経理追加収支情報の更新結果を確認できませんでした。最新の内容を取得して表示します。保存されていなかった場合は入力し直してください。",
       );
     }
   };
@@ -503,16 +512,20 @@ const ExtraEntryList = ({
         <Alert
           color="yellow"
           title={
-            isAwaitingRefresh
-              ? "保存は完了しましたが、最新の経理追加収支情報を取得できませんでした"
-              : "最新の経理追加収支情報を取得できませんでした"
+            !isAwaitingRefresh
+              ? "最新の経理追加収支情報を取得できませんでした"
+              : savedSnapshot?.kind === "unknown"
+                ? "保存できたか確認できず、最新の経理追加収支情報も取得できませんでした"
+                : "保存は完了しましたが、最新の経理追加収支情報を取得できませんでした"
           }
           className="mb-4"
         >
           <p>
-            {isAwaitingRefresh
-              ? "表示中の内容は保存した時点のものです。"
-              : "表示中の内容は、保存・確定などの前に取得した古いものです。"}
+            {!isAwaitingRefresh
+              ? "表示中の内容は、保存・確定などの前に取得した古いものです。"
+              : savedSnapshot?.kind === "unknown"
+                ? "表示中の内容は保存しようとした時点のもので、実際に保存されたかは分かりません。"
+                : "表示中の内容は保存した時点のものです。"}
             二重登録や上書きを防ぐため、最新の内容を取得できるまで編集・保存はできません。
           </p>
           <Button

@@ -17,7 +17,10 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
             refetchOnMount: false, // マウント時の自動再取得を無効化
           },
           mutations: {
-            retry: 1,
+            // 書き込みは既定で再実行しない。コミット後に応答だけ失われた場合に mutationFn が
+            // 再実行されると、INSERT を含む保存で行が二重に登録されるため（Issue #169）。
+            // 冪等で再実行してよいものだけ、フック側で個別に retry を指定する
+            retry: 0,
           },
         },
       }),

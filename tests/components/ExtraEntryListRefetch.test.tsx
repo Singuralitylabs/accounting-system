@@ -223,6 +223,33 @@ describe(
       );
     });
 
+    it("通信の失敗などで保存できたか分からないときは、一覧を取り直して実際の保存結果に同期する（押し直しによる二重登録を防ぐ）", async () => {
+      bulkUpsertExtraEntry.mockRejectedValue(new TypeError("Failed to fetch"));
+      getExtraEntryList.mockResolvedValue({
+        extraEntryList: [
+          entry({ id: 2, description: "9月協賛" }),
+          entry({ id: 9, description: "実はコミット済みの追加行" }),
+        ],
+        error: null,
+      });
+      renderList([entry({ id: 2, description: "9月協賛" })]);
+
+      fireEvent.change(screen.getByDisplayValue("9月協賛"), {
+        target: { value: "9月協賛（修正）" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+      expect(
+        await screen.findByDisplayValue("実はコミット済みの追加行"),
+      ).toBeTruthy();
+      expect(getExtraEntryList).toHaveBeenCalledTimes(1);
+      expect(bulkUpsertExtraEntry).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("button", { name: "保存" })).toHaveProperty(
+        "disabled",
+        false,
+      );
+    });
+
     it("画面を離れている間に無効化された一覧は、開き直したときに取り直す（QueryProvider の既定は refetchOnMount: false）", async () => {
       const queryClient = createQueryClient();
       const view = renderList(

@@ -51,10 +51,9 @@ export const useExtraEntryList = (
   // （Issue #170）。isStale は staleTime の経過でも true になるため区別できない
   const isInvalidated =
     queryClient.getQueryState(queryKey)?.isInvalidated ?? false;
-  // 現時点（描画時点ではなく呼び出した時点）の一覧の取得時刻。保存の完了時に読む
-  const getDataUpdatedAt = () =>
-    queryClient.getQueryState(queryKey)?.dataUpdatedAt ?? 0;
-  return { ...query, isInvalidated, getDataUpdatedAt };
+  // スプレッドすると useQuery の結果の全プロパティを読むことになり、変更の追跡
+  // （tracked properties）が効かなくなって再描画が増えるため、結果に追加する
+  return Object.assign(query, { isInvalidated });
 };
 
 // 内容・請求先のサジェスト候補（直近12ヶ月＋月未確定分の過去の入力値）。
@@ -115,6 +114,12 @@ export const useUpsertExtraEntry = () => {
     },
     onError: (error) => {
       console.error("経理追加収支更新エラー:", error);
+      if (!(error instanceof ExtraEntryValidationError)) {
+        // 通信の失敗などで保存できたかどうか分からない（コミット後に応答だけ失われた可能性が
+        // ある）。一覧を取り直して実際の保存結果を表示する（画面側は取り直すまで編集を止める）
+        queryClient.invalidateQueries({ queryKey: ["extraEntries"] });
+        queryClient.invalidateQueries({ queryKey: ["profitLoss"] });
+      }
     },
   });
 };

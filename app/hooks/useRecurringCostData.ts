@@ -9,7 +9,8 @@ import { RecurringCostInListType, RecurringCostType } from "../types/types";
 export const useRecurringCostList = (
   initialData?: RecurringCostType[] | null,
 ) => {
-  return useQuery({
+  const queryClient = useQueryClient();
+  const query = useQuery({
     queryKey: ["recurringCosts", "all"],
     queryFn: async () => {
       const { recurringCostList, error } = await getRecurringCostList();
@@ -21,6 +22,12 @@ export const useRecurringCostList = (
     initialData: initialData ?? undefined,
     staleTime: 2 * 60 * 1000, // 2分
   });
+  // 保存の失敗などで無効化され（= 古いと分かっている）、まだ取り直せていない一覧か。
+  // 再取得に失敗しても成功するまで true のまま残る
+  const isInvalidated =
+    queryClient.getQueryState(["recurringCosts", "all"])?.isInvalidated ??
+    false;
+  return Object.assign(query, { isInvalidated });
 };
 
 // 定期費用の一括登録・更新・削除
@@ -40,6 +47,11 @@ export const useUpsertRecurringCost = () => {
     },
     onError: (error) => {
       console.error("定期費用更新エラー:", error);
+      // 追加・更新・削除を並列に送るため、一部だけ反映されている、または応答だけ失われて
+      // 反映済みの可能性がある。一覧を取り直して実際の状態を表示する（画面側は取り直すまで
+      // 編集を止める）
+      queryClient.invalidateQueries({ queryKey: ["recurringCosts"] });
+      queryClient.invalidateQueries({ queryKey: ["profitLoss"] });
     },
   });
 };

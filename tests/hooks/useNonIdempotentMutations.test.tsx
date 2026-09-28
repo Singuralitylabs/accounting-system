@@ -26,10 +26,12 @@ import {
   useUpsertExtraEntry,
 } from "@/app/hooks/useExtraEntryData";
 import { useUpsertRecurringCost } from "@/app/hooks/useRecurringCostData";
+import { QueryProvider } from "@/app/components/providers/QueryProvider";
+import { useQueryClient } from "@tanstack/react-query";
 
-// 新規行の INSERT を含む一括保存は非冪等なため、QueryProvider のグローバル設定
-// （mutations.retry: 1）で mutationFn が再実行されると二重登録になる（Issue #169）。
-// グローバル設定と同じ retry: 1 の QueryClient で、失敗時に 1 回しか呼ばれないことを固定する
+// 新規行の INSERT を含む一括保存は非冪等なため、mutationFn が再実行されると二重登録になる
+// （Issue #169）。QueryProvider の既定は retry: 0 だが、既定が変わってもフック側の指定で
+// 再実行されないことを固定するため、あえて retry: 1 の QueryClient で確かめる
 describe("非冪等な一括保存のミューテーションは失敗しても再実行しない", () => {
   let queryClient: QueryClient;
 
@@ -91,5 +93,56 @@ describe("非冪等な一括保存のミューテーションは失敗しても�
       "定期費用情報の更新に失敗しました",
     );
     expect(bulkUpsertRecurringCost).toHaveBeenCalledTimes(1);
+  });
+
+  it("経理追加収支: 保存できたか分からない（通信エラー）ときは一覧を無効化して取り直す", async () => {
+    queryClient.setQueryData(["extraEntries", "list", "2026-09"], []);
+    bulkUpsertExtraEntry.mockRejectedValue(new TypeError("Failed to fetch"));
+    const { result } = renderHook(() => useUpsertExtraEntry(), { wrapper });
+
+    await expect(result.current.mutateAsync([])).rejects.toThrow();
+    expect(
+      queryClient.getQueryState(["extraEntries", "list", "2026-09"])
+        ?.isInvalidated,
+    ).toBe(true);
+  });
+
+  it("経理追加収支: 保存が拒否された（何も書き込まれていない）ときは一覧を無効化しない", async () => {
+    queryClient.setQueryData(["extraEntries", "list", "2026-09"], []);
+    bulkUpsertExtraEntry.mockResolvedValue({
+      error: { kind: "validationFailed", message: "拒否" },
+    });
+    const { result } = renderHook(() => useUpsertExtraEntry(), { wrapper });
+
+    await expect(result.current.mutateAsync([])).rejects.toThrow("拒否");
+    expect(
+      queryClient.getQueryState(["extraEntries", "list", "2026-09"])
+        ?.isInvalidated,
+    ).toBe(false);
+  });
+
+  it("定期費用: 保存に失敗したら一覧を無効化して取り直す（一部だけ反映されている可能性があるため）", async () => {
+    queryClient.setQueryData(["recurringCosts", "all"], []);
+    bulkUpsertRecurringCost.mockRejectedValue(new Error("失敗"));
+    const { result } = renderHook(() => useUpsertRecurringCost(), {
+      wrapper,
+    });
+
+    await expect(result.current.mutateAsync([])).rejects.toThrow();
+    expect(
+      queryClient.getQueryState(["recurringCosts", "all"])?.isInvalidated,
+    ).toBe(true);
+  });
+});
+
+describe("QueryProvider の既定値", () => {
+  it("書き込み（mutation）は既定で再実行しない", () => {
+    const { result } = renderHook(() => useQueryClient(), {
+      wrapper: ({ children }: { children: React.ReactNode }) => (
+        <QueryProvider>{children}</QueryProvider>
+      ),
+    });
+
+    expect(result.current.getDefaultOptions().mutations?.retry).toBe(0);
   });
 });
