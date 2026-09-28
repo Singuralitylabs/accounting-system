@@ -18,6 +18,7 @@ import {
   RemovedReason,
 } from "../types/types";
 import { LabelIndex, buildLabelIndex } from "./profitLossLogic";
+import { addMonths } from "./formatter";
 
 export const diffKeyOf = (sourceType: DiffSourceType, sourceId: number) =>
   `${sourceType}:${sourceId}`;
@@ -497,3 +498,17 @@ export const findStaleSelections = (
     })
     .map(({ sourceType, sourceId }) => ({ sourceType, sourceId }));
 };
+
+// 確定後の変更の件数集計（ページ上部のバナー・月ピッカー・年間推移のアイコン。
+// getClosingDiffSummary）の対象とする月数（当月を含む直近 24 ヶ月）。
+// 件数集計は対象の確定済みの月のライブの行・確定明細・見送り記録をすべて取得して
+// 差分を計算するため、確定済みの月すべてを対象にすると運用期間に比例して取得量が増え続ける
+// （Issue #172）。24 ヶ月は前年度（7月〜翌6月）の全月を常に含む長さ（決算・申告の
+// 期間中も前年度の変更を見落とさない）。対象外の月も、月次タブでその月を表示すれば
+// 差分一覧は従来どおり表示される（月次レポートは表示月の差分を常に計算する）
+export const CLOSING_DIFF_SUMMARY_MONTHS = 24;
+
+// 件数集計の対象の開始月（当月の 23 ヶ月前）。これより後の確定済みの月（当月より後の
+// 月を確定していればそれも）を対象にする
+export const closingDiffSummaryStartMonth = (currentMonth: string): string =>
+  addMonths(currentMonth, -(CLOSING_DIFF_SUMMARY_MONTHS - 1));

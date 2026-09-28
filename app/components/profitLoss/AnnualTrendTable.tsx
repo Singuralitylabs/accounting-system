@@ -6,11 +6,18 @@ import { Paper, Table, Text, Tooltip } from "@mantine/core";
 import { FaExclamationTriangle, FaLock } from "react-icons/fa";
 // 損益の符号に応じた文字色（0 は黒字扱い）。月次の損益計算書と共通
 import { amountColor } from "./plTableParts";
+import ClosingDiffScopeNote, {
+  isClosedMonthBeforeDiffScope,
+} from "./ClosingDiffScopeNote";
 
 type Props = {
   trend: AnnualTrendType;
   // 確定後に未反映の変更がある月 → 件数（Issue #149。経理担当者・管理者のみ渡される）
   diffCountByMonth?: ReadonlyMap<string, number>;
+  // 件数集計の対象の開始月（"YYYY-MM"。Issue #172。経理担当者・管理者のみ渡される）。
+  // これより前の確定済みの月にはアラートアイコンが出ないため、表示中の年度に
+  // そうした月があれば対象範囲を注記する
+  diffScopeFromMonth?: string;
 };
 
 // 確定済みの月（Issue #148）の列の背景色（Issue #152）。鍵アイコン（teal）と揃え、
@@ -21,6 +28,7 @@ export const CLOSED_MONTH_COLUMN_CLASS = "bg-teal-100/40";
 const AnnualTrendTable = ({
   trend,
   diffCountByMonth = new Map<string, number>(),
+  diffScopeFromMonth,
 }: Props) => {
   const rows: {
     label: string;
@@ -47,6 +55,13 @@ const AnnualTrendTable = ({
   const closedColumnClass = (month: AnnualTrendType["months"][number]) =>
     month.closing ? CLOSED_MONTH_COLUMN_CLASS : "";
   const hasClosedMonth = trend.months.some((month) => month.closing);
+  const hasClosedMonthBeforeDiffScope = trend.months.some((month) =>
+    isClosedMonthBeforeDiffScope(
+      month.month,
+      Boolean(month.closing),
+      diffScopeFromMonth,
+    ),
+  );
 
   return (
     <>
@@ -58,6 +73,9 @@ const AnnualTrendTable = ({
           />
           色付きの列は確定済みの月（確定値を表示）です
         </Text>
+      )}
+      {diffScopeFromMonth && hasClosedMonthBeforeDiffScope && (
+        <ClosingDiffScopeNote fromMonth={diffScopeFromMonth} className="mb-2" />
       )}
       <Paper withBorder radius="md" className="overflow-x-auto">
         <Table

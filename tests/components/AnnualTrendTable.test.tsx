@@ -103,4 +103,34 @@ describe("AnnualTrendTable（Issue #152）", () => {
     const adminRow = screen.getByText("管理費").closest("tr")!;
     expect(within(adminRow).getAllByText("￥25,000")).toHaveLength(2); // 7月 + 年度合計
   });
+
+  describe("確定後の変更の目印の対象範囲の注記（Issue #172）", () => {
+    const note =
+      "確定後の変更の目印は 2026年8月以降の確定済みの月が対象です（それより前の月は月次タブで開くと差分を確認できます）";
+
+    it("表示中の年度に対象の開始月より前の確定済みの月があれば注記する", () => {
+      renderWithMantine(
+        <AnnualTrendTable
+          trend={trend(["2026-07", "2026-08"])}
+          diffScopeFromMonth="2026-08"
+        />,
+      );
+      expect(screen.getByText(note)).toBeInTheDocument();
+    });
+
+    it("開始月より前の月が未確定だけ、または開始月を渡さない（チームリーダー）なら注記しない", () => {
+      const { unmount } = renderWithMantine(
+        <AnnualTrendTable
+          trend={trend(["2026-08", "2026-09"])}
+          diffScopeFromMonth="2026-08"
+        />,
+      );
+      expect(screen.queryByText(note)).not.toBeInTheDocument();
+      unmount();
+      renderWithMantine(<AnnualTrendTable trend={trend(["2026-07"])} />);
+      expect(
+        screen.queryByText(/確定後の変更の目印は/),
+      ).not.toBeInTheDocument();
+    });
+  });
 });
