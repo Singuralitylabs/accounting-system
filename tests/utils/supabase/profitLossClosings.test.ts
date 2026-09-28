@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BusinessRow, CostRow } from "@/app/utils/profitLossLogic";
 import type { ReportSourceRows } from "@/app/utils/supabase/profitLossSource";
 
@@ -8,14 +8,14 @@ const {
   fetchReportSourceRows,
   fetchLiveSourceRows,
   fetchClosingSourceRows,
-  getClosedMonths,
+  fetchClosedMonthKeys,
 } = vi.hoisted(() => ({
   createServerSupabase: vi.fn(),
   getAuthorizedViewer: vi.fn(),
   fetchReportSourceRows: vi.fn(),
   fetchLiveSourceRows: vi.fn(),
   fetchClosingSourceRows: vi.fn(),
-  getClosedMonths: vi.fn(),
+  fetchClosedMonthKeys: vi.fn(),
 }));
 
 vi.mock("@/app/utils/supabase/clients", () => ({ createServerSupabase }));
@@ -25,8 +25,8 @@ vi.mock("@/app/utils/supabase/profitLossSource", () => ({
   fetchLiveSourceRows,
   fetchClosingSourceRows,
 }));
-vi.mock("@/app/utils/supabase/profitLossClosedMonths", () => ({
-  getClosedMonths,
+vi.mock("@/app/utils/supabase/closedMonthsQuery", () => ({
+  fetchClosedMonthKeys,
 }));
 
 import {
@@ -131,7 +131,11 @@ describe("profitLossClosings の Server Action（Issue #148 / #149）", () => {
     fetchClosingSourceRows
       .mockReset()
       .mockImplementation((period) => fetchReportSourceRows(period));
-    getClosedMonths.mockReset().mockResolvedValue({ months: [] });
+    fetchClosedMonthKeys.mockReset().mockResolvedValue({ months: [] });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("反映はクライアントから受け取ったキーだけを対象に、サーバで集計し直した値で upsert / delete を組み立てる", async () => {
@@ -361,7 +365,7 @@ describe("profitLossClosings の Server Action（Issue #148 / #149）", () => {
   });
 
   it("未反映件数は連続する確定済みの月ごとに取得する（離れた月の間は取得しない）", async () => {
-    getClosedMonths.mockResolvedValue({
+    fetchClosedMonthKeys.mockResolvedValue({
       months: ["2026-07", "2026-08", "2027-06"],
     });
     const summary = await getClosingDiffSummary();
@@ -370,5 +374,40 @@ describe("profitLossClosings の Server Action（Issue #148 / #149）", () => {
       { startMonth: "2026-07", endMonth: "2026-08" },
       { startMonth: "2027-06", endMonth: "2027-06" },
     ]);
+  });
+
+  it("未反映件数の集計は当月を含む直近 24 ヶ月（以降）の確定済みの月だけを対象にする（Issue #172）", async () => {
+    // JST 2026-09-01 00:30（UTC では 8 月 31 日）→ 当月は 2026-09
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-31T15:30:00Z"));
+    fetchClosedMonthKeys.mockResolvedValue({ months: ["2026-08"] });
+    fetchReportSourceRows.mockResolvedValue(
+      rows({ businessRows: [business(1, 150000)] }),
+    );
+    const summary = await getClosingDiffSummary();
+    // 確定済みの月の一覧の取得自体を開始月以降に絞る（それより前の月の行は一切取得しない）
+    expect(fetchClosedMonthKeys).toHaveBeenCalledWith({ fromMonth: "2024-10" });
+    expect(fetchClosingSourceRows.mock.calls.map((call) => call[0])).toEqual([
+      { startMonth: "2026-08", endMonth: "2026-08" },
+    ]);
+    // 対象の月の差分の件数は従来どおり（確定明細が空 → ライブの売上・費用が「追加」）
+    // 画面で対象外の月を注記できるよう、対象の開始月も返す
+    expect(summary).toEqual({
+      summary: [{ month: "2026-08", count: 2 }],
+      fromMonth: "2024-10",
+    });
+  });
+
+  it("確定済みの月の一覧の取得に失敗したら件数を返さずエラーにする", async () => {
+    fetchClosedMonthKeys.mockResolvedValue({
+      error: { message: "boom", code: "X", details: "", hint: "" },
+    });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const summary = await getClosingDiffSummary();
+    expect(summary.error?.kind).toBe("fetchFailed");
+    expect(fetchClosingSourceRows).not.toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 });

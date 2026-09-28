@@ -9,7 +9,11 @@ import {
   reopenProfitLossMonth,
   undoClosingDismissals,
 } from "../utils/supabase/profitLossClosings";
-import { ClosingDiffKey, ClosingDiffSelection } from "../types/types";
+import {
+  ClosingDiffKey,
+  ClosingDiffSelection,
+  ClosingDiffSummaryData,
+} from "../types/types";
 
 // 確定・確定解除の後は、損益計算書（月次・年間推移・確定済みの月の一覧）と、
 // 編集ロックが変わる経理追加収支のキャッシュを無効化する
@@ -61,7 +65,8 @@ export const useReopenProfitLossMonth = () => {
   });
 };
 
-// 未処理の差分がある確定済みの月と件数（Issue #149。accounting / admin のみ有効化する）
+// 未処理の差分がある確定済みの月と件数・集計の対象の開始月（Issue #149 / #172。
+// accounting / admin のみ有効化する）
 export const useClosingDiffSummary = (enabled: boolean) =>
   useQuery({
     queryKey: ["profitLoss", "diffSummary"],
@@ -70,7 +75,12 @@ export const useClosingDiffSummary = (enabled: boolean) =>
       if (result.error) {
         throw new Error(result.error.message);
       }
-      return result.summary;
+      // 集計の対象の開始月（Issue #172。対象外の確定済みの月の注記に使う）も返す
+      const data: ClosingDiffSummaryData = {
+        summary: result.summary,
+        fromMonth: result.fromMonth,
+      };
+      return data;
     },
     enabled,
     staleTime: 60 * 1000,

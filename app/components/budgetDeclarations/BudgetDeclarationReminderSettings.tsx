@@ -2,12 +2,13 @@
 
 import {
   Alert,
+  Badge,
   Button,
   Chip,
   Group,
   LoadingOverlay,
+  Modal,
   Text,
-  Title,
 } from "@mantine/core";
 import { useState } from "react";
 import { normalizeBudgetDeclarationReminderTargetDays } from "@/app/utils/budgetDeclarationReminder";
@@ -19,11 +20,15 @@ const ALL_DAYS = Array.from({ length: 31 }, (_, index) => index + 1);
 
 type Props = {
   // DynamicBudgetDeclarations 側での getBudgetDeclarationReminderSettings 失敗時は
-  // null（フォームは表示せずエラー案内のみ表示する）
+  // null（モーダル内はフォームを表示せずエラー案内のみ表示する）
   initialTargetDays: number[] | null;
 };
 
+// 「リマインド設定」ボタンと、クリックで開く設定モーダル。
+// 一覧（BudgetDeclarationList）のボタン行に常時マウントされる前提で、
+// 保存済みの値（savedTargetDays）はモーダルの開閉をまたいでここで保持する
 const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
+  const [opened, setOpened] = useState(false);
   const [selectedDays, setSelectedDays] = useState<string[]>(
     (initialTargetDays ?? []).map(String),
   );
@@ -35,25 +40,48 @@ const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
     initialTargetDays ?? [],
   );
   const [isLoading, setIsLoading] = useState(false);
+  // 保存前の確認ダイアログ（confirmAction）を表示している間だけ true。
+  // Mantine 7.13 では開いている Modal すべてが window の Esc を拾うため、確認ダイアログを
+  // Esc で閉じると設定モーダルまで閉じて未保存の選択が破棄されてしまう。確認中は閉じない
+  const [isConfirming, setIsConfirming] = useState(false);
 
-  if (initialTargetDays === null) {
-    return (
-      <Alert color="red" title="リマインド設定の取得に失敗しました" mb="lg">
-        時間をおいてページを再読み込みしてください。
-      </Alert>
-    );
-  }
+  const isFetchFailed = initialTargetDays === null;
+  // 保存中・確認ダイアログ表示中は閉じる操作を受け付けないため、閉じる手段
+  // （キャンセル / × / Esc / オーバーレイのクリック）自体も無効化して見た目を揃える
+  const isBusy = isLoading || isConfirming;
+
+  const openModal = () => {
+    // キャンセル等で閉じたときの未保存の選択は破棄し、開くたびに
+    // 最後に保存された対象日で初期化する
+    setSelectedDays(savedTargetDays.map(String));
+    setOpened(true);
+  };
+
+  const closeModal = () => {
+    // 保存中は閉じない（閉じた後に保存結果が反映されて表示と食い違うのを防ぐ）。
+    // 確認ダイアログ表示中も閉じない（確認をキャンセルしたら開いたままにするため）。
+    // 閉じる手段は isBusy 中は無効化しているが、念のためここでもガードする
+    if (isBusy) return;
+    setOpened(false);
+  };
 
   const handleSave = async () => {
     const normalized = normalizeBudgetDeclarationReminderTargetDays(
       selectedDays.map(Number),
     );
 
-    const confirmed = await confirmAction(
-      normalized.length === 0
-        ? "対象日を空にして保存すると、事前収支申告の未申告リマインドが停止します。よろしいですか？"
-        : "リマインド対象日を更新しますか？",
-    );
+    let confirmed: boolean;
+    try {
+      setIsConfirming(true);
+      confirmed = await confirmAction(
+        normalized.length === 0
+          ? "対象日を空にして保存すると、事前収支申告の未申告リマインドが停止します。よろしいですか？"
+          : "リマインド対象日を更新しますか？",
+      );
+    } finally {
+      setIsConfirming(false);
+    }
+    // 確認をキャンセルした場合はモーダルを開いたままにする
     if (!confirmed) return;
 
     try {
@@ -61,12 +89,14 @@ const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
       const { error } =
         await updateBudgetDeclarationReminderTargetDays(normalized);
       if (error) {
+        // 保存失敗時はモーダルを開いたままにする（選択をやり直せるように）
         notifyError(error.message);
         return;
       }
       setSelectedDays(normalized.map(String));
       setSavedTargetDays(normalized);
       notifySuccess("リマインド設定を更新しました。");
+      setOpened(false);
     } catch (error) {
       console.error("リマインド設定の保存に失敗しました。", error);
       notifyError("リマインド設定の保存に失敗しました。");
@@ -76,44 +106,81 @@ const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
   };
 
   return (
-    <div className="relative mb-6 p-4 border-collapse border border-gray-500 bg-slate-50 rounded">
-      <LoadingOverlay visible={isLoading} />
-      <div className="flex justify-between items-center mb-2">
-        <Title order={3}>リマインド設定</Title>
-        <Button type="button" disabled={isLoading} onClick={handleSave}>
-          保存
+    <>
+      <Group gap="xs">
+        {/* 常時展開しなくなった分、リマインドが無効になっていることに気付けるよう
+            ボタンの横に表示する（取得失敗時は状態が不明なので出さない） */}
+        {!isFetchFailed && savedTargetDays.length === 0 && (
+          <Badge color="yellow">リマインド無効</Badge>
+        )}
+        <Button type="button" size="xs" variant="light" onClick={openModal}>
+          リマインド設定
         </Button>
-      </div>
-      <Text size="sm" c="dimmed" mb="xs">
-        未申告チームへの Slack
-        リマインド対象日（JST）を選択してください。29〜31日は存在しない月があり、その月はスキップされます。
-      </Text>
-      {savedTargetDays.length === 0 ? (
-        <Alert color="yellow" title="現在リマインドは無効です" mb="sm">
-          対象日が選択されていないため、Slack リマインドは送信されません。
-        </Alert>
-      ) : (
-        selectedDays.length === 0 && (
-          <Alert
-            color="yellow"
-            title="保存するとリマインドが無効になります"
-            mb="sm"
-          >
-            対象日の選択がすべて解除されています。このまま保存すると Slack
-            リマインドが停止します。
+      </Group>
+      <Modal
+        opened={opened}
+        onClose={closeModal}
+        title="リマインド設定"
+        size="lg"
+        withCloseButton={!isBusy}
+        closeOnEscape={!isBusy}
+        closeOnClickOutside={!isBusy}
+        closeButtonProps={{ "aria-label": "閉じる" }}
+      >
+        {isFetchFailed ? (
+          <Alert color="red" title="リマインド設定の取得に失敗しました">
+            時間をおいてページを再読み込みしてください。
           </Alert>
-        )
-      )}
-      <Chip.Group multiple value={selectedDays} onChange={setSelectedDays}>
-        <Group gap="xs">
-          {ALL_DAYS.map((day) => (
-            <Chip key={day} value={String(day)} size="sm">
-              {day}
-            </Chip>
-          ))}
-        </Group>
-      </Chip.Group>
-    </div>
+        ) : (
+          <div className="relative">
+            <LoadingOverlay visible={isLoading} />
+            <Text size="sm" c="dimmed" mb="xs">
+              未申告チームへの Slack
+              リマインド対象日（JST）を選択してください。29〜31日は存在しない月があり、その月はスキップされます。
+            </Text>
+            {savedTargetDays.length === 0 ? (
+              <Alert color="yellow" title="現在リマインドは無効です" mb="sm">
+                対象日が選択されていないため、Slack リマインドは送信されません。
+              </Alert>
+            ) : (
+              selectedDays.length === 0 && (
+                <Alert
+                  color="yellow"
+                  title="保存するとリマインドが無効になります"
+                  mb="sm"
+                >
+                  対象日の選択がすべて解除されています。このまま保存すると Slack
+                  リマインドが停止します。
+                </Alert>
+              )
+            )}
+            <Chip.Group
+              multiple
+              value={selectedDays}
+              onChange={setSelectedDays}
+            >
+              <Group gap="xs">
+                {ALL_DAYS.map((day) => (
+                  <Chip key={day} value={String(day)} size="sm">
+                    {day}
+                  </Chip>
+                ))}
+              </Group>
+            </Chip.Group>
+            <Group justify="flex-end" mt="lg">
+              <Button variant="default" disabled={isBusy} onClick={closeModal}>
+                キャンセル
+              </Button>
+              {/* 確認ダイアログ表示中も無効化する（二重クリックで確認ダイアログが
+                  積まれ、同じ値で 2 回保存されるのを防ぐ） */}
+              <Button type="button" disabled={isBusy} onClick={handleSave}>
+                保存
+              </Button>
+            </Group>
+          </div>
+        )}
+      </Modal>
+    </>
   );
 };
 

@@ -23,6 +23,10 @@ import AccountingMasterActions from "./AccountingMasterActions";
 import CopyPreviousExtraEntriesButton from "./CopyPreviousExtraEntriesButton";
 import ClosingControl from "./ClosingControl";
 import ClosingDiffBanner from "./ClosingDiffBanner";
+import ClosingDiffScopeNote, {
+  isBeforeDiffScope,
+  isClosedMonthBeforeDiffScope,
+} from "./ClosingDiffScopeNote";
 import {
   useClosedMonths,
   useClosingDiffSummary,
@@ -91,7 +95,13 @@ const ProfitLossView = ({
   const { closedMonths } = useClosedMonths();
   const { data: diffSummary } = useClosingDiffSummary(canClose);
   const diffCountByMonth = new Map(
-    (diffSummary ?? []).map(({ month: m, count }) => [m, count]),
+    (diffSummary?.summary ?? []).map(({ month: m, count }) => [m, count]),
+  );
+  // 件数集計の対象の開始月（Issue #172）。これより前の確定済みの月には目印が出ないため、
+  // そうした月を表示しているときに対象範囲を注記する（集計の取得前・失敗時は注記しない）
+  const diffScopeFromMonth = diffSummary?.fromMonth;
+  const hasClosedMonthBeforeDiffScope = Array.from(closedMonths).some((m) =>
+    isBeforeDiffScope(m, diffScopeFromMonth),
   );
 
   // 年度の選択肢（当年度+1 〜 当年度-4）
@@ -114,7 +124,10 @@ const ProfitLossView = ({
       />
       {canClose && (
         <ClosingDiffBanner
-          summary={diffSummary ?? []}
+          summary={diffSummary?.summary ?? []}
+          scopeFromMonth={
+            hasClosedMonthBeforeDiffScope ? diffScopeFromMonth : undefined
+          }
           onSelectMonth={(selected) => {
             setActiveTab("monthly");
             setMonth(selected);
@@ -157,6 +170,20 @@ const ProfitLossView = ({
               }
             />
           </div>
+          {/* 表示中の月が件数集計の対象外の確定済みの月なら、月ピッカーの目印の対象範囲を
+              注記する（この月の差分は下の差分一覧に表示される。Issue #172） */}
+          {canClose &&
+            diffScopeFromMonth &&
+            isClosedMonthBeforeDiffScope(
+              month,
+              closedMonths.has(month),
+              diffScopeFromMonth,
+            ) && (
+              <ClosingDiffScopeNote
+                fromMonth={diffScopeFromMonth}
+                className="-mt-2 mb-4"
+              />
+            )}
           {isReportError ? (
             <Alert color="red" title="損益レポートの取得に失敗しました">
               時間をおいてページを再読み込みしてください。
@@ -234,6 +261,7 @@ const ProfitLossView = ({
               <AnnualTrendTable
                 trend={trend}
                 diffCountByMonth={diffCountByMonth}
+                diffScopeFromMonth={canClose ? diffScopeFromMonth : undefined}
               />
               {/* 表と同じデータで売上・利益の推移を描く（Issue #177）。
                   Tabs は既定（keepMounted）で非表示のパネルもマウントしたままにするため、

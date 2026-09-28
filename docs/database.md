@@ -350,7 +350,7 @@ CHECK (1 <= ALL(target_days) AND 31 >= ALL(target_days))
 
 読み取り: cron ルートは `app/utils/supabase/budgetDeclarationReminderData.ts` の `getBudgetDeclarationReminderTargetDays()` で取得する。**取得失敗（DB エラー・行が存在しない・`createServiceRoleSupabase()` が投げる例外を含む）の場合は `app/utils/budgetDeclarationReminder.ts` の `DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS`（`[15, 18, 20]`）にフォールバックし、リマインドが無応答で止まらないようにする。** このフォールバックは「対象日を空にして意図的に停止した」状態でも取得が一時的に失敗すればデフォルト値に戻ってしまう trade-off を内包するが、cron を無応答で止めないことを優先している（fail-open）。
 
-編集: `/budget-declarations`（事前収支申告画面）の「リマインド設定」セクションから admin / accounting が編集できる（Issue #97）。`app/utils/supabase/budgetDeclarationReminderSettings.ts` の `getBudgetDeclarationReminderSettings()` / `updateBudgetDeclarationReminderTargetDays()`（いずれも Server Action）を使い、`createServerSupabase()`（anon キー + RLS）経由で `getAuthorizedViewer(["admin", "accounting"], ...)` による多層防御を行う（service role クライアントは使わない）。保存対象は `id = 1` の既存行への UPDATE のみ（RLS 上 INSERT / DELETE は不可）。保存前に `app/utils/budgetDeclarationReminder.ts` の `normalizeBudgetDeclarationReminderTargetDays`（範囲チェック / 重複排除 / 昇順ソート）で正規化する。teamleader / public にはセクション自体を描画せず、Server Action 側でも `getAuthorizedViewer` により拒否する。
+編集: `/budget-declarations`（事前収支申告画面）の「リマインド設定」ボタンから開くモーダルで admin / accounting が編集できる（Issue #97。モーダル化は Issue #173）。`app/utils/supabase/budgetDeclarationReminderSettings.ts` の `getBudgetDeclarationReminderSettings()` / `updateBudgetDeclarationReminderTargetDays()`（いずれも Server Action）を使い、`createServerSupabase()`（anon キー + RLS）経由で `getAuthorizedViewer(["admin", "accounting"], ...)` による多層防御を行う（service role クライアントは使わない）。保存対象は `id = 1` の既存行への UPDATE のみ（RLS 上 INSERT / DELETE は不可）。保存前に `app/utils/budgetDeclarationReminder.ts` の `normalizeBudgetDeclarationReminderTargetDays`（範囲チェック / 重複排除 / 昇順ソート）で正規化する。teamleader / public にはボタン自体を描画せず、Server Action 側でも `getAuthorizedViewer` により拒否する。
 
 ### 3.12 budget_recurring_items テーブル
 
@@ -700,6 +700,90 @@ REVOKE EXECUTE ON FUNCTION public.validate_member_ids(bigint[]) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.validate_member_ids(bigint[]) TO authenticated;
 ```
 
+#### ユーザーリストの一括更新（`update_profiles`。migration 33）
+
+管理画面のユーザー管理（/dashboard/users）の一括保存は `update_profiles(p_updates jsonb)` を 1 回呼ぶだけで行う（関数呼び出し = 1 トランザクション）。変更した行の `class` / `team` / `slack_id` / `updated_at` を `jsonb_to_recordset` で展開した 1 文の UPDATE で更新し、1 件でも更新できなければすべてロールバックされるため、一部だけ保存された状態は残らない。
+
+- SECURITY INVOKER（既定）。上記の UPDATE ポリシー（他人の行を更新できるのは admin だけ。admin 以外は自分の行のみ、かつ class / team を変えない場合に限る）がそのまま適用される
+- RLS の USING で弾かれた UPDATE はエラーにならず 0 行になるだけのため（従来の 1 件ずつの UPDATE では黙って成功扱いになっていた）、更新した行数が指定した件数に満たなければ例外 `NOT_APPLIED` で全体をロールバックする（保存の途中で管理者権限が外れた、ユーザーが削除された、存在しない id を指定した等）。admin 以外が class / team を変えようとした場合は WITH CHECK 違反（42501）で全体がロールバックされる
+- WITH CHECK の `auth_user_class()` は文の開始時点のスナップショットで評価されるため、admin が自分の権限を下げる変更と他のユーザーの変更を同じ呼び出しに含めても、行の順序によらず全行が admin として判定される
+- 画面を経由しない呼び出し（admin による PostgREST への直接の RPC・細工した Server Action の入力）でも意図しない上書きをしないよう、次のいずれかに当たる入力は例外 `INVALID_INPUT`（SQLSTATE 22023）で全体を拒否する（何も更新しない）
+  - `p_updates` が配列でない / 要素がオブジェクトでない
+  - 必須キー（`id` / `class` / `team` / `slack_id`）が欠けている（欠けたキーを NULL で上書きしない）
+  - `id` が 1 以上の bigint の範囲の整数でない（null・0・小数・bigint の範囲外を含む）/ 同じ `id` が複数ある（値が同じでも拒否。どの値が勝つか不定にしない）
+  - `class` が許可値（`public` / `teamleader` / `accounting` / `admin`）の文字列でない
+  - `team` / `slack_id` が文字列でも null でもない
+- teamleader のチーム必須などの業務上の入力チェックはアプリ側（`app/utils/userList.ts` の `validateUserUpdates`。画面と Server Action の両方。権限が許可値かもここで確認する）で行う
+- `updated_at` は関数内で `now()` を設定するが、既存の BEFORE UPDATE トリガー（`update_profiles_updated_at`。[6.1](#61-updated_at-更新トリガー)）でも設定される
+- クライアントからの upsert は使わない（INSERT ポリシー `auth.uid() = user_id` に弾かれるため）
+- EXECUTE は authenticated のみ（`REVOKE ... FROM PUBLIC, anon`）
+- 呼び出し側は `app/utils/supabase/profiles.ts` の `bulkUpdateProfiles`。`INVALID_INPUT`（22023）/ `NOT_APPLIED` / 42501 は「何も保存しなかった」旨の利用者向けメッセージに変換する。画面からは変更した行だけが送られる
+- `bulkUpdateProfiles` は Server Action として公開されるため、RLS に加えて呼び出し元のプロフィール（`getProfileInfo`）の権限を `hasClassAccess(["admin"], ...)` で確認し（多層防御）、admin 以外は RPC を呼ばずに権限エラーを返す（RLS 上は admin 以外でも自分の `slack_id` を更新できるが、この経路では変更させない）
+
+```sql
+CREATE OR REPLACE FUNCTION public.update_profiles(p_updates jsonb)
+RETURNS void LANGUAGE plpgsql SET search_path = ''
+AS $$
+DECLARE
+  v_count integer;
+  v_expected integer;
+  v_total integer;
+BEGIN
+  IF p_updates IS NULL THEN
+    RETURN;
+  END IF;
+  IF jsonb_typeof(p_updates) <> 'array' THEN
+    RAISE EXCEPTION 'INVALID_INPUT' USING ERRCODE = '22023';
+  END IF;
+  IF jsonb_array_length(p_updates) = 0 THEN
+    RETURN;
+  END IF;
+
+  -- 要素の形・必須キー・id・class の許可値・team / slack_id の型を検証する
+  IF EXISTS (
+    SELECT 1
+    FROM jsonb_array_elements(p_updates) AS e(elem)
+    WHERE jsonb_typeof(e.elem) <> 'object'
+      OR NOT (e.elem ?& ARRAY['id', 'class', 'team', 'slack_id'])
+      OR jsonb_typeof(e.elem -> 'id') <> 'number'
+      -- 1 以上の整数で bigint の範囲内（19 桁は上限と文字列で比較する）
+      OR (e.elem ->> 'id') !~ '^[1-9][0-9]{0,18}$'
+      OR (
+        length(e.elem ->> 'id') = 19
+        AND (e.elem ->> 'id') COLLATE "C" > '9223372036854775807'
+      )
+      OR jsonb_typeof(e.elem -> 'class') <> 'string'
+      OR (e.elem ->> 'class') NOT IN ('public', 'teamleader', 'accounting', 'admin')
+      OR jsonb_typeof(e.elem -> 'team') NOT IN ('string', 'null')
+      OR jsonb_typeof(e.elem -> 'slack_id') NOT IN ('string', 'null')
+  ) THEN
+    RAISE EXCEPTION 'INVALID_INPUT' USING ERRCODE = '22023';
+  END IF;
+
+  -- 同じ id の重複は拒否する
+  SELECT count(*), count(DISTINCT u.id) INTO v_total, v_expected
+  FROM jsonb_to_recordset(p_updates) AS u(id bigint);
+  IF v_total <> v_expected THEN
+    RAISE EXCEPTION 'INVALID_INPUT' USING ERRCODE = '22023';
+  END IF;
+
+  UPDATE public.profiles p SET
+    class = u.class, team = u.team, slack_id = u.slack_id, updated_at = now()
+  FROM jsonb_to_recordset(p_updates) AS u(
+    id bigint, class text, team text, slack_id text
+  )
+  WHERE p.id = u.id;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  IF v_count < v_expected THEN
+    RAISE EXCEPTION 'NOT_APPLIED';
+  END IF;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.update_profiles(jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.update_profiles(jsonb) TO authenticated;
+```
+
 ### 5.2 matters テーブル
 
 ```sql
@@ -1010,6 +1094,8 @@ CREATE POLICY "Admin can delete select options" ON select_options
     );
 ```
 
+- UPDATE は RLS で拒否されても（対象の行が削除されていても）0 行更新になるだけでエラーにならないため、項目管理の保存（`app/utils/supabase/selectOptions.ts` の `bulkUpsertSelectOptions`）は UPDATE に `.select("id")` を付け、更新できた行が 0 行なら失敗として利用者にエラーを返す
+
 ### 5.6 recurring_costs テーブル
 
 > teamleader が全体共通（team IS NULL）の行を SELECT できるのは、損益計算書で「全体共通（参考）」として表示するため。チーム損益への算入可否はアプリケーション層で制御する。
@@ -1124,7 +1210,7 @@ CREATE POLICY "extra_entries_delete_policy" ON extra_entries
     );
 ```
 
-> **確定中の編集ロック（Issue #148、migration 27）**: 上記の INSERT / UPDATE / DELETE ポリシーには、損益計算書で確定済みの月のエントリを変更できないよう `NOT private.is_pl_month_closed(entry_date)` が追加されている（UPDATE は USING = 変更前の月、WITH CHECK = 変更後の月）。詳細は 5.14。
+> **確定中の編集ロック（Issue #148、migration 27）**: 上記の INSERT / UPDATE / DELETE ポリシーには、損益計算書で確定済みの月のエントリを変更できないよう `NOT private.is_pl_month_closed(entry_date)` が追加されている（UPDATE は USING = 変更前の月、WITH CHECK = 変更後の月）。確定と同時に走った書き込みは、確定との直列化トリガー（6.4、Issue #171）が確定値に含めるか `MONTH_CLOSED` で拒否する。詳細は 5.14。
 
 #### 一括保存の原子的な書き込み（`save_extra_entries`。migration 30）
 
@@ -1494,7 +1580,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE profit_loss_adjustments TO authent
 REVOKE ALL ON TABLE profit_loss_adjustments FROM anon;
 ```
 
-> **確定中の編集ロック（Issue #148、migration 27）**: 上記の INSERT / UPDATE / DELETE ポリシーには、損益計算書で確定済みの月の調整を変更できないよう `NOT private.is_pl_month_closed(target_month)` が追加されている。`save_profit_loss_adjustment` も確定済みの月は `MONTH_CLOSED` 例外を返す。詳細は 5.14。
+> **確定中の編集ロック（Issue #148、migration 27）**: 上記の INSERT / UPDATE / DELETE ポリシーには、損益計算書で確定済みの月の調整を変更できないよう `NOT private.is_pl_month_closed(target_month)` が追加されている。`save_profit_loss_adjustment` も確定済みの月は `MONTH_CLOSED` 例外を返す。確定と同時に走った書き込みは、確定との直列化トリガー（6.4、Issue #171）が確定値に含めるか `MONTH_CLOSED` で拒否する。詳細は 5.14。
 
 #### 実績額修正の原子的な保存（`save_profit_loss_adjustment`）
 
@@ -1734,10 +1820,27 @@ GRANT SELECT ON TABLE profit_loss_closing_lines TO authenticated;
 - recurring_costs のポリシーは変更しない（定期費用マスタは確定済みの月があっても編集できる。確定済みの月の表示は確定明細から行うため影響しない）
 - 案件の明細・定期費用の削除に伴う損益調整の CASCADE 削除は参照整合性のアクションで、RLS は適用されないため妨げられない
 - UPDATE / DELETE は RLS で拒否されても 0 行更新になるだけでエラーにならないため、アプリ側（`bulkUpsertExtraEntry` / `deleteProfitLossAdjustment`）は書き込み前の判定・削除件数の確認で利用者にエラーを返す。経理追加収支画面は全行をまとめて保存するため、保存済みで編集していない行は UPDATE せず、ロックの判定からも外す（確定済みの月の行を触らずに他の月の行を保存できる）
+- migration 34（Issue #171）以降、両テーブルには確定との直列化トリガー（6.4）がある。RLS より先に BEFORE トリガーが判定するため、確定済みの月への INSERT と、確定済みの月への日付・対象月の変更（UPDATE の変更後の月）は、RLS 違反ではなく `MONTH_CLOSED`（どちらも SQLSTATE 42501）で拒否される。確定済みの月の行の UPDATE / DELETE は従来どおり RLS の USING で対象外になり 0 行になる（トリガーは発火しない）。アプリ側は `save_extra_entries` の 42501・`save_profit_loss_adjustment` / 損益調整の DELETE / 経理追加収支の前月コピーの `MONTH_CLOSED` を確定済みのエラーとして表示する
+
+#### 確定と書き込みの直列化（Issue #171、migration 34）
+
+RLS の `is_pl_month_closed` は書き込みの文のスナップショットで評価されるため、READ COMMITTED では次の順序で書き込みが確定値から漏れていた: ① 経理担当 A が当月の損益調整・経理追加収支を書き込む（RLS の評価時点では未確定で通る。未コミット）→ ② 経理担当 B の確定がコミットされ、直後の再集計（`closeProfitLossMonth` の取り直し）も A の書き込みを見ずに終わる → ③ A がコミットする（確定値に含まれないまま以後ロックされ、経理追加収支・管理費の調整は確定後の変更検知の対象外のため誰も気付けない）。
+
+これを月単位の advisory lock（`private.lock_pl_month`、6.4）で直列化する。確定（`save_profit_loss_closing`）は対象月の**排他ロック**を、損益調整・経理追加収支の書き込み（トリガー）は行の月の**共有ロック**を取り、書き込み側はロック取得後に確定済みかを判定し直す。書き込みは必ず次のどちらかになる:
+
+- 確定より先にロックを取った書き込み: 確定はその書き込みの終了（コミット / ロールバック）まで待つ。書き込みは確定のコミットより前にコミットされるため、確定のコミット後の再集計に必ず含まれ、違いがあれば確定値を取り直す
+- 確定が先にロックを取った場合: 書き込みは確定のコミットまで待ち、ロック取得後の判定で確定済みとして `MONTH_CLOSED` で拒否される（トランザクションごとロールバック。`save_extra_entries` の一括保存も全体がロールバックされる）
+
+前提と注意:
+
+- ロック取得後の判定が確定のコミットを見られるのは、READ COMMITTED で VOLATILE な plpgsql 関数が文（式）ごとに新しいスナップショットを取るため（トリガー内でロックの取得と判定を別の文にしている）。PostgREST のトランザクションは READ COMMITTED（既定）であることを前提にする
+- デッドロック: 保持中のロックを待つ循環（ハードなデッドロック）は起きない。書き込み側は共有ロックのため、書き込み同士が互いの保持中のロックを待つことはない。確定側は 1 つの月の排他ロックしか取らず、取得後に書き込み側が持ちうるロック（行ロック・他の月のロック）を待たないため、確定と書き込みの間でも保持中のロックを待つ循環にはならない。ただし、複数の月にまたがる書き込み（一括保存・日付の変更）と別々の月の確定が同時に待ち行列に入ると、待ち行列の公平性（先に並んだ排他ロックの要求より後から来た共有ロックの要求を先に通さない）による一時的な待ちの循環（ソフトなデッドロック）は起こり得る（例: 書き込み W1 が月 A、W2 が月 B の共有ロックを持ち、月 A の確定が W1 の、月 B の確定が W2 の終了を待っているところで、W1 が月 B、W2 が月 A の共有ロックを要求すると、それぞれ先に並んだ確定の後ろで待つ）。この循環は PostgreSQL のデッドロック検出（`deadlock_timeout` 経過後に動く）が待ち行列を並べ替えて共有ロックの要求を先に通すことで解消するため、どのトランザクションもデッドロックのエラーにはならない（待ちが `deadlock_timeout` 程度延びるだけ）
+- 確定の解除（ヘッダの DELETE）・反映・見送りはロックを取らない（解除と競合した書き込みは、解除のコミット前に判定すれば確定済みとして拒否されるだけで、確定値から漏れることはない）
+- 同じ仕組みで塞がない経路: 案件（matters / business / costs）は確定済みの月でも編集でき、確定後の変更は確定明細とライブ集計の差分検知（5.15）で検出される。定期費用（recurring_costs）は確定済みの月があっても編集できる設計で、確定後の変更は確定値に影響させない（確定の前後にまたがった変更も確定後の変更と同じ扱い。ロックで拒否されるわけではないため「漏れたままロックされる」ことにはならない）
 
 #### 確定（`save_profit_loss_closing`）
 
-`save_profit_loss_closing(p_target_month date, p_lines jsonb, p_closing_id bigint DEFAULT NULL)`（SECURITY DEFINER。経理担当者・管理者以外は `FORBIDDEN`）は、ヘッダの追加と明細の全置換（既存明細の DELETE → `jsonb_to_recordset(p_lines)` の INSERT）を 1 回の関数呼び出し（= 1 トランザクション）で行う。途中で失敗（明細の CHECK 違反など）すると確定前の状態に完全にロールバックされる。`p_closing_id` が NULL のときは新規の確定のみ受け付け（`INSERT ... ON CONFLICT (target_month) DO NOTHING`）、既に確定済みの月なら `ALREADY_CLOSED` を返す（未確定の表示のまま残った古い画面から確定し、他の経理担当者の確定・見送りを黙って上書きしないため。Server Action は再読み込みを促す）。`p_closing_id` を指定したときは、確定直後の再検証による取り直しに限り、同じ月・自分が確定したヘッダ（id 一致）の確定者・確定日時を更新して反映者・反映日時をクリアし、見送り記録・明細を置き換える。一致しなければ（確定の直後に解除・確定し直された）`CLOSING_CHANGED`。closed_by / closed_by_name は `auth.uid()` から解決し、クライアントからは受け取らない。明細はサーバ（`app/utils/supabase/profitLossClosings.ts` の `closeProfitLossMonth`）が当月をライブ集計し直して組み立てる（クライアントから送られた金額は使わない）。集計から確定のコミットまでの間はまだ編集ロックが掛かっていないため、コミット後（= ロック後）にもう一度集計し、違いがあれば同じ関数に自分の確定の id を渡して取り直す（その間に他の経理担当者が保存した損益調整・経理追加収支が、確定値から漏れたままロックされるのを防ぐ）。確定解除はヘッダの DELETE（明細・見送り記録は CASCADE）。
+`save_profit_loss_closing(p_target_month date, p_lines jsonb, p_closing_id bigint DEFAULT NULL)`（SECURITY DEFINER。経理担当者・管理者以外は `FORBIDDEN`）は、ヘッダの追加と明細の全置換（既存明細の DELETE → `jsonb_to_recordset(p_lines)` の INSERT）を 1 回の関数呼び出し（= 1 トランザクション）で行う。途中で失敗（明細の CHECK 違反など）すると確定前の状態に完全にロールバックされる。`p_closing_id` が NULL のときは新規の確定のみ受け付け（`INSERT ... ON CONFLICT (target_month) DO NOTHING`）、既に確定済みの月なら `ALREADY_CLOSED` を返す（未確定の表示のまま残った古い画面から確定し、他の経理担当者の確定・見送りを黙って上書きしないため。Server Action は再読み込みを促す）。`p_closing_id` を指定したときは、確定直後の再検証による取り直しに限り、同じ月・自分が確定したヘッダ（id 一致）の確定者・確定日時を更新して反映者・反映日時をクリアし、見送り記録・明細を置き換える。一致しなければ（確定の直後に解除・確定し直された）`CLOSING_CHANGED`。closed_by / closed_by_name は `auth.uid()` から解決し、クライアントからは受け取らない。明細はサーバ（`app/utils/supabase/profitLossClosings.ts` の `closeProfitLossMonth`）が当月をライブ集計し直して組み立てる（クライアントから送られた金額は使わない）。集計から確定のコミットまでの間はまだ編集ロックが掛かっていないため、コミット後（= ロック後）にもう一度集計し、違いがあれば同じ関数に自分の確定の id を渡して取り直す（その間に他の経理担当者が保存した損益調整・経理追加収支が、確定値から漏れたままロックされるのを防ぐ）。migration 34（Issue #171）以降、関数は権限の判定の後・ヘッダと明細を書く前に対象月の排他ロック（`private.lock_pl_month(p_target_month, true)`）を取り、同じ月への損益調整・経理追加収支の書き込みと直列化する（確定のコミットをまたいだ書き込みもこの再集計に含まれるか、確定済みとして拒否される。上の「確定と書き込みの直列化」）。確定解除はヘッダの DELETE（明細・見送り記録は CASCADE）。
 
 ### 5.15 profit_loss_closing_dismissals テーブルと反映・見送りの関数
 
@@ -1868,6 +1971,26 @@ CREATE TRIGGER detect_matters_updates
 ```sql
 -- この機能はアプリケーション側で実装
 -- データベース側ではトリガーではなく、アプリケーションロジックで対応
+```
+
+### 6.4 月次収支確定との直列化トリガー（Issue #171、migration 34）
+
+損益調整（profit_loss_adjustments）・経理追加収支（extra_entries）の書き込みを、同じ月の確定（`save_profit_loss_closing`）と月単位の advisory lock で直列化する BEFORE 行トリガー。RLS の編集ロック（5.14）は文のスナップショットで評価されるため、「書き込みが RLS を通過（未確定）→ 確定のコミットと直後の再集計 → 書き込みのコミット」の順で進むと、書き込みが確定値から漏れたまま以後ロックされていた。その対策（設計の詳細は 5.14 の「確定と書き込みの直列化」）。
+
+- `private.lock_pl_month(p_month date, p_exclusive boolean)`: 月単位の advisory lock（`pg_advisory_xact_lock(148, YYYYMM)` / `pg_advisory_xact_lock_shared(148, YYYYMM)`。第 1 キー 148 は本機能の名前空間）。トランザクション終了まで保持。NULL は何もしない。SECURITY DEFINER・`SET search_path = ''`。EXECUTE は authenticated のみ
+- `private.guard_pl_closed_month_write()`: トリガー関数（SECURITY INVOKER・`SET search_path = ''`）。`TG_ARGV[0]` の列（月）について、`row_security_active` が true（RLS が適用される利用者の書き込み）のときだけ、書き込んだ行の月（INSERT は新しい行、DELETE は元の行、UPDATE は変更前と変更後の両方）の**共有ロック**を取り、ロック取得後に別の文（= 新しいスナップショット）で `private.is_pl_month_closed` を判定し直し、確定済みなら `MONTH_CLOSED`（SQLSTATE 42501）で拒否する
+- BEFORE トリガーは RLS の WITH CHECK より先に評価されるため、書き込み権限の無い利用者（teamleader / public 等）の INSERT も、RLS で拒否される前に月の共有ロックを取る（ロックはそのトランザクションの終了で外れるため実害はない）。拒否のされ方は、未確定の月なら従来どおり RLS 違反、確定済みの月ならトリガーの `MONTH_CLOSED`（どちらも SQLSTATE 42501）
+- anon: 経理追加収支への日付ありの INSERT は、トリガーが `private` の関数を実行できないため `permission denied`（`private.lock_pl_month` の実行権限、またはスキーマ `private` の使用権限）のエラーで拒否される（従来の RLS 違反とはメッセージが異なるが、書き込めないことは同じ。日付なしの行はロックを取らないため従来どおり RLS 違反）。損益調整は anon にテーブル権限が無い（migration 23）ため、トリガーより前に従来どおり `permission denied for table profit_loss_adjustments` で拒否される
+- RLS をバイパスするロール（service_role・テーブル所有者）と、案件の明細・定期費用の削除に伴う損益調整の CASCADE 削除（参照整合性のアクションはテーブル所有者の権限で実行され、その中で発火する BEFORE トリガーでは `row_security_active` が false）は、従来どおり編集ロックの対象外で何もしない
+
+```sql
+CREATE TRIGGER guard_pl_closed_month_profit_loss_adjustments
+    BEFORE INSERT OR UPDATE OR DELETE ON profit_loss_adjustments
+    FOR EACH ROW EXECUTE FUNCTION private.guard_pl_closed_month_write('target_month');
+
+CREATE TRIGGER guard_pl_closed_month_extra_entries
+    BEFORE INSERT OR UPDATE OR DELETE ON extra_entries
+    FOR EACH ROW EXECUTE FUNCTION private.guard_pl_closed_month_write('entry_date');
 ```
 
 ## 7. 認証フック（Custom Access Token Hook）

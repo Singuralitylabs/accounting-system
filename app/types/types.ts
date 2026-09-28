@@ -337,7 +337,10 @@ export type ClosingInfo = {
 
 export type AnnualTrendType = {
   fiscalYear: number; // 年度（開始年。2026 = 2026/7〜2027/6）
-  months: PLReportType[]; // 12ヶ月分（7月始まり）
+  // 12ヶ月分（7月始まり）。年間推移は月別の合計だけを表示するため表示タイトル
+  // （profit_loss_labels）を取得しない（Issue #172）。案件・明細・定期費用の displayTitle は
+  // 元の名称のままで isCustomTitle は常に false（タイトルの表示には使わないこと）
+  months: PLReportType[];
 };
 
 // ===== 事前収支申告（budget_declarations）関連 =====
@@ -558,3 +561,10 @@ export type ClosingDiffResult = {
 
 // ページ上部のバナー用（未処理の差分がある確定済みの月と件数）
 export type ClosingDiffSummary = { month: string; count: number }[];
+
+// 未処理の差分の件数集計の結果（Issue #172）。fromMonth は集計の対象の開始月（"YYYY-MM"）で、
+// これより前の確定済みの月は集計の対象外（バナー・月ピッカー・年間推移の目印が出ない）
+export type ClosingDiffSummaryData = {
+  summary: ClosingDiffSummary;
+  fromMonth: string;
+};

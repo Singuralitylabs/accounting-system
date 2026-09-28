@@ -4,6 +4,7 @@
 // "use server" を付けないのは、この関数群を Server Action としてクライアントへ
 // 公開しないため（requestCache.ts / viewerAccess.ts と同じ）。サーバ専用モジュールからのみ import する。
 
+import type { PostgrestError } from "@supabase/supabase-js";
 import {
   ClosingDiff,
   DiffSourceType,
@@ -239,32 +240,130 @@ export const fetchClosingSourceRows = async (
   return liveRows && closings ? { ...liveRows, closings } : null;
 };
 
+// 表示タイトル（profit_loss_labels。Issue #150）の取得対象の ID（対象種別ごと）
+export type LabelTargetIds = {
+  matterIds: number[];
+  businessIds: number[];
+  costIds: number[];
+  recurringCostIds: number[];
+};
+
+// 取得した行から、表示タイトルを引く可能性のある対象の ID を集める（Issue #172）。
+// 表示タイトルはライブの明細・確定明細（元の行が削除・他月へ移動した明細を含む）・
+// 差分一覧・対象行が当月に存在しない調整の表示で引くため、次をすべて含める:
+// - 案件: ライブの売上・費用の案件 ID、確定明細（売上・費用）の案件 ID
+// - 売上・費用・定期費用: ライブの行の ID、確定明細の source_id、損益調整の対象 ID
+// （対象行が期間外へ移動した調整の対象行は supplementAdjustmentTargets で補完取得する）
+export const collectLabelTargetIds = (
+  rows: Pick<
+    ClosingSourceRows,
+    "businessRows" | "costRows" | "recurringCosts" | "adjustments" | "closings"
+  >,
+): LabelTargetIds => {
+  const matterIds = new Set<number>();
+  const businessIds = new Set<number>();
+  const costIds = new Set<number>();
+  const recurringCostIds = new Set<number>();
+  rows.businessRows.forEach((row) => {
+    businessIds.add(row.id);
+    matterIds.add(row.matter_id);
+  });
+  rows.costRows.forEach((row) => {
+    costIds.add(row.id);
+    matterIds.add(row.matter_id);
+  });
+  rows.recurringCosts.forEach((rc) => recurringCostIds.add(rc.id));
+  rows.adjustments.forEach((adjustment) => {
+    if (adjustment.business_id !== null) businessIds.add(adjustment.business_id);
+    if (adjustment.cost_id !== null) costIds.add(adjustment.cost_id);
+    if (adjustment.recurring_cost_id !== null) {
+      recurringCostIds.add(adjustment.recurring_cost_id);
+    }
+  });
+  rows.closings.forEach(({ lines }) =>
+    lines.forEach((line) => {
+      if (line.source_type === "business") businessIds.add(line.source_id);
+      if (line.source_type === "cost") costIds.add(line.source_id);
+      if (line.source_type === "recurring_cost") {
+        recurringCostIds.add(line.source_id);
+      }
+      if (
+        (line.source_type === "business" || line.source_type === "cost") &&
+        line.matter_id !== null
+      ) {
+        matterIds.add(line.matter_id);
+      }
+    }),
+  );
+  return {
+    matterIds: Array.from(matterIds),
+    businessIds: Array.from(businessIds),
+    costIds: Array.from(costIds),
+    recurringCostIds: Array.from(recurringCostIds),
+  };
+};
+
+// 表示タイトルを対象 ID で取得する（Issue #172。以前は全月共通のため全件を取得していたが、
+// 件数が運用期間に比例して増えるため、表示する期間の明細に対応するものだけを読む）。
+// ID が多い場合（年間推移・案件の多い月）も URL の長さと max_rows に掛からないよう
+// fetchAllByIds で分割・ページングする。対象種別ごとに並列に問い合わせ、ID が無い種別は
+// 問い合わせない（RLS により閲覧できる行のみ返る）
+const fetchLabelsByTargetIds = async (
+  ids: LabelTargetIds,
+): Promise<{
+  data: ProfitLossLabelType[] | null;
+  error: PostgrestError | null;
+}> => {
+  const supabase = createServerSupabase();
+  const byColumn = (
+    column: "matter_id" | "business_id" | "cost_id" | "recurring_cost_id",
+    targetIds: number[],
+  ) =>
+    fetchAllByIds(targetIds, (chunk, afterId, limit) =>
+      supabase
+        .from("profit_loss_labels")
+        .select("*")
+        .in(column, chunk)
+        .gt("id", afterId)
+        .order("id", { ascending: true })
+        .limit(limit),
+    );
+  const results = await Promise.all([
+    byColumn("matter_id", ids.matterIds),
+    byColumn("business_id", ids.businessIds),
+    byColumn("cost_id", ids.costIds),
+    byColumn("recurring_cost_id", ids.recurringCostIds),
+  ]);
+  const failed = results.find((result) => result.error);
+  if (failed) {
+    return { data: null, error: failed.error };
+  }
+  return {
+    data: results.flatMap((result) => result.data ?? []),
+    error: null,
+  };
+};
+
 // 集計・表示に必要な行をまとめて取得する（RLS により権限に応じた行のみ返る）
 // セッション Cookie は @supabase/ssr 形式。createServerSupabase() 以外のクライアントを混ぜない
 // 対象期間＋月未確定（NULL）行に絞る。月次は単月、年間推移は年度12ヶ月を渡し、
 // いずれも一括取得（Promise.all）のままクエリ往復を増やさない。
+// 表示タイトルは取得した行の ID で絞って取得するため、行の取得の後にもう 1 往復する
+// （Issue #172）。表示タイトルを表示しない年間推移は includeLabels: false で取得を省く
 export const fetchReportSourceRows = async (
   period: ReportPeriod,
+  options?: { includeLabels?: boolean },
 ): Promise<ReportSourceRows | null> => {
-  const supabase = createServerSupabase();
-
-  // 表示タイトル（Issue #150）は全月共通のため期間で絞らない（件数は対象行数以下）
-  const labelQuery = fetchAllPages((afterId, limit) =>
-    supabase
-      .from("profit_loss_labels")
-      .select("*")
-      .gt("id", afterId)
-      .order("id", { ascending: true })
-      .limit(limit),
-  );
-
-  const [sourceRows, labelResult] = await Promise.all([
-    fetchClosingSourceRows(period),
-    labelQuery,
-  ]);
+  const sourceRows = await fetchClosingSourceRows(period);
   if (!sourceRows) {
     return null;
   }
+  if (options?.includeLabels === false) {
+    return { ...sourceRows, labels: [] };
+  }
+  const labelResult = await fetchLabelsByTargetIds(
+    collectLabelTargetIds(sourceRows),
+  );
   if (labelResult.error) {
     console.error("損益レポートのデータ取得に失敗しました:", labelResult.error);
     return null;
@@ -347,9 +446,39 @@ export const supplementAdjustmentTargets = async (
     );
     return;
   }
-  rows.businessRows.push(...((missingBusiness.data ?? []) as BusinessRow[]));
-  rows.costRows.push(...((missingCosts.data ?? []) as CostRow[]));
+  // 表示タイトルは取得済みの行の案件 ID で絞って取得しているため、補完行の案件のうち
+  // まだ問い合わせていない案件の表示タイトルを追加で取得する（Issue #172。明細・定期費用の
+  // 表示タイトルは調整の対象 ID として取得済み）。補完行が無ければ問い合わせない
+  const queriedMatterIds = new Set(collectLabelTargetIds(rows).matterIds);
+  const supplementedBusiness = (missingBusiness.data ?? []) as BusinessRow[];
+  const supplementedCosts = (missingCosts.data ?? []) as CostRow[];
+  rows.businessRows.push(...supplementedBusiness);
+  rows.costRows.push(...supplementedCosts);
   rows.recurringCosts.push(...(missingRecurring.data ?? []));
+  const newMatterIds = Array.from(
+    new Set(
+      [...supplementedBusiness, ...supplementedCosts]
+        .map((row) => row.matter_id)
+        .filter((id) => !queriedMatterIds.has(id)),
+    ),
+  );
+  if (newMatterIds.length === 0) {
+    return;
+  }
+  const labelResult = await fetchLabelsByTargetIds({
+    matterIds: newMatterIds,
+    businessIds: [],
+    costIds: [],
+    recurringCostIds: [],
+  });
+  if (labelResult.error) {
+    console.error(
+      "損益レポートの調整対象行の表示タイトルの取得に失敗しました（元の案件名で表示します）:",
+      labelResult.error,
+    );
+    return;
+  }
+  rows.labels.push(...(labelResult.data ?? []));
 };
 
 // 確定後の差分（Issue #149）の追加・削除に付ける、他の月との移動の情報を取得する。

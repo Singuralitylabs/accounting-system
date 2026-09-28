@@ -5,10 +5,11 @@ import {
   ClosingDiffKey,
   ClosingDiffSelection,
   ClosingDiffSummary,
+  ClosingDiffSummaryData,
   ClosingLineInput,
 } from "../../types/types";
 import { PL_CLOSING_WRITE_CLASSES } from "../permissions";
-import { toFirstOfMonth } from "../formatter";
+import { currentJstMonth, toFirstOfMonth } from "../formatter";
 import {
   buildLiveMonthLines,
   groupConsecutiveMonths,
@@ -20,6 +21,7 @@ import {
 } from "../profitLossClosing";
 import {
   buildApplyPayload,
+  closingDiffSummaryStartMonth,
   diffClosingLines,
   findStaleSelections,
   liveDiffStates,
@@ -33,7 +35,7 @@ import {
   fetchLiveSourceRows,
 } from "./profitLossSource";
 import { getAuthorizedViewer } from "./viewerAccess";
-import { getClosedMonths } from "./profitLossClosedMonths";
+import { fetchClosedMonthKeys } from "./closedMonthsQuery";
 
 export type ProfitLossClosingWriteResult = { error?: AccessFailure };
 
@@ -134,7 +136,10 @@ export const closeProfitLossMonth = async (
   // 集計（上の取得）から確定のコミットまでの間は、まだ編集ロックが掛かっていないため、
   // 他の経理担当者が当月の損益調整・経理追加収支を保存するとスナップショットから漏れる
   // （しかも以後ロックされ、定期費用・経理追加収支は変更検知の対象外で気付けない）。
-  // 確定のコミット後（= ロック後）にもう一度集計し、違いがあれば取り直して確定値に含める
+  // 確定のコミット後（= ロック後）にもう一度集計し、違いがあれば取り直して確定値に含める。
+  // 確定の DB 関数と損益調整・経理追加収支の書き込み（トリガー）は同じ月の advisory lock で
+  // 直列化されている（Issue #171）。確定より先に始まった書き込みは確定のコミット前に
+  // コミットされるためこの再集計に必ず含まれ、確定より後の書き込みは確定済みとして拒否される
   const verified = await liveClosingRows();
   if (!verified) {
     // 確定自体は完了している。確認できなかったことだけを知らせる
@@ -221,12 +226,14 @@ export const reopenProfitLossMonth = async (
 // ===== 確定後の変更の検知・反映・見送り（Issue #149） =====
 
 export type ClosingDiffSummaryResult =
-  | { summary: ClosingDiffSummary; error?: undefined }
-  | { summary?: undefined; error: AccessFailure };
+  | (ClosingDiffSummaryData & { error?: undefined })
+  | { summary?: undefined; fromMonth?: undefined; error: AccessFailure };
 
 // 未処理の差分がある確定済みの月と件数（損益計算書ページ上部のバナー・月ピッカー・
 // 年間推移のアイコン用。accounting / admin のみ）。
-// 確定済みの月の一覧を取得したうえで、連続する確定済みの月ごと（通常は 1 つの範囲）に
+// 対象は当月を含む直近 CLOSING_DIFF_SUMMARY_MONTHS ヶ月（とそれより後）の確定済みの月に
+// 限る（確定済みの月が増えても取得量が増え続けないようにする。Issue #172）。
+// その確定済みの月の一覧を取得したうえで、連続する確定済みの月ごと（通常は 1 つの範囲）に
 // ライブの行・確定明細・見送り記録を並列に取得し、月別に差分を数える
 // （離れた確定済みの月の間の未確定の月の行まで取得しないようにする）
 export const getClosingDiffSummary =
@@ -238,13 +245,22 @@ export const getClosingDiffSummary =
     if (!profileInfo) {
       return { error };
     }
-    const closedMonthsResult = await getClosedMonths();
-    if (closedMonthsResult.error) {
-      return { error: closedMonthsResult.error };
+    // 集計の対象の開始月。画面で対象外の月を注記できるよう結果にも含める
+    const fromMonth = closingDiffSummaryStartMonth(currentJstMonth());
+    const { months, error: closedMonthsError } = await fetchClosedMonthKeys({
+      fromMonth,
+    });
+    if (closedMonthsError) {
+      console.error("確定済みの月の取得に失敗しました:", closedMonthsError);
+      return {
+        error: {
+          kind: "fetchFailed",
+          message: "確定済みの月の取得に失敗しました。",
+        },
+      };
     }
-    const months = closedMonthsResult.months;
     if (months.length === 0) {
-      return { summary: [] };
+      return { summary: [], fromMonth };
     }
     const rangeRows = await Promise.all(
       groupConsecutiveMonths(months).map((period) =>
@@ -272,7 +288,10 @@ export const getClosingDiffSummary =
         }
       });
     });
-    return { summary: summary.sort((a, b) => a.month.localeCompare(b.month)) };
+    return {
+      summary: summary.sort((a, b) => a.month.localeCompare(b.month)),
+      fromMonth,
+    };
   };
 
 // 反映・見送りの共通の前処理（入力検証・権限確認・当月のライブ集計・表示後の変更の確認）
