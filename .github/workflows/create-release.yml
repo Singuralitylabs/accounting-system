@@ -104,18 +104,70 @@ jobs:
       # 承認ゲートの保護ルールを確認する。存在しない Environment を参照すると GitHub が
       # 保護ルールなしで自動作成し、承認なしでタグ・Release が作られる（フェイルオープン）。
       # Required reviewers が設定されていない場合はここで失敗させ、承認なしのリリースを防ぐ。
+      # API エラーは握りつぶさず、HTTP ステータスで原因（Environment 未作成 / 権限不足 /
+      # Required reviewers 未設定 / その他）を切り分けてログに出す。どの場合も失敗させる（フェイルクローズ）。
       - name: 承認ゲートの保護ルールを確認
         if: ${{ steps.extract.outputs.skip != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ENV_NAME: production-release
         run: |
           set -euo pipefail
-          RULES=$(gh api "repos/${GITHUB_REPOSITORY}/environments/production-release" \
-            --jq '.protection_rules[].type' 2>/dev/null || true)
-          if ! printf '%s' "$RULES" | grep -Eq '^required_reviewers$'; then
-            echo "::error::Environment 'production-release' に Required reviewers が設定されていません。Settings → Environments で承認者を登録してから再実行してください。"
-            exit 1
+          RESP_FILE=$(mktemp)
+          ERR_FILE=$(mktemp)
+          # --include でステータス行（例: HTTP/2.0 404 Not Found）とヘッダを本文の前に出力させる。
+          # gh api は 4xx / 5xx で非ゼロ終了するが、その場合も応答はファイルに残るため判定を続ける。
+          if gh api --include "repos/${GITHUB_REPOSITORY}/environments/${ENV_NAME}" >"$RESP_FILE" 2>"$ERR_FILE"; then
+            GH_EXIT=0
+          else
+            GH_EXIT=$?
           fi
+          HTTP_STATUS=$(head -n1 "$RESP_FILE" | tr -d '\r' | sed -nE 's#^HTTP/[0-9.]+ ([0-9]{3}).*#\1#p')
+          if [ -z "$HTTP_STATUS" ]; then
+            # ステータス行が取れない場合は gh のエラーメッセージ（例: gh: Not Found (HTTP 404)）から拾う
+            HTTP_STATUS=$(sed -nE 's#.*\(HTTP ([0-9]{3})\).*#\1#p' "$ERR_FILE" | head -n1)
+          fi
+          # ヘッダと本文を区切る空行より後ろを本文として取り出す
+          RESP_BODY=$(tr -d '\r' < "$RESP_FILE" | awk 'in_body { print; next } /^$/ { in_body = 1 }')
+          API_MESSAGE=$(printf '%s' "$RESP_BODY" | jq -r '.message? // empty' 2>/dev/null || true)
+          echo "承認ゲート確認: GET environments/${ENV_NAME} → HTTP ${HTTP_STATUS:-不明}（gh 終了コード: ${GH_EXIT}）"
+          if [ -n "$API_MESSAGE" ]; then
+            echo "API メッセージ: ${API_MESSAGE}"
+          fi
+          if [ -s "$ERR_FILE" ]; then
+            echo "gh の標準エラー出力:"
+            cat "$ERR_FILE"
+          fi
+
+          case "${HTTP_STATUS:-}" in
+            200)
+              if ! RULES=$(printf '%s' "$RESP_BODY" | jq -r '.protection_rules[]?.type'); then
+                echo "::error::Environment '${ENV_NAME}' の応答（HTTP 200）を解析できませんでした。承認ゲートを確認できないため中断します。"
+                exit 1
+              fi
+              if ! printf '%s\n' "$RULES" | grep -qx 'required_reviewers'; then
+                CONFIGURED=$(printf '%s\n' "$RULES" | sed '/^$/d' | paste -sd, - || true)
+                echo "::error::Environment '${ENV_NAME}' に Required reviewers が設定されていません（HTTP 200。設定済みの保護ルール: ${CONFIGURED:-なし}）。Settings → Environments で承認者を登録してから再実行してください。"
+                exit 1
+              fi
+              ;;
+            404)
+              echo "::error::Environment '${ENV_NAME}' が存在しません（HTTP 404）。Settings → Environments で作成し、Required reviewers を設定してから再実行してください。"
+              exit 1
+              ;;
+            403)
+              echo "::error::Environment '${ENV_NAME}' の取得が拒否されました（HTTP 403: ${API_MESSAGE:-詳細なし}）。ワークフローの permissions に actions: read があるか、API レート制限に掛かっていないかを確認してください。"
+              exit 1
+              ;;
+            "")
+              echo "::error::Environment '${ENV_NAME}' の取得に失敗しました（HTTP 応答なし。gh 終了コード: ${GH_EXIT}）。ネットワーク障害などの可能性があります。時間をおいて再実行してください。"
+              exit 1
+              ;;
+            *)
+              echo "::error::Environment '${ENV_NAME}' の取得で想定外の応答がありました（HTTP ${HTTP_STATUS}: ${API_MESSAGE:-詳細なし}）。承認ゲートを確認できないため中断します。"
+              exit 1
+              ;;
+          esac
           echo "承認ゲート（Required reviewers）を確認しました。"
 
       # タグ重複チェックのため release ブランチをチェックアウトする（タグ情報も取得）。
@@ -129,17 +181,55 @@ jobs:
       # リリース対象コミットの SHA を確定する。
       # 承認ゲートでの待機中に release ブランチが進んでも、ここで固定した SHA に対してタグを付与することで、
       # 「意図しないコミットにタグが付く」事故を防ぐ。
+      # 手動起動はリリース PR マージ後の再実行専用とし、release HEAD が「リリース X.Y.Z」の
+      # マージ済みリリース PR（同一リポジトリの main が head）のマージコミットであることを検証する。
+      # マージ前に起動すると HEAD は前回リリースのマージコミット（親 2 つ）であり squash 検出も
+      # 通過するため、ここで止めないと旧ツリーに新バージョンのタグが付く。
+      # 特定した PR 番号は後続のリリースサマリー抽出でも使う。
       - name: 対象コミット SHA を確定
         id: target
         if: ${{ steps.extract.outputs.skip != 'true' }}
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT_NAME: ${{ github.event_name }}
           MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          VERSION: ${{ steps.extract.outputs.version }}
         run: |
           set -euo pipefail
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            # 手動起動時は現時点の release HEAD を対象とする。
+            # 手動起動時は現時点の release HEAD を対象とし、リリース PR のマージコミットか検証する。
             SHA=$(git rev-parse HEAD)
+            # API エラーは握りつぶさず失敗させる（検証できない場合はタグを付けない）。
+            if ! MERGED_PRS=$(gh pr list -R "$GITHUB_REPOSITORY" --base release --state merged --limit 50 \
+              --json number,title,headRefName,isCrossRepository,mergeCommit); then
+              echo "::error::マージ済みのリリース PR 一覧を取得できませんでした（上記の gh のエラーを参照）。検証できないためタグを付けずに中断します。"
+              exit 1
+            fi
+            PR_JSON=$(printf '%s' "$MERGED_PRS" \
+              | jq -c --arg sha "$SHA" '[.[] | select(.mergeCommit.oid == $sha)] | first // empty')
+            if [ -z "$PR_JSON" ]; then
+              echo "::error::release HEAD（${SHA}）はマージ済みのリリース PR のマージコミットではありません。手動実行はリリース PR「リリース ${VERSION}」をマージした後の再実行専用です（リリース PR のマージ前に実行していないか確認してください）。"
+              exit 1
+            fi
+            PR_NUMBER=$(printf '%s' "$PR_JSON" | jq -r '.number')
+            PR_TITLE=$(printf '%s' "$PR_JSON" | jq -r '.title')
+            PR_HEAD_REF=$(printf '%s' "$PR_JSON" | jq -r '.headRefName')
+            PR_CROSS_REPO=$(printf '%s' "$PR_JSON" | jq -r '.isCrossRepository')
+            # バージョンの取り出しは pull_request 経路（バージョン抽出ステップ）と同じ規則にする。
+            PR_VERSION=""
+            if printf '%s' "$PR_TITLE" | grep -Eq '^リリース[[:space:]　]'; then
+              PR_VERSION=$(printf '%s' "$PR_TITLE" | sed -E 's/^リリース[[:space:]　]+v?//' | tr -d '[:space:]　')
+            fi
+            if [ "$PR_VERSION" != "$VERSION" ]; then
+              echo "::error::release HEAD（${SHA}）は PR #${PR_NUMBER}「${PR_TITLE}」のマージコミットであり、指定バージョン ${VERSION} のリリース PR ではありません。リリース PR「リリース ${VERSION}」のマージ後に実行してください。"
+              exit 1
+            fi
+            if [ "$PR_HEAD_REF" != "main" ] || [ "$PR_CROSS_REPO" != "false" ]; then
+              echo "::error::PR #${PR_NUMBER} の head が同一リポジトリの main ではありません（検出値: ${PR_HEAD_REF}、別リポジトリ: ${PR_CROSS_REPO}）。"
+              exit 1
+            fi
+            echo "release HEAD は PR #${PR_NUMBER}「${PR_TITLE}」のマージコミットです。"
+            echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           else
             # PR マージ時は確定済みのマージコミット SHA を使用する（承認待ち中の release 進行に影響されない）。
             SHA="$MERGE_SHA"
@@ -176,19 +266,10 @@ jobs:
         if: ${{ steps.extract.outputs.skip != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          EVENT_NAME: ${{ github.event_name }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          TARGET_SHA: ${{ steps.target.outputs.sha }}
+          # 手動起動時は「対象コミット SHA を確定」で検証済みのリリース PR 番号を使う。
+          PR_NUMBER: ${{ github.event.pull_request.number || steps.target.outputs.pr_number }}
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            # 手動起動時: target_sha をマージコミットに持つ closed PR を逆引きする。
-            PR_NUMBER=$(gh pr list --base release --state merged --limit 20 \
-              --json number,mergeCommit \
-              --jq ".[] | select(.mergeCommit.oid == \"${TARGET_SHA}\") | .number" \
-              | head -n1 || true)
-          fi
-
           if [ -z "${PR_NUMBER:-}" ]; then
             echo "::warning::対象 PR を特定できませんでした。自動生成ノートのみで Release を作成します。"
             {
