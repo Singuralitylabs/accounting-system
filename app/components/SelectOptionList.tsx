@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import {
   bulkUpsertSelectOptions,
   InsertedSelectOptionId,
+  SelectOptionToSave,
 } from "../utils/supabase/selectOptions";
 import { notifyError, notifySuccess } from "../utils/notify";
 import { confirmAction } from "../utils/confirmAction";
@@ -81,12 +82,46 @@ export const applyInsertedOptionIds = (
     });
 };
 
+// 保存で送る行。変更した既存の行（baseline と項目名・表示順・有効 / 無効のいずれかが
+// 異なる行。並べ替えで表示順だけが変わった行を含む）と、追加した行（追加してすぐ削除した
+// 行を除く）だけを送り、変更していない行は送らない（UPDATE しない）。既存の行には
+// 項目名を変えたか（valueChanged）を添える（サーバは名前を変えた行だけを 1 行ずつ、
+// それ以外を並行に UPDATE する）。表示順が未設定（null / 0）の行は、全行を送っていた
+// ときと同じく画面の行数を表示順にする
+export const optionRowsToSave = (
+  baseline: OptionRow[],
+  rows: OptionRow[],
+): SelectOptionToSave[] => {
+  const baselineById = new Map(baseline.map((row) => [row.id, row]));
+  return rows.flatMap((row): SelectOptionToSave[] => {
+    const display_order = row.display_order || rows.length;
+    if (row.isNew) return row.is_active ? [{ ...row, display_order }] : [];
+    const saved = baselineById.get(row.id);
+    if (
+      saved &&
+      saved.value === row.value &&
+      saved.display_order === row.display_order &&
+      saved.is_active === row.is_active
+    ) {
+      return [];
+    }
+    return [
+      {
+        ...row,
+        display_order,
+        valueChanged: !saved || saved.value !== row.value,
+      },
+    ];
+  });
+};
+
 // 追加してすぐ削除した行（保存していない行）を除く
 const withoutDiscardedNewRows = (rows: OptionRow[]) =>
   rows.filter((row) => !(row.isNew && !row.is_active));
 
 // 保存が途中で失敗したとき、保存できた行に変更した内容が含まれていたか
-// （追加できた行がある、または UPDATE できた既存の行が baseline から変わっていた）
+// （追加できた行がある、または UPDATE できた既存の行が baseline から変わっていた）。
+// sentRows は保存した時点の画面の全行（送ったのはこのうち optionRowsToSave の行）
 export const hasPartiallySavedChanges = (
   baseline: OptionRow[],
   sentRows: OptionRow[],
@@ -108,8 +143,9 @@ export const hasPartiallySavedChanges = (
 
 // 保存が途中で失敗したときの、新しい保存済みの状態（baseline）。保存できた行（UPDATE
 // できた既存の行と追加できた行）は送った内容（追加した行は DB の id に置き換える）、
-// 保存できなかった既存の行は元の baseline の内容にする。保存できなかった追加行は DB に
-// 無いため含めない。行の並びは送った内容（sentRows）に合わせる。
+// 保存できなかった既存の行・送っていない（変更していない）既存の行は元の baseline の
+// 内容にする。保存できなかった追加行は DB に無いため含めない。sentRows は保存した時点の
+// 画面の全行で、行の並びはこれに合わせる。
 // これにより、保存できた変更を画面で元に戻した場合も「未保存の変更あり」になり、
 // 保存し直して DB を画面に合わせられる
 export const baselineAfterPartialSave = (
@@ -271,12 +307,13 @@ const SelectOptionList = ({
       );
       if (!confirmed) return;
 
-      // 送った時点の内容（保存の応答を待つ間にも編集できるため、保存結果の baseline は
-      // これから作り、表示には最新の編集内容に id の置き換えだけを適用する）
+      // 保存した時点の画面の全行（保存の応答を待つ間にも編集できるため、保存結果の
+      // baseline はこれから作り、表示には最新の編集内容に id の置き換えだけを適用する）。
+      // サーバへは、このうち変更した行と追加した行だけを送る
       const sentRows = updatedOptionList;
       const { insertedIds, updatedIds, error } = await bulkUpsertSelectOptions(
         optionClass,
-        sentRows,
+        optionRowsToSave(baseline, sentRows),
       );
       // 追加できた行は DB の id に置き換える（途中で失敗した場合も、保存し直したときに
       // 同じ行を再び追加しないように）
@@ -306,7 +343,7 @@ const SelectOptionList = ({
         );
         return;
       }
-      // 送った内容を新しい baseline にする（保存の応答を待つ間に編集していなければ、
+      // 保存した時点の内容を新しい baseline にする（保存の応答を待つ間に編集していなければ、
       // 未保存の変更なしになる）。追加してすぐ削除した行は保存していないため除く
       setBaseline(
         withoutDiscardedNewRows(applyInsertedOptionIds(sentRows, insertedIds)),

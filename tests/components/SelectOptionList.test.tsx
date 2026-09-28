@@ -4,6 +4,7 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SelectOptionList, {
   baselineAfterPartialSave,
+  optionRowsToSave,
 } from "@/app/components/SelectOptionList";
 import { notifyError } from "@/app/utils/notify";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
@@ -220,11 +221,11 @@ describe("SelectOptionList", () => {
       fireEvent.click(screen.getByRole("button", { name: "更新" }));
       await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
 
-      // 追加した行は DB の id で保存済みの行（UPDATE）として送られ、INSERT は 1 回だけ
-      expect(sentOptions(1)).toContainEqual(
-        expect.objectContaining({ id: 100, value: "チームB", isNew: false }),
-      );
-      expect(sentOptions(1).some((option) => option.isNew)).toBe(false);
+      // 追加した行は DB の id の保存済みの行になり、変更していないので送らない。
+      // 送るのは編集した行だけで、INSERT は 1 回だけ
+      expect(sentOptions(1)).toEqual([
+        expect.objectContaining({ id: 1, value: "チームA2", isNew: false }),
+      ]);
       expect(insertedValues).toEqual(["チームB"]);
     });
 
@@ -258,7 +259,7 @@ describe("SelectOptionList", () => {
           insertedValues.push(first.value);
           return {
             insertedIds: [{ tempId: first.id, id: nextDbId++ }],
-            updatedIds: [1],
+            updatedIds: [],
             error: "項目の追加に失敗しました。",
           };
         },
@@ -287,12 +288,10 @@ describe("SelectOptionList", () => {
       fireEvent.click(screen.getByRole("button", { name: "更新" }));
       await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
 
-      expect(sentOptions(1)).toContainEqual(
-        expect.objectContaining({ id: 100, value: "チームB", isNew: false }),
-      );
-      expect(sentOptions(1)).toContainEqual(
+      // 登録できた「チームB」は保存済み（変更なし）のため送らず、「チームC」だけを送る
+      expect(sentOptions(1)).toEqual([
         expect.objectContaining({ value: "チームC", isNew: true }),
-      );
+      ]);
       expect(insertedValues).toEqual(["チームB", "チームC"]);
     });
   });
@@ -323,6 +322,11 @@ describe("SelectOptionList", () => {
     fireEvent.click(screen.getByRole("button", { name: "更新" }));
     await waitFor(() => expect(bulkUpsertSelectOptions).toHaveBeenCalled());
     const [, sent] = bulkUpsertSelectOptions.mock.calls[0];
+    // 変更していない「チームB」は送らない
+    expect(sent).toEqual([
+      expect.objectContaining({ id: 1, value: "チームA2", valueChanged: true }),
+      expect.objectContaining({ value: "チームC", isNew: true }),
+    ]);
     const tempId = sent.find(
       (option: { value: string }) => option.value === "チームC",
     ).id;
@@ -331,7 +335,7 @@ describe("SelectOptionList", () => {
     fireEvent.change(screen.getByDisplayValue("チームB"), {
       target: { value: "チームB2" },
     });
-    resolveSave({ insertedIds: [{ tempId, id: 100 }], updatedIds: [1, 2] });
+    resolveSave({ insertedIds: [{ tempId, id: 100 }], updatedIds: [1] });
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
 
     // 応答後も編集内容が残り、保存した内容（送った内容）との差分で「変更あり」になる
@@ -341,18 +345,17 @@ describe("SelectOptionList", () => {
     const saveButton = screen.getByRole("button", { name: "更新" });
     expect(saveButton).toBeEnabled();
 
-    // 続けて保存すると、追加した行は DB の id（UPDATE）として、編集した行とともに送る
+    // 続けて保存すると、応答待ちの間に編集した行だけを送る（保存済みの「チームA2」と、
+    // DB の id に置き換えた追加行は送らない）
     bulkUpsertSelectOptions.mockResolvedValueOnce({
       insertedIds: [],
-      updatedIds: [1, 2, 100],
+      updatedIds: [2],
     });
     fireEvent.click(saveButton);
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
     const [, resent] = bulkUpsertSelectOptions.mock.calls[1];
     expect(resent).toEqual([
-      expect.objectContaining({ id: 1, value: "チームA2", isNew: false }),
       expect.objectContaining({ id: 2, value: "チームB2", isNew: false }),
-      expect.objectContaining({ id: 100, value: "チームC", isNew: false }),
     ]);
     expect(screen.getByRole("button", { name: "更新" })).toBeDisabled();
   });
@@ -363,8 +366,7 @@ describe("SelectOptionList", () => {
       "「チームZ」と同じ名前の項目が既にあります（削除済みの項目を含む）。名前を変えるか、既存の項目を使ってください。";
     bulkUpsertSelectOptions.mockResolvedValue({
       insertedIds: [],
-      // 変更していない行の UPDATE だけが成功した
-      updatedIds: [1],
+      updatedIds: [],
       error: duplicate,
     });
     renderWithMantine(
@@ -558,6 +560,53 @@ describe("SelectOptionList", () => {
     ]);
   });
 
+  it("変更していない行は送らず、変更した行（名前を変えたかを添える）と追加した行だけを送る", async () => {
+    bulkUpsertSelectOptions.mockResolvedValue({
+      insertedIds: [],
+      updatedIds: [],
+    });
+    renderWithMantine(
+      <SelectOptionList
+        optionClass="team"
+        optionList={[
+          { id: 1, value: "チームA", display_order: 1, is_active: true },
+          { id: 2, value: "チームB", display_order: 2, is_active: true },
+          { id: 3, value: "チームC", display_order: 3, is_active: true },
+        ]}
+      />,
+    );
+
+    editOption();
+    fireEvent.click(
+      screen
+        .getByDisplayValue("チームC")
+        .closest("tr")
+        ?.querySelector("button") as HTMLButtonElement,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "チーム追加" }));
+    fireEvent.change(screen.getByDisplayValue(""), {
+      target: { value: "チームD" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+
+    expect(bulkUpsertSelectOptions.mock.calls[0][1]).toEqual([
+      expect.objectContaining({
+        id: 1,
+        value: "チームA2",
+        isNew: false,
+        valueChanged: true,
+      }),
+      expect.objectContaining({
+        id: 3,
+        is_active: false,
+        isNew: false,
+        valueChanged: false,
+      }),
+      expect.objectContaining({ value: "チームD", isNew: true }),
+    ]);
+  });
+
   it("未保存の変更が無い間は「更新」を押せない", () => {
     renderWithMantine(
       <SelectOptionList optionClass="team" optionList={optionList} />,
@@ -631,5 +680,68 @@ describe("baselineAfterPartialSave", () => {
     expect(
       baselineAfterPartialSave(baseline, sentRows, [{ tempId: -1, id: 5 }], []),
     ).toEqual([row(5, "広報", { display_order: 1 })]);
+  });
+});
+
+describe("optionRowsToSave", () => {
+  const row = (
+    id: number,
+    value: string,
+    overrides: {
+      is_active?: boolean;
+      isNew?: boolean;
+      display_order?: number | null;
+    } = {},
+  ) => ({
+    id,
+    value,
+    display_order: Math.abs(id) as number | null,
+    is_active: true,
+    isNew: false,
+    ...overrides,
+  });
+
+  it("変更の無い行は送らない", () => {
+    const baseline = [row(1, "A"), row(2, "B")];
+    expect(optionRowsToSave(baseline, [row(1, "A"), row(2, "B")])).toEqual([]);
+  });
+
+  it("並べ替えで表示順だけが変わった行・削除した行は valueChanged: false、名前を変えた行は true で送る", () => {
+    const baseline = [row(1, "A"), row(2, "B"), row(3, "C"), row(4, "D")];
+    const rows = [
+      row(2, "B", { display_order: 1 }),
+      row(1, "A", { display_order: 2 }),
+      row(3, "C2"),
+      row(4, "D", { is_active: false }),
+    ];
+
+    expect(optionRowsToSave(baseline, rows)).toEqual([
+      { ...row(2, "B", { display_order: 1 }), valueChanged: false },
+      { ...row(1, "A", { display_order: 2 }), valueChanged: false },
+      { ...row(3, "C2"), valueChanged: true },
+      { ...row(4, "D", { is_active: false }), valueChanged: false },
+    ]);
+  });
+
+  it("追加した行は送り、追加してすぐ削除した行は送らない", () => {
+    const baseline = [row(1, "A")];
+    const rows = [
+      row(1, "A"),
+      row(-1, "B", { isNew: true, display_order: 2 }),
+      row(-2, "取り消し", { isNew: true, is_active: false }),
+    ];
+
+    expect(optionRowsToSave(baseline, rows)).toEqual([
+      row(-1, "B", { isNew: true, display_order: 2 }),
+    ]);
+  });
+
+  it("表示順が未設定（null / 0）の行を送る場合は、画面の行数を表示順にする", () => {
+    const baseline = [row(1, "A", { display_order: null }), row(2, "B")];
+    const rows = [row(1, "A2", { display_order: null }), row(2, "B")];
+
+    expect(optionRowsToSave(baseline, rows)).toEqual([
+      { ...row(1, "A2", { display_order: 2 }), valueChanged: true },
+    ]);
   });
 });
