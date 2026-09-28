@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtraEntryInListType, ExtraEntryType } from "@/app/types/types";
 
 const { createServerSupabase } = vi.hoisted(() => ({
@@ -210,18 +210,31 @@ describe("copyExtraEntriesFromPreviousMonth の対象月検証（Issue #140）",
   });
 });
 
-describe("copyExtraEntriesFromPreviousMonth の確定済みの月（Issue #148 / #171）", () => {
+describe("copyExtraEntriesFromPreviousMonth の書き込み（copy_extra_entries）", () => {
   beforeEach(() => {
     createServerSupabase.mockReset();
+    vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
-  // 確定済みの月の取得・複製元（前月）の取得・当月の既存行の取得・INSERT を模す
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  type CopyArgs = { p_target_month: string; p_rows: Record<string, unknown>[] };
+  type CopyResponse = {
+    data: unknown;
+    error: { message: string; code?: string } | null;
+  };
+
+  // 確定済みの月の取得・複製元（前月）の取得・copy_extra_entries を模す。
+  // 当月の既存行の確認と INSERT は copy_extra_entries の中で行うため、extra_entries への
+  // 直接の INSERT が呼ばれたら失敗させる
   const setupCopy = (
     closedMonths: string[],
-    insertError: { message: string; code?: string } | null,
+    sources: ExtraEntryType[],
+    response: CopyResponse,
   ) => {
-    const inserted: unknown[] = [];
-    const august = saved(1, "2026-08-10");
+    const calls: CopyArgs[] = [];
     const from = vi.fn((table: string) => {
       if (table === "profit_loss_closings") {
         return {
@@ -234,38 +247,91 @@ describe("copyExtraEntriesFromPreviousMonth の確定済みの月（Issue #148 /
           }),
         };
       }
-      // extra_entries: 1 回目は複製元（in + gte + lt）、2 回目は当月の既存行（gte + lt）
+      // extra_entries: 複製元の取得（in + gte + lt）
       const query = {
         select: () => query,
         in: () => query,
         gte: () => query,
-        lt: (_column: string, value: string) =>
-          Promise.resolve({
-            data: value === "2026-09-01" ? [august] : [],
-            error: null,
-          }),
-        insert: (rows: unknown[]) => {
-          inserted.push(...rows);
-          return Promise.resolve({ error: insertError });
+        lt: () => Promise.resolve({ data: sources, error: null }),
+        insert: () => {
+          throw new Error("extra_entries へ直接 INSERT してはならない");
         },
       };
       return query;
     });
-    createServerSupabase.mockReturnValue({ from });
-    return inserted;
+    const rpc = vi.fn((name: string, args: CopyArgs) => {
+      expect(name).toBe("copy_extra_entries");
+      calls.push(args);
+      return Promise.resolve(response);
+    });
+    createServerSupabase.mockReturnValue({ from, rpc });
+    return calls;
   };
-
-  it("確定済みの月へのコピーは書き込まずに確定済みのエラーを返す", async () => {
-    const inserted = setupCopy(["2026-09"], null);
-    const result = await copyExtraEntriesFromPreviousMonth([1], "2026-09");
-    expect(result.closedMonthError).toContain("確定済みの月です");
-    expect(inserted).toEqual([]);
+  const counts = (inserted_count: number, skipped_count: number) => ({
+    data: [{ inserted_count, skipped_count }],
+    error: null,
   });
 
-  it("確認の後に対象月が確定された（INSERT が MONTH_CLOSED）場合も、確定済みのエラーを返す", async () => {
-    const inserted = setupCopy([], { message: "MONTH_CLOSED", code: "42501" });
+  it("複製した行と対象月（月初日）を copy_extra_entries に渡し、件数をそのまま返す", async () => {
+    const calls = setupCopy(
+      [],
+      [
+        saved(1, "2026-08-10"),
+        saved(2, "2026-08-31", {
+          entry_type: "expense",
+          category: "交通費",
+          invoice_number: "INV-1",
+          billing_amount: null,
+          expense_amount: 500,
+          payment_method: "現金",
+        }),
+      ],
+      counts(1, 1),
+    );
+    const result = await copyExtraEntriesFromPreviousMonth([1, 2], "2026-09");
+
+    expect(result).toEqual({ insertedCount: 1, skippedCount: 1, error: null });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].p_target_month).toBe("2026-09-01");
+    // 日付は対象月へ置き換え（月末は丸める）、請求書番号は空、id は含めない
+    expect(calls[0].p_rows).toEqual([
+      expect.objectContaining({ entry_date: "2026-09-10", description: "経理追加1" }),
+      expect.objectContaining({
+        entry_date: "2026-09-30",
+        invoice_number: null,
+        expense_amount: 500,
+      }),
+    ]);
+    expect(calls[0].p_rows[0]).not.toHaveProperty("id");
+  });
+
+  it("同時に走った他のコピーが先に登録していた（全件スキップ）場合は、登録 0 件・スキップ件数を返す", async () => {
+    setupCopy([], [saved(1, "2026-08-10"), saved(2, "2026-08-11")], counts(0, 2));
+    const result = await copyExtraEntriesFromPreviousMonth([1, 2], "2026-09");
+    expect(result).toEqual({ insertedCount: 0, skippedCount: 2, error: null });
+  });
+
+  it("複製元が無い（確認の後に削除された）場合は copy_extra_entries を呼ばない", async () => {
+    const calls = setupCopy([], [], counts(0, 0));
     const result = await copyExtraEntriesFromPreviousMonth([1], "2026-09");
-    expect(inserted).toHaveLength(1);
+    expect(result).toEqual({ insertedCount: 0, skippedCount: 0, error: null });
+    expect(calls).toEqual([]);
+  });
+
+  it("確定済みの月へのコピーは書き込まずに確定済みのエラーを返す", async () => {
+    const calls = setupCopy(["2026-09"], [saved(1, "2026-08-10")], counts(1, 0));
+    const result = await copyExtraEntriesFromPreviousMonth([1], "2026-09");
+    expect(result.closedMonthError).toContain("確定済みの月です");
+    expect(calls).toEqual([]);
+  });
+
+  it("確認の後に対象月が確定された（MONTH_CLOSED）場合も、確定済みのエラーを返す", async () => {
+    const calls = setupCopy([], [saved(1, "2026-08-10")], {
+      data: null,
+      error: { message: "MONTH_CLOSED", code: "42501" },
+    });
+    const result = await copyExtraEntriesFromPreviousMonth([1], "2026-09");
+    expect(calls).toHaveLength(1);
     expect(result).toEqual({
       insertedCount: 0,
       skippedCount: 0,
@@ -274,21 +340,21 @@ describe("copyExtraEntriesFromPreviousMonth の確定済みの月（Issue #148 /
     });
   });
 
-  it("それ以外の INSERT の失敗はエラーとして返す", async () => {
-    const insertError = { message: "boom" };
-    setupCopy([], insertError);
+  it("それ以外の失敗はエラーとして返す", async () => {
+    const rpcError = { message: "boom" };
+    setupCopy([], [saved(1, "2026-08-10")], { data: null, error: rpcError });
     const result = await copyExtraEntriesFromPreviousMonth([1], "2026-09");
-    expect(result.error).toBe(insertError);
+    expect(result.error).toBe(rpcError);
     expect(result.closedMonthError).toBeUndefined();
   });
 
-  it("未確定の月へは複製した行を追加する", async () => {
-    const inserted = setupCopy([], null);
-    const result = await copyExtraEntriesFromPreviousMonth([1], "2026-09");
-    expect(result).toEqual({ insertedCount: 1, skippedCount: 0, error: null });
-    expect(inserted).toEqual([
-      expect.objectContaining({ entry_date: "2026-09-10" }),
-    ]);
+  it("件数を読めない応答は失敗として扱う（件数を 0 件と誤表示しない）", async () => {
+    for (const data of [null, [], [{ inserted_count: "1", skipped_count: 0 }]]) {
+      setupCopy([], [saved(1, "2026-08-10")], { data, error: null });
+      const result = await copyExtraEntriesFromPreviousMonth([1], "2026-09");
+      expect(result.error).toBeTruthy();
+      expect(result.insertedCount).toBe(0);
+    }
   });
 });
 

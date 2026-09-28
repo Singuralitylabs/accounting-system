@@ -3,7 +3,6 @@
 import { AccessFailure, ExtraEntryInListType } from "../../types/types";
 import {
   buildCopiedExtraEntries,
-  excludeDuplicateExtraEntries,
   toExtraEntryDbRow as toDbRow,
 } from "../extraEntry";
 import { addMonths, currentJstMonth, isMonthKey } from "../formatter";
@@ -220,7 +219,8 @@ export const getPreviousMonthExtraEntries = async (month: string) => {
 // リクエストで前月以外の id を渡されても、対象は前月分に限定され、
 // 「前月コピー」という機能の前提から外れた複製ができないようにする。
 // さらに、当月に既に同一内容の明細がある場合は二重コピーとみなしスキップする
-// （確認ダイアログを見逃した連続クリック対策）。
+// （確認ダイアログを見逃した連続クリック・複数の経理担当による同時コピー対策。
+// 確認と INSERT は copy_extra_entries が対象月ごとに直列化して行う）。
 export const copyExtraEntriesFromPreviousMonth = async (
   sourceIds: number[],
   targetMonth: string,
@@ -280,32 +280,19 @@ export const copyExtraEntriesFromPreviousMonth = async (
     return { insertedCount: 0, skippedCount: 0, error: null };
   }
 
-  const { startDate: targetRangeStart, endExclusive: targetRangeEnd } =
-    reportRangeBounds({ startMonth: targetMonth, endMonth: targetMonth });
-  const { data: existingEntries, error: existingError } = await supabase
-    .from("extra_entries")
-    .select("*")
-    .gte("entry_date", targetRangeStart)
-    .lt("entry_date", targetRangeEnd);
-
-  if (existingError) {
-    console.error("当月の経理追加収支の確認に失敗しました:", existingError);
-    return { insertedCount: 0, skippedCount: 0, error: existingError };
-  }
-
-  const newRows = excludeDuplicateExtraEntries(rows, existingEntries ?? []);
-  const skippedCount = rows.length - newRows.length;
-  if (newRows.length === 0) {
-    return { insertedCount: 0, skippedCount, error: null };
-  }
-
-  const { error: insertError } = await supabase
-    .from("extra_entries")
-    .insert(newRows);
+  // 当月の既存行の確認から INSERT までを copy_extra_entries（1 トランザクション）で行う。
+  // 関数の中で対象月の排他 advisory lock を取ってから既存行を確認するため、同じ月へのコピーが
+  // 同時に走っても後のコピーは先のコピーのコミットを待ち、先に登録された行を同一内容として
+  // スキップする（別々のリクエストで確認と INSERT をしていた頃は、両方が「未コピー」と判断して
+  // 二重に登録し得た）。同一内容の判定（区分・分類・内容・責任者・チーム・金額）も関数側で行う
+  const { data: copyResult, error: copyError } = await supabase.rpc(
+    "copy_extra_entries",
+    { p_target_month: `${targetMonth}-01`, p_rows: rows },
+  );
 
   // 上の確認の後に対象月が確定された場合（確定済みの月への書き込み・確定との直列化で
   // 拒否された場合。Issue #171）は、確定済みの月へのコピーとして分かりやすいエラーにする
-  if (insertError?.message.includes("MONTH_CLOSED")) {
+  if (copyError?.message.includes("MONTH_CLOSED")) {
     return {
       insertedCount: 0,
       skippedCount: 0,
@@ -313,12 +300,32 @@ export const copyExtraEntriesFromPreviousMonth = async (
       closedMonthError: CLOSED_MONTH_LOCK_MESSAGE,
     };
   }
-  if (insertError) {
-    console.error("経理追加収支の前月コピーに失敗しました:", insertError);
-    return { insertedCount: 0, skippedCount: 0, error: insertError };
+  if (copyError) {
+    console.error("経理追加収支の前月コピーに失敗しました:", copyError);
+    return { insertedCount: 0, skippedCount: 0, error: copyError };
   }
 
-  return { insertedCount: newRows.length, skippedCount, error: null };
+  const counts = copyResult?.[0];
+  if (
+    !counts ||
+    !Number.isInteger(counts.inserted_count) ||
+    !Number.isInteger(counts.skipped_count)
+  ) {
+    // 関数は常に 1 行を返す。想定外の応答は件数を表示できないため失敗として扱う
+    // （コピーはコミット済みの可能性があるが、やり直しても同一内容の行はスキップされる）
+    console.error("経理追加収支の前月コピーの結果が不正です:", copyResult);
+    return {
+      insertedCount: 0,
+      skippedCount: 0,
+      error: { message: "前月コピーの結果を確認できませんでした。" },
+    };
+  }
+
+  return {
+    insertedCount: counts.inserted_count,
+    skippedCount: counts.skipped_count,
+    error: null,
+  };
 };
 
 // 内容・請求先のサジェスト用の過去の入力値を取得する（直近12ヶ月＋月未確定分。

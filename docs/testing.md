@@ -431,6 +431,77 @@ SELECT public.pl171_live_lines('2026-09-01') = public.pl171_closed_lines('2026-0
 
 後片付け: `supabase db reset` で DB を初期状態に戻す（準備で作った auth.users 2 件・profiles 2 件・定期費用「サーバ代」・補助関数 2 つと、確定・書き込みがすべて消える）。
 
+#### 前月コピーの同時実行の再現手順
+
+2 人の経理担当が同じ月へ「前月の経理追加収支をコピー」を同時に実行しても、同じ行が二重に登録されない（後のコピーは先のコピーのコミットを待ち、先に登録された行を同一内容としてスキップする）ことを、ローカル DB（`supabase db reset` 直後）に psql を 2 本つないで確認する。画面では時間幅が狭く再現できないため、`pg_sleep` でコミットを遅らせる。
+
+**本番・共有 DB では実行しない（ローカル DB 専用）**。検証用のユーザー・プロフィール・経理追加収支を作るため、終わったら `supabase db reset` で元に戻す。
+
+以下の SQL ブロックをそれぞれ `setup.sql`（準備）・`copy.sql`（コピー 1 回分）・`check.sql`（確認）に保存し、`psql -f` で流す。`copy.sql` は実行者（`-v sub=...`）とコミットまでの待ち時間（`-v hold=N` 秒）を変数で渡す:
+
+```sh
+PSQL="psql postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+$PSQL -f setup.sql
+# A のコピー（コミットを 3 秒遅らせる）を開始し、その 1 秒後に B のコピー
+$PSQL -v sub=11111111-1111-1111-1111-111111111111 -v hold=3 -f copy.sql & sleep 1
+$PSQL -v sub=22222222-2222-2222-2222-222222222222 -v hold=0 -f copy.sql; wait
+$PSQL -f check.sql
+```
+
+準備（`setup.sql`。postgres で 1 回。経理担当者 A / B と、前月（2026-09）の経理追加収支 2 件）:
+
+```sql
+INSERT INTO auth.users (id, email) VALUES
+  ('11111111-1111-1111-1111-111111111111', 'a@example.com'),
+  ('22222222-2222-2222-2222-222222222222', 'b@example.com');
+INSERT INTO profiles (user_id, email, name, class) VALUES   -- profiles.id は 1（A）・2（B）
+  ('11111111-1111-1111-1111-111111111111', 'a@example.com', '経理A', 'accounting'),
+  ('22222222-2222-2222-2222-222222222222', 'b@example.com', '経理B', 'accounting');
+INSERT INTO extra_entries
+  (entry_type, category, entry_date, description, manager_id, billing_amount, expense_amount, payment_method)
+VALUES
+  ('income',  '協賛金', '2026-09-10', '9月協賛', 1, 10000, NULL, NULL),
+  ('expense', '交通費', '2026-09-30', '定期券',  1, NULL,  5000, '現金');
+```
+
+コピー 1 回分（`copy.sql`。アプリの `copyExtraEntriesFromPreviousMonth` と同じく、前月分の日付を 10 月へ置き換えた行を `copy_extra_entries` に渡す。`:hold` 秒おいてコミット）:
+
+```sql
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', format('{"sub":"%s","role":"authenticated"}', :'sub'), true);
+SELECT * FROM public.copy_extra_entries('2026-10-01', (
+  SELECT jsonb_agg(jsonb_build_object(
+    'entry_type', entry_type, 'category', category,
+    'entry_date', (entry_date + interval '1 month')::date, 'invoice_number', NULL,
+    'description', description, 'billing_target', billing_target,
+    'manager_id', manager_id, 'team', team, 'billing_amount', billing_amount,
+    'expense_amount', expense_amount, 'payment_method', payment_method))
+  FROM public.extra_entries
+  WHERE entry_date >= '2026-09-01' AND entry_date < '2026-10-01'));
+SELECT pg_sleep(:hold);
+COMMIT;
+```
+
+確認（`check.sql`。postgres。両セッションの終了後）:
+
+```sql
+SELECT entry_date, description, count(*) FROM extra_entries
+WHERE entry_date >= '2026-10-01' GROUP BY 1, 2 ORDER BY 1;
+```
+
+| 確認                                 | 期待結果（migration 35 以降）                                                                                                                                                | 修正前                                                        |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| A・B が同じ月をほぼ同時にコピーする  | A は `inserted_count = 2, skipped_count = 0`。B の `copy_extra_entries` は A のコミットまで待ち、`inserted_count = 0, skipped_count = 2` を返す。確認は 2 行とも `count = 1` | 確認で 2 行とも `count = 2`（二重登録。下の「修正前の再現」） |
+| A がコミットせずロールバックした場合 | `copy.sql` の `COMMIT` を `ROLLBACK` にして A を実行する。B は A の終了まで待ってから `inserted_count = 2` を返し、確認は 2 行とも `count = 1`                               | ―                                                             |
+| 別の月へのコピー                     | 対象月（`'2026-10-01'`）と日付の置き換えを 11 月にした B は A を待たずに終わる（ロックは対象月ごと）                                                                         | ―                                                             |
+
+修正前の再現（migration 35 適用前の DB。アプリは「当月の既存行を読む」と「INSERT」を別々のリクエストで行っていたため、それぞれを別のトランザクションとして次の順に実行する）: ① A として当月（10 月）の既存行を `SELECT count(*)` する（0 件）→ ② B も同じく読む（0 件）→ ③ A として前月分を 10 月の日付で `INSERT` する → ④ B も同じ `INSERT` を実行する。確認で 2 行とも `count = 2` になる。
+
+シナリオ間のリセット（postgres）: `DELETE FROM extra_entries WHERE entry_date >= '2026-10-01';`
+
+後片付け: `supabase db reset` で DB を初期状態に戻す（準備で作った auth.users 2 件・profiles 2 件・経理追加収支がすべて消える）。
+
 ## 4. CI / ツール構成
 
 ### 4.1 導入フェーズとロードマップ

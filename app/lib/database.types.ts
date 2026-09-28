@@ -938,6 +938,16 @@ export type Database = {
         Args: { target_team: string }
         Returns: boolean
       }
+      copy_extra_entries: {
+        Args: {
+          p_rows: Json
+          p_target_month: string
+        }
+        Returns: {
+          inserted_count: number
+          skipped_count: number
+        }[]
+      }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
       dismiss_profit_loss_closing_diffs: {
         Args: {
