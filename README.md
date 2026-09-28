@@ -135,6 +135,7 @@ https://accounting.future-tech-association.org
 - Next.js（React フレームワーク）
 - TypeScript
 - Tailwind CSS、Mantine UI（デザインシステム）
+- Mantine Charts（`@mantine/charts`。描画は `recharts`）（損益計算書の年間推移グラフ）
 - Supabase（データベース・認証）
 
 **🚀 開発環境構築の詳細手順については、[docs/setup.md](./docs/setup.md) をご確認ください。**
