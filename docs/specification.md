@@ -392,7 +392,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 
 #### 4.14.2 機能
 
-- ユーザー一覧表示
+- ユーザー一覧表示（権限 → チーム → 名前の順。[5.3.9](#539-管理画面-s009)）
 - ユーザー権限の変更（public/teamleader/accounting/admin）。teamleader 以外に変更するとチームは空になる（PC・モバイル共通）
 - ユーザーのチームの設定（teamleader の場合は必須）
 - ユーザー Slack ID の設定
@@ -1114,7 +1114,12 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
     - 変更件数（「N 件変更あり」）
     - 「変更を破棄」ボタン・「一括保存」ボタン（リスト上部。変更が無い間は押せない）
     - 入力エラーのまとめ表示（保存を試みて入力エラーがあった場合）
-    - ユーザー情報（ID、名前、メール、権限、チーム、Slack ID）。変更した行はハイライトし「変更あり」を表示する
+    - ユーザー情報（名前、メール、権限、チーム、Slack ID）。ID は管理者の操作で使わないため表示しない。変更した行はハイライトし「変更あり」を表示する
+    - 並び順（PC・モバイル共通。上ほど優先）
+      1. 権限：admin → accounting → teamleader → public の順。それ以外の値・未設定は末尾
+      2. チーム：項目管理で設定したチームの表示順。選択肢に無いチーム（無効化・名前変更されたチーム）は選択肢のチームの後ろ（チーム名の順）、チーム未設定は末尾
+      3. 名前（日本語の照合順）
+    - 並べ替えるのは画面の読み込み時と一括保存の成功後だけで、編集中は並べ替えない（権限やチームを変えた行がその場から動くと見失うため）。取得（`getAllUserInfo`）は id 順のままで、表示順は画面側（`app/utils/userListSort.ts` の `sortUserList`）で決める
     - 権限選択ドロップダウン（public/teamleader/accounting/admin。必須）
     - チーム選択ドロップダウン（teamleader の場合必須）
     - Slack ID 入力フィールド
@@ -1333,6 +1338,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 | deleteMatter                                 | 案件の削除処理                                                                       | utils/supabase/deleteMatter.ts                  |
 | checkMatterInfoList                          | 案件の完了処理                                                                       | utils/supabase/checkMatterInfoList.ts           |
 | selectChangedUsers / validateUserUpdates     | ユーザーリストの変更行の抽出・保存前の入力チェック                                   | utils/userList.ts                               |
+| sortUserList                                 | ユーザーリストの表示順（権限 → チーム → 名前）                                       | utils/userListSort.ts                           |
 | sendMessageToSlack                           | Slack 通知の送信処理                                                                 | utils/slack/sendMessageToSlack.ts               |
 | formatCurrency                               | 金額のフォーマット                                                                   | utils/formatter.ts                              |
 | formatTimeToJp                               | 日時のフォーマット                                                                   | utils/formatter.ts                              |

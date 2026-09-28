@@ -164,6 +164,118 @@ describe("UserList", () => {
   describe.each([
     ["PC（テーブル）", 1024],
     ["モバイル（カード）", 375],
+  ])("%s: 表示項目と並び順", (_label, width) => {
+    // id 順（取得順）では権限もチームもばらばらになるユーザー
+    const unsortedUserList = [
+      makeUser({ id: 11, name: "一般 次郎", class: "public", team: null }),
+      makeUser({
+        id: 12,
+        name: "リーダー B",
+        class: "teamleader",
+        team: "チームB",
+      }),
+      makeUser({ id: 13, name: "管理 花子", class: "admin", team: null }),
+      makeUser({
+        id: 14,
+        name: "リーダー 旧",
+        class: "teamleader",
+        team: "旧チーム",
+      }),
+      makeUser({ id: 15, name: "経理 太郎", class: "accounting", team: null }),
+      makeUser({
+        id: 16,
+        name: "リーダー A",
+        class: "teamleader",
+        team: "チームA",
+      }),
+    ];
+    const sortedNames = [
+      "管理 花子",
+      "経理 太郎",
+      "リーダー A",
+      "リーダー B",
+      // 選択肢に無いチームは選択肢のチームの後ろ
+      "リーダー 旧",
+      "一般 次郎",
+    ];
+    // 画面に並んでいる順のユーザー名（Slack ID 欄の aria-label から読む）
+    const displayedNames = () =>
+      screen
+        .getAllByRole("textbox")
+        .map((input) => input.getAttribute("aria-label") ?? "")
+        .filter((label) => label.endsWith("の Slack ID"))
+        .map((label) => label.replace("の Slack ID", ""));
+
+    beforeEach(() => {
+      viewport.width = width;
+    });
+
+    it("ID を表示しない", () => {
+      renderWithMantine(
+        <UserList userList={unsortedUserList} teamList={teamList} />,
+      );
+
+      expect(screen.queryByText("ID")).not.toBeInTheDocument();
+      expect(screen.queryByText("ユーザーID")).not.toBeInTheDocument();
+      unsortedUserList.forEach((user) =>
+        expect(screen.queryByText(String(user.id))).not.toBeInTheDocument(),
+      );
+    });
+
+    it("権限 → チームの表示順 → 名前の順に表示する", () => {
+      renderWithMantine(
+        <UserList userList={unsortedUserList} teamList={teamList} />,
+      );
+
+      expect(displayedNames()).toEqual(sortedNames);
+    });
+
+    it("編集中は行の順を変えず、保存に成功したら並べ直す", async () => {
+      renderWithMantine(
+        <UserList userList={unsortedUserList} teamList={teamList} />,
+      );
+
+      // 一般ユーザーを admin に、リーダー A を public に変える
+      await selectOption("一般 次郎の権限", "admin");
+      await selectOption("リーダー Aの権限", "public");
+      expect(displayedNames()).toEqual(sortedNames);
+
+      fireEvent.click(saveButton());
+      await waitFor(() => expect(refresh).toHaveBeenCalled());
+
+      expect(displayedNames()).toEqual([
+        // admin 同士は名前順
+        "一般 次郎",
+        "管理 花子",
+        "経理 太郎",
+        "リーダー B",
+        "リーダー 旧",
+        "リーダー A",
+      ]);
+    });
+
+    it("保存に失敗したら並べ直さない", async () => {
+      bulkUpdateProfiles.mockResolvedValue({
+        error: {
+          kind: "validationFailed",
+          message: "何も保存しませんでした。",
+        },
+      });
+      renderWithMantine(
+        <UserList userList={unsortedUserList} teamList={teamList} />,
+      );
+
+      await selectOption("一般 次郎の権限", "admin");
+      fireEvent.click(saveButton());
+      await waitFor(() => expect(notifyError).toHaveBeenCalled());
+
+      expect(displayedNames()).toEqual(sortedNames);
+    });
+  });
+
+  describe.each([
+    ["PC（テーブル）", 1024],
+    ["モバイル（カード）", 375],
   ])("%s: 一括保存", (_label, width) => {
     beforeEach(() => {
       viewport.width = width;

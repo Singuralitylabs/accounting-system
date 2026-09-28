@@ -28,26 +28,17 @@ const UserCard = ({
       className={`py-4 border-b border-gray-200 ${isChanged ? "bg-yellow-50" : ""}`}
     >
       <Stack>
-        <div className="flex gap-8">
-          <div>
-            <Text size="sm" fw={500} c="dimmed">
-              ユーザーID
-            </Text>
-            <Text>{userInfo.id}</Text>
-          </div>
-
-          <div>
-            <Text size="sm" fw={500} c="dimmed">
-              名前
-            </Text>
-            <div className="flex items-center gap-2">
-              <Text>{userInfo.name}</Text>
-              {isChanged && (
-                <Badge size="xs" color="orange" variant="light">
-                  変更あり
-                </Badge>
-              )}
-            </div>
+        <div>
+          <Text size="sm" fw={500} c="dimmed">
+            名前
+          </Text>
+          <div className="flex items-center gap-2">
+            <Text>{userInfo.name}</Text>
+            {isChanged && (
+              <Badge size="xs" color="orange" variant="light">
+                変更あり
+              </Badge>
+            )}
           </div>
         </div>
 

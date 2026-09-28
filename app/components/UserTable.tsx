@@ -28,7 +28,6 @@ const UserTable = ({
       data-changed={isChanged || undefined}
       className={isChanged ? "bg-yellow-50" : undefined}
     >
-      <Table.Td>{userInfo.id}</Table.Td>
       <Table.Td>
         <div className="flex items-center gap-2">
           <span>{userInfo.name}</span>

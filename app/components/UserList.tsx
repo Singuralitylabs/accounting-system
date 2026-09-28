@@ -21,12 +21,13 @@ import {
   UserValidationErrors,
   validateUserUpdates,
 } from "../utils/userList";
+import { sortUserList } from "../utils/userListSort";
 import { useViewportSize } from "@mantine/hooks";
 import UserCard from "./UserCard";
 import UserTable from "./UserTable";
 
+// ID は管理者の操作で使わないため表示しない（React の key には引き続き id を使う）
 const elementListOfUser = [
-  "ID",
   "名前",
   "メールアドレス",
   "権限",
@@ -56,7 +57,11 @@ const toRowMap = (users: ProfilesType[]) =>
 
 const UserList = ({ userList, teamList, teamListError = false }: Props) => {
   const router = useRouter();
-  const [rows, setRows] = useState<ProfilesType[]>(userList);
+  // 表示順は権限 → チーム → 名前（sortUserList）。並べ替えるのは読み込み時と保存成功後
+  // だけで、編集中は並べ替えない（権限やチームを変えた行がその場から動くと見失うため）
+  const [rows, setRows] = useState<ProfilesType[]>(() =>
+    sortUserList(userList, teamList),
+  );
   // 画面に読み込んだ時点（または直前の保存成功時点）の行。これと比べて変更した行を
   // ハイライトし、保存時は変更した行だけを送る（ExtraEntryList と同じ方式）
   const [baseline, setBaseline] = useState(() => toRowMap(userList));
@@ -90,10 +95,10 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
   hasChangesRef.current = hasChanges;
   useEffect(() => {
     if (!hasChangesRef.current) {
-      setRows(userList);
+      setRows(sortUserList(userList, teamList));
       setBaseline(toRowMap(userList));
     }
-  }, [userList]);
+  }, [userList, teamList]);
 
   // 未保存の変更がある状態でリロード・タブを閉じようとしたら警告する
   useEffect(() => {
@@ -164,6 +169,8 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
         changedRows.forEach((row) => next.set(row.id, row));
         return next;
       });
+      // 保存後の値で並べ直す
+      setRows((prev) => sortUserList(prev, teamList));
       setShowErrors(false);
       notifySuccess(`${changedRows.length} 件のユーザー情報を保存しました。`);
       router.refresh();
