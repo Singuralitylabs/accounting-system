@@ -1222,6 +1222,23 @@ CREATE POLICY "extra_entries_delete_policy" ON extra_entries
 - EXECUTE は authenticated のみ（`REVOKE ... FROM PUBLIC, anon`）
 - 呼び出し側（`app/utils/supabase/extraEntries.ts` の `bulkUpsertExtraEntry`）は、分かりやすいエラーを出すために書き込み前に確定済みの月・削除済みの行を確認し、該当すれば RPC を呼ばない。画面からは追加・削除・編集した行だけが送られる
 
+#### 前月コピーの直列化（`copy_extra_entries`。migration 35）
+
+損益計算書の「前月の経理追加収支をコピー」は `copy_extra_entries(p_target_month date, p_rows jsonb)` を 1 回呼んで行う（関数呼び出し = 1 トランザクション）。以前はアプリ側で「当月の既存行を読んで同一内容の行を除く」と「残りを INSERT する」を別々のリクエストで行っており、2 人の経理担当が同じ月を同時にコピーすると、どちらも「未コピー」と判断して同じ行を二重に登録し得た（確定との直列化の月ロック（5.14）は書き込み側が共有ロックのため、コピー同士は直列化されない）。
+
+- 対象月の**排他** advisory lock（`private.lock_extra_entries_copy`。`pg_advisory_xact_lock(140, YYYYMM)`、トランザクション終了まで保持）を取ってから、当月の既存行と同一内容の行を除いて INSERT する。後から来たコピーは先のコピーの終了（コミット / ロールバック）まで待ち、ロック取得後の確認で先に登録された行をスキップする。別の月へのコピーは互いに待たない
+- advisory lock の名前空間（第 1 キー）: `140` = 前月コピー（本関数）、`148` = 月次収支確定と書き込みの直列化（`private.lock_pl_month`、5.14）。別の用途で advisory lock を使う場合は、これらと異なる値にする
+- デッドロック: コピーは前月コピーのロック（140）を取った後に、INSERT のトリガー（6.4）で確定の月ロック（148）の共有ロックを取る。確定（`save_profit_loss_closing`）と一括保存（`save_extra_entries`）は 140 を取らないため、待ちの循環は生じない（先のコピーが確定を待っている間、後のコピーは先のコピーを待つだけ。確定が先なら、コピーは確定のコミットを待ってから `MONTH_CLOSED` で拒否される）
+- ロック取得後の確認が先のコピーのコミットを見られるのは、READ COMMITTED で VOLATILE な plpgsql 関数が文ごとに新しいスナップショットを取るため（ロックの取得と、確認を含む INSERT を別の文にしている）。PostgREST のトランザクションは READ COMMITTED（既定）であることを前提にする
+- 同一内容の判定: entry_type・分類・内容・責任者・チーム・請求額・経費がすべて一致する当月の行があれば除く（NULL 同士も一致とみなす）。entry_date（対象月内で共通）・請求書番号（コピーでは常に空）・請求先・決済方法は比較しない。判定の相手は当月の既存行だけで、`p_rows` の中の同一内容の行どうしは除かない（当月に同一内容の行が無ければ、前月に同一内容の行が複数あってもすべてコピーする。当月に 1 件でもあれば、`p_rows` の中の同じ内容の行はすべてスキップする。従来のアプリ側の判定と同じ）
+- 一意制約（部分インデックス + `ON CONFLICT DO NOTHING`）にしない理由: 同一内容の明細（同じ日の交通費 2 件など）は正当に存在し得るため、重複判定のキーは一意ではない。既存データにある同一内容の行もそのまま残る
+- `p_rows` の各行の `entry_date` はすべて `p_target_month` の月内でなければならず、それ以外（NULL を含む）が混ざると `INVALID_INPUT`（22023）で全体を拒否する（他の月の行はロックで守られないため）。`p_target_month` が NULL・`p_rows` が配列でない・要素がオブジェクトでない場合も `INVALID_INPUT`
+- 戻り値は 1 行（`inserted_count` = 登録した件数、`skipped_count` = 当月に同一内容の行があるため除いた件数）。`p_rows` が空なら 0 / 0
+- SECURITY INVOKER（既定）。ロックを取る前に `public.auth_user_class()` が経理担当者・管理者かを確認し、それ以外は `FORBIDDEN`（42501）で拒否する（書き込めない利用者が、何も INSERT されない入力で月のロックを持ち続け、経理担当のコピーを待たせることを防ぐ。`save_profit_loss_closing` と同じ判定）。上記の RLS（書き込みは経理担当者・管理者のみ・確定済みの月の編集ロック）と確定との直列化トリガー（6.4）もそのまま適用される。既存行の確認も RLS 越しに行う（コピーできる経理担当者・管理者は全行を参照できる）。確定済みの月へのコピーは、登録する行があれば `MONTH_CLOSED`（42501）で拒否される（全行が同一内容でスキップされる場合は何も書き込まず、登録 0 件で正常に終わる）
+- EXECUTE は authenticated のみ（`REVOKE ... FROM PUBLIC, anon`）。`private.lock_extra_entries_copy` は `pg_advisory_*` の EXECUTE 権限に左右されないよう SECURITY DEFINER（`private.lock_pl_month` と同じ）
+- 呼び出し側（`app/utils/supabase/extraEntries.ts` の `copyExtraEntriesFromPreviousMonth`）は、確定済みの月の確認・複製元の取得（id 指定 + 前月の日付範囲）・行の組み立て（`app/utils/extraEntry.ts` の `buildCopiedExtraEntries`）までを行い、既存行の確認と INSERT は本関数に任せる
+- 同時実行の再現手順は `docs/testing.md` 3.7「前月コピーの同時実行の再現手順」
+
 ### 5.8 budget_declarations テーブル
 
 > recurring_costs / extra_entries と異なり、**チームリーダーに自チーム分の書き込みを許可する**（事前収支申告はチームリーダー自身が入力するため）。経理担当者・管理者は全行、チームリーダーは自チームの行のみ SELECT / INSERT / UPDATE / DELETE でき、public ロールはアクセスできない。UPDATE は `WITH CHECK` でも team を制約し、他チームへの付け替えを防ぐ。
@@ -1774,7 +1791,7 @@ REVOKE ALL ON TABLE profit_loss_labels FROM anon;
 
 ### 5.14 profit_loss_closings / profit_loss_closing_lines テーブル
 
-> 月次収支確定（Issue #148）。ヘッダ（profit_loss_closings）の SELECT はログインユーザー全員（担当者の案件編集時に「確定済みの月」の注意表示を出すため。金額を持たない）、DELETE（確定解除）は経理担当者・管理者のみ。**ヘッダ・明細の追加・更新はテーブルへの権限を authenticated に付与せず、確定用の RPC（`save_profit_loss_closing` / `apply_profit_loss_closing_diffs`。SECURITY DEFINER で関数内で経理担当者・管理者かを判定し、それ以外は `FORBIDDEN`）経由でのみ行う**。確定者・反映者（id と氏名）を RPC が auth.uid() から解決して書き込むため、PostgREST からの直接の書き込みで他人名義にしたり、経理担当者・管理者以外が書き込んだりできない。**ただし RPC は public スキーマにあり、経理担当者・管理者は PostgREST から直接呼べる。その場合の明細の値は検証しない**（集計し直した値を渡すのは Server Action の責務で、経理担当者・管理者は信頼する前提。損益調整の記録を残さずに確定値を変える操作まで防ぐには、RPC の EXECUTE を authenticated から外し service_role で呼ぶ構成に変える必要がある）。明細（profit_loss_closing_lines）の SELECT は経理担当者・管理者が全行、チームリーダーは `team = 自チーム OR team IS NULL`、または自分が作成した案件の明細（`matter_user_id` = 自分の profiles.id）（ライブ集計時の matters / business / costs / recurring_costs / extra_entries の RLS と同じ範囲。確定の前後でチームリーダーの表示範囲を変えない）、書き込みは RPC 経由のみ（確定解除時の削除はヘッダからの CASCADE）。public ロールは明細を読めない。anon は両テーブルとも権限なし。損益計算書改修（Issue #145）で追加した RPC（`save_profit_loss_label` / `save_profit_loss_closing` / `apply_profit_loss_closing_diffs` / `dismiss_profit_loss_closing_diffs` / `undo_profit_loss_closing_dismissals` / `save_extra_entries`）の EXECUTE は authenticated のみ（Supabase の既定で anon にも付く EXECUTE を `REVOKE ... FROM PUBLIC, anon` で外す）。
+> 月次収支確定（Issue #148）。ヘッダ（profit_loss_closings）の SELECT はログインユーザー全員（担当者の案件編集時に「確定済みの月」の注意表示を出すため。金額を持たない）、DELETE（確定解除）は経理担当者・管理者のみ。**ヘッダ・明細の追加・更新はテーブルへの権限を authenticated に付与せず、確定用の RPC（`save_profit_loss_closing` / `apply_profit_loss_closing_diffs`。SECURITY DEFINER で関数内で経理担当者・管理者かを判定し、それ以外は `FORBIDDEN`）経由でのみ行う**。確定者・反映者（id と氏名）を RPC が auth.uid() から解決して書き込むため、PostgREST からの直接の書き込みで他人名義にしたり、経理担当者・管理者以外が書き込んだりできない。**ただし RPC は public スキーマにあり、経理担当者・管理者は PostgREST から直接呼べる。その場合の明細の値は検証しない**（集計し直した値を渡すのは Server Action の責務で、経理担当者・管理者は信頼する前提。損益調整の記録を残さずに確定値を変える操作まで防ぐには、RPC の EXECUTE を authenticated から外し service_role で呼ぶ構成に変える必要がある）。明細（profit_loss_closing_lines）の SELECT は経理担当者・管理者が全行、チームリーダーは `team = 自チーム OR team IS NULL`、または自分が作成した案件の明細（`matter_user_id` = 自分の profiles.id）（ライブ集計時の matters / business / costs / recurring_costs / extra_entries の RLS と同じ範囲。確定の前後でチームリーダーの表示範囲を変えない）、書き込みは RPC 経由のみ（確定解除時の削除はヘッダからの CASCADE）。public ロールは明細を読めない。anon は両テーブルとも権限なし。損益計算書改修（Issue #145）で追加した RPC（`save_profit_loss_label` / `save_profit_loss_closing` / `apply_profit_loss_closing_diffs` / `dismiss_profit_loss_closing_diffs` / `undo_profit_loss_closing_dismissals` / `save_extra_entries`）の EXECUTE は authenticated のみ（Supabase の既定で anon にも付く EXECUTE を `REVOKE ... FROM PUBLIC, anon` で外す）。前月コピーの `copy_extra_entries`（migration 35、5.7）も同様。
 
 ```sql
 -- 確定済み判定（RLS の編集ロックから呼ぶ。private スキーマ・SECURITY DEFINER）
@@ -1977,7 +1994,7 @@ CREATE TRIGGER detect_matters_updates
 
 損益調整（profit_loss_adjustments）・経理追加収支（extra_entries）の書き込みを、同じ月の確定（`save_profit_loss_closing`）と月単位の advisory lock で直列化する BEFORE 行トリガー。RLS の編集ロック（5.14）は文のスナップショットで評価されるため、「書き込みが RLS を通過（未確定）→ 確定のコミットと直後の再集計 → 書き込みのコミット」の順で進むと、書き込みが確定値から漏れたまま以後ロックされていた。その対策（設計の詳細は 5.14 の「確定と書き込みの直列化」）。
 
-- `private.lock_pl_month(p_month date, p_exclusive boolean)`: 月単位の advisory lock（`pg_advisory_xact_lock(148, YYYYMM)` / `pg_advisory_xact_lock_shared(148, YYYYMM)`。第 1 キー 148 は本機能の名前空間）。トランザクション終了まで保持。NULL は何もしない。SECURITY DEFINER・`SET search_path = ''`。EXECUTE は authenticated のみ
+- `private.lock_pl_month(p_month date, p_exclusive boolean)`: 月単位の advisory lock（`pg_advisory_xact_lock(148, YYYYMM)` / `pg_advisory_xact_lock_shared(148, YYYYMM)`。第 1 キー 148 は本機能の名前空間。前月コピーの `private.lock_extra_entries_copy` は別の値 140 を使う（5.7））。トランザクション終了まで保持。NULL は何もしない。SECURITY DEFINER・`SET search_path = ''`。EXECUTE は authenticated のみ
 - `private.guard_pl_closed_month_write()`: トリガー関数（SECURITY INVOKER・`SET search_path = ''`）。`TG_ARGV[0]` の列（月）について、`row_security_active` が true（RLS が適用される利用者の書き込み）のときだけ、書き込んだ行の月（INSERT は新しい行、DELETE は元の行、UPDATE は変更前と変更後の両方）の**共有ロック**を取り、ロック取得後に別の文（= 新しいスナップショット）で `private.is_pl_month_closed` を判定し直し、確定済みなら `MONTH_CLOSED`（SQLSTATE 42501）で拒否する
 - BEFORE トリガーは RLS の WITH CHECK より先に評価されるため、書き込み権限の無い利用者（teamleader / public 等）の INSERT も、RLS で拒否される前に月の共有ロックを取る（ロックはそのトランザクションの終了で外れるため実害はない）。拒否のされ方は、未確定の月なら従来どおり RLS 違反、確定済みの月ならトリガーの `MONTH_CLOSED`（どちらも SQLSTATE 42501）
 - anon: 経理追加収支への日付ありの INSERT は、トリガーが `private` の関数を実行できないため `permission denied`（`private.lock_pl_month` の実行権限、またはスキーマ `private` の使用権限）のエラーで拒否される（従来の RLS 違反とはメッセージが異なるが、書き込めないことは同じ。日付なしの行はロックを取らないため従来どおり RLS 違反）。損益調整は anon にテーブル権限が無い（migration 23）ため、トリガーより前に従来どおり `permission denied for table profit_loss_adjustments` で拒否される
