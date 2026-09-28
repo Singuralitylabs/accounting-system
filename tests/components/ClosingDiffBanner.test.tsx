@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import ClosingDiffBanner from "@/app/components/profitLoss/ClosingDiffBanner";
 import {
   closingDiffScopeMessage,
+  isBeforeDiffScope,
   isClosedMonthBeforeDiffScope,
 } from "@/app/components/profitLoss/ClosingDiffScopeNote";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
@@ -54,24 +55,29 @@ describe("ClosingDiffBanner（Issue #149 / #172）", () => {
   });
 });
 
-describe("isClosedMonthBeforeDiffScope（月次タブの注記の判定。Issue #172）", () => {
-  const closed = new Set(["2024-09", "2024-10"]);
+describe("isBeforeDiffScope / isClosedMonthBeforeDiffScope（目印の対象範囲外の判定。Issue #172）", () => {
+  it("isBeforeDiffScope: 件数集計の対象の開始月より前の月だけ true（開始月そのものは対象内）", () => {
+    expect(isBeforeDiffScope("2024-09", "2024-10")).toBe(true);
+    expect(isBeforeDiffScope("2024-10", "2024-10")).toBe(false);
+    expect(isBeforeDiffScope("2024-11", "2024-10")).toBe(false);
+    // 年をまたいでも "YYYY-MM" の文字列比較で判定できる
+    expect(isBeforeDiffScope("2023-12", "2024-01")).toBe(true);
+  });
 
-  it("確定済みで、件数集計の対象の開始月より前の月だけ true", () => {
-    expect(isClosedMonthBeforeDiffScope("2024-09", closed, "2024-10")).toBe(
-      true,
-    );
+  it("isClosedMonthBeforeDiffScope: 確定済みで、対象の開始月より前の月だけ true", () => {
+    expect(isClosedMonthBeforeDiffScope("2024-09", true, "2024-10")).toBe(true);
     // 開始月そのもの・未確定の月は対象外
-    expect(isClosedMonthBeforeDiffScope("2024-10", closed, "2024-10")).toBe(
+    expect(isClosedMonthBeforeDiffScope("2024-10", true, "2024-10")).toBe(
       false,
     );
-    expect(isClosedMonthBeforeDiffScope("2024-08", closed, "2024-10")).toBe(
+    expect(isClosedMonthBeforeDiffScope("2024-08", false, "2024-10")).toBe(
       false,
     );
   });
 
   it("開始月が分からない（集計の取得前・失敗時）なら注記しない", () => {
-    expect(isClosedMonthBeforeDiffScope("2024-09", closed, undefined)).toBe(
+    expect(isBeforeDiffScope("2024-09", undefined)).toBe(false);
+    expect(isClosedMonthBeforeDiffScope("2024-09", true, undefined)).toBe(
       false,
     );
   });

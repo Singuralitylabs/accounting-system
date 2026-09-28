@@ -20,6 +20,7 @@ import CopyPreviousExtraEntriesButton from "./CopyPreviousExtraEntriesButton";
 import ClosingControl from "./ClosingControl";
 import ClosingDiffBanner from "./ClosingDiffBanner";
 import ClosingDiffScopeNote, {
+  isBeforeDiffScope,
   isClosedMonthBeforeDiffScope,
 } from "./ClosingDiffScopeNote";
 import {
@@ -87,7 +88,7 @@ const ProfitLossView = ({
   // そうした月を表示しているときに対象範囲を注記する（集計の取得前・失敗時は注記しない）
   const diffScopeFromMonth = diffSummary?.fromMonth;
   const hasClosedMonthBeforeDiffScope = Array.from(closedMonths).some((m) =>
-    isClosedMonthBeforeDiffScope(m, closedMonths, diffScopeFromMonth),
+    isBeforeDiffScope(m, diffScopeFromMonth),
   );
 
   // 年度の選択肢（当年度+1 〜 当年度-4）
@@ -152,7 +153,7 @@ const ProfitLossView = ({
             diffScopeFromMonth &&
             isClosedMonthBeforeDiffScope(
               month,
-              closedMonths,
+              closedMonths.has(month),
               diffScopeFromMonth,
             ) && (
               <ClosingDiffScopeNote

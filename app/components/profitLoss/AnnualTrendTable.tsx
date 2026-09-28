@@ -6,7 +6,9 @@ import { Paper, Table, Text, Tooltip } from "@mantine/core";
 import { FaExclamationTriangle, FaLock } from "react-icons/fa";
 // 損益の符号に応じた文字色（0 は黒字扱い）。月次の損益計算書と共通
 import { amountColor } from "./plTableParts";
-import ClosingDiffScopeNote from "./ClosingDiffScopeNote";
+import ClosingDiffScopeNote, {
+  isClosedMonthBeforeDiffScope,
+} from "./ClosingDiffScopeNote";
 
 type Props = {
   trend: AnnualTrendType;
@@ -53,11 +55,13 @@ const AnnualTrendTable = ({
   const closedColumnClass = (month: AnnualTrendType["months"][number]) =>
     month.closing ? CLOSED_MONTH_COLUMN_CLASS : "";
   const hasClosedMonth = trend.months.some((month) => month.closing);
-  const hasClosedMonthBeforeDiffScope =
-    diffScopeFromMonth !== undefined &&
-    trend.months.some(
-      (month) => month.closing && month.month < diffScopeFromMonth,
-    );
+  const hasClosedMonthBeforeDiffScope = trend.months.some((month) =>
+    isClosedMonthBeforeDiffScope(
+      month.month,
+      Boolean(month.closing),
+      diffScopeFromMonth,
+    ),
+  );
 
   return (
     <>
@@ -70,7 +74,7 @@ const AnnualTrendTable = ({
           色付きの列は確定済みの月（確定値を表示）です
         </Text>
       )}
-      {hasClosedMonthBeforeDiffScope && (
+      {diffScopeFromMonth && hasClosedMonthBeforeDiffScope && (
         <ClosingDiffScopeNote fromMonth={diffScopeFromMonth} className="mb-2" />
       )}
       <Paper withBorder radius="md" className="overflow-x-auto">
