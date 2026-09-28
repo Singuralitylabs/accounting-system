@@ -19,7 +19,16 @@ import {
 } from "@/app/utils/supabase/profitLossSource";
 import type { ReportSourceRows } from "@/app/utils/supabase/profitLossSource";
 import { fetchClosedMonthKeys } from "@/app/utils/supabase/closedMonthsQuery";
-import type { BusinessRow, CostRow } from "@/app/utils/profitLossLogic";
+import {
+  buildLiveMonthLines,
+  reportFlags,
+  type BusinessRow,
+  type CostRow,
+} from "@/app/utils/profitLossLogic";
+import {
+  buildMonthReport,
+  monthLinesToClosingRows,
+} from "@/app/utils/profitLossClosing";
 import type {
   ClosingLineInput,
   ProfitLossAdjustmentType,
@@ -274,11 +283,17 @@ const labelRow = (
 // .in / .gt("id") は実際の PostgREST と同じく行を絞り、呼び出しを記録する
 type QueryCall = { table: string; method: string; args: unknown[] };
 type FakeRow = { id: number } & Record<string, unknown>;
-const fakeSupabase = (tables: Record<string, FakeRow[]>) => {
+// periodFilters: 期間で絞る取得（.or() を使う business / costs 等の取得）に掛ける行の条件
+// （PostgREST 側の期間の絞り込みの代わり。ID 指定の補完取得には掛からない）
+const fakeSupabase = (
+  tables: Record<string, FakeRow[]>,
+  periodFilters: Record<string, (row: FakeRow) => boolean> = {},
+) => {
   const calls: QueryCall[] = [];
   const buildQuery = (table: string) => {
     let rows = [...(tables[table] ?? [])];
     const query: Record<string, unknown> = {};
+    const periodFilter = periodFilters[table];
     const chain =
       (method: string, apply?: (...args: unknown[]) => void) =>
       (...args: unknown[]) => {
@@ -287,7 +302,11 @@ const fakeSupabase = (tables: Record<string, FakeRow[]>) => {
         return query;
       };
     query.select = chain("select");
-    query.or = chain("or");
+    query.or = chain("or", () => {
+      if (periodFilter) {
+        rows = rows.filter(periodFilter);
+      }
+    });
     query.lt = chain("lt");
     query.gte = chain("gte");
     query.order = chain("order");
@@ -542,5 +561,143 @@ describe("fetchClosedMonthKeys の開始月の絞り込み（Issue #172）", () 
       months: ["2024-09", "2024-10"],
     });
     expect(all.calls.some((call) => call.method === "gte")).toBe(false);
+  });
+});
+
+describe("表示タイトルを絞って取得しても損益計算書の表示は変わらない（Issue #172 の受け入れ基準）", () => {
+  const month = "2026-08";
+  // 案件開始日を変えた（他月へ移動した）行
+  const inSeptember = <T extends BusinessRow | CostRow>(row: T): T => ({
+    ...row,
+    matters: { ...row.matters, start_date: "2026-09-10" },
+  });
+
+  it("確定済みの月（削除・他月への移動・追加の差分、対象行が期間外へ移動した調整の補完行を含む）で、全件取得した場合とレポート全体が一致する", async () => {
+    // 確定時点の行: 売上 1・7・50、費用 2、定期費用 3・60（いずれも 8 月に計上）
+    const closedLines = monthLinesToClosingRows(
+      buildLiveMonthLines({
+        month,
+        businessRows: [
+          businessRow(1, 10),
+          businessRow(7, 30),
+          businessRow(50, 20),
+        ],
+        costRows: [costRow(2, 10)],
+        recurringCosts: [recurringRow(3), recurringRow(60)],
+        extraEntries: [],
+        adjustments: [],
+      }),
+    );
+    // 現在の行: 売上 7 は 9 月へ移動（確定明細から「削除」）、売上 50・案件 20・定期費用 60 は
+    // 削除済み、売上 3（案件 11）は確定後に追加、売上 8（案件 31）は調整を付けた後に 9 月へ移動
+    const businessTable = [
+      businessRow(1, 10),
+      businessRow(3, 11),
+      inSeptember(businessRow(7, 30)),
+      inSeptember(businessRow(8, 31)),
+    ];
+    const allLabels = [
+      labelRow(1, { matter_id: 10 }),
+      labelRow(2, { matter_id: 11 }),
+      labelRow(3, { matter_id: 20 }),
+      labelRow(4, { matter_id: 30 }),
+      labelRow(5, { matter_id: 31 }),
+      labelRow(6, { business_id: 1 }),
+      labelRow(7, { business_id: 3 }),
+      labelRow(8, { business_id: 7 }),
+      labelRow(9, { business_id: 8 }),
+      labelRow(10, { business_id: 50 }),
+      labelRow(11, { cost_id: 2 }),
+      labelRow(12, { recurring_cost_id: 3 }),
+      labelRow(13, { recurring_cost_id: 60 }),
+      // 表示に関係しない表示タイトル
+      labelRow(90, { matter_id: 99 }),
+      labelRow(91, { business_id: 99 }),
+      labelRow(92, { cost_id: 99 }),
+      labelRow(93, { recurring_cost_id: 99 }),
+    ];
+    const { labelInCalls } = fakeSupabase(
+      {
+        business: businessTable,
+        costs: [costRow(2, 10)],
+        recurring_costs: [recurringRow(3)],
+        extra_entries: [],
+        profit_loss_adjustments: [
+          adjustmentRow(1, { business_id: 8 }),
+          adjustmentRow(2, { cost_id: 2 }),
+        ],
+        profit_loss_closings: [{ id: 1, target_month: "2026-08-01" }],
+        profit_loss_closing_lines: closedLines.map((line, index) => ({
+          ...line,
+          id: index + 1,
+          closing_id: 1,
+        })),
+        profit_loss_closing_dismissals: [],
+        profit_loss_labels: allLabels,
+      },
+      {
+        // 8 月（案件開始日）の行だけを期間の取得で返す
+        business: (row) =>
+          (row as unknown as BusinessRow).matters.start_date?.startsWith(
+            month,
+          ) ?? false,
+      },
+    );
+
+    const rows = await fetchReportSourceRows({
+      startMonth: month,
+      endMonth: month,
+    });
+    expect(rows).not.toBeNull();
+    await supplementAdjustmentTargets(month, rows!);
+    // 補完行（売上 8）の案件 31 のタイトルは補完時に追加で取得している
+    expect(labelInCalls().at(-1)?.args).toEqual(["matter_id", [31]]);
+    // 表示に関係しない表示タイトルは取得していない
+    expect(sorted(rows!.labels.map((label) => label.id))).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+    ]);
+
+    const build = (labels: ProfitLossLabelType[]) =>
+      buildMonthReport({
+        month,
+        ...rows!,
+        labels,
+        closing: rows!.closings.get(month) ?? null,
+        includeMonthlyDetails: true,
+        ...reportFlags("accounting"),
+      });
+    const scoped = build(rows!.labels);
+    const full = build(allLabels);
+    expect(scoped).toEqual(full);
+
+    // 表示タイトルが実際に使われる箇所を含んでいること（比較が空振りしていないこと）
+    const matter10 = scoped.matterBreakdowns.find((m) => m.matterId === 10)!;
+    expect(matter10.displayTitle).toBe("タイトル1");
+    expect(matter10.businesses[0].displayTitle).toBe("タイトル6");
+    expect(matter10.costs[0].displayTitle).toBe("タイトル11");
+    const recurringTitles = scoped.recurringCostByItem.flatMap((item) =>
+      item.details.map((line) => line.displayTitle),
+    );
+    expect(recurringTitles.sort()).toEqual(["タイトル12", "タイトル13"]);
+    const diffs = [
+      ...scoped.closingDiffs!.pending,
+      ...scoped.closingDiffs!.dismissed,
+    ];
+    expect(
+      diffs
+        .map((diff) => [diff.key, diff.kind, diff.matterTitle, diff.name])
+        .sort(),
+    ).toEqual(
+      [
+        ["business:3", "added", "タイトル2", "タイトル7"],
+        ["business:50", "removed", "タイトル3", "タイトル10"],
+        ["business:7", "removed", "タイトル4", "タイトル8"],
+        // 確定明細は調整なしで作ったため、費用 2 の調整が「金額変更」の差分になる
+        ["cost:2", "changed", "タイトル1", "タイトル11"],
+      ].sort(),
+    );
+    expect(scoped.orphanedAdjustments?.map((o) => o.label)).toEqual([
+      "タイトル5 - タイトル9",
+    ]);
   });
 });

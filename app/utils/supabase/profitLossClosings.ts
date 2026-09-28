@@ -5,6 +5,7 @@ import {
   ClosingDiffKey,
   ClosingDiffSelection,
   ClosingDiffSummary,
+  ClosingDiffSummaryData,
   ClosingLineInput,
 } from "../../types/types";
 import { PL_CLOSING_WRITE_CLASSES } from "../permissions";
@@ -222,8 +223,8 @@ export const reopenProfitLossMonth = async (
 // ===== 確定後の変更の検知・反映・見送り（Issue #149） =====
 
 export type ClosingDiffSummaryResult =
-  | { summary: ClosingDiffSummary; error?: undefined }
-  | { summary?: undefined; error: AccessFailure };
+  | (ClosingDiffSummaryData & { error?: undefined })
+  | { summary?: undefined; fromMonth?: undefined; error: AccessFailure };
 
 // 未処理の差分がある確定済みの月と件数（損益計算書ページ上部のバナー・月ピッカー・
 // 年間推移のアイコン用。accounting / admin のみ）。
@@ -241,8 +242,10 @@ export const getClosingDiffSummary =
     if (!profileInfo) {
       return { error };
     }
+    // 集計の対象の開始月。画面で対象外の月を注記できるよう結果にも含める
+    const fromMonth = closingDiffSummaryStartMonth(currentJstMonth());
     const { months, error: closedMonthsError } = await fetchClosedMonthKeys({
-      fromMonth: closingDiffSummaryStartMonth(currentJstMonth()),
+      fromMonth,
     });
     if (closedMonthsError) {
       console.error("確定済みの月の取得に失敗しました:", closedMonthsError);
@@ -254,7 +257,7 @@ export const getClosingDiffSummary =
       };
     }
     if (months.length === 0) {
-      return { summary: [] };
+      return { summary: [], fromMonth };
     }
     const rangeRows = await Promise.all(
       groupConsecutiveMonths(months).map((period) =>
@@ -282,7 +285,10 @@ export const getClosingDiffSummary =
         }
       });
     });
-    return { summary: summary.sort((a, b) => a.month.localeCompare(b.month)) };
+    return {
+      summary: summary.sort((a, b) => a.month.localeCompare(b.month)),
+      fromMonth,
+    };
   };
 
 // 反映・見送りの共通の前処理（入力検証・権限確認・当月のライブ集計・表示後の変更の確認）

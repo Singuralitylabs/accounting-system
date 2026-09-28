@@ -391,7 +391,11 @@ describe("profitLossClosings の Server Action（Issue #148 / #149）", () => {
       { startMonth: "2026-08", endMonth: "2026-08" },
     ]);
     // 対象の月の差分の件数は従来どおり（確定明細が空 → ライブの売上・費用が「追加」）
-    expect(summary).toEqual({ summary: [{ month: "2026-08", count: 2 }] });
+    // 画面で対象外の月を注記できるよう、対象の開始月も返す
+    expect(summary).toEqual({
+      summary: [{ month: "2026-08", count: 2 }],
+      fromMonth: "2024-10",
+    });
   });
 
   it("確定済みの月の一覧の取得に失敗したら件数を返さずエラーにする", async () => {
