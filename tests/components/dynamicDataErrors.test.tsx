@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { MantineProvider } from "@mantine/core";
+import type { ReactElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   getExtraEntryList,
@@ -36,7 +39,8 @@ vi.mock("@/app/components/SelectOptionList", () => ({ default: () => null }));
 
 import DynamicExtraEntries from "@/app/components/dynamic/DynamicExtraEntries";
 import DynamicRecurringCosts from "@/app/components/dynamic/DynamicRecurringCosts";
-import DynamicDashboard from "@/app/components/dynamic/DynamicDashboard";
+import DynamicDashboardUsers from "@/app/components/dynamic/DynamicDashboardUsers";
+import DynamicDashboardOptions from "@/app/components/dynamic/DynamicDashboardOptions";
 
 const okOptions = { options: [{ id: 1, value: "開発" }], error: null };
 
@@ -58,6 +62,11 @@ describe("Dynamic* サーバコンポーネントの取得エラー", () => {
       error: null,
     });
     getAllUserInfo.mockResolvedValue({ userInfoList: [], error: null });
+  });
+
+  afterEach(() => {
+    // console.error の spyOn を戻す
+    vi.restoreAllMocks();
   });
 
   describe("DynamicExtraEntries", () => {
@@ -127,20 +136,65 @@ describe("Dynamic* サーバコンポーネントの取得エラー", () => {
     });
   });
 
-  describe("DynamicDashboard", () => {
+  describe("DynamicDashboardUsers", () => {
     it("取得に成功したら throw しない", async () => {
-      await expect(DynamicDashboard()).resolves.toBeTruthy();
+      await expect(DynamicDashboardUsers()).resolves.toBeTruthy();
     });
 
-    it("ユーザー情報の取得に失敗したら throw する", async () => {
+    it("ユーザー情報の取得に失敗したら throw する（error.tsx を表示する）", async () => {
       getAllUserInfo.mockResolvedValue({
         userInfoList: null,
         error: { message: "permission denied" },
       });
 
-      await expect(DynamicDashboard()).rejects.toThrow(
+      await expect(DynamicDashboardUsers()).rejects.toThrow(
         "ユーザー情報の取得に失敗しました。",
       );
+    });
+
+    it("チームの選択肢の取得に失敗しても throw せず、UserList に失敗を伝える", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      getSelectOptions.mockResolvedValue({
+        options: [],
+        error: new Error("選択肢の取得に失敗しました。"),
+      });
+
+      const element = (await DynamicDashboardUsers()) as ReactElement<{
+        teamList: string[];
+        teamListError: boolean;
+      }>;
+
+      expect(element.props.teamList).toEqual([]);
+      expect(element.props.teamListError).toBe(true);
+    });
+  });
+
+  describe("DynamicDashboardOptions", () => {
+    const renderOptions = async () =>
+      renderToStaticMarkup(
+        <MantineProvider>{await DynamicDashboardOptions()}</MantineProvider>,
+      );
+
+    it("取得に成功したら throw せず、エラーを表示しない", async () => {
+      const html = await renderOptions();
+
+      expect(html).toContain("項目管理");
+      expect(html).not.toContain("取得に失敗しました");
+      expect(getSelectOptions).toHaveBeenCalledTimes(6);
+    });
+
+    it("選択肢の取得に失敗しても throw せず、失敗した種類のカードの中にエラーを表示する", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      getSelectOptions.mockImplementation(async (typeName: string) =>
+        typeName === "payment_method"
+          ? { options: [], error: new Error("選択肢の取得に失敗しました。") }
+          : okOptions,
+      );
+
+      const html = await renderOptions();
+
+      expect(html).toContain("決済方法情報の取得に失敗しました。");
+      expect(html).not.toContain("チーム情報の取得に失敗しました。");
     });
   });
 });
