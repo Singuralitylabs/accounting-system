@@ -585,7 +585,7 @@ describe("closingDiffSummaryStartMonth（確定後の変更の件数集計の対
   it("前年度（7月〜翌6月）の全月を常に含む", () => {
     // 年度末（6月）: 前年度の期首は 23 ヶ月前でちょうど含まれる
     expect(closingDiffSummaryStartMonth("2026-06")).toBe("2024-07");
-    // 年度初め（7月）: 前年度の期首は 12 ヶ月前
-    expect(closingDiffSummaryStartMonth("2026-07") <= "2025-07").toBe(true);
+    // 年度初め（7月）: 開始月は 23 ヶ月前で、前年度の期首（12 ヶ月前）より前
+    expect(closingDiffSummaryStartMonth("2026-07")).toBe("2024-08");
   });
 });
