@@ -82,8 +82,9 @@ export type BulkUpsertSelectOptionsResult = {
   // 場合も、それまでに追加できた行を含める（画面側で DB の id に置き換え、再保存で同じ行を
   // 再び追加しないため）
   insertedIds: InsertedSelectOptionId[];
-  // UPDATE に成功した既存の行の id（途中で失敗した場合に、画面側が「一部の項目は保存済み」
-  // かを判断するため。変更の無い行も送られてくるので、変更した行かどうかは画面側で判断する）
+  // UPDATE で実際に更新できた（1 行更新された）既存の行の id。途中で失敗した場合に、
+  // 画面側が保存できた行を保存済みの状態（baseline）に取り込み、「一部の項目は保存済み」
+  // かを判断するため（変更の無い行も送られてくるので、変更した行かどうかは画面側で判断する）
   updatedIds: number[];
   // 保存に失敗した場合の、画面に表示するメッセージ（一部だけ保存されている場合がある）
   error?: string;
@@ -93,17 +94,22 @@ export type BulkUpsertSelectOptionsResult = {
 const DUPLICATE_VALUE_MESSAGE = (value: string) =>
   `「${value}」と同じ名前の項目が既にあります（削除済みの項目を含む）。名前を変えるか、既存の項目を使ってください。`;
 
+// UPDATE で更新できた行が 0 行だった場合（RLS で弾かれた、他の管理者が行を削除した等）
+const NOT_UPDATED_MESSAGE =
+  "更新できなかった項目があります（削除されたか、更新する権限がありません）。画面を再読み込みしてください。";
+
 // 管理画面の項目管理（SelectOptionList）のカード単位の保存。
 // isNew の行（画面で追加した行。id は画面上の仮 id）は追加、それ以外は UPDATE する。
 // 追加してすぐ削除した行（isNew かつ is_active = false）は DB に無いため送らない。
 //
-// 先に既存の行を UPDATE してから追加する。項目名の一意制約 UNIQUE(type_id, value) は
+// 先に既存の行を（1 行ずつ）UPDATE してから追加する。項目名の一意制約 UNIQUE(type_id, value) は
 // 削除済みの行にもかかるため、逆順だと「既存の項目の名前を変え、同じ保存で元の名前を
 // 追加する」「項目を削除し、同じ保存で同じ名前を追加する」が一意制約違反になる。
 //
 // 追加する名前と同じ名前の削除済みの行が既にある場合は、INSERT が一意制約違反（23505）に
 // なるため、その行を再び有効にする（表示順は追加した行の位置にする）。有効な行と重なる
-// 場合は分かるメッセージを返す（UPDATE で名前を削除済みの行と同じにした場合も同様）。
+// 場合は分かるメッセージを返す（UPDATE で名前を削除済みの行と同じにした場合・名前を
+// 入れ替えた場合も同様）。
 //
 // 追加は 1 行ずつ行い、仮 id と DB の id を 1 対 1 で対応付けて返す（一括 INSERT の
 // 戻り値の並び順は入力順と一致する保証が無く、行ごとに一意制約違反・再有効化を
@@ -129,42 +135,52 @@ export const bulkUpsertSelectOptions = async (
   );
   const updateOptions = options.filter((option) => !option.isNew);
 
-  if (updateOptions.length > 0) {
-    const results = await Promise.all(
-      updateOptions.map((option) =>
-        supabase
-          .from("select_options")
-          .update({
-            value: option.value,
-            display_order: option.display_order || fallbackOrder,
-            is_active: option.is_active!,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", option.id)
-      )
-    );
+  // 既存の行は 1 行ずつ順番に UPDATE する（並行に送ると、連鎖した名前の変更
+  // 「P→Q と Q→R」が実行順次第で一意制約違反になるため）。一意制約違反（23505）に
+  // なった行は後回しにし、他の行の UPDATE が進んだら再び試す（Q→R が先に済めば P→Q も
+  // 通る）。1 周で 1 行も進まなければ、名前が削除済みの行と重なっているか、名前を
+  // 入れ替えようとしている（同じ保存では入れ替えられない）ため、分かるメッセージを返す。
+  // 23505 以外の失敗・更新できた行が 0 行の場合（RLS で弾かれた、他の管理者が行を
+  // 削除した等）はその時点で止め、ログに残してエラーを返す
+  let pendingUpdates = updateOptions;
+  while (pendingUpdates.length > 0) {
+    const deferred: typeof pendingUpdates = [];
+    for (const option of pendingUpdates) {
+      const { data, error } = await supabase
+        .from("select_options")
+        .update({
+          value: option.value,
+          display_order: option.display_order || fallbackOrder,
+          is_active: option.is_active!,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", option.id)
+        .select("id");
 
-    results.forEach((result, index) => {
-      if (!result.error) updatedIds.push(updateOptions[index].id);
-    });
-    const failedIndex = results.findIndex((result) => result.error);
-    if (failedIndex >= 0) {
-      const duplicateIndex = results.findIndex(
-        (result) => result.error?.code === UNIQUE_VIOLATION
-      );
-      if (duplicateIndex >= 0) {
-        return {
-          insertedIds,
-          updatedIds,
-          error: DUPLICATE_VALUE_MESSAGE(updateOptions[duplicateIndex].value),
-        };
+      if (error?.code === UNIQUE_VIOLATION) {
+        deferred.push(option);
+        continue;
       }
-      console.error(
-        "選択肢の一括更新に失敗しました",
-        results.filter((result) => result.error).map((result) => result.error)
-      );
-      return { insertedIds, updatedIds, error: "項目の更新に失敗しました。" };
+      if (error) {
+        console.error(`選択肢の更新に失敗しました: ${option.id}`, error);
+        return { insertedIds, updatedIds, error: "項目の更新に失敗しました。" };
+      }
+      if (!data || data.length === 0) {
+        console.error(
+          `選択肢の更新に失敗しました（更新できた行が 0 行）: ${option.id}`
+        );
+        return { insertedIds, updatedIds, error: NOT_UPDATED_MESSAGE };
+      }
+      updatedIds.push(option.id);
     }
+    if (deferred.length === pendingUpdates.length) {
+      return {
+        insertedIds,
+        updatedIds,
+        error: DUPLICATE_VALUE_MESSAGE(deferred[0].value),
+      };
+    }
+    pendingUpdates = deferred;
   }
 
   if (newOptions.length > 0) {

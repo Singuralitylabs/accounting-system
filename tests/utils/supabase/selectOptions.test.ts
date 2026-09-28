@@ -21,11 +21,14 @@ const createSupabaseMock = ({
   rows: initialRows = [],
   failInsertAt,
   failUpdate = false,
+  failUpdateIds = [],
   failType = false,
 }: {
   rows?: Row[];
   failInsertAt?: number;
   failUpdate?: boolean;
+  // 23505 以外のエラーにする UPDATE の行の id
+  failUpdateIds?: number[];
   failType?: boolean;
 } = {}) => {
   const rows: Row[] = initialRows.map((row) => ({ ...row }));
@@ -35,10 +38,14 @@ const createSupabaseMock = ({
     [];
   const operations: string[] = [];
   let nextId = 100;
+  // 同時に実行中の UPDATE の数（1 行ずつ順番に実行しているかの確認用）
+  let updatesInFlight = 0;
+  let maxUpdatesInFlight = 0;
   const uniqueViolation = { code: "23505", message: "duplicate key value" };
 
-  // update(...).eq(...)...（await で実行）。eq("id") は 1 行の UPDATE、
-  // eq("type_id").eq("value").not("is_active", "is", true).select("id") は再有効化
+  // update(...).eq(...)...（await で実行）。eq("id").select("id") は 1 行の UPDATE
+  // （DB に無い行は 0 行を返す）、eq("type_id").eq("value").not("is_active", "is", true)
+  // .select("id") は再有効化。UPDATE は次のタスクで実行し、同時実行数を記録する
   const updateBuilder = (values: Record<string, unknown>) => {
     const filters: Record<string, unknown> = {};
     let onlyInactive = false;
@@ -47,16 +54,18 @@ const createSupabaseMock = ({
         const id = filters.id as number;
         operations.push(`update:${id}`);
         updated.push({ id, values });
-        if (failUpdate) return { error: { message: "update failed" } };
+        if (failUpdate || failUpdateIds.includes(id)) {
+          return { data: null, error: { message: "update failed" } };
+        }
         if (
           typeof values.value === "string" &&
           rows.some((r) => r.id !== id && r.value === values.value)
         ) {
-          return { error: uniqueViolation };
+          return { data: null, error: uniqueViolation };
         }
         const row = rows.find((r) => r.id === id);
         if (row) Object.assign(row, values);
-        return { error: null };
+        return { data: row ? [{ id }] : [], error: null };
       }
       expect(onlyInactive).toBe(true);
       expect(filters.type_id).toBe("type-team");
@@ -79,7 +88,14 @@ const createSupabaseMock = ({
         return builder;
       },
       select: () => builder,
-      then: (resolve: (result: unknown) => void) => resolve(execute()),
+      then: (resolve: (result: unknown) => void) => {
+        updatesInFlight += 1;
+        maxUpdatesInFlight = Math.max(maxUpdatesInFlight, updatesInFlight);
+        setTimeout(() => {
+          updatesInFlight -= 1;
+          resolve(execute());
+        }, 0);
+      },
     };
     return builder;
   };
@@ -130,6 +146,7 @@ const createSupabaseMock = ({
     updated,
     reactivated,
     operations,
+    maxUpdatesInFlight: () => maxUpdatesInFlight,
   };
 };
 
@@ -382,5 +399,118 @@ describe("bulkUpsertSelectOptions", () => {
       error: "選択肢の種類の取得に失敗しました。",
     });
     expect(inserted).toEqual([]);
+  });
+  it("既存の行は 1 行ずつ順番に UPDATE する", async () => {
+    const { client, maxUpdatesInFlight } = createSupabaseMock({
+      rows: [
+        { id: 1, value: "チームA", is_active: true },
+        { id: 2, value: "チームB", is_active: true },
+        { id: 3, value: "チームC", is_active: true },
+      ],
+    });
+    createServerSupabase.mockReturnValue(client);
+
+    const result = await bulkUpsertSelectOptions("team", [
+      option(1, "チームA2"),
+      option(2, "チームB2"),
+      option(3, "チームC2"),
+    ]);
+
+    expect(result).toEqual({ insertedIds: [], updatedIds: [1, 2, 3] });
+    expect(maxUpdatesInFlight()).toBe(1);
+  });
+
+  it("連鎖した名前の変更（P→Q と Q→R）は、送った順に関わらず Q→R を済ませてから P→Q を保存する", async () => {
+    const { client, rows, operations } = createSupabaseMock({
+      rows: [
+        { id: 1, value: "P", is_active: true },
+        { id: 2, value: "Q", is_active: true },
+      ],
+    });
+    createServerSupabase.mockReturnValue(client);
+
+    const result = await bulkUpsertSelectOptions("team", [
+      option(1, "Q"),
+      option(2, "R"),
+    ]);
+
+    expect(result).toEqual({ insertedIds: [], updatedIds: [2, 1] });
+    // P→Q は一意制約違反で後回しになり、Q→R の後に再び試す
+    expect(operations).toEqual(["update:1", "update:2", "update:1"]);
+    expect(rows.map((row) => row.value)).toEqual(["Q", "R"]);
+  });
+
+  it("名前の入れ替え（P→Q と Q→P）は 1 周で進まないため、分かるメッセージを返して追加へ進まない", async () => {
+    const { client, rows, inserted } = createSupabaseMock({
+      rows: [
+        { id: 1, value: "P", is_active: true },
+        { id: 2, value: "Q", is_active: true },
+      ],
+    });
+    createServerSupabase.mockReturnValue(client);
+
+    const result = await bulkUpsertSelectOptions("team", [
+      option(1, "Q"),
+      option(2, "P"),
+      option(-1, "S", { isNew: true }),
+    ]);
+
+    expect(result).toEqual({
+      insertedIds: [],
+      updatedIds: [],
+      error: duplicateMessage("Q"),
+    });
+    expect(rows.map((row) => row.value)).toEqual(["P", "Q"]);
+    expect(inserted).toEqual([]);
+  });
+
+  it("一意制約違反で後回しにした行があっても、23505 以外の失敗はログに残してエラーを返す", async () => {
+    const { client } = createSupabaseMock({
+      rows: [
+        { id: 1, value: "チームA", is_active: true },
+        { id: 2, value: "チームB", is_active: true },
+        { id: 5, value: "広報", is_active: false },
+      ],
+      failUpdateIds: [2],
+    });
+    createServerSupabase.mockReturnValue(client);
+
+    const result = await bulkUpsertSelectOptions("team", [
+      option(1, "広報"),
+      option(2, "チームB2"),
+    ]);
+
+    expect(result).toEqual({
+      insertedIds: [],
+      updatedIds: [],
+      error: "項目の更新に失敗しました。",
+    });
+    expect(console.error).toHaveBeenCalledWith(
+      "選択肢の更新に失敗しました: 2",
+      { message: "update failed" },
+    );
+  });
+
+  it("UPDATE で更新できた行が 0 行（RLS・他の管理者の削除）なら、更新できた行に含めずにエラーを返す", async () => {
+    const { client, inserted } = createSupabaseMock({
+      // id: 2 は DB に無い
+      rows: [{ id: 1, value: "チームA", is_active: true }],
+    });
+    createServerSupabase.mockReturnValue(client);
+
+    const result = await bulkUpsertSelectOptions("team", [
+      option(1, "チームA2"),
+      option(2, "チームB2"),
+      option(-1, "チームC", { isNew: true }),
+    ]);
+
+    expect(result).toEqual({
+      insertedIds: [],
+      updatedIds: [1],
+      error:
+        "更新できなかった項目があります（削除されたか、更新する権限がありません）。画面を再読み込みしてください。",
+    });
+    expect(inserted).toEqual([]);
+    expect(console.error).toHaveBeenCalled();
   });
 });

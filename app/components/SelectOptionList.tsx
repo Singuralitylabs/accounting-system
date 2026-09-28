@@ -106,6 +106,42 @@ export const hasPartiallySavedChanges = (
   );
 };
 
+// 保存が途中で失敗したときの、新しい保存済みの状態（baseline）。保存できた行（UPDATE
+// できた既存の行と追加できた行）は送った内容（追加した行は DB の id に置き換える）、
+// 保存できなかった既存の行は元の baseline の内容にする。保存できなかった追加行は DB に
+// 無いため含めない。行の並びは送った内容（sentRows）に合わせる。
+// これにより、保存できた変更を画面で元に戻した場合も「未保存の変更あり」になり、
+// 保存し直して DB を画面に合わせられる
+export const baselineAfterPartialSave = (
+  baseline: OptionRow[],
+  sentRows: OptionRow[],
+  insertedIds: InsertedSelectOptionId[],
+  updatedIds: number[],
+): OptionRow[] => {
+  const baselineById = new Map(baseline.map((row) => [row.id, row]));
+  const insertedTempIds = new Set(insertedIds.map(({ tempId }) => tempId));
+  const updated = new Set(updatedIds);
+  const merged = sentRows.flatMap((row) => {
+    if (row.isNew) return insertedTempIds.has(row.id) ? [row] : [];
+    if (updated.has(row.id)) return [row];
+    const saved = baselineById.get(row.id);
+    return saved ? [saved] : [];
+  });
+  return applyInsertedOptionIds(merged, insertedIds);
+};
+
+// 表示中の（有効な）行どうしで重なっている項目名（最初に見つかったもの）。
+// 項目名は種類ごとに一意（UNIQUE(type_id, value)）のため、保存前に止める
+export const findDuplicateOptionValue = (rows: OptionRow[]) => {
+  const seen = new Set<string>();
+  for (const row of rows) {
+    if (!row.is_active) continue;
+    if (seen.has(row.value)) return row.value;
+    seen.add(row.value);
+  }
+  return undefined;
+};
+
 const SelectOptionList = ({
   optionClass,
   optionList,
@@ -222,6 +258,13 @@ const SelectOptionList = ({
           return;
         }
       }
+      const duplicateValue = findDuplicateOptionValue(updatedOptionList);
+      if (duplicateValue !== undefined) {
+        notifyError(
+          `「${duplicateValue}」が複数あります。項目名が重ならないようにしてください。`,
+        );
+        return;
+      }
 
       const confirmed = await confirmAction(
         `${optionTitle}の項目を更新しますか？`,
@@ -240,12 +283,22 @@ const SelectOptionList = ({
       setUpdatedOptionList((prev) => applyInsertedOptionIds(prev, insertedIds));
       if (error) {
         console.error(`${optionTitle}情報の保存に失敗しました。`, error);
+        const savedIds = updatedIds ?? [];
         const partiallySaved = hasPartiallySavedChanges(
           baseline,
           sentRows,
           insertedIds,
-          updatedIds ?? [],
+          savedIds,
         );
+        if (insertedIds.length > 0 || savedIds.length > 0) {
+          // 保存できた行を baseline に取り込む（保存できた変更を画面で元に戻したときに
+          // 「変更なし」になって DB と画面がずれたままにならないように）
+          setBaseline((prev) =>
+            baselineAfterPartialSave(prev, sentRows, insertedIds, savedIds),
+          );
+          // 保存に成功した場合と同じく、保留していた保存前の props で表示を戻さない
+          syncedOptionListRef.current = latestOptionListRef.current;
+        }
         notifyError(
           `${optionTitle}情報の保存に失敗しました。${error}${
             partiallySaved ? "一部の項目は保存済みです。" : ""

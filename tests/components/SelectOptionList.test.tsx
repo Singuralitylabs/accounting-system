@@ -2,7 +2,9 @@
 
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import SelectOptionList from "@/app/components/SelectOptionList";
+import SelectOptionList, {
+  baselineAfterPartialSave,
+} from "@/app/components/SelectOptionList";
 import { notifyError } from "@/app/utils/notify";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
 
@@ -358,7 +360,7 @@ describe("SelectOptionList", () => {
   it("同じ名前の項目がある場合は、サーバのメッセージを表示する（何も保存されていなければ「一部の項目は保存済み」を添えない）", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const duplicate =
-      "「チームA」と同じ名前の項目が既にあります（削除済みの項目を含む）。名前を変えるか、既存の項目を使ってください。";
+      "「チームZ」と同じ名前の項目が既にあります（削除済みの項目を含む）。名前を変えるか、既存の項目を使ってください。";
     bulkUpsertSelectOptions.mockResolvedValue({
       insertedIds: [],
       // 変更していない行の UPDATE だけが成功した
@@ -369,9 +371,10 @@ describe("SelectOptionList", () => {
       <SelectOptionList optionClass="team" optionList={optionList} />,
     );
 
+    // 画面に出ていない削除済みの項目と同じ名前を追加した（サーバで判明する）場合
     fireEvent.click(screen.getByRole("button", { name: "チーム追加" }));
     fireEvent.change(screen.getByDisplayValue(""), {
-      target: { value: "チームA" },
+      target: { value: "チームZ" },
     });
     fireEvent.click(screen.getByRole("button", { name: "更新" }));
 
@@ -410,6 +413,92 @@ describe("SelectOptionList", () => {
     expect(notifyError).toHaveBeenCalledWith(
       "チーム情報の保存に失敗しました。項目の更新に失敗しました。一部の項目は保存済みです。",
     );
+  });
+
+  it("表示中の項目どうしで名前が重なる場合は、保存せずにエラーを表示する（削除した行は数えない）", async () => {
+    bulkUpsertSelectOptions.mockResolvedValue({
+      insertedIds: [],
+      updatedIds: [1, 2],
+    });
+    renderWithMantine(
+      <SelectOptionList
+        optionClass="team"
+        optionList={[
+          { id: 1, value: "チームA", display_order: 1, is_active: true },
+          { id: 2, value: "チームB", display_order: 2, is_active: true },
+        ]}
+      />,
+    );
+
+    fireEvent.change(screen.getByDisplayValue("チームB"), {
+      target: { value: "チームA" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+
+    await waitFor(() => expect(notifyError).toHaveBeenCalled());
+    expect(notifyError).toHaveBeenCalledWith(
+      "「チームA」が複数あります。項目名が重ならないようにしてください。",
+    );
+    expect(confirmAction).not.toHaveBeenCalled();
+    expect(bulkUpsertSelectOptions).not.toHaveBeenCalled();
+
+    // 片方を削除すれば保存できる
+    const [first] = screen.getAllByDisplayValue("チームA");
+    fireEvent.click(
+      first.closest("tr")?.querySelector("button") as HTMLButtonElement,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    expect(bulkUpsertSelectOptions).toHaveBeenCalledTimes(1);
+  });
+
+  it("保存が途中で失敗しても、保存できた行は保存済みとして扱い、画面で元に戻したら保存し直せる", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    // 「チームA→チームA2」の UPDATE は成功し、追加した「チームB」の INSERT が失敗した
+    bulkUpsertSelectOptions.mockResolvedValueOnce({
+      insertedIds: [],
+      updatedIds: [1],
+      error: "項目の追加に失敗しました。",
+    });
+    renderWithMantine(
+      <SelectOptionList optionClass="team" optionList={optionList} />,
+    );
+
+    editOption();
+    fireEvent.click(screen.getByRole("button", { name: "チーム追加" }));
+    fireEvent.change(screen.getByDisplayValue(""), {
+      target: { value: "チームB" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    await waitFor(() =>
+      expect(notifyError).toHaveBeenCalledWith(
+        "チーム情報の保存に失敗しました。項目の追加に失敗しました。一部の項目は保存済みです。",
+      ),
+    );
+
+    // 「チームA2」を「チームA」に戻し、追加した行を削除する（DB は「チームA2」のまま）
+    fireEvent.change(screen.getByDisplayValue("チームA2"), {
+      target: { value: "チームA" },
+    });
+    fireEvent.click(
+      screen
+        .getByDisplayValue("チームB")
+        .closest("tr")
+        ?.querySelector("button") as HTMLButtonElement,
+    );
+    const saveButton = screen.getByRole("button", { name: "更新" });
+    expect(saveButton).toBeEnabled();
+
+    bulkUpsertSelectOptions.mockResolvedValueOnce({
+      insertedIds: [],
+      updatedIds: [1],
+    });
+    fireEvent.click(saveButton);
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    expect(bulkUpsertSelectOptions.mock.calls[1][1]).toContainEqual(
+      expect.objectContaining({ id: 1, value: "チームA", isNew: false }),
+    );
+    expect(screen.getByRole("button", { name: "更新" })).toBeDisabled();
   });
 
   it("削除して保存した項目と同じ名前を追加し、削除済みの行が再び有効になった場合は、その行を 1 行として扱う", async () => {
@@ -485,5 +574,62 @@ describe("SelectOptionList", () => {
       target: { value: "チームA" },
     });
     expect(saveButton).toBeDisabled();
+  });
+});
+
+describe("baselineAfterPartialSave", () => {
+  const row = (
+    id: number,
+    value: string,
+    overrides: {
+      is_active?: boolean;
+      isNew?: boolean;
+      display_order?: number;
+    } = {},
+  ) => ({
+    id,
+    value,
+    display_order: Math.abs(id),
+    is_active: true,
+    isNew: false,
+    ...overrides,
+  });
+
+  it("保存できた行は送った内容、保存できなかった既存の行は元の内容にし、保存できなかった追加行は含めない（並びは送った順）", () => {
+    const baseline = [row(1, "A"), row(2, "B"), row(3, "C")];
+    const sentRows = [
+      row(2, "B2", { display_order: 1 }),
+      row(1, "A2", { display_order: 2 }),
+      row(3, "C", { is_active: false }),
+      row(-1, "D", { isNew: true }),
+      row(-2, "E", { isNew: true }),
+      row(-3, "取り消し", { isNew: true, is_active: false }),
+    ];
+
+    expect(
+      baselineAfterPartialSave(
+        baseline,
+        sentRows,
+        [{ tempId: -1, id: 100 }],
+        [2],
+      ),
+    ).toEqual([
+      row(2, "B2", { display_order: 1 }),
+      row(1, "A"),
+      row(3, "C"),
+      row(100, "D", { display_order: 1 }),
+    ]);
+  });
+
+  it("削除済みの行を再び有効にした追加行は、その行の id の 1 行にする", () => {
+    const baseline = [row(5, "広報", { is_active: false })];
+    const sentRows = [
+      row(5, "広報", { is_active: false }),
+      row(-1, "広報", { isNew: true }),
+    ];
+
+    expect(
+      baselineAfterPartialSave(baseline, sentRows, [{ tempId: -1, id: 5 }], []),
+    ).toEqual([row(5, "広報", { display_order: 1 })]);
   });
 });

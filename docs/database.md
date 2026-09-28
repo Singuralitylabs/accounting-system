@@ -1094,6 +1094,8 @@ CREATE POLICY "Admin can delete select options" ON select_options
     );
 ```
 
+- UPDATE は RLS で拒否されても（対象の行が削除されていても）0 行更新になるだけでエラーにならないため、項目管理の保存（`app/utils/supabase/selectOptions.ts` の `bulkUpsertSelectOptions`）は UPDATE に `.select("id")` を付け、更新できた行が 0 行なら失敗として利用者にエラーを返す
+
 ### 5.6 recurring_costs テーブル
 
 > teamleader が全体共通（team IS NULL）の行を SELECT できるのは、損益計算書で「全体共通（参考）」として表示するため。チーム損益への算入可否はアプリケーション層で制御する。
