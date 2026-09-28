@@ -293,7 +293,7 @@
   resolved "https://registry.yarnpkg.com/@mantine/charts/-/charts-7.13.2.tgz#498e02c8328a8f9727202f22eead9ea013c501da"
   integrity sha512-rfaf45F58Cx5k7X9qN5yV2ZhVFAIB8i+1S/DvNE3uUflGmrevHuuNbNDDbYtQOw8ObL959rtSWOyL1SmC11D0A==
 
-"@mantine/core@^7.13.2":
+"@mantine/core@7.13.2":
   version "7.13.2"
   resolved "https://registry.yarnpkg.com/@mantine/core/-/core-7.13.2.tgz#8fb8ee2857a40f237ffed370a6ad768fbb1b3be2"
   integrity sha512-nD8oKIal+KdthqF074+ZG21035QBEAKso2zK9D6zWxRTLVCjLCNSc5JSXrXLrdBTnvPQGY26yunX4+MEPlmrHg==
@@ -320,7 +320,7 @@
     fast-deep-equal "^3.1.3"
     klona "^2.0.6"
 
-"@mantine/hooks@^7.13.2":
+"@mantine/hooks@7.13.2":
   version "7.13.2"
   resolved "https://registry.yarnpkg.com/@mantine/hooks/-/hooks-7.13.2.tgz#ec6a17faee4c8f3c0fe06f7b66c0e4a12c9b1ad1"
   integrity sha512-NKfGl2sKZw6zF//AfAFJrVDftjg7DKCn0h8rwJBIZCKi9axhwlV0Mvlqe2dep8QuM7O/uLLJSymSKIv1gaxIJg==

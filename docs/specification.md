@@ -672,7 +672,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
 - 取得範囲の絞り込み（Issue #16）：月次は対象月＋月未確定（NULL）行のみ、年間推移は年度 12 ヶ月＋月未確定（NULL）行のみを取得する。案件の売上・費用（`business` / `costs`）は埋め込みリソース `matters!inner` 側に「下書きでない AND（`start_date` が期間内 OR NULL）」（`matterPeriodFilter`。`referencedTable: "matters"` の `or()` 1 つにまとめる）、`extra_entries.entry_date` は「期間内 OR NULL」、定期費用は適用期間の重なり（`start_month < 翌月1日 AND (end_month IS NULL OR end_month >= 当月1日)`）で絞り、支払サイクルの計上判定は集計側で行う。損益調整は `target_month` の範囲で絞る（NOT NULL）。いずれも 5 テーブルの一括取得（`Promise.all`）のままで、年間推移が月単位の 12 回クエリにならない。範囲境界の単一の定義は `reportRangeBounds`（`app/utils/profitLossLogic.ts`）。月次では対象行が取得期間外へ移動した調整（`orphanedAdjustments`）のラベル解決用に、欠けている対象行だけを ID 指定（`in()`）で補完取得する（通常は 0 件で追加クエリなし、あっても `Promise.all` で 1 往復にまとめる。補完行は月振り分けで集計から除外されるため集計値は不変。年間推移は対象外で往復を増やさない）
 
 - 表の下に売上・利益の推移グラフを表示する（Issue #177）
-  - 折れ線（売上 `revenueTotal` / 案件費用 `matterCostTotal` / 粗利 `grossProfitTotal` / 管理費 `adminCostTotal`）と棒（経常利益 `ordinaryProfit`）を 1 枚に重ねる（`@mantine/charts` の `CompositeChart`）。棒は折れ線の点を隠さないよう背面に描くため、凡例・ツールチップの並びは 経常利益 → 売上 → 案件費用 → 粗利 → 管理費
+  - 折れ線（売上 `revenueTotal` / 案件費用 `matterCostTotal` / 粗利 `grossProfitTotal` / 管理費 `adminCostTotal`）と棒（経常利益 `ordinaryProfit`）を 1 枚に重ねる（`@mantine/charts` の `CompositeChart`）。棒は折れ線の点を隠さないよう背面に描く。凡例は表の行と同じ順（売上 → 案件費用 → 粗利 → 管理費 → 経常利益）、ツールチップは描画順（経常利益 → 売上 → 案件費用 → 粗利 → 管理費）
   - 横軸: 12ヶ月（7月〜翌6月）。表の見出しと同じ「M月」表記（`formatMonthHeader`）。年度合計は含めない
   - 縦軸: 金額（円）。全系列で共通の 1 本。0 の位置に基準線を引き、経常利益がマイナスの月は棒が 0 より下に伸びる。目盛りは「100万」「1.5億」のように短く表記する（`formatAxisAmount`）
   - ツールチップ: 表と同じ円表記（`formatCurrency`）。凡例: 5 系列
@@ -680,7 +680,7 @@ Frontend (Next.js) <--> Server (Next.js API Routes) <--> Database (Supabase)
   - 確定済みの月は表の列の色で区別しているため、グラフでは区別しない
   - データは表と同じ `useAnnualTrend` の結果を `toAnnualTrendChartData`（`app/utils/profitLossChart.ts`）で変換して使う（取得を増やさない）。表示範囲も表と同じ（チームリーダーは自チームの数字のみ）。読み込み中・エラー・データなしのときは表と同じくグラフも出さず、年度を切り替えると表と一緒に切り替わる
   - モバイル幅では表と同じく横スクロールの枠に入れ、最小幅（720px）を確保する。見出しはスクロールの外に置き、凡例は左寄せ（スクロールせずに先頭の系列から見える）
-  - 描画ライブラリ（Recharts）を含むため `next/dynamic` で遅延読み込みし、初期表示の月次タブのバンドルには含めない（年間推移タブで表示するときに読み込む）
+  - 描画ライブラリ（Recharts）を含むため `next/dynamic` で遅延読み込みし、初期表示の月次タブのバンドルには含めない。年間推移タブを選んだ時点で先読みを始め、読み込み中は同じ枠（見出し・横スクロール）の中にグラフと同じ高さのプレースホルダーを出す（読み込み完了時にレイアウトがずれない）
 
 #### 4.17.2 画面
 

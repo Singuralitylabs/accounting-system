@@ -16,6 +16,9 @@ import ProfitLossStatement, {
   resolveBreakdownTab,
 } from "./ProfitLossStatement";
 import AnnualTrendTable from "./AnnualTrendTable";
+import AnnualTrendChartFrame, {
+  AnnualTrendChartPlaceholder,
+} from "./AnnualTrendChartFrame";
 import AccountingMasterActions from "./AccountingMasterActions";
 import CopyPreviousExtraEntriesButton from "./CopyPreviousExtraEntriesButton";
 import ClosingControl from "./ClosingControl";
@@ -26,10 +29,12 @@ import {
 } from "@/app/hooks/useProfitLossClosing";
 
 // 年間推移グラフ（Issue #177）は描画ライブラリ（Recharts）を含み重いため、
-// 初期バンドル（初期表示の月次タブ）から外し、年間推移タブで表示するときに読み込む
-const AnnualTrendChart = dynamic(() => import("./AnnualTrendChart"), {
+// 初期バンドル（初期表示の月次タブ）から外し、年間推移タブで表示するときに読み込む。
+// 読み込み中は枠（AnnualTrendChartFrame）の中に同じ高さのプレースホルダーを出す
+const loadAnnualTrendChart = () => import("./AnnualTrendChart");
+const AnnualTrendChart = dynamic(loadAnnualTrendChart, {
   ssr: false,
-  loading: () => <LoadingSpinner />,
+  loading: () => <AnnualTrendChartPlaceholder />,
 });
 
 type Props = {
@@ -116,7 +121,17 @@ const ProfitLossView = ({
           }}
         />
       )}
-      <Tabs value={activeTab} onChange={setActiveTab}>
+      <Tabs
+        value={activeTab}
+        onChange={(value) => {
+          if (value === "annual") {
+            // 年間推移の取得と並行してグラフ本体を先読みする。失敗しても
+            // 表示時の読み込み（next/dynamic）でもう一度読み込むため、ここでは握りつぶす
+            loadAnnualTrendChart().catch(() => {});
+          }
+          setActiveTab(value);
+        }}
+      >
         <Tabs.List>
           <Tabs.Tab value="monthly">月次</Tabs.Tab>
           <Tabs.Tab value="annual">年間推移</Tabs.Tab>
@@ -221,7 +236,9 @@ const ProfitLossView = ({
                 diffCountByMonth={diffCountByMonth}
               />
               {/* 表と同じデータで売上・利益の推移を描く（Issue #177） */}
-              <AnnualTrendChart trend={trend} />
+              <AnnualTrendChartFrame fiscalYear={trend.fiscalYear}>
+                <AnnualTrendChart trend={trend} />
+              </AnnualTrendChartFrame>
             </>
           )}
         </Tabs.Panel>
