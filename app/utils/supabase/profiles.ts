@@ -11,6 +11,7 @@ import {
 } from "../userList";
 import { getCachedProfileInfo, getCachedProfileInfoById } from "./requestCache";
 import { createServerSupabase } from "./clients";
+import { getAuthorizedViewer } from "./viewerAccess";
 
 export const getProfileInfo = async () => {
   try {
@@ -178,6 +179,10 @@ const PROFILES_SAVE_FAILED: AccessFailure = {
 // 書き込みは update_profiles（migration 33。1 トランザクション・1 文の UPDATE）で行い、
 // 1 件でも保存できなければすべてロールバックされる（一部だけ保存された状態は残らない）。
 // 他人の行を更新できるのは admin だけで、RLS（SECURITY INVOKER）で担保される。
+// Server Action として公開されるため、RLS に加えてここでも admin であることを確認する
+// （多層防御）。admin 以外は入力チェック・書き込みの前に権限エラーを返す（RLS 上は自分の
+// Slack ID を変えられる admin 以外の利用者も、この画面の保存経路では何も変えられない。
+// 入力チェックのエラーメッセージに含まれる他人の名前も返さない）。
 // RLS で弾かれた行・存在しない行があると NOT_APPLIED、admin 以外が権限・チームを
 // 変えようとすると RLS 違反（42501）、不正な入力は INVALID_INPUT（22023）になる。
 // Server Action として公開されるため、画面側と同じ入力チェックをここでも行い、
@@ -185,6 +190,24 @@ const PROFILES_SAVE_FAILED: AccessFailure = {
 export const bulkUpdateProfiles = async (
   updates: ProfileUpdateInput[],
 ): Promise<BulkUpdateProfilesResult> => {
+  const { error: accessError } = await getAuthorizedViewer(
+    ["admin"],
+    "ユーザー管理",
+  );
+  if (accessError) {
+    // getAuthorizedViewer のメッセージは閲覧向け（「〜の取得に失敗しました」等）のため、
+    // 保存向けの文言に置き換える（種別はそのまま）
+    return {
+      error: {
+        kind: accessError.kind,
+        message:
+          accessError.kind === "forbidden"
+            ? "ユーザー情報を保存する権限がありません（管理者のみ）。何も保存されていません。"
+            : "権限を確認できなかったため、何も保存しませんでした。時間をおいて保存し直してください。",
+      },
+    };
+  }
+
   if (updates.length === 0) {
     return {};
   }

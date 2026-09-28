@@ -39,7 +39,7 @@ describe("SelectOptionList", () => {
   // 同じページのユーザーリストはサーバ取得の選択肢を props で受け取るため、
   // 保存後に Server Component を再描画しないと新しいチームが候補に出ない
   it("保存に成功したらページを refresh して最新の選択肢を反映する", async () => {
-    bulkUpsertSelectOptions.mockResolvedValue(undefined);
+    bulkUpsertSelectOptions.mockResolvedValue({ insertedIds: [] });
     renderWithMantine(
       <SelectOptionList optionClass="team" optionList={optionList} />,
     );
@@ -129,7 +129,7 @@ describe("SelectOptionList", () => {
         <SelectOptionList optionClass="category" optionList={category} />
       </>
     );
-    bulkUpsertSelectOptions.mockResolvedValue(undefined);
+    bulkUpsertSelectOptions.mockResolvedValue({ insertedIds: [] });
     const { rerender } = renderWithMantine(
       renderCards(teamOptions, categoryOptions),
     );
@@ -161,6 +161,134 @@ describe("SelectOptionList", () => {
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
     expect(screen.getByDisplayValue("チームA2")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("チームA")).not.toBeInTheDocument();
+  });
+
+  describe("保存で追加した行（再取得が届く前に続けて編集した場合）", () => {
+    type SentOption = {
+      id: number;
+      value: string;
+      display_order: number | null;
+      is_active: boolean | null;
+      isNew: boolean;
+    };
+    // bulkUpsertSelectOptions と同じく、有効な追加行を 1 行ずつ INSERT したものとして
+    // DB の id（100 から）を返す
+    let nextDbId = 100;
+    const insertedValues: string[] = [];
+    const sentOptions = (call: number): SentOption[] =>
+      bulkUpsertSelectOptions.mock.calls[call][1];
+
+    beforeEach(() => {
+      nextDbId = 100;
+      insertedValues.length = 0;
+      bulkUpsertSelectOptions.mockImplementation(
+        async (_optionClass: string, options: SentOption[]) => ({
+          insertedIds: options
+            .filter((option) => option.isNew && option.is_active)
+            .map((option) => {
+              insertedValues.push(option.value);
+              return { tempId: option.id, id: nextDbId++ };
+            }),
+        }),
+      );
+    });
+
+    const addAndSaveTeamB = async () => {
+      fireEvent.click(screen.getByRole("button", { name: "チーム追加" }));
+      fireEvent.change(screen.getByDisplayValue(""), {
+        target: { value: "チームB" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "更新" }));
+      await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    };
+
+    it("保存後、再取得（refresh の結果）が届く前に別の項目を編集して保存しても、追加した行を再び INSERT しない", async () => {
+      renderWithMantine(
+        <SelectOptionList optionClass="team" optionList={optionList} />,
+      );
+      await addAndSaveTeamB();
+      expect(sentOptions(0)).toContainEqual(
+        expect.objectContaining({ value: "チームB", isNew: true }),
+      );
+      // 保存した状態が基準になり、未保存の変更は無い
+      expect(screen.getByRole("button", { name: "更新" })).toBeDisabled();
+
+      // refresh の結果が届く前（props は保存前のまま）に既存の項目を編集して保存する
+      editOption();
+      fireEvent.click(screen.getByRole("button", { name: "更新" }));
+      await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
+
+      // 追加した行は DB の id で保存済みの行（UPDATE）として送られ、INSERT は 1 回だけ
+      expect(sentOptions(1)).toContainEqual(
+        expect.objectContaining({ id: 100, value: "チームB", isNew: false }),
+      );
+      expect(sentOptions(1).some((option) => option.isNew)).toBe(false);
+      expect(insertedValues).toEqual(["チームB"]);
+    });
+
+    it("保存後、再取得が届く前に追加した行を削除して保存すると、DB の行の削除（無効化）として送る", async () => {
+      renderWithMantine(
+        <SelectOptionList optionClass="team" optionList={optionList} />,
+      );
+      await addAndSaveTeamB();
+
+      // 行の削除ボタン（ドラッグハンドルも role="button" を持つため button 要素で選ぶ）
+      const removeButton = screen
+        .getByDisplayValue("チームB")
+        .closest("tr")
+        ?.querySelector("button");
+      fireEvent.click(removeButton as HTMLButtonElement);
+      expect(screen.queryByDisplayValue("チームB")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "更新" }));
+      await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
+
+      expect(sentOptions(1)).toContainEqual(
+        expect.objectContaining({ id: 100, isNew: false, is_active: false }),
+      );
+      expect(insertedValues).toEqual(["チームB"]);
+    });
+
+    it("保存が途中で失敗しても、INSERT できた行は DB の id に置き換え、保存し直しても再び INSERT しない", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      bulkUpsertSelectOptions.mockImplementationOnce(
+        async (_optionClass: string, options: SentOption[]) => {
+          const [first] = options.filter((option) => option.isNew);
+          insertedValues.push(first.value);
+          return {
+            insertedIds: [{ tempId: first.id, id: nextDbId++ }],
+            error: "選択肢の追加に失敗しました。",
+          };
+        },
+      );
+      renderWithMantine(
+        <SelectOptionList optionClass="team" optionList={optionList} />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "チーム追加" }));
+      fireEvent.change(screen.getByDisplayValue(""), {
+        target: { value: "チームB" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "チーム追加" }));
+      fireEvent.change(screen.getByDisplayValue(""), {
+        target: { value: "チームC" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "更新" }));
+      await waitFor(() => expect(notifyError).toHaveBeenCalled());
+      expect(refresh).not.toHaveBeenCalled();
+      // 一部しか保存できていないため、未保存の変更ありのまま
+      expect(screen.getByRole("button", { name: "更新" })).toBeEnabled();
+
+      fireEvent.click(screen.getByRole("button", { name: "更新" }));
+      await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+
+      expect(sentOptions(1)).toContainEqual(
+        expect.objectContaining({ id: 100, value: "チームB", isNew: false }),
+      );
+      expect(sentOptions(1)).toContainEqual(
+        expect.objectContaining({ value: "チームC", isNew: true }),
+      );
+      expect(insertedValues).toEqual(["チームB", "チームC"]);
+    });
   });
 
   it("未保存の変更が無い間は「更新」を押せない", () => {

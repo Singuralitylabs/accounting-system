@@ -115,30 +115,25 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
     setBaseline(toRowMap(userList));
   }, [userList, teamList, hasChanges]);
 
-  // 管理画面のサイドメニュー / タブ（DashboardNav）からの画面切り替え前の確認に使う
+  // 管理画面の Provider（DashboardUnsavedChangesProvider）に未保存の変更の有無を知らせる。
+  // メニュー（DashboardNav）からの切り替え前の確認と、リロード・タブを閉じる操作の警告
+  // （beforeunload。Provider がまとめて登録する）に使う
   useReportDashboardUnsavedChanges(hasChanges);
-
-  // 未保存の変更がある状態でリロード・タブを閉じようとしたら警告する
-  useEffect(() => {
-    if (!hasChanges) return;
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      // 古いブラウザは returnValue の設定で警告を出す
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [hasChanges]);
 
   const handleUpdateUserList = (
     userId: number,
     updates: Partial<ProfilesType>,
   ) => {
-    // teamleader 以外に変更したらチームを空にする（PC・モバイル共通）
+    // 権限を読み込み時点（直前の保存成功時点）の値に戻したら、チームも戻す（権限を
+    // 変えて戻しただけでチームが消えたまま「変更あり」・入力エラーにならないように）。
+    // それ以外で teamleader 以外に変更したらチームを空にする（PC・モバイル共通）
+    const saved = baseline.get(userId);
     const normalized: Partial<ProfilesType> =
-      "class" in updates && updates.class !== "teamleader"
-        ? { ...updates, team: null }
-        : updates;
+      "class" in updates && saved && updates.class === saved.class
+        ? { ...updates, team: saved.team }
+        : "class" in updates && updates.class !== "teamleader"
+          ? { ...updates, team: null }
+          : updates;
     setRows((prev) =>
       prev.map((user) =>
         user.id === userId ? { ...user, ...normalized } : user,

@@ -12,10 +12,12 @@ import {
 } from "react";
 
 // 管理画面（/dashboard 配下）で「未保存の変更があるか」を共有する Context。
-// beforeunload はアプリ内の遷移（next/link）では発火しないため、サイドメニュー / タブ
-// （DashboardNav）からの画面切り替えの前に、この値を見て確認する。
 // 報告元は複数ある（ユーザー管理の UserList、項目管理の 6 枚の SelectOptionList）ため、
 // 報告元ごとに未保存かを持ち、どれか 1 つでも未保存なら「未保存の変更あり」とする。
+// - リロード・タブを閉じる操作: Provider が beforeunload で警告する（画面ごとには登録しない）
+// - サイドメニュー / タブ（DashboardNav）からの画面切り替え: beforeunload はアプリ内の遷移
+//   （next/link）では発火しないため、DashboardNav が切り替え前にこの値を見て確認する
+// - それ以外のアプリ内の遷移（ヘッダーのリンク・ブラウザの戻る等）は確認しない（既知の制約）
 // Provider の外（単体テスト等）では何もしない既定値になる。
 type DashboardUnsavedChangesContextValue = {
   hasUnsavedChanges: boolean;
@@ -51,12 +53,26 @@ export const DashboardUnsavedChangesProvider = ({
       }),
     [],
   );
+  const hasUnsavedChanges = dirtyReporters.size > 0;
+
+  // 未保存の変更がある状態でリロード・タブを閉じようとしたら警告する
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      // 古いブラウザは returnValue の設定で警告を出す
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedChanges]);
+
   const value = useMemo(
     () => ({
-      hasUnsavedChanges: dirtyReporters.size > 0,
+      hasUnsavedChanges,
       reportUnsavedChanges,
     }),
-    [dirtyReporters, reportUnsavedChanges],
+    [hasUnsavedChanges, reportUnsavedChanges],
   );
   return (
     <DashboardUnsavedChangesContext.Provider value={value}>

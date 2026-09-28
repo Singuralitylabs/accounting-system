@@ -465,6 +465,60 @@ describe("UserList", () => {
       expect(inputValue("山田太郎のチーム")).toBe("");
     });
 
+    it("権限を変えて読み込み時点の値に戻すと、チームも読み込み時点の値に戻り変更なしになる", async () => {
+      const { container } = renderWithMantine(
+        <UserList
+          userList={[
+            ...editableUserList,
+            makeUser({
+              id: 4,
+              user_id: "00000000-0000-0000-0000-000000000004",
+              name: "田中次郎",
+              email: "jiro@future-tech-association.org",
+              class: "public",
+              team: "チームB",
+              slack_id: null,
+            }),
+          ]}
+          teamList={teamList}
+        />,
+      );
+
+      // teamleader（チームA）→ accounting → teamleader
+      await selectOption("山田太郎の権限", "accounting");
+      expect(inputValue("山田太郎のチーム")).toBe("");
+      await selectOption("山田太郎の権限", "teamleader");
+      expect(inputValue("山田太郎のチーム")).toBe("チームA");
+
+      // public（チームB）→ admin → public
+      await selectOption("田中次郎の権限", "admin");
+      expect(inputValue("田中次郎のチーム")).toBe("");
+      await selectOption("田中次郎の権限", "public");
+      expect(inputValue("田中次郎のチーム")).toBe("チームB");
+
+      expect(screen.getByText("変更はありません")).toBeInTheDocument();
+      expect(changedRowNames(container)).toEqual([]);
+      expect(saveButton()).toBeDisabled();
+    });
+
+    it("保存に成功した後は、保存した権限・チームを基準に戻す", async () => {
+      renderWithMantine(
+        <UserList userList={editableUserList} teamList={teamList} />,
+      );
+
+      // 一般ユーザーを teamleader（チームB）にして保存する
+      await selectOption("鈴木一郎の権限", "teamleader");
+      await selectOption("鈴木一郎のチーム", "チームB");
+      fireEvent.click(saveButton());
+      await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+
+      await selectOption("鈴木一郎の権限", "public");
+      expect(inputValue("鈴木一郎のチーム")).toBe("");
+      await selectOption("鈴木一郎の権限", "teamleader");
+      expect(inputValue("鈴木一郎のチーム")).toBe("チームB");
+      expect(screen.getByText("変更はありません")).toBeInTheDocument();
+    });
+
     it("teamleader でチームを選んでいないと、保存せずにエラーを表示する", async () => {
       renderWithMantine(
         <UserList userList={editableUserList} teamList={teamList} />,
@@ -590,22 +644,5 @@ describe("UserList", () => {
       expect(refresh).not.toHaveBeenCalled();
       expect(screen.getByText("1 件変更あり")).toBeInTheDocument();
     });
-  });
-
-  it("未保存の変更がある間だけ、リロード・タブを閉じる操作で警告する", () => {
-    renderWithMantine(
-      <UserList userList={editableUserList} teamList={teamList} />,
-    );
-    const fireBeforeUnload = () => {
-      const event = new Event("beforeunload", { cancelable: true });
-      window.dispatchEvent(event);
-      return event.defaultPrevented;
-    };
-
-    expect(fireBeforeUnload()).toBe(false);
-    changeSlackId("山田太郎", "U999999");
-    expect(fireBeforeUnload()).toBe(true);
-    fireEvent.click(discardButton());
-    expect(fireBeforeUnload()).toBe(false);
   });
 });

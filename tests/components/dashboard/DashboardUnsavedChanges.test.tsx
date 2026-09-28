@@ -85,7 +85,7 @@ describe("管理画面の未保存の変更の共有（DashboardUnsavedChangesPr
   beforeEach(() => {
     vi.clearAllMocks();
     confirmAction.mockResolvedValue(true);
-    bulkUpsertSelectOptions.mockResolvedValue(undefined);
+    bulkUpsertSelectOptions.mockResolvedValue({ insertedIds: [] });
   });
 
   it("UserList の未保存の変更を報告し、値を戻すと解除する", () => {
@@ -123,6 +123,60 @@ describe("管理画面の未保存の変更の共有（DashboardUnsavedChangesPr
 
     await waitFor(() => expect(refresh).toHaveBeenCalled());
     expect(probe()).toBe("未保存なし");
+  });
+
+  const fireBeforeUnload = () => {
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+
+  it("ユーザー管理（UserList）に未保存の変更がある間だけ、リロード・タブを閉じる操作で警告する", () => {
+    renderWithMantine(tree({ team: false, category: false }));
+
+    expect(fireBeforeUnload()).toBe(false);
+    fireEvent.change(slackIdInput(), { target: { value: "U999" } });
+    expect(fireBeforeUnload()).toBe(true);
+    fireEvent.change(slackIdInput(), { target: { value: "U000001" } });
+    expect(fireBeforeUnload()).toBe(false);
+  });
+
+  it("項目管理（SelectOptionList）に未保存の変更がある間も警告し、保存に成功したら警告しない", async () => {
+    renderWithMantine(tree({ users: false }));
+
+    expect(fireBeforeUnload()).toBe(false);
+    fireEvent.change(screen.getByDisplayValue("開発"), {
+      target: { value: "開発2" },
+    });
+    expect(fireBeforeUnload()).toBe(true);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "更新" })[1]);
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    // 警告の解除は Provider の effect で行うため、反映を待つ
+    await waitFor(() => expect(fireBeforeUnload()).toBe(false));
+  });
+
+  it("警告は報告元の数によらず 1 つだけ登録し、どれか 1 つでも未保存なら警告する", () => {
+    const addEventListener = vi.spyOn(window, "addEventListener");
+    const { unmount } = renderWithMantine(tree());
+
+    fireEvent.change(slackIdInput(), { target: { value: "U999" } });
+    fireEvent.change(screen.getByDisplayValue("開発"), {
+      target: { value: "開発2" },
+    });
+    const beforeUnloadRegistrations = () =>
+      addEventListener.mock.calls.filter(([type]) => type === "beforeunload")
+        .length;
+    expect(beforeUnloadRegistrations()).toBe(1);
+
+    // UserList だけ元に戻しても、分類のカードが未保存のため警告する
+    fireEvent.change(slackIdInput(), { target: { value: "U000001" } });
+    expect(fireBeforeUnload()).toBe(true);
+
+    // 画面ごと外れたら（Provider のアンマウント）警告しない
+    unmount();
+    expect(fireBeforeUnload()).toBe(false);
+    addEventListener.mockRestore();
   });
 
   it("複数の報告元のうち 1 つでも未保存なら「未保存あり」のまま", () => {

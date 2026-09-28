@@ -4,7 +4,10 @@ import { Button, LoadingOverlay, Table, Title } from "@mantine/core";
 import { SelectOptionType } from "../types/types";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { bulkUpsertSelectOptions } from "../utils/supabase/selectOptions";
+import {
+  bulkUpsertSelectOptions,
+  InsertedSelectOptionId,
+} from "../utils/supabase/selectOptions";
 import { notifyError, notifySuccess } from "../utils/notify";
 import { confirmAction } from "../utils/confirmAction";
 import {
@@ -58,6 +61,20 @@ export const hasOptionListChanges = (
   baseline: OptionRow[],
   rows: OptionRow[],
 ) => optionRowsKey(baseline) !== optionRowsKey(rows);
+
+// 保存で INSERT された行を、仮 id から DB の id に置き換えて保存済み（isNew: false）にする。
+// これを baseline・表示にすることで、再取得（router.refresh）が届く前に続けて保存しても
+// 同じ行を再び INSERT せず、保存済みの行の削除も無効化（UPDATE）として送られる
+export const applyInsertedOptionIds = (
+  rows: OptionRow[],
+  insertedIds: InsertedSelectOptionId[],
+): OptionRow[] => {
+  const idByTempId = new Map(insertedIds.map(({ tempId, id }) => [tempId, id]));
+  return rows.map((row) => {
+    const id = row.isNew ? idByTempId.get(row.id) : undefined;
+    return id === undefined ? row : { ...row, id, isNew: false };
+  });
+};
 
 const SelectOptionList = ({
   optionClass,
@@ -144,7 +161,10 @@ const SelectOptionList = ({
   };
 
   const handleAddOption = () => {
-    const newId = Math.max(...updatedOptionList.map((option) => option.id)) + 1;
+    // 追加した行の仮 id は負の数にする（保存で DB が採番する id（正の数）と重ならない
+    // ように。保存に成功した行は DB の id に置き換える）
+    const newId =
+      Math.min(0, ...updatedOptionList.map((option) => option.id)) - 1;
     const newOption = {
       id: newId,
       value: "",
@@ -178,9 +198,26 @@ const SelectOptionList = ({
       );
       if (!confirmed) return;
 
-      await bulkUpsertSelectOptions(optionClass, updatedOptionList);
-      // 保存した状態を新しい baseline にする（未保存の変更なしになる）
-      setBaseline(updatedOptionList);
+      const { insertedIds, error } = await bulkUpsertSelectOptions(
+        optionClass,
+        updatedOptionList,
+      );
+      // INSERT できた行は DB の id に置き換える（途中で失敗した場合も、保存し直したときに
+      // 同じ行を再び INSERT しないように）
+      const savedRows = applyInsertedOptionIds(updatedOptionList, insertedIds);
+      if (error) {
+        setUpdatedOptionList(savedRows);
+        console.error(`${optionTitle}情報の保存に失敗しました。`, error);
+        notifyError(`${optionTitle}情報の保存に失敗しました。`);
+        return;
+      }
+      // 保存した状態を新しい baseline・表示にする（未保存の変更なしになる）。
+      // 追加してすぐ削除した行は保存していないため除く
+      const nextRows = savedRows.filter(
+        (row) => !(row.isNew && !row.is_active),
+      );
+      setUpdatedOptionList(nextRows);
+      setBaseline(nextRows);
       // 編集中に届いて保留していた props（この保存より前の内容）を同期済みとして扱い、
       // 保存した値が保存前の内容でいったん戻って見えないようにする（次に届く props から反映する）
       syncedOptionListRef.current = latestOptionListRef.current;
