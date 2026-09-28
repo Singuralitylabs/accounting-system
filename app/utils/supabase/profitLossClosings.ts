@@ -8,7 +8,7 @@ import {
   ClosingLineInput,
 } from "../../types/types";
 import { PL_CLOSING_WRITE_CLASSES } from "../permissions";
-import { toFirstOfMonth } from "../formatter";
+import { currentJstMonth, toFirstOfMonth } from "../formatter";
 import {
   buildLiveMonthLines,
   groupConsecutiveMonths,
@@ -20,6 +20,7 @@ import {
 } from "../profitLossClosing";
 import {
   buildApplyPayload,
+  closingDiffSummaryStartMonth,
   diffClosingLines,
   findStaleSelections,
   liveDiffStates,
@@ -33,7 +34,7 @@ import {
   fetchLiveSourceRows,
 } from "./profitLossSource";
 import { getAuthorizedViewer } from "./viewerAccess";
-import { getClosedMonths } from "./profitLossClosedMonths";
+import { fetchClosedMonthKeys } from "./closedMonthsQuery";
 
 export type ProfitLossClosingWriteResult = { error?: AccessFailure };
 
@@ -226,7 +227,9 @@ export type ClosingDiffSummaryResult =
 
 // 未処理の差分がある確定済みの月と件数（損益計算書ページ上部のバナー・月ピッカー・
 // 年間推移のアイコン用。accounting / admin のみ）。
-// 確定済みの月の一覧を取得したうえで、連続する確定済みの月ごと（通常は 1 つの範囲）に
+// 対象は当月を含む直近 CLOSING_DIFF_SUMMARY_MONTHS ヶ月（とそれより後）の確定済みの月に
+// 限る（確定済みの月が増えても取得量が増え続けないようにする。Issue #172）。
+// その確定済みの月の一覧を取得したうえで、連続する確定済みの月ごと（通常は 1 つの範囲）に
 // ライブの行・確定明細・見送り記録を並列に取得し、月別に差分を数える
 // （離れた確定済みの月の間の未確定の月の行まで取得しないようにする）
 export const getClosingDiffSummary =
@@ -238,11 +241,18 @@ export const getClosingDiffSummary =
     if (!profileInfo) {
       return { error };
     }
-    const closedMonthsResult = await getClosedMonths();
-    if (closedMonthsResult.error) {
-      return { error: closedMonthsResult.error };
+    const { months, error: closedMonthsError } = await fetchClosedMonthKeys({
+      fromMonth: closingDiffSummaryStartMonth(currentJstMonth()),
+    });
+    if (closedMonthsError) {
+      console.error("確定済みの月の取得に失敗しました:", closedMonthsError);
+      return {
+        error: {
+          kind: "fetchFailed",
+          message: "確定済みの月の取得に失敗しました。",
+        },
+      };
     }
-    const months = closedMonthsResult.months;
     if (months.length === 0) {
       return { summary: [] };
     }

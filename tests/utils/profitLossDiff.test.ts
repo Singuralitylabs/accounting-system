@@ -10,8 +10,10 @@ import {
   monthLinesToClosingRows,
 } from "@/app/utils/profitLossClosing";
 import {
+  CLOSING_DIFF_SUMMARY_MONTHS,
   annotateDiffMoves,
   buildApplyPayload,
+  closingDiffSummaryStartMonth,
   computeDiffImpact,
   diffClosingLines,
   diffKindLabel,
@@ -569,5 +571,21 @@ describe("反映・見送りの選択と表示後の変更の検出（Issue #149
     expect(
       sanitizeDiffSelections([{ sourceType: "business", sourceId: 1 }]),
     ).toBeNull();
+  });
+});
+
+describe("closingDiffSummaryStartMonth（確定後の変更の件数集計の対象期間。Issue #172）", () => {
+  it("当月を含む直近 24 ヶ月の開始月（当月の 23 ヶ月前）を返す（年跨ぎを含む）", () => {
+    expect(CLOSING_DIFF_SUMMARY_MONTHS).toBe(24);
+    expect(closingDiffSummaryStartMonth("2026-09")).toBe("2024-10");
+    expect(closingDiffSummaryStartMonth("2027-01")).toBe("2025-02");
+    expect(closingDiffSummaryStartMonth("2026-12")).toBe("2025-01");
+  });
+
+  it("前年度（7月〜翌6月）の全月を常に含む", () => {
+    // 年度末（6月）: 前年度の期首は 23 ヶ月前でちょうど含まれる
+    expect(closingDiffSummaryStartMonth("2026-06")).toBe("2024-07");
+    // 年度初め（7月）: 前年度の期首は 12 ヶ月前
+    expect(closingDiffSummaryStartMonth("2026-07") <= "2025-07").toBe(true);
   });
 });
