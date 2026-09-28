@@ -1893,7 +1893,8 @@ CREATE TRIGGER detect_matters_updates
 
 - `private.lock_pl_month(p_month date, p_exclusive boolean)`: 月単位の advisory lock（`pg_advisory_xact_lock(148, YYYYMM)` / `pg_advisory_xact_lock_shared(148, YYYYMM)`。第 1 キー 148 は本機能の名前空間）。トランザクション終了まで保持。NULL は何もしない。SECURITY DEFINER・`SET search_path = ''`。EXECUTE は authenticated のみ
 - `private.guard_pl_closed_month_write()`: トリガー関数（SECURITY INVOKER・`SET search_path = ''`）。`TG_ARGV[0]` の列（月）について、`row_security_active` が true（RLS が適用される利用者の書き込み）のときだけ、書き込んだ行の月（INSERT は新しい行、DELETE は元の行、UPDATE は変更前と変更後の両方）の**共有ロック**を取り、ロック取得後に別の文（= 新しいスナップショット）で `private.is_pl_month_closed` を判定し直し、確定済みなら `MONTH_CLOSED`（SQLSTATE 42501）で拒否する
-- BEFORE トリガーは RLS の WITH CHECK より先に評価されるため、書き込み権限の無い利用者（teamleader / public 等）の INSERT も、RLS で拒否される前に月の共有ロックを取る（ロックはそのトランザクションの終了で外れ、書き込みは RLS 違反で拒否されるため実害はない）。anon は `private` の関数を実行できないため、`permission denied`（`private.lock_pl_month` の実行権限、またはスキーマ `private` の使用権限）のエラーで拒否される（従来の RLS 違反とはメッセージが異なるが、書き込めないことは同じ）
+- BEFORE トリガーは RLS の WITH CHECK より先に評価されるため、書き込み権限の無い利用者（teamleader / public 等）の INSERT も、RLS で拒否される前に月の共有ロックを取る（ロックはそのトランザクションの終了で外れるため実害はない）。拒否のされ方は、未確定の月なら従来どおり RLS 違反、確定済みの月ならトリガーの `MONTH_CLOSED`（どちらも SQLSTATE 42501）
+- anon: 経理追加収支への日付ありの INSERT は、トリガーが `private` の関数を実行できないため `permission denied`（`private.lock_pl_month` の実行権限、またはスキーマ `private` の使用権限）のエラーで拒否される（従来の RLS 違反とはメッセージが異なるが、書き込めないことは同じ。日付なしの行はロックを取らないため従来どおり RLS 違反）。損益調整は anon にテーブル権限が無い（migration 23）ため、トリガーより前に従来どおり `permission denied for table profit_loss_adjustments` で拒否される
 - RLS をバイパスするロール（service_role・テーブル所有者）と、案件の明細・定期費用の削除に伴う損益調整の CASCADE 削除（参照整合性のアクションはテーブル所有者の権限で実行され、その中で発火する BEFORE トリガーでは `row_security_active` が false）は、従来どおり編集ロックの対象外で何もしない
 
 ```sql

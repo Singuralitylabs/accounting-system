@@ -302,7 +302,23 @@ TypeScript と型生成の運用によって、型の破綻を早期に検知す
 
 月次収支の確定と、同じ月への経理追加収支・損益調整の保存が同時に走ったときに、書き込みが「確定値に含まれる」か「確定済みとして拒否される」のどちらかになる（確定値から漏れない）ことを、ローカル DB（`supabase db reset` 直後）に psql を 2 本つないで確認する。画面では時間幅が狭く再現できないため、`pg_sleep` でコミットを遅らせる。確定側（セッション B）は `closeProfitLossMonth` の「集計 → `save_profit_loss_closing` → コミット後に再集計 → 違えば取り直し」を SQL で模す（集計はアプリの `buildLiveMonthLines` の代わりに、経理追加収支と管理費（定期費用・損益調整）だけを補助関数で組み立てる）。
 
-準備（postgres で 1 回。経理担当者 A / B と定期費用 1 件、補助関数 2 つ）:
+**本番・共有 DB では実行しない（ローカル DB 専用）**。検証用のユーザー・プロフィール・定期費用・補助関数を作り、確定・解除を行うため、終わったら `supabase db reset` で元に戻す。
+
+以下の 4 つの SQL ブロックをそれぞれ `setup.sql`（準備）・`a.sql`（セッション A）・`b.sql`（セッション B）・`check.sql`（確認）に保存し、`psql -f` で流す。`a.sql` / `b.sql` はコミットまでの待ち時間を `-v hold=N`（秒）で渡す（`\gset` / `\if` を使うため psql で実行する）。シナリオごとの時間差はシェルで付ける:
+
+```sh
+PSQL="psql postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+$PSQL -f setup.sql
+# シナリオ 1（書き込みが先）: A を開始し、1 秒後に B
+$PSQL -v hold=3 -f a.sql & sleep 1; $PSQL -v hold=0 -f b.sql; wait
+$PSQL -f check.sql
+# （次のシナリオの前に、下の「シナリオ間のリセット」を実行する）
+# シナリオ 2（確定が先）: B を開始し、0.5 秒後に A
+$PSQL -v hold=2 -f b.sql & sleep 0.5; $PSQL -v hold=4 -f a.sql; wait
+$PSQL -f check.sql
+```
+
+準備（`setup.sql`。postgres で 1 回。経理担当者 A / B と定期費用 1 件、補助関数 2 つ）:
 
 ```sql
 INSERT INTO auth.users (id, email) VALUES
@@ -350,7 +366,7 @@ CREATE FUNCTION public.pl171_closed_lines(p_month date) RETURNS jsonb LANGUAGE s
 $$;
 ```
 
-セッション A（経理担当者 A の書き込み。`:hold` 秒おいてコミット）:
+セッション A（`a.sql`。経理担当者 A の書き込み。`:hold` 秒おいてコミット）:
 
 ```sql
 BEGIN;
@@ -361,12 +377,22 @@ SELECT public.save_extra_entries(
   '[]', '{}');
 -- 損益調整で確認する場合は上の代わりに次のいずれか
 --   SELECT * FROM public.save_profit_loss_adjustment(NULL, NULL, 1, '2026-09-01', 12000, '値上げ分');
---   DELETE FROM public.profit_loss_adjustments WHERE target_month = '2026-09-01';  -- 事前に 9 月の調整を 1 件入れておく
+--   DELETE FROM public.profit_loss_adjustments WHERE target_month = '2026-09-01';  -- 事前に下の SQL で 9 月の調整を 1 件入れておく
 SELECT pg_sleep(:hold);
 COMMIT;
 ```
 
-セッション B（経理担当者 B の確定。`:hold` 秒おいてコミットし、コミット後に再集計して違えば取り直す）:
+損益調整の DELETE で確認する場合は、各シナリオの前に A として 9 月の調整を 1 件コミットしておく（`psql -f` で流す）:
+
+```sql
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', true);
+SELECT * FROM public.save_profit_loss_adjustment(NULL, NULL, 1, '2026-09-01', 12000, '値上げ分');
+COMMIT;
+```
+
+セッション B（`b.sql`。経理担当者 B の確定。`:hold` 秒おいてコミットし、コミット後に再集計して違えば取り直す）:
 
 ```sql
 SELECT public.pl171_live_lines('2026-09-01') AS lines \gset
@@ -390,18 +416,20 @@ SELECT (:'lines'::jsonb = :'verified'::jsonb) AS same \gset
 \endif
 ```
 
-確認（postgres。両セッションの終了後）:
+確認（`check.sql`。postgres。両セッションの終了後）:
 
 ```sql
 SELECT public.pl171_live_lines('2026-09-01') = public.pl171_closed_lines('2026-09-01') AS "確定値 = ライブ";
 ```
 
-| シナリオ                                                                                     | 実行順                                                             | 期待結果（migration 34 以降）                                                                                                                                            | 修正前（migration 34 適用前）                                                                             |
-| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| 1. 書き込みが先（Issue の順序）: A の書き込み（未コミット）→ B の確定・再集計 → A のコミット | A を `-v hold=3` で開始し、その 1 秒後に B を `-v hold=0` で開始   | B の `save_profit_loss_closing` が A のコミットまで待つ。B は「取り直し」と表示し、確認が `t`（A の書き込みが確定値に含まれる）                                          | B は A を待たず「取り直しなし」で終わり、確認が `f`（A の書き込みが確定値から漏れたまま月がロックされる） |
-| 2. 確定が先: B の確定（未コミット）→ A の書き込み → B のコミット・再集計                     | B を `-v hold=2` で開始し、その 0.5 秒後に A を `-v hold=4` で開始 | A の書き込みが B のコミットまで待ち、`ERROR: MONTH_CLOSED`（`DETAIL: 2026-09 の月は確定済みのため変更できません`）でロールバックされる。B は「取り直しなし」、確認が `t` | A の書き込みが通り、B のコミット後にコミットされて確認が `f`                                              |
+| シナリオ                                                                                     | 実行順                                                             | 期待結果（migration 34 以降）                                                                                                                                                                                                               | 修正前（migration 34 適用前）                                                                             |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| 1. 書き込みが先（Issue の順序）: A の書き込み（未コミット）→ B の確定・再集計 → A のコミット | A を `-v hold=3` で開始し、その 1 秒後に B を `-v hold=0` で開始   | B の `save_profit_loss_closing` が A のコミットまで待つ。B は「取り直し」と表示し、確認が `t`（A の書き込みが確定値に含まれる）                                                                                                             | B は A を待たず「取り直しなし」で終わり、確認が `f`（A の書き込みが確定値から漏れたまま月がロックされる） |
+| 2. 確定が先: B の確定（未コミット）→ A の書き込み → B のコミット・再集計                     | B を `-v hold=2` で開始し、その 0.5 秒後に A を `-v hold=4` で開始 | A の書き込みが B のコミットまで待ち、`ERROR: MONTH_CLOSED`（`DETAIL: 2026-09 の月は確定済みのため変更できません（extra_entries）`。損益調整では末尾が `（profit_loss_adjustments）`）でロールバックされる。B は「取り直しなし」、確認が `t` | A の書き込みが通り、B のコミット後にコミットされて確認が `f`                                              |
 
-各シナリオの前に確定を解除し、A の書き込みを消しておく（`DELETE FROM profit_loss_closings WHERE target_month = '2026-09-01'; DELETE FROM extra_entries WHERE entry_date >= '2026-09-01';`。損益調整で確認した場合は `profit_loss_adjustments` も）。確認後は補助関数を削除する（`DROP FUNCTION public.pl171_live_lines(date), public.pl171_closed_lines(date);`）か `supabase db reset` する。
+シナリオ間のリセット（postgres。確定を解除し、A の書き込みを消す）: `DELETE FROM profit_loss_closings WHERE target_month = '2026-09-01'; DELETE FROM extra_entries WHERE entry_date >= '2026-09-01'; DELETE FROM profit_loss_adjustments WHERE target_month = '2026-09-01';`
+
+後片付け: `supabase db reset` で DB を初期状態に戻す（準備で作った auth.users 2 件・profiles 2 件・定期費用「サーバ代」・補助関数 2 つと、確定・書き込みがすべて消える）。
 
 ## 4. CI / ツール構成
 
