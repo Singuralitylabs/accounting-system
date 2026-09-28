@@ -40,6 +40,10 @@ const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
     initialTargetDays ?? [],
   );
   const [isLoading, setIsLoading] = useState(false);
+  // 保存前の確認ダイアログ（confirmAction）を表示している間だけ true。
+  // Mantine 7.13 では開いている Modal すべてが window の Esc を拾うため、確認ダイアログを
+  // Esc で閉じると設定モーダルまで閉じて未保存の選択が破棄されてしまう。確認中は閉じない
+  const [isConfirming, setIsConfirming] = useState(false);
 
   const isFetchFailed = initialTargetDays === null;
 
@@ -51,8 +55,9 @@ const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
   };
 
   const closeModal = () => {
-    // 保存中は閉じない（閉じた後に保存結果が反映されて表示と食い違うのを防ぐ）
-    if (isLoading) return;
+    // 保存中は閉じない（閉じた後に保存結果が反映されて表示と食い違うのを防ぐ）。
+    // 確認ダイアログ表示中も閉じない（確認をキャンセルしたら開いたままにするため）
+    if (isLoading || isConfirming) return;
     setOpened(false);
   };
 
@@ -61,11 +66,17 @@ const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
       selectedDays.map(Number),
     );
 
-    const confirmed = await confirmAction(
-      normalized.length === 0
-        ? "対象日を空にして保存すると、事前収支申告の未申告リマインドが停止します。よろしいですか？"
-        : "リマインド対象日を更新しますか？",
-    );
+    let confirmed: boolean;
+    try {
+      setIsConfirming(true);
+      confirmed = await confirmAction(
+        normalized.length === 0
+          ? "対象日を空にして保存すると、事前収支申告の未申告リマインドが停止します。よろしいですか？"
+          : "リマインド対象日を更新しますか？",
+      );
+    } finally {
+      setIsConfirming(false);
+    }
     // 確認をキャンセルした場合はモーダルを開いたままにする
     if (!confirmed) return;
 

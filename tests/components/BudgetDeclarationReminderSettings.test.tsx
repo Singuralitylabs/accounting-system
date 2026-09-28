@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { ModalsProvider } from "@mantine/modals";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import BudgetDeclarationReminderSettings from "@/app/components/budgetDeclarations/BudgetDeclarationReminderSettings";
@@ -31,6 +32,19 @@ const openModal = async () => {
 // モーダルが閉じきる（Mantine の退場トランジション後にアンマウントされる）まで待つ
 const waitForModalClosed = () =>
   waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+// モーダルのオーバーレイ（背景）をクリックする
+const clickOverlay = () => {
+  const overlay = document.querySelector(".mantine-Modal-overlay");
+  if (!overlay) throw new Error("モーダルのオーバーレイが見つかりません");
+  fireEvent.mouseDown(overlay);
+  fireEvent.click(overlay);
+};
+
+// 閉じる操作が受け付けられていれば退場トランジション（既定 200ms）後に
+// アンマウントされるため、それより長く待ってからモーダルが残っていることを確認する
+const waitLongerThanTransition = () =>
+  new Promise((resolve) => setTimeout(resolve, 400));
 
 describe("BudgetDeclarationReminderSettings", () => {
   beforeEach(() => {
@@ -279,7 +293,58 @@ describe("BudgetDeclarationReminderSettings", () => {
     expect(screen.getByRole("checkbox", { name: "15" })).toBeChecked();
   });
 
-  it("保存中はキャンセル・× ボタン・Esc でモーダルを閉じられない", async () => {
+  it("オーバーレイのクリックで閉じた場合も未保存の選択を破棄する", async () => {
+    renderWithMantine(
+      <BudgetDeclarationReminderSettings initialTargetDays={[15]} />,
+    );
+
+    await openModal();
+    fireEvent.click(screen.getByRole("checkbox", { name: "15" }));
+
+    clickOverlay();
+    await waitForModalClosed();
+
+    await openModal();
+    expect(screen.getByRole("checkbox", { name: "15" })).toBeChecked();
+  });
+
+  it("確認ダイアログを Esc で閉じても設定モーダルは開いたまま（未保存の選択も保持）", async () => {
+    // 実際の confirmAction（@mantine/modals の確認ダイアログ）を使う
+    const actual = await vi.importActual<
+      typeof import("@/app/utils/confirmAction")
+    >("@/app/utils/confirmAction");
+    confirmAction.mockImplementation(actual.confirmAction);
+
+    renderWithMantine(
+      <ModalsProvider modalProps={{ transitionProps: { duration: 0 } }}>
+        <BudgetDeclarationReminderSettings initialTargetDays={[15]} />
+      </ModalsProvider>,
+    );
+
+    await openModal();
+    fireEvent.click(screen.getByRole("checkbox", { name: "15" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    const message = await screen.findByText(/未申告リマインドが停止します/);
+    // Mantine 7.13 は開いている Modal すべてが window で Esc を拾う
+    fireEvent.keyDown(message, { key: "Escape" });
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/未申告リマインドが停止します/),
+      ).not.toBeInTheDocument(),
+    );
+    await waitLongerThanTransition();
+
+    expect(updateBudgetDeclarationReminderTargetDays).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "15" })).not.toBeChecked();
+    expect(
+      screen.getByText("保存するとリマインドが無効になります"),
+    ).toBeInTheDocument();
+  });
+
+  it("保存中はキャンセル・× ボタン・Esc・オーバーレイのクリックでモーダルを閉じられない", async () => {
     confirmAction.mockResolvedValue(true);
     let resolveUpdate: (value: { error?: undefined }) => void = () => {};
     updateBudgetDeclarationReminderTargetDays.mockReturnValue(
@@ -302,10 +367,9 @@ describe("BudgetDeclarationReminderSettings", () => {
     fireEvent.click(screen.getByRole("button", { name: "キャンセル" }));
     fireEvent.click(screen.getByRole("button", { name: "閉じる" }));
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    clickOverlay();
 
-    // 閉じる操作が受け付けられていれば退場トランジション（既定 200ms）後に
-    // アンマウントされるため、それより長く待ってもモーダルが残っていることを確認する
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    await waitLongerThanTransition();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "18" })).toBeChecked();
 
