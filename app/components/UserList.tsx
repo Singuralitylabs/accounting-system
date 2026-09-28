@@ -27,7 +27,7 @@ export const teamOptionsFor = (team: string | null, teamList: string[]) =>
 
 type Props = {
   userList: ProfilesType[];
-  // チームの選択肢。サーバ側（DynamicDashboard）で取得済みのものを受け取る。
+  // チームの選択肢。サーバ側（DynamicDashboardUsers）で取得済みのものを受け取る。
   // 行ごとにクライアントから取得すると、行数分の Server Action が直列に走り
   // チーム欄だけ表示が遅れるため（Select は value が data に無いと空表示になる）。
   teamList: string[];

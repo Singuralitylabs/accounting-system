@@ -125,8 +125,9 @@ const SelectOptionList = ({
 
       await bulkUpsertSelectOptions(optionClass, updatedOptionList);
       notifySuccess(`${optionTitle}情報を更新しました。`);
-      // 同じページのユーザーリスト（チーム欄）はサーバで取得した選択肢を props で
-      // 受け取っているため、Server Component を再描画して最新の選択肢を反映する
+      // ユーザー管理画面（/dashboard/users）のチーム欄などはサーバで取得した選択肢を
+      // props で受け取っているため、Server Component を再描画し、クライアントの
+      // ルーターキャッシュも破棄して、画面を切り替えたときに最新の選択肢を反映する
       router.refresh();
     } catch (error) {
       console.error(`${optionTitle}情報の保存に失敗しました。`, error);
