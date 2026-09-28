@@ -23,8 +23,10 @@ export const useExtraEntryList = (
   // 新鮮なデータとして再表示される（QueryProvider は refetchOnMount: false）。
   initialDataUpdatedAt?: number,
 ) => {
-  return useQuery({
-    queryKey: ["extraEntries", "list", month],
+  const queryClient = useQueryClient();
+  const queryKey = ["extraEntries", "list", month];
+  const query = useQuery({
+    queryKey,
     queryFn: async () => {
       const { extraEntryList, error } = await getExtraEntryList(month);
       if (error) {
@@ -39,6 +41,13 @@ export const useExtraEntryList = (
     // 月を切り替えている間は前月の表を残す（毎回フルスピナーにしない）
     placeholderData: keepPreviousData,
   });
+  // 保存・前月コピー・月次収支の確定などで無効化され（= 古いと分かっている）、まだ
+  // 取り直せていない一覧か。再取得に失敗しても成功するまで true のまま残るため、
+  // 月を切り替えて戻った場合や画面を開き直した場合も、古い一覧での編集を止められる
+  // （Issue #170）。isStale は staleTime の経過でも true になるため区別できない
+  const isInvalidated =
+    queryClient.getQueryState(queryKey)?.isInvalidated ?? false;
+  return { ...query, isInvalidated };
 };
 
 // 内容・請求先のサジェスト候補（直近12ヶ月＋月未確定分の過去の入力値）。

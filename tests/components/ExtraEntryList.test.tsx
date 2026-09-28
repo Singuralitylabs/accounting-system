@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import ExtraEntryList from "@/app/components/extraEntries/ExtraEntryList";
 import { ExtraEntryType } from "@/app/types/types";
 import type { ExtraEntrySuggestion } from "@/app/hooks/useExtraEntryData";
-import { notifyError } from "@/app/utils/notify";
+import { notifyError, notifySuccess } from "@/app/utils/notify";
 import { confirmAction } from "@/app/utils/confirmAction";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
 
@@ -21,6 +21,8 @@ const extraEntryListOverrides = vi.hoisted(() => ({
     isFetching?: boolean;
     isStale?: boolean;
     dataUpdatedAt?: number;
+    isPaused?: boolean;
+    isInvalidated?: boolean;
   },
 }));
 const refetch = vi.fn();
@@ -46,6 +48,8 @@ vi.mock("@/app/hooks/useExtraEntryData", () => ({
     isPlaceholderData: false,
     isFetching: false,
     isStale: false,
+    isPaused: false,
+    isInvalidated: false,
     dataUpdatedAt: 1,
     refetch,
     ...extraEntryListOverrides.value,
@@ -149,6 +153,7 @@ const resetMocks = () => {
   mutateAsync.mockReset().mockResolvedValue(undefined);
   refetch.mockReset();
   vi.mocked(notifyError).mockReset();
+  vi.mocked(notifySuccess).mockReset();
   vi.mocked(confirmAction).mockReset();
   vi.mocked(confirmAction).mockResolvedValue(true);
   extraEntryListOverrides.value = {};
@@ -331,7 +336,7 @@ describe("ExtraEntryList の保存後の再取得（Issue #170）", () => {
       target: { value: "9月協賛（修正）" },
     });
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
-    await vi.waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(notifySuccess).toHaveBeenCalled());
 
     extraEntryListOverrides.value = { isFetching: true, isStale: true };
     view.rerender(listElement(initialData));
@@ -400,7 +405,7 @@ describe("ExtraEntryList の保存後の再取得（Issue #170）", () => {
       target: { value: "9月協賛（修正）" },
     });
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
-    await vi.waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(notifySuccess).toHaveBeenCalled());
 
     extraEntryListOverrides.value = {
       data: [entry({ id: 2, description: "9月協賛（サーバ側の値）" })],
@@ -425,6 +430,63 @@ describe("ExtraEntryList の保存後の再取得（Issue #170）", () => {
     await vi.waitFor(() => expect(notifyError).toHaveBeenCalled());
 
     expect(screen.getByDisplayValue("9月協賛（修正）")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "保存" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+  });
+
+  it("無効化された一覧を取り直せないまま表示している（月の往復・開き直し）ときは、古い一覧での編集・保存を止める", () => {
+    extraEntryListOverrides.value = { isInvalidated: true, isError: true };
+    renderList([entry({ id: 2, description: "9月協賛" })]);
+
+    expect(
+      screen.getByText("最新の経理追加収支情報を取得できませんでした"),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "保存" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    expect(screen.getByRole("button", { name: "収入を追加" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
+  it("オフラインで再取得が止まっている（paused）間も、無効化された一覧では編集を止めて案内を出す", () => {
+    extraEntryListOverrides.value = { isInvalidated: true, isPaused: true };
+    renderList([entry({ id: 2, description: "9月協賛" })]);
+
+    expect(
+      screen.getByText("最新の経理追加収支情報を取得できませんでした"),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "保存" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
+  it("以前の取得エラーが残っていても、再取得中は「取得できませんでした」を出さない", () => {
+    extraEntryListOverrides.value = {
+      isInvalidated: true,
+      isError: true,
+      isFetching: true,
+      isStale: true,
+    };
+    renderList([entry({ id: 2, description: "9月協賛" })]);
+
+    expect(
+      screen.queryByText("最新の経理追加収支情報を取得できませんでした"),
+    ).toBeNull();
+  });
+
+  it("staleTime の経過による再取得の失敗（無効化されていない）では、従来どおり編集・保存できる", () => {
+    extraEntryListOverrides.value = { isError: true, isStale: true };
+    renderList([entry({ id: 2, description: "9月協賛" })]);
+
+    expect(
+      screen.getByText("最新の経理追加収支情報の取得に失敗しました"),
+    ).toBeTruthy();
     expect(screen.getByRole("button", { name: "保存" })).toHaveProperty(
       "disabled",
       false,
