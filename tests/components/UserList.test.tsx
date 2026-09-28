@@ -271,6 +271,44 @@ describe("UserList", () => {
 
       expect(displayedNames()).toEqual(sortedNames);
     });
+
+    // router.refresh() 等でサーバから新しい一覧を受け取ったとき
+    const refreshedUserList = unsortedUserList.map((user) =>
+      user.id === 11 ? { ...user, class: "admin", slack_id: "U-NEW" } : user,
+    );
+
+    it("サーバの一覧が変わったら、変更が無ければ新しい値で再同期して並べ直す", () => {
+      const { rerender } = renderWithMantine(
+        <UserList userList={unsortedUserList} teamList={teamList} />,
+      );
+
+      rerender(<UserList userList={refreshedUserList} teamList={teamList} />);
+
+      expect(displayedNames()).toEqual([
+        "一般 次郎",
+        "管理 花子",
+        "経理 太郎",
+        "リーダー A",
+        "リーダー B",
+        "リーダー 旧",
+      ]);
+      expect(inputValue("一般 次郎の Slack ID")).toBe("U-NEW");
+      expect(screen.getByText("変更はありません")).toBeInTheDocument();
+    });
+
+    it("サーバの一覧が変わっても、編集中は編集内容を保ち行も動かさない", () => {
+      const { rerender } = renderWithMantine(
+        <UserList userList={unsortedUserList} teamList={teamList} />,
+      );
+
+      changeSlackId("経理 太郎", "U-EDIT");
+      rerender(<UserList userList={refreshedUserList} teamList={teamList} />);
+
+      expect(displayedNames()).toEqual(sortedNames);
+      expect(inputValue("経理 太郎の Slack ID")).toBe("U-EDIT");
+      expect(inputValue("一般 次郎の Slack ID")).toBe("U000001");
+      expect(screen.getByText("1 件変更あり")).toBeInTheDocument();
+    });
   });
 
   describe.each([

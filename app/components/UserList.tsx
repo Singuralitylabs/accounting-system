@@ -18,11 +18,13 @@ import { confirmAction } from "../utils/confirmAction";
 import {
   formatUserValidationErrors,
   selectChangedUsers,
+  USER_CLASS_LIST,
   UserValidationErrors,
   validateUserUpdates,
 } from "../utils/userList";
 import { sortUserList } from "../utils/userListSort";
 import { useViewportSize } from "@mantine/hooks";
+import { useReportDashboardUnsavedChanges } from "./dashboard/DashboardUnsavedChanges";
 import UserCard from "./UserCard";
 import UserTable from "./UserTable";
 
@@ -34,7 +36,7 @@ const elementListOfUser = [
   "チーム",
   "slack ID",
 ];
-export const classList = ["public", "teamleader", "accounting", "admin"];
+export const classList = USER_CLASS_LIST;
 
 // チーム欄の選択肢。Select は value が data に無いと空表示になるため、
 // 選択肢に無い現在値（無効化・名前変更されたチーム、選択肢の取得失敗時）も先頭に補い、
@@ -99,6 +101,9 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
       setBaseline(toRowMap(userList));
     }
   }, [userList, teamList]);
+
+  // 管理画面のサイドメニュー / タブ（DashboardNav）からの画面切り替え前の確認に使う
+  useReportDashboardUnsavedChanges(hasChanges);
 
   // 未保存の変更がある状態でリロード・タブを閉じようとしたら警告する
   useEffect(() => {
@@ -232,29 +237,34 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
       {errorMessages.length > 0 && (
         <Alert color="red" title="入力内容を確認してください" className="mb-4">
           <ul className="list-disc pl-5">
-            {errorMessages.map((message) => (
-              <li key={message}>{message}</li>
+            {errorMessages.map((message, index) => (
+              // 同名のユーザーで同じエラーが並ぶことがあるため、index を含める
+              <li key={`${index}-${message}`}>{message}</li>
             ))}
           </ul>
         </Alert>
       )}
       {!isMobile ? (
-        <Table>
-          <Table.Thead>{tableHeads}</Table.Thead>
-          <Table.Tbody>
-            {rows.map((user) => (
-              <UserTable
-                key={user.id}
-                userInfo={user}
-                teamList={teamList}
-                isChanged={changedIds.has(user.id)}
-                errors={visibleErrors.get(user.id)}
-                disabled={isSaving}
-                onUpdateUserList={handleUpdateUserList}
-              />
-            ))}
-          </Table.Tbody>
-        </Table>
+        // 768px 以上でもサイドメニューの分だけ幅が狭くなるため、入りきらない幅では
+        // テーブルを横スクロールにする（Select・入力欄が潰れないように）
+        <Table.ScrollContainer minWidth={760}>
+          <Table>
+            <Table.Thead>{tableHeads}</Table.Thead>
+            <Table.Tbody>
+              {rows.map((user) => (
+                <UserTable
+                  key={user.id}
+                  userInfo={user}
+                  teamList={teamList}
+                  isChanged={changedIds.has(user.id)}
+                  errors={visibleErrors.get(user.id)}
+                  disabled={isSaving}
+                  onUpdateUserList={handleUpdateUserList}
+                />
+              ))}
+            </Table.Tbody>
+          </Table>
+        </Table.ScrollContainer>
       ) : (
         rows.map((user) => (
           <UserCard

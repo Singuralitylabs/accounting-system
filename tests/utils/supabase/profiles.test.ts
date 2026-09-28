@@ -142,6 +142,33 @@ describe("bulkUpdateProfiles", () => {
     },
   );
 
+  it.each([
+    ["message", { message: "INVALID_INPUT" }],
+    ["SQLSTATE 22023", { message: "invalid parameter", code: "22023" }],
+  ])(
+    "不正な入力（INVALID_INPUT）は、何も保存していないことを利用者に分かるメッセージに変換する（%s で判定）",
+    async (_label, rpcError) => {
+      rpc.mockResolvedValue({ data: null, error: rpcError });
+
+      const result = await bulkUpdateProfiles(updates);
+
+      expect(result.error?.kind).toBe("validationFailed");
+      expect(result.error?.message).toContain("入力内容が正しくない");
+      expect(result.error?.message).toContain("何も保存しませんでした");
+      expect(result.error?.message).not.toContain("INVALID_INPUT");
+    },
+  );
+
+  it("権限が許可値以外なら RPC を呼ばずに拒否する", async () => {
+    const result = await bulkUpdateProfiles([
+      { ...updates[1], class: "superuser" },
+    ]);
+
+    expect(result.error?.kind).toBe("validationFailed");
+    expect(result.error?.message).toContain("佐藤: 権限の値が正しくありません。");
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
   it("それ以外の失敗も例外にせず、何も保存されていないことを返す", async () => {
     const consoleError = vi
       .spyOn(console, "error")

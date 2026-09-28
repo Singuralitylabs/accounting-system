@@ -71,6 +71,12 @@ describe("validateUserUpdates", () => {
     });
   });
 
+  it("権限は選択肢（public / teamleader / accounting / admin）のいずれか", () => {
+    expect(validateUserUpdates([user({ class: "superuser" })]).get(1)).toEqual({
+      class: "権限の値が正しくありません。",
+    });
+  });
+
   it("teamleader はチームが必須", () => {
     expect(validateUserUpdates([user({ team: null })]).get(1)).toEqual({
       team: "チームリーダーはチームが必須です。",

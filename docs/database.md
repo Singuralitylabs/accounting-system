@@ -705,12 +705,19 @@ GRANT EXECUTE ON FUNCTION public.validate_member_ids(bigint[]) TO authenticated;
 管理画面のユーザー管理（/dashboard/users）の一括保存は `update_profiles(p_updates jsonb)` を 1 回呼ぶだけで行う（関数呼び出し = 1 トランザクション）。変更した行の `class` / `team` / `slack_id` / `updated_at` を `jsonb_to_recordset` で展開した 1 文の UPDATE で更新し、1 件でも更新できなければすべてロールバックされるため、一部だけ保存された状態は残らない。
 
 - SECURITY INVOKER（既定）。上記の UPDATE ポリシー（他人の行を更新できるのは admin だけ。admin 以外は自分の行のみ、かつ class / team を変えない場合に限る）がそのまま適用される
-- RLS の USING で弾かれた UPDATE はエラーにならず 0 行になるだけのため（従来の 1 件ずつの UPDATE では黙って成功扱いになっていた）、更新した行数が指定した（重複を除いた）件数に満たなければ例外 `NOT_APPLIED` で全体をロールバックする（保存の途中で管理者権限が外れた、ユーザーが削除された、存在しない id を指定した等）。admin 以外が class / team を変えようとした場合は WITH CHECK 違反（42501）で全体がロールバックされる
+- RLS の USING で弾かれた UPDATE はエラーにならず 0 行になるだけのため（従来の 1 件ずつの UPDATE では黙って成功扱いになっていた）、更新した行数が指定した件数に満たなければ例外 `NOT_APPLIED` で全体をロールバックする（保存の途中で管理者権限が外れた、ユーザーが削除された、存在しない id を指定した等）。admin 以外が class / team を変えようとした場合は WITH CHECK 違反（42501）で全体がロールバックされる
 - WITH CHECK の `auth_user_class()` は文の開始時点のスナップショットで評価されるため、admin が自分の権限を下げる変更と他のユーザーの変更を同じ呼び出しに含めても、行の順序によらず全行が admin として判定される
-- 入力値の検証（権限は必須・teamleader はチームが必須）はアプリ側（`app/utils/userList.ts` の `validateUserUpdates`。画面と Server Action の両方）で行う
+- 画面を経由しない呼び出し（admin による PostgREST への直接の RPC・細工した Server Action の入力）でも意図しない上書きをしないよう、次のいずれかに当たる入力は例外 `INVALID_INPUT`（SQLSTATE 22023）で全体を拒否する（何も更新しない）
+  - `p_updates` が配列でない / 要素がオブジェクトでない
+  - 必須キー（`id` / `class` / `team` / `slack_id`）が欠けている（欠けたキーを NULL で上書きしない）
+  - `id` が正の整数でない（null を含む）/ 同じ `id` が複数ある（値が同じでも拒否。どの値が勝つか不定にしない）
+  - `class` が許可値（`public` / `teamleader` / `accounting` / `admin`）の文字列でない
+  - `team` / `slack_id` が文字列でも null でもない
+- teamleader のチーム必須などの業務上の入力チェックはアプリ側（`app/utils/userList.ts` の `validateUserUpdates`。画面と Server Action の両方。権限が許可値かもここで確認する）で行う
+- `updated_at` は関数内で `now()` を設定するが、既存の BEFORE UPDATE トリガー（`update_profiles_updated_at`。[6.1](#61-updated_at-更新トリガー)）でも設定される
 - クライアントからの upsert は使わない（INSERT ポリシー `auth.uid() = user_id` に弾かれるため）
 - EXECUTE は authenticated のみ（`REVOKE ... FROM PUBLIC, anon`）
-- 呼び出し側は `app/utils/supabase/profiles.ts` の `bulkUpdateProfiles`。`NOT_APPLIED` / 42501 は「何も保存しなかった」旨の利用者向けメッセージに変換する。画面からは変更した行だけが送られる
+- 呼び出し側は `app/utils/supabase/profiles.ts` の `bulkUpdateProfiles`。`INVALID_INPUT`（22023）/ `NOT_APPLIED` / 42501 は「何も保存しなかった」旨の利用者向けメッセージに変換する。画面からは変更した行だけが送られる
 
 ```sql
 CREATE OR REPLACE FUNCTION public.update_profiles(p_updates jsonb)
@@ -719,13 +726,40 @@ AS $$
 DECLARE
   v_count integer;
   v_expected integer;
+  v_total integer;
 BEGIN
-  IF COALESCE(jsonb_array_length(p_updates), 0) = 0 THEN
+  IF p_updates IS NULL THEN
+    RETURN;
+  END IF;
+  IF jsonb_typeof(p_updates) <> 'array' THEN
+    RAISE EXCEPTION 'INVALID_INPUT' USING ERRCODE = '22023';
+  END IF;
+  IF jsonb_array_length(p_updates) = 0 THEN
     RETURN;
   END IF;
 
-  SELECT count(DISTINCT u.id) INTO v_expected
+  -- 要素の形・必須キー・id・class の許可値・team / slack_id の型を検証する
+  IF EXISTS (
+    SELECT 1
+    FROM jsonb_array_elements(p_updates) AS e(elem)
+    WHERE jsonb_typeof(e.elem) <> 'object'
+      OR NOT (e.elem ?& ARRAY['id', 'class', 'team', 'slack_id'])
+      OR jsonb_typeof(e.elem -> 'id') <> 'number'
+      OR (e.elem ->> 'id') !~ '^[0-9]+$'
+      OR jsonb_typeof(e.elem -> 'class') <> 'string'
+      OR (e.elem ->> 'class') NOT IN ('public', 'teamleader', 'accounting', 'admin')
+      OR jsonb_typeof(e.elem -> 'team') NOT IN ('string', 'null')
+      OR jsonb_typeof(e.elem -> 'slack_id') NOT IN ('string', 'null')
+  ) THEN
+    RAISE EXCEPTION 'INVALID_INPUT' USING ERRCODE = '22023';
+  END IF;
+
+  -- 同じ id の重複は拒否する
+  SELECT count(*), count(DISTINCT u.id) INTO v_total, v_expected
   FROM jsonb_to_recordset(p_updates) AS u(id bigint);
+  IF v_total <> v_expected THEN
+    RAISE EXCEPTION 'INVALID_INPUT' USING ERRCODE = '22023';
+  END IF;
 
   UPDATE public.profiles p SET
     class = u.class, team = u.team, slack_id = u.slack_id, updated_at = now()

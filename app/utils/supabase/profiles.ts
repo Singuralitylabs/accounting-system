@@ -179,7 +179,7 @@ const PROFILES_SAVE_FAILED: AccessFailure = {
 // 1 件でも保存できなければすべてロールバックされる（一部だけ保存された状態は残らない）。
 // 他人の行を更新できるのは admin だけで、RLS（SECURITY INVOKER）で担保される。
 // RLS で弾かれた行・存在しない行があると NOT_APPLIED、admin 以外が権限・チームを
-// 変えようとすると RLS 違反（42501）になる。
+// 変えようとすると RLS 違反（42501）、不正な入力は INVALID_INPUT（22023）になる。
 // Server Action として公開されるため、画面側と同じ入力チェックをここでも行い、
 // 書き込む列は toProfileDbRow で権限・チーム・Slack ID に限定する
 export const bulkUpdateProfiles = async (
@@ -207,6 +207,20 @@ export const bulkUpdateProfiles = async (
     p_updates: updates.map(toProfileDbRow),
   });
   if (rpcError) {
+    // 不正な入力（キーの欠落・id の重複や null・許可値以外の権限など）は
+    // update_profiles が INVALID_INPUT（22023）で全体を拒否する
+    if (
+      rpcError.message.includes("INVALID_INPUT") ||
+      rpcError.code === "22023"
+    ) {
+      return {
+        error: {
+          kind: "validationFailed",
+          message:
+            "入力内容が正しくないため、何も保存しませんでした。画面を再読み込みしてから保存し直してください。",
+        },
+      };
+    }
     if (
       rpcError.message.includes("NOT_APPLIED") ||
       rpcError.code === "42501"

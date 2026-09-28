@@ -4,6 +4,9 @@ import { ProfilesType } from "../types/types";
 // Supabase アクセス（app/utils/supabase/profiles.ts）・画面（app/components/UserList.tsx）から
 // 切り離し、副作用なしでユニットテストできるようにする（docs/testing.md「2.6」）。
 
+// 権限（profiles.class）の選択肢。update_profiles（migration 33）が受け付ける値と一致させる
+export const USER_CLASS_LIST = ["public", "teamleader", "accounting", "admin"];
+
 // 一括保存でサーバへ送る 1 行分（update_profiles の p_updates の要素。migration 33）
 export type ProfileUpdateInput = Pick<
   ProfilesType,
@@ -52,10 +55,11 @@ export type UserValidationErrors = {
 };
 
 export const CLASS_REQUIRED_MESSAGE = "権限を選択してください。";
+export const CLASS_INVALID_MESSAGE = "権限の値が正しくありません。";
 export const TEAM_REQUIRED_MESSAGE = "チームリーダーはチームが必須です。";
 
 // 保存前の入力チェック（id → 項目ごとのエラー）。エラーの無い行は含めない。
-// - 権限は必須
+// - 権限は必須で、選択肢（USER_CLASS_LIST）のいずれか
 // - teamleader はチームが必須（docs/specification.md §5.3.9）
 export const validateUserUpdates = (
   rows: ProfileUpdateInput[],
@@ -65,6 +69,8 @@ export const validateUserUpdates = (
     const errors: UserValidationErrors = {};
     if (!row.class) {
       errors.class = CLASS_REQUIRED_MESSAGE;
+    } else if (!USER_CLASS_LIST.includes(row.class)) {
+      errors.class = CLASS_INVALID_MESSAGE;
     } else if (row.class === "teamleader" && !row.team) {
       errors.team = TEAM_REQUIRED_MESSAGE;
     }
