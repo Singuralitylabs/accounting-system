@@ -496,7 +496,40 @@ WHERE entry_date >= '2026-10-01' GROUP BY 1, 2 ORDER BY 1;
 | A がコミットせずロールバックした場合 | `copy.sql` の `COMMIT` を `ROLLBACK` にして A を実行する。B は A の終了まで待ってから `inserted_count = 2` を返し、確認は 2 行とも `count = 1`                               | ―                                                             |
 | 別の月へのコピー                     | 対象月（`'2026-10-01'`）と日付の置き換えを 11 月にした B は A を待たずに終わる（ロックは対象月ごと）                                                                         | ―                                                             |
 
-修正前の再現（migration 35 適用前の DB。アプリは「当月の既存行を読む」と「INSERT」を別々のリクエストで行っていたため、それぞれを別のトランザクションとして次の順に実行する）: ① A として当月（10 月）の既存行を `SELECT count(*)` する（0 件）→ ② B も同じく読む（0 件）→ ③ A として前月分を 10 月の日付で `INSERT` する → ④ B も同じ `INSERT` を実行する。確認で 2 行とも `count = 2` になる。
+修正前の再現（ロックを外して同じ手順を流す）: postgres で次を実行して `private.lock_extra_entries_copy` を何もしない関数に差し替え、「シナリオ間のリセット」の後に上の 2 セッションの手順と `check.sql` を流すと、B は A を待たずに `inserted_count = 2` を返し、確認は 2 行とも `count = 2`（二重登録）になる。ロックが無いと、既存行の確認がお互いの未コミットの行を見られないため（修正前のアプリは確認と INSERT を別々のリクエストで行っており、同じ状況だった）。確認後は `supabase db reset` で元に戻す。
+
+```sql
+CREATE OR REPLACE FUNCTION private.lock_extra_entries_copy(p_month date)
+RETURNS void LANGUAGE plpgsql AS $$ BEGIN NULL; END; $$;
+```
+
+同一内容の判定の確認（`edge.sql`。「シナリオ間のリセット」の後に `$PSQL -f edge.sql` で 1 回流す）。当月に既存の 2 行を置き、判定の境界に当たる 4 行を渡す:
+
+```sql
+INSERT INTO extra_entries                     -- postgres で当月の既存行を 2 件
+  (entry_type, category, entry_date, description, manager_id, team, billing_amount, expense_amount, payment_method)
+VALUES
+  ('income',  '協賛金', '2026-10-01', '既存協賛', 1, NULL, 1234.50, NULL, NULL),
+  ('expense', '交通費', '2026-10-02', '電車',     1, NULL, NULL,    500,  '現金');
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', true);
+SELECT * FROM public.copy_extra_entries('2026-10-01', '[
+  {"entry_type":"income","category":"協賛金","entry_date":"2026-10-20","description":"既存協賛","manager_id":1,"billing_amount":1234.5},
+  {"entry_type":"expense","category":"交通費","entry_date":"2026-10-02","description":"電車","manager_id":1,"team":"Aチーム","expense_amount":500,"payment_method":"現金"},
+  {"entry_type":"income","category":"協賛金","entry_date":"2026-10-05","description":"新規","manager_id":1,"billing_amount":100},
+  {"entry_type":"income","category":"協賛金","entry_date":"2026-10-05","description":"新規","manager_id":1,"billing_amount":100}
+]');
+COMMIT;
+SELECT description, team, count(*) FROM extra_entries
+WHERE entry_date >= '2026-10-01' GROUP BY 1, 2 ORDER BY 1, 2;
+```
+
+期待結果: `inserted_count = 3, skipped_count = 1`。
+
+- 「既存協賛」は日付が違っても、金額が `1234.5` と `1234.50`（数値として一致）ならスキップされ、`count = 1` のまま。
+- 「電車」はチームが違う（`Aチーム` と NULL）ため別の明細として登録され、NULL と `Aチーム` がそれぞれ `count = 1` になる。
+- 「新規」は渡した行どうしが同一内容でも両方登録され、`count = 2` になる（前月に同一内容の行が複数あればすべてコピーする）。
 
 シナリオ間のリセット（postgres）: `DELETE FROM extra_entries WHERE entry_date >= '2026-10-01';`
 
