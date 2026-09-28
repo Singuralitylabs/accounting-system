@@ -21,6 +21,10 @@ export const useRecurringCostList = (
     },
     initialData: initialData ?? undefined,
     staleTime: 2 * 60 * 1000, // 2分
+    // 画面を離れている間に無効化された一覧（保存後の再取得に失敗したまま離れた場合など）は、
+    // 開き直したときに取り直す（QueryProvider の既定は refetchOnMount: false。
+    // 古い一覧のまま編集して二重登録するのを防ぐ。useExtraEntryList と同じ）
+    refetchOnMount: (query) => query.state.isInvalidated,
   });
   // 保存の失敗などで無効化され（= 古いと分かっている）、まだ取り直せていない一覧か。
   // 再取得に失敗しても成功するまで true のまま残る

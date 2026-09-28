@@ -66,11 +66,16 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
   // - failed: 追加・更新・削除は並列に送るため、一部だけ反映されている（または応答だけ
   //   失われて反映済みの）可能性があり、そのまま保存し直すと新規行が二重に登録されうる
   // いずれもフックが一覧を無効化するので、再取得に成功して無効化が解けるまで同期と
-  // 編集・保存を止め、取り直した一覧（実際の状態）に同期する
+  // 編集・保存を止め、取り直した一覧（実際の状態）に同期する。
+  // awaitingRefresh は案内の文言を選ぶためだけに使う（コンポーネントの state なので
+  // 画面を離れて戻ると消える）。同期と編集を止めるかどうかは、キャッシュに残る一覧の
+  // 無効化（isInvalidated）で判定する。再取得待ちのまま画面を離れて戻った場合も、
+  // 保存前のキャッシュで上書きせず、サーバから届いた最新の initialData を表示したまま
+  // 取り直しを待つ（フックが開き直したときに取り直す）
   const [awaitingRefresh, setAwaitingRefresh] = useState<
     "saved" | "failed" | null
   >(null);
-  const needsReload = awaitingRefresh !== null && isInvalidated;
+  const needsReload = isInvalidated;
   // 再取得を試みたが取得できていない（失敗・オフラインで一時停止）
   const reloadStalled = needsReload && !isFetching && (isError || isPaused);
   const formLocked = upsertMutation.isPending || needsReload;
@@ -184,14 +189,18 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
           title={
             awaitingRefresh === "saved"
               ? "保存は完了しましたが、最新の定期費用情報を取得できませんでした"
-              : "保存結果を確認できず、最新の定期費用情報も取得できませんでした"
+              : awaitingRefresh === "failed"
+                ? "保存結果を確認できず、最新の定期費用情報も取得できませんでした"
+                : "最新の定期費用情報を取得できませんでした"
           }
           className="mb-4"
         >
           <p>
             {awaitingRefresh === "saved"
               ? "表示中の内容は保存した時点のものです。"
-              : "表示中の内容は保存しようとした時点のもので、実際にどこまで反映されたかは分かりません。"}
+              : awaitingRefresh === "failed"
+                ? "表示中の内容は保存しようとした時点のもので、実際にどこまで反映されたかは分かりません。"
+                : "表示中の内容は最新でない可能性があります。"}
             二重登録を防ぐため、最新の内容を取得できるまで編集・保存はできません。
             {isPaused && "通信が回復すると自動で取得します。"}
           </p>

@@ -71,13 +71,19 @@ const cost = (overrides: Partial<RecurringCostType>): RecurringCostType => ({
   ...overrides,
 });
 
-const renderList = (initialData: RecurringCostType[]) => {
-  const queryClient = new QueryClient({
+const createQueryClient = () =>
+  new QueryClient({
     defaultOptions: {
+      // QueryProvider と同じく refetchOnMount: false（待ち時間は 0）
       queries: { retry: 2, retryDelay: 0, refetchOnMount: false },
       mutations: { retry: 0 },
     },
   });
+
+const renderList = (
+  initialData: RecurringCostType[],
+  queryClient: QueryClient = createQueryClient(),
+) => {
   return renderWithMantine(
     <QueryClientProvider client={queryClient}>
       <RecurringCostList
@@ -243,6 +249,71 @@ describe(
         target: { value: "サーバ代（改定）" },
       });
       fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+      expect(await screen.findByDisplayValue("他の利用者が追加")).toBeTruthy();
+      await vi.waitFor(() =>
+        expect(screen.getByRole("button", { name: "保存" })).toHaveProperty(
+          "disabled",
+          false,
+        ),
+      );
+    });
+
+    // 保存後の取り直しに失敗し、「保存は完了しましたが…」が出たまま画面を離れる
+    const saveThenLeave = async (queryClient: QueryClient) => {
+      getRecurringCostList.mockResolvedValue({
+        recurringCostList: null,
+        error: { message: "network" },
+      });
+      const view = renderList([cost({ id: 1 })], queryClient);
+      fireEvent.change(screen.getByDisplayValue("サーバ代"), {
+        target: { value: "サーバ代（改定）" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
+      await screen.findByText(
+        "保存は完了しましたが、最新の定期費用情報を取得できませんでした",
+      );
+      view.unmount();
+      getRecurringCostList.mockClear();
+    };
+
+    it("取り直しに失敗したまま画面を離れて戻っても、保存前の一覧で上書きせず編集・保存を止める", async () => {
+      const queryClient = createQueryClient();
+      await saveThenLeave(queryClient);
+
+      // 別のページから戻る。サーバからは保存済みの行を含む最新の initialData が届くが、
+      // キャッシュ（保存前の一覧・無効化済み）が残っているため useQuery はキャッシュを使う
+      renderList([cost({ id: 1, name: "サーバ代（改定）" })], queryClient);
+
+      // 開き直したときに取り直す（QueryProvider の既定 refetchOnMount: false でも）
+      await vi.waitFor(() => expect(getRecurringCostList).toHaveBeenCalled());
+      expect(
+        await screen.findByText("最新の定期費用情報を取得できませんでした"),
+      ).toBeTruthy();
+      // 保存前のキャッシュ（「サーバ代」）で上書きせず、最新の initialData を表示したまま
+      expect(screen.getByDisplayValue("サーバ代（改定）")).toBeTruthy();
+      expect(screen.queryByDisplayValue("サーバ代")).toBeNull();
+      expect(screen.getByRole("button", { name: "保存" })).toHaveProperty(
+        "disabled",
+        true,
+      );
+      expect(
+        screen.getByRole("button", { name: "定期費用追加" }),
+      ).toHaveProperty("disabled", true);
+    });
+
+    it("画面を離れて戻ったときに取り直せたら、取り直した一覧に同期して編集できる", async () => {
+      const queryClient = createQueryClient();
+      await saveThenLeave(queryClient);
+
+      getRecurringCostList.mockResolvedValue({
+        recurringCostList: [
+          cost({ id: 1, name: "サーバ代（改定）" }),
+          cost({ id: 2, name: "他の利用者が追加" }),
+        ],
+        error: null,
+      });
+      renderList([cost({ id: 1, name: "サーバ代（改定）" })], queryClient);
 
       expect(await screen.findByDisplayValue("他の利用者が追加")).toBeTruthy();
       await vi.waitFor(() =>

@@ -19,7 +19,9 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
           mutations: {
             // 書き込みは既定で再実行しない。コミット後に応答だけ失われた場合に mutationFn が
             // 再実行されると、INSERT を含む保存で行が二重に登録されるため（Issue #169）。
-            // 冪等で再実行してよいものだけ、フック側で個別に retry を指定する
+            // 冪等な書き込みも含めて一律に自動では再試行せず、失敗したらエラーを通知して
+            // 利用者に操作をやり直してもらう（docs/specification.md 9.1）。非冪等なフックに
+            // 残している retry: 0 は、既定が変わっても再実行されないことを明示するもの
             retry: 0,
           },
         },
