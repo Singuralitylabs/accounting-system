@@ -23,8 +23,10 @@ export const useExtraEntryList = (
   // 新鮮なデータとして再表示される（QueryProvider は refetchOnMount: false）。
   initialDataUpdatedAt?: number,
 ) => {
-  return useQuery({
-    queryKey: ["extraEntries", "list", month],
+  const queryClient = useQueryClient();
+  const queryKey = ["extraEntries", "list", month];
+  const query = useQuery({
+    queryKey,
     queryFn: async () => {
       const { extraEntryList, error } = await getExtraEntryList(month);
       if (error) {
@@ -36,9 +38,22 @@ export const useExtraEntryList = (
     initialDataUpdatedAt: initialData ? initialDataUpdatedAt : undefined,
     enabled: !!month,
     staleTime: 2 * 60 * 1000, // 2分
+    // 画面を離れている間に無効化された一覧（損益計算書での前月コピー・確定の後など）は、
+    // 開き直したときに取り直す（QueryProvider の既定は refetchOnMount: false。
+    // 古い一覧のまま編集して二重登録するのを防ぐ。Issue #170）
+    refetchOnMount: (query) => query.state.isInvalidated,
     // 月を切り替えている間は前月の表を残す（毎回フルスピナーにしない）
     placeholderData: keepPreviousData,
   });
+  // 保存・前月コピー・月次収支の確定などで無効化され（= 古いと分かっている）、まだ
+  // 取り直せていない一覧か。再取得に失敗しても成功するまで true のまま残るため、
+  // 月を切り替えて戻った場合や画面を開き直した場合も、古い一覧での編集を止められる
+  // （Issue #170）。isStale は staleTime の経過でも true になるため区別できない
+  const isInvalidated =
+    queryClient.getQueryState(queryKey)?.isInvalidated ?? false;
+  // スプレッドすると useQuery の結果の全プロパティを読むことになり、変更の追跡
+  // （tracked properties）が効かなくなって再描画が増えるため、結果に追加する
+  return Object.assign(query, { isInvalidated });
 };
 
 // 内容・請求先のサジェスト候補（直近12ヶ月＋月未確定分の過去の入力値）。
@@ -80,6 +95,10 @@ export const useUpsertExtraEntry = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
+    // 新規行の INSERT を含む非冪等な書き込みのため、グローバル retry による
+    // mutationFn 再実行（コミット後に応答だけ失われた場合の二重登録）を防ぐ。
+    // 検証エラー（ExtraEntryValidationError）も再実行せずすぐ表示する
+    retry: 0,
     mutationFn: async (extraEntries: ExtraEntryInListType[]) => {
       const result = await bulkUpsertExtraEntry(extraEntries);
       if (result.error) {
@@ -95,6 +114,12 @@ export const useUpsertExtraEntry = () => {
     },
     onError: (error) => {
       console.error("経理追加収支更新エラー:", error);
+      if (!(error instanceof ExtraEntryValidationError)) {
+        // 通信の失敗などで保存できたかどうか分からない（コミット後に応答だけ失われた可能性が
+        // ある）。一覧を取り直して実際の保存結果を表示する（画面側は取り直すまで編集を止める）
+        queryClient.invalidateQueries({ queryKey: ["extraEntries"] });
+        queryClient.invalidateQueries({ queryKey: ["profitLoss"] });
+      }
     },
   });
 };
