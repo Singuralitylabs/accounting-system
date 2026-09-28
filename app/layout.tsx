@@ -3,6 +3,7 @@ import { Footer } from "./components/Footer";
 import "./globals.css";
 import "@mantine/core/styles.css";
 import "@mantine/dates/styles.css";
+import "@mantine/charts/styles.css";
 import "@mantine/notifications/styles.css";
 import { MantineProvider, ColorSchemeScript } from "@mantine/core";
 import { theme } from "./theme";

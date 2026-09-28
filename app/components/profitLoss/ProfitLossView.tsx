@@ -6,6 +6,7 @@ import {
   useProfitLossReport,
 } from "@/app/hooks/useProfitLossData";
 import { Alert, Group, Select, Tabs } from "@mantine/core";
+import dynamic from "next/dynamic";
 import { useState } from "react";
 import { CustomMonthPicker } from "../CustomMonthPicker";
 import { LoadingSpinner } from "../LoadingSpinner";
@@ -23,6 +24,13 @@ import {
   useClosedMonths,
   useClosingDiffSummary,
 } from "@/app/hooks/useProfitLossClosing";
+
+// 年間推移グラフ（Issue #177）は描画ライブラリ（Recharts）を含み重いため、
+// 初期バンドル（初期表示の月次タブ）から外し、年間推移タブで表示するときに読み込む
+const AnnualTrendChart = dynamic(() => import("./AnnualTrendChart"), {
+  ssr: false,
+  loading: () => <LoadingSpinner />,
+});
 
 type Props = {
   initialMonth: string; // "YYYY-MM"
@@ -207,10 +215,14 @@ const ProfitLossView = ({
               年度を変えるか、時間をおいて再読み込みしてください。
             </Alert>
           ) : (
-            <AnnualTrendTable
-              trend={trend}
-              diffCountByMonth={diffCountByMonth}
-            />
+            <>
+              <AnnualTrendTable
+                trend={trend}
+                diffCountByMonth={diffCountByMonth}
+              />
+              {/* 表と同じデータで売上・利益の推移を描く（Issue #177） */}
+              <AnnualTrendChart trend={trend} />
+            </>
           )}
         </Tabs.Panel>
       </Tabs>
