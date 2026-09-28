@@ -86,6 +86,9 @@ const SelectOptionList = ({
   // 無い場合に限り表示を同期する（保存で追加した行に DB の id を反映する。編集中の
   // 内容は黙って破棄しない。編集を終えて変更が無くなった時点で同期する）
   const syncedOptionListRef = useRef(optionList);
+  // 最新の props（保存成功時に「同期済み」として扱うため）
+  const latestOptionListRef = useRef(optionList);
+  latestOptionListRef.current = optionList;
   useEffect(() => {
     if (!hasChanges && optionList !== syncedOptionListRef.current) {
       syncedOptionListRef.current = optionList;
@@ -178,6 +181,9 @@ const SelectOptionList = ({
       await bulkUpsertSelectOptions(optionClass, updatedOptionList);
       // 保存した状態を新しい baseline にする（未保存の変更なしになる）
       setBaseline(updatedOptionList);
+      // 編集中に届いて保留していた props（この保存より前の内容）を同期済みとして扱い、
+      // 保存した値が保存前の内容でいったん戻って見えないようにする（次に届く props から反映する）
+      syncedOptionListRef.current = latestOptionListRef.current;
       notifySuccess(`${optionTitle}情報を更新しました。`);
       // ユーザー管理画面（/dashboard/users）のチーム欄などはサーバで取得した選択肢を
       // props で受け取っているため、Server Component を再描画し、クライアントの
@@ -197,7 +203,13 @@ const SelectOptionList = ({
         <Title order={3} className="pb-4">
           {optionTitle}
         </Title>
-        <Button type="button" disabled={isLoading} onClick={handleSaveOption}>
+        <Button
+          type="button"
+          // 未保存の変更が無い間は押せない（保存後の再取得を待つ間の連打で、追加した行が
+          // 再び登録されるのを防ぐ）
+          disabled={isLoading || !hasChanges}
+          onClick={handleSaveOption}
+        >
           更新
         </Button>
       </div>

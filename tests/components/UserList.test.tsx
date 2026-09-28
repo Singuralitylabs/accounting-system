@@ -362,6 +362,35 @@ describe("UserList", () => {
       expect(inputValue("経理 太郎の Slack ID")).toBe("U-SAVED");
       expect(screen.getByText("変更はありません")).toBeInTheDocument();
     });
+
+    it("編集中に届いた保存前の一覧は、次の保存の成功後に反映しない（保存した値のまま）", async () => {
+      const { rerender } = renderWithMantine(
+        <UserList userList={unsortedUserList} teamList={teamList} />,
+      );
+
+      // 1 回目の保存。refresh の応答が届く前に次の編集を始める
+      changeSlackId("経理 太郎", "U-1");
+      fireEvent.click(saveButton());
+      await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+      changeSlackId("経理 太郎", "U-2");
+
+      // 1 回目の refresh の応答（2 回目の編集より古い内容）が編集中に届く
+      rerender(
+        <UserList
+          userList={unsortedUserList.map((user) =>
+            user.id === 15 ? { ...user, slack_id: "U-1" } : user,
+          )}
+          teamList={teamList}
+        />,
+      );
+      expect(inputValue("経理 太郎の Slack ID")).toBe("U-2");
+
+      // 2 回目の保存に成功しても、届いていた古い一覧で表示を戻さない
+      fireEvent.click(saveButton());
+      await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
+      expect(inputValue("経理 太郎の Slack ID")).toBe("U-2");
+      expect(screen.getByText("変更はありません")).toBeInTheDocument();
+    });
   });
 
   describe.each([

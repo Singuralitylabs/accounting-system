@@ -98,6 +98,9 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
   // 古い baseline のまま次の保存で他の管理者の値を上書きしないようにする
   const syncedUserListRef = useRef(userList);
   const syncedTeamListRef = useRef(teamList);
+  // 最新の props（保存成功時に「同期済み」として扱うため）
+  const latestPropsRef = useRef({ userList, teamList });
+  latestPropsRef.current = { userList, teamList };
   useEffect(() => {
     if (hasChanges) return;
     if (
@@ -185,8 +188,12 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
         changedRows.forEach((row) => next.set(row.id, row));
         return next;
       });
+      // 編集中に届いて保留していた一覧（この保存より前の内容）を同期済みとして扱い、
+      // 保存した値が保存前の内容でいったん戻って見えないようにする（次に届く一覧から反映する）
+      syncedUserListRef.current = latestPropsRef.current.userList;
+      syncedTeamListRef.current = latestPropsRef.current.teamList;
       // 保存後の値で並べ直す
-      setRows((prev) => sortUserList(prev, teamList));
+      setRows((prev) => sortUserList(prev, latestPropsRef.current.teamList));
       setShowErrors(false);
       notifySuccess(`${changedRows.length} 件のユーザー情報を保存しました。`);
       router.refresh();

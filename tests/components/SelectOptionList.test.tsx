@@ -25,6 +25,11 @@ const optionList = [
   { id: 1, value: "チームA", display_order: 1, is_active: true },
 ];
 
+const editOption = () =>
+  fireEvent.change(screen.getByDisplayValue("チームA"), {
+    target: { value: "チームA2" },
+  });
+
 describe("SelectOptionList", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -39,6 +44,8 @@ describe("SelectOptionList", () => {
       <SelectOptionList optionClass="team" optionList={optionList} />,
     );
 
+    // 未保存の変更が無い間は「更新」を押せないため、項目名を編集してから押す
+    editOption();
     fireEvent.click(screen.getByRole("button", { name: "更新" }));
 
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
@@ -55,6 +62,8 @@ describe("SelectOptionList", () => {
       <SelectOptionList optionClass="team" optionList={optionList} />,
     );
 
+    // 未保存の変更が無い間は「更新」を押せないため、項目名を編集してから押す
+    editOption();
     fireEvent.click(screen.getByRole("button", { name: "更新" }));
 
     await waitFor(() => expect(notifyError).toHaveBeenCalled());
@@ -67,6 +76,8 @@ describe("SelectOptionList", () => {
       <SelectOptionList optionClass="team" optionList={optionList} />,
     );
 
+    // 未保存の変更が無い間は「更新」を押せないため、項目名を編集してから押す
+    editOption();
     fireEvent.click(screen.getByRole("button", { name: "更新" }));
 
     await waitFor(() => expect(confirmAction).toHaveBeenCalled());
@@ -100,5 +111,73 @@ describe("SelectOptionList", () => {
     );
     expect(screen.getByDisplayValue("チームA2")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("チームC")).not.toBeInTheDocument();
+  });
+
+  it("編集中に届いた保存前の選択肢は、そのカードの保存の成功後に反映しない（保存した値のまま）", async () => {
+    const teamOptions = [
+      { id: 1, value: "チームA", display_order: 1, is_active: true },
+    ];
+    const categoryOptions = [
+      { id: 11, value: "開発", display_order: 1, is_active: true },
+    ];
+    const renderCards = (
+      team: typeof teamOptions,
+      category: typeof categoryOptions,
+    ) => (
+      <>
+        <SelectOptionList optionClass="team" optionList={team} />
+        <SelectOptionList optionClass="category" optionList={category} />
+      </>
+    );
+    bulkUpsertSelectOptions.mockResolvedValue(undefined);
+    const { rerender } = renderWithMantine(
+      renderCards(teamOptions, categoryOptions),
+    );
+
+    // 2 枚のカードを編集し、分類（B）だけを保存する
+    fireEvent.change(screen.getByDisplayValue("チームA"), {
+      target: { value: "チームA2" },
+    });
+    fireEvent.change(screen.getByDisplayValue("開発"), {
+      target: { value: "開発2" },
+    });
+    const [teamSaveButton, categorySaveButton] = screen.getAllByRole("button", {
+      name: "更新",
+    });
+    fireEvent.click(categorySaveButton);
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+
+    // B の refresh の応答（チームは保存前の内容の新しい配列）が、チームの編集中に届く
+    rerender(
+      renderCards(
+        [{ id: 1, value: "チームA", display_order: 1, is_active: true }],
+        [{ id: 11, value: "開発2", display_order: 1, is_active: true }],
+      ),
+    );
+    expect(screen.getByDisplayValue("チームA2")).toBeInTheDocument();
+
+    // チーム（A）を保存しても、届いていた保存前の内容で表示を戻さない
+    fireEvent.click(teamSaveButton);
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
+    expect(screen.getByDisplayValue("チームA2")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("チームA")).not.toBeInTheDocument();
+  });
+
+  it("未保存の変更が無い間は「更新」を押せない", () => {
+    renderWithMantine(
+      <SelectOptionList optionClass="team" optionList={optionList} />,
+    );
+    const saveButton = screen.getByRole("button", { name: "更新" });
+    expect(saveButton).toBeDisabled();
+
+    fireEvent.change(screen.getByDisplayValue("チームA"), {
+      target: { value: "チームA2" },
+    });
+    expect(saveButton).toBeEnabled();
+
+    fireEvent.change(screen.getByDisplayValue("チームA2"), {
+      target: { value: "チームA" },
+    });
+    expect(saveButton).toBeDisabled();
   });
 });
