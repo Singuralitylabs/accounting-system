@@ -11,7 +11,7 @@ import {
   Text,
   Title,
 } from "@mantine/core";
-import { useViewportSize } from "@mantine/hooks";
+import { useMediaQuery } from "@mantine/hooks";
 import { SelectOptionType } from "../types/types";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -221,8 +221,9 @@ const SelectOptionList = ({
   // Input errors are shown only after a save attempt, so a freshly added empty row is not flagged.
   const [showErrors, setShowErrors] = useState(false);
   const router = useRouter();
-  const { width } = useViewportSize();
-  const isMobile = width < 768;
+  const isMobile = useMediaQuery("(max-width: 767.98px)", false, {
+    getInitialValueInEffect: false,
+  });
   const hasChanges = hasOptionListChanges(baseline, updatedOptionList);
   const changeCount = countOptionChanges(baseline, updatedOptionList);
   const activeCount = countActiveOptions(updatedOptionList);
@@ -396,14 +397,17 @@ const SelectOptionList = ({
   };
 
   const displayedRows = updatedOptionList.filter((option) => option.is_active);
+  const duplicateValue = findDuplicateOptionValue(
+    updatedOptionList.filter((row) => row.value),
+  );
   const errorMessages = showErrors
     ? [
         ...(updatedOptionList.some((row) => row.is_active && !row.value)
           ? ["未入力の項目名があります。"]
           : []),
-        ...(findDuplicateOptionValue(updatedOptionList) !== undefined
+        ...(duplicateValue !== undefined
           ? [
-              `「${findDuplicateOptionValue(updatedOptionList)}」が複数あります。項目名が重ならないようにしてください。`,
+              `「${duplicateValue}」が複数あります。項目名が重ならないようにしてください。`,
             ]
           : []),
       ]
@@ -504,6 +508,7 @@ const SelectOptionList = ({
                   key={option.id}
                   option={option}
                   label={optionTitle}
+                  rowNumber={index + 1}
                   position={isMobile ? undefined : index + 1}
                   status={rowStatus(option)}
                   error={showErrors ? rowErrors.get(option.id) : undefined}

@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge, Paper, Select, Text, UnstyledButton } from "@mantine/core";
-import { useViewportSize } from "@mantine/hooks";
+import { useMediaQuery } from "@mantine/hooks";
 import { useSearchParams } from "next/navigation";
 import { ComponentProps, useCallback, useState } from "react";
 import {
@@ -47,8 +47,10 @@ const OptionsManager = ({
       ]),
     ),
   );
-  const { width } = useViewportSize();
-  const isMobile = width < 768;
+  // Read synchronously with a PC default so SSR and the first paint use the PC layout (useViewportSize is 0 until mounted).
+  const isMobile = useMediaQuery("(max-width: 767.98px)", false, {
+    getInitialValueInEffect: false,
+  });
 
   const handleStatusChange = useCallback(
     (optionClass: string, status: OptionListStatus) =>
@@ -67,7 +69,9 @@ const OptionsManager = ({
 
   const handleSelect = (optionClass: OptionClass) => {
     setSelected(optionClass);
-    window.history.replaceState(null, "", `?type=${optionClass}`);
+    const params = new URLSearchParams(searchParams?.toString());
+    params.set("type", optionClass);
+    window.history.replaceState(null, "", `?${params.toString()}`);
   };
 
   const errorByClass = new Map(

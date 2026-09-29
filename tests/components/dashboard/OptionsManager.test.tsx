@@ -9,8 +9,11 @@ import { OPTION_CLASSES } from "@/app/utils/selectOptionClasses";
 import { renderWithMantine } from "../../testUtils/renderWithMantine";
 
 const { viewport, searchParams } = vi.hoisted(() => ({
-  viewport: { width: 1024 },
-  searchParams: { type: null as string | null },
+  viewport: { mobile: false },
+  searchParams: {
+    type: null as string | null,
+    other: null as string | null,
+  },
 }));
 
 vi.mock("@/app/utils/supabase/selectOptions", () => ({
@@ -22,13 +25,19 @@ vi.mock("@/app/utils/notify", () =>
 );
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn() }),
-  useSearchParams: () => ({ get: () => searchParams.type }),
+  useSearchParams: () => ({
+    get: () => searchParams.type,
+    toString: () =>
+      [searchParams.other, searchParams.type && `type=${searchParams.type}`]
+        .filter(Boolean)
+        .join("&"),
+  }),
 }));
 vi.mock("@mantine/hooks", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@mantine/hooks")>();
   return {
     ...actual,
-    useViewportSize: () => ({ width: viewport.width, height: 800 }),
+    useMediaQuery: () => viewport.mobile,
   };
 });
 
@@ -49,8 +58,9 @@ const nav = () => screen.getByRole("navigation", { name: "項目の種類" });
 
 describe("OptionsManager", () => {
   beforeEach(() => {
-    viewport.width = 1024;
+    viewport.mobile = false;
     searchParams.type = null;
+    searchParams.other = null;
     window.history.replaceState(null, "", "/dashboard/options");
   });
 
@@ -107,6 +117,25 @@ describe("OptionsManager", () => {
     expect(screen.getByDisplayValue("決済方法の項目")).toBeVisible();
   });
 
+  it("不正な ?type= の値は無視して先頭のカテゴリを開く", () => {
+    searchParams.type = "unknown";
+    renderWithMantine(<OptionsManager categories={categories()} />);
+
+    expect(screen.getByDisplayValue("チームの項目")).toBeVisible();
+  });
+
+  it("URL のクエリを更新するとき、type 以外のクエリを残す", () => {
+    searchParams.other = "foo=bar";
+    const spy = vi
+      .spyOn(window.history, "replaceState")
+      .mockImplementation(() => {});
+    renderWithMantine(<OptionsManager categories={categories()} />);
+    fireEvent.click(within(nav()).getByRole("button", { name: /^品目/ }));
+
+    expect(spy).toHaveBeenCalledWith(null, "", "?foo=bar&type=item");
+    spy.mockRestore();
+  });
+
   it("取得に失敗したカテゴリは、一覧に失敗マークを出し、パネルにエラーを表示する", () => {
     renderWithMantine(
       <OptionsManager
@@ -127,7 +156,7 @@ describe("OptionsManager", () => {
 
   describe("モバイル（768px 未満）", () => {
     beforeEach(() => {
-      viewport.width = 375;
+      viewport.mobile = true;
     });
 
     it("カテゴリ一覧の代わりに Select で切り替える", () => {
@@ -143,6 +172,22 @@ describe("OptionsManager", () => {
       fireEvent.click(screen.getByRole("option", { name: "品目（2件）" }));
 
       expect(screen.getByDisplayValue("品目の項目")).toBeVisible();
+    });
+
+    it("別のカテゴリへ切り替えても、元のカテゴリの Select の表示に「● 未保存」が残る", () => {
+      renderWithMantine(<OptionsManager categories={categories()} />);
+      fireEvent.change(screen.getByDisplayValue("チームの項目"), {
+        target: { value: "編集" },
+      });
+
+      const select = screen.getByRole("textbox", { name: "編集する項目" });
+      fireEvent.click(select);
+      fireEvent.click(screen.getByRole("option", { name: "品目（2件）" }));
+      fireEvent.click(select);
+
+      expect(
+        screen.getByRole("option", { name: "チーム（2件） ● 未保存" }),
+      ).toBeInTheDocument();
     });
 
     it("未保存の変更がある間だけ、Select に「● 未保存」と画面下の固定バーを表示する", () => {

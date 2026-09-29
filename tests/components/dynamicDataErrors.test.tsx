@@ -176,7 +176,8 @@ describe("Dynamic* サーバコンポーネントの取得エラー", () => {
     it("取得に成功したら throw せず、エラーを表示しない", async () => {
       const html = await renderOptions();
 
-      expect(html).toContain("編集する項目");
+      expect(html).toContain("案件・費用で使う項目");
+      expect(html).not.toContain("編集する項目");
       expect(html).not.toContain("取得に失敗しました");
       expect(getSelectOptions).toHaveBeenCalledTimes(6);
     });

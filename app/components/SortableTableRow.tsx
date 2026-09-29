@@ -13,6 +13,8 @@ interface Props {
     "id" | "value" | "display_order" | "is_active"
   >;
   label: string;
+  // 1-based row number used only in screen-reader labels, so rows can be told apart.
+  rowNumber: number;
   // 1-based position among displayed rows; hidden when undefined (mobile).
   position?: number;
   status?: OptionRowStatus;
@@ -33,6 +35,7 @@ const STATUS_BACKGROUND: Record<OptionRowStatus, string> = {
 export function SortableTableRow({
   option,
   label,
+  rowNumber,
   position,
   status,
   error,
@@ -67,7 +70,7 @@ export function SortableTableRow({
         <div
           {...attributes}
           {...listeners}
-          aria-label={`${label}の並び順を変更（ドラッグ）`}
+          aria-label={`${option.value || `新しい${label}`}の並び順を変更`}
           title="ドラッグして並び替え"
           className="cursor-move"
         >
@@ -83,7 +86,7 @@ export function SortableTableRow({
             })
           }
           size="sm"
-          aria-label={`${label}の項目名`}
+          aria-label={`${label}の項目名（${rowNumber}行目）`}
           placeholder={`${label}の項目名を入力`}
           error={error}
           disabled={disabled}

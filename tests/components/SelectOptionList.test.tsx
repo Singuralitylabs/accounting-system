@@ -762,7 +762,7 @@ describe("optionRowsToSave", () => {
       expect(screen.getByText("1 件変更あり")).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "変更を破棄" }));
 
-      expect(screen.getAllByLabelText("チームの項目名")).toHaveLength(1);
+      expect(screen.getAllByLabelText(/^チームの項目名/)).toHaveLength(1);
     });
 
     it("項目が無いときは空状態のメッセージを表示する", () => {
@@ -785,9 +785,11 @@ describe("optionRowsToSave", () => {
       expect(
         screen.getByRole("button", { name: "チームAを削除" }),
       ).toHaveAttribute("type", "button");
-      expect(screen.getByLabelText("チームの項目名")).toBeInTheDocument();
       expect(
-        screen.getByLabelText("チームの並び順を変更（ドラッグ）"),
+        screen.getByLabelText("チームの項目名（1行目）"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByLabelText("チームAの並び順を変更"),
       ).toBeInTheDocument();
     });
 
@@ -806,6 +808,23 @@ describe("optionRowsToSave", () => {
       );
       expect(screen.getByText("項目名を入力してください")).toBeInTheDocument();
       expect(bulkUpsertSelectOptions).not.toHaveBeenCalled();
+    });
+
+    it("空欄の行が 2 つあっても、Alert に空の名前の重複を出さない", async () => {
+      renderWithMantine(
+        <SelectOptionList optionClass="team" optionList={optionList} />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "＋ チームを追加" }));
+      fireEvent.click(screen.getByRole("button", { name: "＋ チームを追加" }));
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+      await waitFor(() =>
+        expect(
+          screen.getByText("未入力の項目名があります。"),
+        ).toBeInTheDocument(),
+      );
+      expect(screen.queryByText(/が複数あります/)).not.toBeInTheDocument();
     });
 
     it("重複した名前は、Alert と重複した両方の入力欄にエラーを表示する", async () => {
