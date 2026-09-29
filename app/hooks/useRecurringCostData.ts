@@ -6,9 +6,7 @@ import {
 import { RecurringCostInListType, RecurringCostType } from "../types/types";
 import { useQueryWithInvalidation } from "./useQueryWithInvalidation";
 
-// 定期費用一覧。保存後の再取得に失敗したまま離れた場合などの無効化された一覧は、
-// 開き直したときに取り直し、古い一覧での編集を止められるよう isInvalidated を返す
-// （useExtraEntryList と同じ。useQueryWithInvalidation）
+// Returns isInvalidated so a list left invalidated is refetched on reopen and stale edits are blocked (same as useExtraEntryList).
 export const useRecurringCostList = (
   initialData?: RecurringCostType[] | null,
 ) =>
@@ -22,29 +20,24 @@ export const useRecurringCostList = (
       return recurringCostList ?? [];
     },
     initialData: initialData ?? undefined,
-    staleTime: 2 * 60 * 1000, // 2分
+    staleTime: 2 * 60 * 1000,
   });
 
-// 定期費用の一括登録・更新・削除
 export const useUpsertRecurringCost = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    // 新規行の INSERT を含む非冪等な書き込みのため、グローバル retry による
-    // mutationFn 再実行（一部の操作だけ失敗した場合などの二重登録）を防ぐ
+    // Non-idempotent (INSERT): prevent global retry.
     retry: 0,
     mutationFn: (recurringCosts: RecurringCostInListType[]) =>
       bulkUpsertRecurringCost(recurringCosts),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["recurringCosts"] });
-      // 定期費用の変更は全月の損益レポートに影響するため、損益側もまとめて無効化する
       queryClient.invalidateQueries({ queryKey: ["profitLoss"] });
     },
     onError: (error) => {
       console.error("定期費用更新エラー:", error);
-      // 追加・更新・削除を並列に送るため、一部だけ反映されている、または応答だけ失われて
-      // 反映済みの可能性がある。一覧を取り直して実際の状態を表示する（画面側は取り直すまで
-      // 編集を止める）
+      // Requests are sent in parallel, so partial application or a lost response is possible; refetch to show the actual state (the UI blocks editing until then).
       queryClient.invalidateQueries({ queryKey: ["recurringCosts"] });
       queryClient.invalidateQueries({ queryKey: ["profitLoss"] });
     },

@@ -5,13 +5,11 @@ import {
 } from "../utils/supabase/profitLossAdjustments";
 import { AdjustmentTarget } from "../types/types";
 
-// 実績額修正の保存（1件ずつ即時保存）
 export const useSaveProfitLossAdjustment = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    // 非冪等な書き込みのため、グローバル retry による mutationFn 再実行を防ぐ
-    // （useSaveBudgetRecurringItems / useSaveBudgetDeclaration と同方針）
+    // Non-idempotent write: prevent global retry.
     retry: 0,
     mutationFn: async ({
       target,
@@ -39,7 +37,6 @@ export const useSaveProfitLossAdjustment = () => {
       };
     },
     onSuccess: () => {
-      // 損益調整は損益レポート（月次・年間推移）にのみ影響する
       queryClient.invalidateQueries({ queryKey: ["profitLoss"] });
     },
     onError: (error) => {
@@ -48,14 +45,11 @@ export const useSaveProfitLossAdjustment = () => {
   });
 };
 
-// 調整の削除（実績額を元データと同額に戻す操作、対象行が当月に存在しない
-// 調整の削除の両方で使う）
 export const useDeleteProfitLossAdjustment = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    // 非冪等な書き込みのため、グローバル retry による mutationFn 再実行を防ぐ
-    // （useSaveBudgetRecurringItems / useSaveBudgetDeclaration と同方針）
+    // Non-idempotent write: prevent global retry.
     retry: 0,
     mutationFn: async (adjustmentId: number) => {
       const { error } = await deleteProfitLossAdjustment(adjustmentId);

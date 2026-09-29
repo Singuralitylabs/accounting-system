@@ -1,13 +1,11 @@
 name: Format Check
 
-# Prettier によるコード整形の統一性を担保（docs/testing.md 3.5）
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
-  # リリース PR 作成時の品質ゲートから再利用する（release-pr.yml）。
-  # 既存の push / pull_request トリガーの挙動は変えない。
+  # Reused by the release-PR quality gate (release-pr.yml).
   workflow_call:
 
 jobs:

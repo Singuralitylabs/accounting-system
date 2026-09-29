@@ -3,8 +3,7 @@ import MattersTabs from "../components/matterList/MattersTabs";
 import { getCachedProfileInfo } from "../utils/supabase/requestCache";
 import { hasClassAccess, ROUTE_PERMISSIONS } from "../utils/permissions";
 
-// /matters・/matters/team・/matters/accounting で共有するタブシェル。
-// タブの表示可否は ROUTE_PERMISSIONS（middleware のロール保護と同じ定義）で判定する。
+// Tab shell shared by /matters, /matters/team and /matters/accounting; tab visibility follows ROUTE_PERMISSIONS (same definition as middleware role protection).
 const MattersLayout = async ({ children }: { children: ReactNode }) => {
   const { profileInfo, error } = await getCachedProfileInfo();
   const profileClass = error ? null : profileInfo?.class;

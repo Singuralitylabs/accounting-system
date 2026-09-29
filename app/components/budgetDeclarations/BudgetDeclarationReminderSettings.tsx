@@ -19,48 +19,35 @@ import { notifyError, notifySuccess } from "@/app/utils/notify";
 const ALL_DAYS = Array.from({ length: 31 }, (_, index) => index + 1);
 
 type Props = {
-  // DynamicBudgetDeclarations 側での getBudgetDeclarationReminderSettings 失敗時は
-  // null（モーダル内はフォームを表示せずエラー案内のみ表示する）
+  // null when the fetch failed (the modal shows only an error message).
   initialTargetDays: number[] | null;
 };
 
-// 「リマインド設定」ボタンと、クリックで開く設定モーダル。
-// 一覧（BudgetDeclarationList）のボタン行に常時マウントされる前提で、
-// 保存済みの値（savedTargetDays）はモーダルの開閉をまたいでここで保持する
+// Reminder settings button and modal; always mounted in the list's button row, so the saved value persists across open/close.
 const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
   const [opened, setOpened] = useState(false);
   const [selectedDays, setSelectedDays] = useState<string[]>(
     (initialTargetDays ?? []).map(String),
   );
-  // 保存成功時のみ更新する「現在保存されている対象日」。selectedDays（未保存の
-  // ドラフト）と分けているのは、保存前にチップを外しただけで「現在リマインドは
-  // 無効です」と表示されてしまう（キャンセル・保存失敗時も実際は無効化されて
-  // いない）事故を防ぐため。「現在」の判定は必ずこちらを見る
+  // Currently saved target days; updated only on successful save. Kept separate from the unsaved draft (selectedDays) so removing a chip does not show "reminders disabled".
   const [savedTargetDays, setSavedTargetDays] = useState<number[]>(
     initialTargetDays ?? [],
   );
   const [isLoading, setIsLoading] = useState(false);
-  // 保存前の確認ダイアログ（confirmAction）を表示している間だけ true。
-  // Mantine 7.13 では開いている Modal すべてが window の Esc を拾うため、確認ダイアログを
-  // Esc で閉じると設定モーダルまで閉じて未保存の選択が破棄されてしまう。確認中は閉じない
+  // True while the confirm dialog is shown. Mantine 7.13 lets every open Modal handle Esc, so closing the dialog with Esc would also close this modal and discard the selection.
   const [isConfirming, setIsConfirming] = useState(false);
 
   const isFetchFailed = initialTargetDays === null;
-  // 保存中・確認ダイアログ表示中は閉じる操作を受け付けないため、閉じる手段
-  // （キャンセル / × / Esc / オーバーレイのクリック）自体も無効化して見た目を揃える
   const isBusy = isLoading || isConfirming;
 
   const openModal = () => {
-    // キャンセル等で閉じたときの未保存の選択は破棄し、開くたびに
-    // 最後に保存された対象日で初期化する
+    // Discard the unsaved selection on close; re-init from saved days on open.
     setSelectedDays(savedTargetDays.map(String));
     setOpened(true);
   };
 
   const closeModal = () => {
-    // 保存中は閉じない（閉じた後に保存結果が反映されて表示と食い違うのを防ぐ）。
-    // 確認ダイアログ表示中も閉じない（確認をキャンセルしたら開いたままにするため）。
-    // 閉じる手段は isBusy 中は無効化しているが、念のためここでもガードする
+    // Do not close while saving or confirming (guards even though close controls are disabled while isBusy).
     if (isBusy) return;
     setOpened(false);
   };
@@ -81,7 +68,6 @@ const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
     } finally {
       setIsConfirming(false);
     }
-    // 確認をキャンセルした場合はモーダルを開いたままにする
     if (!confirmed) return;
 
     try {
@@ -89,7 +75,7 @@ const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
       const { error } =
         await updateBudgetDeclarationReminderTargetDays(normalized);
       if (error) {
-        // 保存失敗時はモーダルを開いたままにする（選択をやり直せるように）
+        // Keep the modal open on failure so the selection can be redone.
         notifyError(error.message);
         return;
       }
@@ -108,8 +94,7 @@ const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
   return (
     <>
       <Group gap="xs">
-        {/* 常時展開しなくなった分、リマインドが無効になっていることに気付けるよう
-            ボタンの横に表示する（取得失敗時は状態が不明なので出さない） */}
+        {/* Shown next to the button so a disabled reminder is noticeable (hidden when fetch failed: state unknown). */}
         {!isFetchFailed && savedTargetDays.length === 0 && (
           <Badge color="yellow">リマインド無効</Badge>
         )}
@@ -171,8 +156,7 @@ const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
               <Button variant="default" disabled={isBusy} onClick={closeModal}>
                 キャンセル
               </Button>
-              {/* 確認ダイアログ表示中も無効化する（二重クリックで確認ダイアログが
-                  積まれ、同じ値で 2 回保存されるのを防ぐ） */}
+              {/* Disabled while confirming too: double click would stack dialogs and save twice. */}
               <Button type="button" disabled={isBusy} onClick={handleSave}>
                 保存
               </Button>

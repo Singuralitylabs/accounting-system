@@ -13,9 +13,7 @@ const DynamicRecurringCosts = async () => {
     getSelectOptions("team"),
   ]);
 
-  // 取得に失敗した結果を空配列として initialData に渡すと「0 件」と区別が付かず、
-  // 成功結果としてキャッシュされてしまう。失敗時は throw して
-  // ルートの error boundary（app/recurring-costs/error.tsx）に処理させる。
+  // Do not pass a failed result as an empty initialData (indistinguishable from 0 rows, cached as success); throw to the route error boundary (app/recurring-costs/error.tsx).
   if (recurringCostError || !recurringCostList) {
     throw new Error("定期費用情報の取得に失敗しました。");
   }

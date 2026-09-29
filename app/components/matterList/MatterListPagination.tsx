@@ -14,7 +14,6 @@ type Props = {
   total: number;
 };
 
-// 一覧共通のページネーション UI（件数表示＋ページ切替＋表示件数切替）。
 export function MatterListPagination({
   page,
   totalPages,

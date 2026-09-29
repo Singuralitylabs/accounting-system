@@ -17,31 +17,24 @@ import BudgetDeclarationItemTable from "./BudgetDeclarationItemTable";
 import BudgetDeclarationReminderSettings from "./BudgetDeclarationReminderSettings";
 
 type Props = {
-  initialMonth: string; // "YYYY-MM"（既定は翌月）
+  initialMonth: string;
   initialData: BudgetDeclarationStatusType[] | null;
-  initialDataUpdatedAt: number; // サーバで initialData を取得した時刻（epoch ms）
-  // 全チームの作成・編集ができるロールか（経理・管理者）。false ならチームリーダーの
-  // 自チームのみ（一覧に並ぶ行自体が自チームのみなので、この値は選択可否の表示にのみ使う）
+  initialDataUpdatedAt: number;
+  // Role that can create/edit all teams (accounting/admin); otherwise teamleader's own team only (rows are already own-team only, so this affects the select UI only).
   canEditAllTeams: boolean;
-  // リマインド設定ボタン（モーダル）を表示できるロールか（admin / accounting）。
-  // 省略時は false（未対応の呼び出し元で誤って表示されないようにする）
+  // Role that can show the reminder settings button (admin / accounting). Defaults to false.
   canManageReminderSettings?: boolean;
-  // 取得済みの現在の対象日。canManageReminderSettings が true でも取得失敗時は null
+  // null when fetch failed, even if canManageReminderSettings.
   initialReminderTargetDays?: number[] | null;
-  // 明細の担当者候補（全メンバー）。フォームにそのまま渡す
   memberList: { value: string; label: string }[];
-  // 担当者候補の取得に失敗したか（true の間、フォームの担当者 Select を disabled
-  // にする。memberList が空のまま有効にすると、既存明細の manager_id が
-  // 選択肢に無いため Select が空欄に見え、利用者が誤ってクリアしたと誤認しうる）
+  // Manager Select is disabled while true (see BudgetDeclarationForm).
   memberListError?: boolean;
 };
 
 type FormTarget = {
   team: string;
   declarationId: number | null;
-  // 行をクリックした時点の対象月。month（一覧側の選択状態）をそのまま参照すると、
-  // モーダル表示中に月picker を操作して month が変わった場合に対象月がズレるため、
-  // クリック時点の値をここに固定する
+  // Month at click time; referencing month directly would shift if the month picker changes while the modal is open.
   targetMonth: string;
 };
 
@@ -56,12 +49,10 @@ const BudgetDeclarationList = ({
   memberListError = false,
 }: Props) => {
   const [month, setMonth] = useState<string>(initialMonth);
-  // 明細を開いている申告（declarationId で管理する。チーム名で管理すると、
-  // 申告を削除して同じチームを再申告したときに別 ID の明細が意図せず自動で開く）
+  // Keyed by declarationId; keying by team name would auto-open a re-created declaration's items with a different id.
   const [expandedDeclarations, setExpandedDeclarations] = useState<Set<number>>(
     new Set(),
   );
-  // 作成・編集フォームで開いている対象（null なら非表示）
   const [formTarget, setFormTarget] = useState<FormTarget | null>(null);
 
   const toggleDeclaration = (declarationId: number) => {
@@ -82,20 +73,15 @@ const BudgetDeclarationList = ({
       month === initialMonth ? (initialData ?? undefined) : undefined,
       initialDataUpdatedAt,
     );
-  // 月切替直後は keepPreviousData で前月の行がそのまま表示され続ける
-  // （isLoading は false のまま）。この間に行の操作ボタンを押すと、表示上は
-  // 新しい対象月でも実際には前月の declarationId を渡してしまうため無効化する
+  // Right after a month switch keepPreviousData still shows the previous month's rows (isLoading stays false); disable row actions or they would pass the previous month's declarationId.
   const isSwitchingMonth = isPlaceholderData;
 
   const rows = data ?? [];
   const total = totalBudgetSummary(rows);
-  // 明細を持つ（申告済みの）チームのみが「すべて開く」の対象
   const declaredDeclarationIds = rows.flatMap((row) =>
     row.declarationId !== null ? [row.declarationId] : [],
   );
-  // expandedDeclarations には、申告の削除等で行から無くなった declarationId が
-  // 残り続ける可能性がある（その行自体は個別にガードしているため表示上は問題ない）。
-  // 「すべて閉じる」の活性判定は実際に表示されているものだけを数える
+  // expandedDeclarations may keep ids of removed rows; count only displayed rows.
   const openDeclarationIds = declaredDeclarationIds.filter((id) =>
     expandedDeclarations.has(id),
   );
@@ -103,8 +89,7 @@ const BudgetDeclarationList = ({
   return (
     <div className="mx-auto max-w-5xl px-4 pb-8">
       <Group justify="flex-end" className="mb-2">
-        {/* 頻繁に変更しない設定のため常時展開せず、ボタンからモーダルで開く。
-            保存済みの値を開閉をまたいで保持するため、常時マウントしておく */}
+        {/* Modal-opened rather than always expanded; kept mounted so saved values persist across open/close. */}
         {canManageReminderSettings && (
           <BudgetDeclarationReminderSettings
             initialTargetDays={initialReminderTargetDays}
@@ -134,7 +119,7 @@ const BudgetDeclarationList = ({
       </div>
 
       {isError ? (
-        // 権限不足は再読み込みしても解消しないため、案内を分ける
+        // Insufficient permission is not fixed by reloading; use a separate message.
         <Alert
           color="red"
           title={

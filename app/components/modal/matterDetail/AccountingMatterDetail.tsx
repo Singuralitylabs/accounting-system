@@ -45,7 +45,6 @@ export function AccountingMatterDetail({
   const [checkhasUpdates, setCheckhasUpdates] = useState<boolean>(false);
   const [accountingMemo, setAccountingMemo] = useState<string | null>("");
 
-  // React Queryを使用してデータ取得
   const { data, isLoading, error, refetch } = useMatterDetail(
     matterInfo.id,
     opened,
@@ -55,7 +54,6 @@ export function AccountingMatterDetail({
   const checkCompletedSingleMutation = useCheckCompletedSingle();
   const saveAccountingMemoMutation = useSaveAccountingMemo();
 
-  // データマッピング用の共通関数
   const updateStateFromData = (
     responseData: { costs: CostType[]; businesses: BusinessType[] } | undefined,
   ) => {
@@ -77,12 +75,10 @@ export function AccountingMatterDetail({
     }
   };
 
-  // データが取得できた場合にstateを更新
   useEffect(() => {
     updateStateFromData(data);
   }, [data]);
 
-  // 初期値設定
   useEffect(() => {
     setCheckhasUpdates(matterInfo.has_updates || false);
     setAccountingMemo(matterInfo.accounting_memo || "");
@@ -107,7 +103,6 @@ export function AccountingMatterDetail({
         clearHasUpdates: checkhasUpdates,
       });
 
-      // データを再取得してstateを更新
       const updatedData = await refetch();
       updateStateFromData(updatedData.data);
 

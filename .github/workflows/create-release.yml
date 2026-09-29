@@ -1,9 +1,6 @@
 name: Create Release
 
-# release ブランチへの PR マージ後、承認ゲートを経て Git タグと GitHub Release を作成する。
-# 本番動作確認を終えた人間が承認するまでタグが打たれない状態を、
-# GitHub Environments の Required reviewers で担保する。手順の詳細は docs/release.md を参照。
-# 参考実装: Sinlab Study の create-release.yml（タグ命名 vX.Y.Z → REL-TAG-X.Y.Z に読み替え）。
+# Creates the Git tag and GitHub Release after a PR to release is merged and an approval gate passes. Required reviewers on the GitHub Environment ensure no tag is created until a human has verified production. See docs/release.md.
 on:
   pull_request:
     branches:
@@ -17,27 +14,23 @@ on:
         required: true
         type: string
 
-# タグ push と GitHub Release 作成に contents: write、
-# リリース PR 本文からのサマリー抽出と、手動実行時の対象コミット検証
-# （GET /repos/{repo}/pulls）に pull-requests: read を使う。
-# 承認ゲートの保護ルール確認（GET /repos/{repo}/environments/{name}）に actions: read を使う。
-# いずれも必要最小限であり、書き込みはタグ・Release 作成に限定する（db push 等は含まない）。
+# contents: write for tag push and Release creation; pull-requests: read for extracting the summary from the release PR body and verifying the target commit on manual runs; actions: read for checking the approval gate's protection rules. Writes are limited to tag/Release creation (no db push).
 permissions:
   contents: write
   pull-requests: read
   actions: read
 
-# 同一ワークフローの同時実行を抑止する。実行中のものはキャンセルせず後続をキュー待ちさせる。
+# Do not cancel a running instance; queue later runs.
 concurrency:
   group: create-release
   cancel-in-progress: false
 
 jobs:
-  # 各種ガード条件のチェック。すべて通過した場合のみ承認ゲート → release ジョブへ進む。
+  # Guard checks; only if all pass does it proceed to the approval gate and release job.
   validate:
     name: ガード条件チェック
     runs-on: ubuntu-latest
-    # マージ済みチェック: pull_request トリガーではマージされた場合のみ実行する。
+    # Merged check: on pull_request only run when merged.
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true }}
     outputs:
       version: ${{ steps.extract.outputs.version }}
@@ -45,7 +38,7 @@ jobs:
       summary: ${{ steps.summary.outputs.body }}
       skip: ${{ steps.extract.outputs.skip }}
     steps:
-      # PR タイトル or 手動入力からバージョン文字列を抽出する。
+      # Extract the version from the PR title or manual input.
       - name: バージョン抽出（PR タイトル or 手動入力）
         id: extract
         env:
@@ -58,8 +51,7 @@ jobs:
             VERSION="$MANUAL_VERSION"
             echo "skip=false" >> "$GITHUB_OUTPUT"
           else
-            # PR タイトルチェック: 「リリース」で始まらない PR は対象外として
-            # 正常終了（スキップ）する。失敗扱いにすると赤い実行が残り続けるため。
+            # PRs whose title does not start with "リリース" exit successfully (skipped); failing would leave red runs.
             if ! printf '%s' "$PR_TITLE" | grep -Eq '^リリース[[:space:]　]'; then
               echo "::warning::PR タイトルが「リリース」で始まらないためスキップします: $PR_TITLE"
               echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -67,13 +59,13 @@ jobs:
               exit 0
             fi
             echo "skip=false" >> "$GITHUB_OUTPUT"
-            # 例: 「リリース 3.3.0」「リリース v3.3.0」→ 3.3.0
+            # e.g. "リリース 3.3.0" / "リリース v3.3.0" -> 3.3.0
             VERSION=$(printf '%s' "$PR_TITLE" | sed -E 's/^リリース[[:space:]　]+v?//' | tr -d '[:space:]　')
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "抽出されたバージョン: $VERSION"
 
-      # バージョン形式チェック: X.Y.Z の形式でなければエラー終了する。
+      # Version format check: fail unless X.Y.Z.
       - name: バージョン形式チェック
         if: ${{ steps.extract.outputs.skip != 'true' }}
         env:
@@ -85,10 +77,7 @@ jobs:
             exit 1
           fi
 
-      # head ブランチの検証（pull_request 経路のみ）。作業ブランチ → release の
-      # 直接 PR に「リリース X.Y.Z」と付けてマージすると、main のどの時点とも
-      # 一致しないツリーにタグが打たれる。運用ルール（CLAUDE.md の「release へは
-      # main 経由のみ」）を自動化側で強制する。fork からの PR も同様に拒否する。
+      # Verify the head branch (pull_request path only): merging a work-branch -> release PR titled "リリース X.Y.Z" would tag a tree matching no point of main. Enforce the "release only via main" rule (CLAUDE.md) here; PRs from forks are rejected too.
       - name: head ブランチの検証（main のみ許可）
         if: ${{ steps.extract.outputs.skip != 'true' && github.event_name == 'pull_request' }}
         env:
@@ -102,11 +91,7 @@ jobs:
           fi
           echo "head ブランチを確認しました（$HEAD_REPO:$HEAD_REF）。"
 
-      # 承認ゲートの保護ルールを確認する。存在しない Environment を参照すると GitHub が
-      # 保護ルールなしで自動作成し、承認なしでタグ・Release が作られる（フェイルオープン）。
-      # Required reviewers が設定されていない場合はここで失敗させ、承認なしのリリースを防ぐ。
-      # API エラーは握りつぶさず、HTTP ステータスで原因（Environment 未作成 / 権限不足 /
-      # Required reviewers 未設定 / その他）を切り分けてログに出す。どの場合も失敗させる（フェイルクローズ）。
+      # Check the approval gate's protection rules. GitHub auto-creates a missing Environment without protection, which would release without approval (fail-open). Fail here if Required reviewers are not set. API errors are not swallowed: log the cause by HTTP status (missing Environment / no permission / no Required reviewers / other) and always fail (fail-closed).
       - name: 承認ゲートの保護ルールを確認
         if: ${{ steps.extract.outputs.skip != 'true' }}
         env:
@@ -116,9 +101,7 @@ jobs:
           set -euo pipefail
           RESP_FILE=$(mktemp)
           ERR_FILE=$(mktemp)
-          # --include でステータス行（例: HTTP/2.0 404 Not Found）とヘッダを本文の前に出力させる。
-          # gh api は 4xx / 5xx で非ゼロ終了するが、その場合も応答はファイルに残るため判定を続ける。
-          # 応答形式が gh の既定 API バージョンの更新で変わらないよう、バージョンを固定する。
+          # --include prints the status line and headers before the body. gh api exits non-zero on 4xx/5xx but the response stays in the file, so keep judging. Pin the API version so the format does not change with gh defaults.
           if gh api --include -H 'X-GitHub-Api-Version: 2022-11-28' "repos/${GITHUB_REPOSITORY}/environments/${ENV_NAME}" >"$RESP_FILE" 2>"$ERR_FILE"; then
             GH_EXIT=0
           else
@@ -126,13 +109,10 @@ jobs:
           fi
           HTTP_STATUS=$(head -n1 "$RESP_FILE" | tr -d '\r' | sed -nE 's#^HTTP/[0-9.]+ ([0-9]{3}).*#\1#p')
           if [ -z "$HTTP_STATUS" ]; then
-            # 通常は上のステータス行で取れる。標準出力の先頭にステータス行が無い場合（接続段階での失敗や、
-            # gh の仕様変更で --include の出力形式が変わった場合）のフォールバックとして、
-            # gh のエラーメッセージ（例: gh: Not Found (HTTP 404)）から拾う。どちらでも取れなければ空のまま
-            # 「HTTP 応答なし」として扱う。
+            # Fallback when the status line is missing (connection-stage failure or --include format change): take it from gh's error message; if neither works leave empty and treat as "no HTTP response".
             HTTP_STATUS=$(sed -nE 's#.*\(HTTP ([0-9]{3})\).*#\1#p' "$ERR_FILE" | head -n1)
           fi
-          # ヘッダと本文を区切る空行より後ろを本文として取り出す
+          # Body = everything after the blank line separating headers.
           RESP_BODY=$(tr -d '\r' < "$RESP_FILE" | awk 'in_body { print; next } /^$/ { in_body = 1 }')
           API_MESSAGE=$(printf '%s' "$RESP_BODY" | jq -r '.message? // empty' 2>/dev/null || true)
           echo "承認ゲート確認: GET environments/${ENV_NAME} → HTTP ${HTTP_STATUS:-不明}（gh 終了コード: ${GH_EXIT}）"
@@ -146,8 +126,7 @@ jobs:
 
           case "${HTTP_STATUS:-}" in
             200)
-              # 本文が空・JSON オブジェクトでない場合は「未設定」と誤表示せず解析エラーとして扱う
-              # （jq -e は入力が空だと結果なしで非ゼロ終了する）。
+              # Empty or non-object body is a parse error, not "unset" (jq -e exits non-zero on empty input).
               if ! printf '%s' "$RESP_BODY" | jq -e 'type == "object"' >/dev/null 2>&1 \
                 || ! RULES=$(printf '%s' "$RESP_BODY" | jq -r '.protection_rules[]?.type'); then
                 echo "::error::Environment '${ENV_NAME}' の応答（HTTP 200）を解析できませんでした（本文が空、または JSON オブジェクトではありません）。承認ゲートを確認できないため中断します。"
@@ -178,7 +157,7 @@ jobs:
           esac
           echo "承認ゲート（Required reviewers）を確認しました。"
 
-      # タグ重複チェックのため release ブランチをチェックアウトする（タグ情報も取得）。
+      # Check out release to detect duplicate tags (fetch tags too).
       - name: Checkout release branch with tags
         if: ${{ steps.extract.outputs.skip != 'true' }}
         uses: actions/checkout@v4
@@ -186,14 +165,7 @@ jobs:
           ref: release
           fetch-depth: 0
 
-      # リリース対象コミットの SHA を確定する。
-      # 承認ゲートでの待機中に release ブランチが進んでも、ここで固定した SHA に対してタグを付与することで、
-      # 「意図しないコミットにタグが付く」事故を防ぐ。
-      # 手動起動はリリース PR マージ後の再実行専用とし、release HEAD が「リリース X.Y.Z」の
-      # マージ済みリリース PR（同一リポジトリの main が head）のマージコミットであることを検証する。
-      # マージ前に起動すると HEAD は前回リリースのマージコミット（親 2 つ）であり squash 検出も
-      # 通過するため、ここで止めないと旧ツリーに新バージョンのタグが付く。
-      # 特定した PR 番号は後続のリリースサマリー抽出でも使う。
+      # Fix the release target SHA. Tagging this SHA keeps a release branch that advances during approval from tagging an unintended commit. Manual runs are for re-running after the release PR is merged: verify release HEAD is the merge commit of a merged "リリース X.Y.Z" PR (head = main of the same repo). Before merge HEAD is the previous release's merge commit (2 parents) and passes the squash check, so without this the new version would be tagged on the old tree. The PR number is reused for summary extraction.
       - name: 対象コミット SHA を確定
         id: target
         if: ${{ steps.extract.outputs.skip != 'true' }}
@@ -205,17 +177,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            # 手動起動時は現時点の release HEAD を対象とし、リリース PR のマージコミットか検証する。
+            # Manual runs target the current release HEAD and verify it is a release PR merge commit.
             SHA=$(git rev-parse HEAD)
-            # API エラーは握りつぶさず失敗させる（検証できない場合はタグを付けない）。
-            # release 向けのクローズ済み PR をすべて取得し（--paginate で件数上限なし）、マージコミットが
-            # HEAD と一致するマージ済み PR を選ぶ。コミットと PR の関連付け（commits/{sha}/pulls）は
-            # マージコミットや既定ブランチ外のコミットで PR が返らない場合があるため使わない。
-            # --paginate の出力はページごとの配列が連なるため jq -s で 1 つの配列にまとめる。
-            # 毎回全件をページングするが、release 向け PR は数件〜数十件で負荷は問題にならない。search API
-            # （is:merged 等での絞り込み）は反映遅延・レート制限があるため、検証の確実性を優先して使わない。
-            # merge_commit_sha は新しい REST API バージョン（2026-03-10）で PR オブジェクトから削除されているため、
-            # gh の既定バージョンが上がっても値を取れるよう API バージョンを 2022-11-28 に固定する。
+            # API errors fail (no tag if unverifiable). Fetch all closed PRs to release (--paginate) and pick the merged one whose merge commit equals HEAD; commits/{sha}/pulls is not used (it can return no PR for merge commits / commits off the default branch), nor the search API (index delay, rate limits). --paginate emits one array per page, so merge with jq -s. merge_commit_sha is removed from PR objects in newer REST versions (2026-03-10), so pin 2022-11-28.
             if ! RELEASE_PRS=$(gh api --paginate -H 'X-GitHub-Api-Version: 2022-11-28' \
               "repos/${GITHUB_REPOSITORY}/pulls?state=closed&base=release&per_page=100"); then
               echo "::error::release 向けのクローズ済み PR 一覧を取得できませんでした（上記の gh のエラーを参照）。検証できないためタグを付けずに中断します。"
@@ -233,9 +197,9 @@ jobs:
             PR_NUMBER=$(printf '%s' "$PR_JSON" | jq -r '.number')
             PR_TITLE=$(printf '%s' "$PR_JSON" | jq -r '.title')
             PR_HEAD_REF=$(printf '%s' "$PR_JSON" | jq -r '.head.ref')
-            # head のリポジトリが削除済みの fork では head.repo が null になるため、別リポジトリとして扱う。
+            # head.repo is null for a deleted fork; treat as another repository.
             PR_CROSS_REPO=$(printf '%s' "$PR_JSON" | jq -r --arg repo "$GITHUB_REPOSITORY" '((.head.repo.full_name // "") | ascii_downcase) != ($repo | ascii_downcase)')
-            # バージョンの取り出しは pull_request 経路（バージョン抽出ステップ）と同じ規則にする。
+            # Extract the version by the same rule as the pull_request path.
             PR_VERSION=""
             if printf '%s' "$PR_TITLE" | grep -Eq '^リリース[[:space:]　]'; then
               PR_VERSION=$(printf '%s' "$PR_TITLE" | sed -E 's/^リリース[[:space:]　]+v?//' | tr -d '[:space:]　')
@@ -251,7 +215,7 @@ jobs:
             echo "release HEAD は PR #${PR_NUMBER}「${PR_TITLE}」のマージコミットです。"
             echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           else
-            # PR マージ時は確定済みのマージコミット SHA を使用する（承認待ち中の release 進行に影響されない）。
+            # On PR merge use the fixed merge commit SHA (unaffected by release advancing during approval).
             SHA="$MERGE_SHA"
           fi
           if [ -z "$SHA" ]; then
@@ -261,8 +225,7 @@ jobs:
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "対象コミット: $SHA"
 
-      # squash マージの検出。release への Squash / Rebase を禁止している。
-      # マージコミットの親が2つあることを検証し、squash されていた場合はタグを打たずに失敗させる。
+      # Squash detection: Squash / Rebase to release is prohibited; fail without tagging if the merge commit does not have 2 parents.
       - name: マージコミットの親数チェック（squash 検出）
         if: ${{ steps.extract.outputs.skip != 'true' }}
         env:
@@ -270,7 +233,7 @@ jobs:
         run: |
           set -euo pipefail
           PARENT_COUNT=$(git rev-list --parents -n 1 "$TARGET_SHA" | wc -w)
-          # 出力は "<sha> <parent1> <parent2>..." のため、親数 = 単語数 - 1。
+          # Output is "<sha> <parent1> <parent2>...", so parents = words - 1.
           PARENT_COUNT=$((PARENT_COUNT - 1))
           echo "親コミット数: $PARENT_COUNT"
           if [ "$PARENT_COUNT" -ne 2 ]; then
@@ -278,15 +241,13 @@ jobs:
             exit 1
           fi
 
-      # リリース PR 本文から「リリースサマリー」セクションを抽出する。
-      # release-pr.yml がマーカーで囲んで PR 本文に挿入しているため、その間の本文を切り出して Release ノートに反映する。
-      # 抽出失敗（マーカー欠落・PR 特定不可）は致命エラーではなく、自動生成ノートのみで Release を作成する。
+      # Extract the release summary from the PR body (release-pr.yml wraps it in markers) into the Release notes. Failure (missing markers / PR not found) is not fatal: create the Release with auto-generated notes only.
       - name: リリースサマリーを PR 本文から抽出
         id: summary
         if: ${{ steps.extract.outputs.skip != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 手動起動時は「対象コミット SHA を確定」で検証済みのリリース PR 番号を使う。
+          # Manual runs use the PR number verified when the target SHA was fixed.
           PR_NUMBER: ${{ github.event.pull_request.number || steps.target.outputs.pr_number }}
         run: |
           set -euo pipefail
@@ -319,9 +280,7 @@ jobs:
             echo "RELEASE_SUMMARY_EOF"
           } >> "$GITHUB_OUTPUT"
 
-      # タグ重複チェック: 同名タグが既に存在する場合はエラー終了する。
-      # ただし部分失敗後の再実行で、同名タグが今回の対象コミット自体を指している場合は
-      # 正常系として続行する（release ジョブ側も冪等化してあるため再実行で完遂できる）。
+      # Duplicate tag check: fail if the tag exists, except on re-run after a partial failure where it already points at the target commit (the release job is idempotent).
       - name: タグ重複チェック
         if: ${{ steps.extract.outputs.skip != 'true' }}
         env:
@@ -342,21 +301,18 @@ jobs:
             echo "タグ \`REL-TAG-${VERSION}\` は未使用です。続行します。"
           fi
 
-  # 承認ゲート付きのリリースジョブ。Environment の Required reviewers で承認待ちになる。
+  # Release job with an approval gate (Required reviewers on the Environment).
   release:
     name: タグ作成と GitHub Release 公開
     runs-on: ubuntu-latest
     needs: validate
-    # リリース対象外の PR では validate がスキップ出力になるため、release も実行しない。
-    # needs がスキップされた場合のフォールバックとして、マージ済み条件自体もここで再確認する。
+    # validate is skipped for non-release PRs; re-check the merged condition here as a fallback for skipped needs.
     if: ${{ (github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true) && needs.validate.outputs.skip != 'true' }}
-    # GitHub Environments 側で Required reviewers を設定することで承認ゲートとして機能する。
-    # Deployment branches and tags の branch 制限は設定しない（pull_request イベントや
-    # workflow_dispatch が制限ではじかれて承認段階に到達できなくなるため）。
+    # Required reviewers on the GitHub Environment act as the approval gate. Do not set Deployment branches and tags restrictions: they would block pull_request / workflow_dispatch events before approval.
     environment:
       name: production-release
     steps:
-      # validate ジョブで確定した SHA をチェックアウトする（release ブランチ HEAD ではなく固定 SHA）。
+      # Check out the SHA fixed by validate (not release HEAD).
       - name: Checkout target commit
         uses: actions/checkout@v4
         with:
@@ -378,8 +334,7 @@ jobs:
           set -euo pipefail
           git fetch --tags --force
           if git rev-parse -q --verify "refs/tags/REL-TAG-${VERSION}" >/dev/null; then
-            # validate から承認までの間に別コミットへ手動 push されたタグを
-            # 黙って採用しないよう、再利用前に指し先を再検証する。
+            # Re-verify what an existing tag points to before reuse, so a tag manually pushed to another commit between validate and approval is not adopted silently.
             EXISTING_SHA=$(git rev-list -n 1 "REL-TAG-${VERSION}^{commit}")
             if [ "$EXISTING_SHA" != "$TARGET_SHA" ]; then
               echo "::error::タグ \`REL-TAG-${VERSION}\` は既に別のコミット（${EXISTING_SHA}）を指しています。対象コミットは ${TARGET_SHA} です。バージョン番号を変更するか、タグの指し先を確認してください。"
@@ -387,7 +342,7 @@ jobs:
             fi
             echo "タグ \`REL-TAG-${VERSION}\` は既に対象コミットを指しているため再利用します。"
           else
-            # 注釈付きタグを確定済み SHA に対して作成する（承認待ち中の release 進行に影響されない）。
+            # Create an annotated tag on the fixed SHA (unaffected by release advancing during approval).
             git tag -a "REL-TAG-${VERSION}" -m "リリース ${VERSION}" "${TARGET_SHA}"
             git push origin "REL-TAG-${VERSION}"
           fi
@@ -400,15 +355,12 @@ jobs:
           SUMMARY: ${{ needs.validate.outputs.summary }}
         run: |
           set -euo pipefail
-          # 部分失敗後の再実行では Release が既に存在するため、その場合は作成をスキップする。
+          # On re-run after a partial failure the Release already exists; skip creation.
           if gh release view "REL-TAG-${VERSION}" >/dev/null 2>&1; then
             echo "Release \`REL-TAG-${VERSION}\` は既に存在するため作成をスキップします。"
             exit 0
           fi
-          # 自動生成ノートの起点は直前の既存 REL-TAG-* タグにする。本リポジトリには
-          # タグのみで Release が無い世代があるため、previous_tag_name を省略すると
-          # 初回実行で全履歴分のノートが生成される。マージコミットの第1親（main 側）
-          # から到達可能な最新タグを取り、無ければ省略する（= 全履歴。初回のみ）。
+          # Start auto-generated notes from the previous REL-TAG-* tag: some generations have tags without Releases, so omitting previous_tag_name would generate notes for the whole history on first run. Use the latest tag reachable from the merge commit's first parent (main side); omit if none (whole history, first run only).
           PREV_TAG=$(git describe --tags --abbrev=0 --match 'REL-TAG-*' "${TARGET_SHA}^1" 2>/dev/null || true)
           if [ -n "$PREV_TAG" ]; then
             echo "自動生成ノートの起点: $PREV_TAG"
@@ -443,7 +395,7 @@ jobs:
             printf '%s\n' "$AUTO_NOTES" > "$NOTES_FILE"
           fi
 
-          # --target に SHA を指定し、リリース対象を確定済みコミットに固定する。
+          # --target pins the release to the fixed commit.
           gh release create "REL-TAG-${VERSION}" \
             --target "${TARGET_SHA}" \
             --title "REL-TAG-${VERSION}" \

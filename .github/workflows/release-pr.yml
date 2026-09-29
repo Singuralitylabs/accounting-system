@@ -1,10 +1,6 @@
 name: Release PR
 
-# main から release へのリリース PR を作成するワークフロー。
-# 手動起動時にバージョン番号を受け取り、品質ゲートとリリース時の事前作業
-# （マイグレーション・新規環境変数・本番DBの migration list）を自動で検出し、
-# PR 本文に記載する。手順の詳細は docs/release.md を参照。
-# 参考実装: Sinlab Study の release-pr.yml（bun / Biome → yarn / ESLint に読み替え）。
+# Creates the main -> release PR on manual dispatch with a version: runs the quality gates and detects pre-release work (migrations, new env vars, prod DB migration list) into the PR body. See docs/release.md.
 on:
   workflow_dispatch:
     inputs:
@@ -17,19 +13,18 @@ on:
         required: false
         type: string
 
-# GITHUB_TOKEN の権限を必要最小限に制限する。
-# PR 作成に pull-requests: write、参照系（checkout・差分取得）に contents: read のみを使う。
+# Least-privilege GITHUB_TOKEN: pull-requests: write for PR creation, contents: read for checkout/diff.
 permissions:
   contents: read
   pull-requests: write
 
-# 連打による二重 PR 作成を防止する。実行中のジョブはキャンセルせず後発をキュー待ちにする。
+# Prevent duplicate PRs from repeated triggers; do not cancel a running job, queue later ones.
 concurrency:
   group: release-pr
   cancel-in-progress: false
 
 jobs:
-  # 入力バリデーション。後段ジョブの無駄な実行を防ぐため最初に実行する。
+  # Input validation first, to avoid wasting later jobs.
   validate-input:
     name: 入力値の検証
     runs-on: ubuntu-latest
@@ -44,9 +39,7 @@ jobs:
             exit 1
           fi
 
-      # 再利用ワークフロー（uses:）は dispatch 元ブランチをチェックアウトする一方、
-      # PR 作成・検出処理はすべて origin/main を対象にする。別ブランチから起動すると
-      # そのブランチでチェックが通れば main が壊れていても PR が作られるため、main からの起動を要求する。
+      # Reusable workflows (uses:) check out the dispatch branch, while PR creation and detection all target origin/main; running from another branch could create a PR even if main is broken, so require dispatch from main.
       - name: 起動ブランチチェック（main のみ許可）
         run: |
           set -euo pipefail
@@ -55,9 +48,7 @@ jobs:
             exit 1
           fi
 
-      # 既出バージョンの入力を create-release まで持ち越すと、main→release マージ
-      # （＝本番デプロイ）後にタグ重複で失敗するため、PR 作成前に事前チェックする。
-      # タグ命名は既存タグ（REL-TAG-1.0.0〜）に合わせて REL-TAG-X.Y.Z を継続する。
+      # Carrying an already-used version through to create-release would fail on a duplicate tag after the main -> release merge (production deploy), so check before creating the PR. Tags continue the existing REL-TAG-X.Y.Z naming.
       - name: タグ重複の事前チェック
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -70,13 +61,7 @@ jobs:
           fi
           echo "タグ \`REL-TAG-${VERSION}\` は未使用です。続行します。"
 
-      # 既存の main→release オープン PR がある場合は二重作成しない。
-      # 品質ゲート 4 本を消費してから止めないよう、ここ（validate-input）で
-      # 先に中断する。create-pr 側では再掲しない。
-      # このジョブは checkout しないため、gh に -R で対象リポジトリを明示する
-      # （gh は対象をカレントディレクトリの git remote から解決し、
-      # GITHUB_REPOSITORY 環境変数は参照しないため。指定なしでは
-      # no git remotes found で失敗する）。
+      # Do not create a second PR if a main -> release PR is open. Abort here, before spending the 4 quality gates (not repeated in create-pr). This job has no checkout, and gh resolves the repo from the cwd's git remote (ignoring GITHUB_REPOSITORY), so pass -R explicitly or it fails with "no git remotes found".
       - name: 既存リリース PR の存在確認
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -91,10 +76,7 @@ jobs:
           fi
           echo "オープン中のリリース PR はありません。続行します。"
 
-  # 品質ゲートは既存ワークフローの再利用にする。チェック内容の二重定義を作らない。
-  # no-console / no-debugger は typecheck.yml の ESLint ジョブが兼ねるため、専用ゲートは設けない。
-  # GITHUB_TOKEN で作成した PR は on: pull_request の他ワークフローを起動しないため、
-  # PR 作成「前」にここで品質チェックを通す構成が必須である。
+  # Quality gates reuse the existing workflows (no duplicated check definitions); the typecheck.yml ESLint job covers no-console / no-debugger. PRs created with GITHUB_TOKEN do not trigger on: pull_request workflows, so the checks must run before PR creation.
   quality-typecheck:
     name: 品質ゲート Typecheck+Lint
     needs: validate-input
@@ -115,7 +97,7 @@ jobs:
     needs: validate-input
     uses: ./.github/workflows/format-check.yml
 
-  # 事前作業の検出とリリース PR 作成。
+  # Detect pre-release work and create the release PR.
   create-pr:
     name: リリース PR 作成
     runs-on: ubuntu-latest
@@ -125,33 +107,23 @@ jobs:
       - quality-test
       - quality-build
       - quality-format
-    # 本番DBの読み取り専用接続文字列は Environment スコープの Secret で受け取る。
-    # リポジトリ Secret にすると任意のワークフローから参照可能になるため、
-    # 到達範囲をこのワークフローに絞る目的で Environment を使う（保護ルールは設定しない）。
+    # The read-only prod DB connection string is an Environment-scoped Secret; a repo Secret would be readable by any workflow, so an Environment limits reach to this workflow (no protection rules).
     environment: production-db-readonly
     steps:
-      # release / main 両ブランチの履歴を遡るため全履歴を取得する。
+      # Full history is needed to walk both release and main.
       - name: Checkout repository (full history)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # release と main の双方を最新化する。
+      # Update both release and main.
       - name: Fetch release and main branches
         run: |
           set -euo pipefail
           git fetch origin main:refs/remotes/origin/main
           git fetch origin release:refs/remotes/origin/release
 
-      # release..main のマイグレーション差分を「追加」と「適用済みファイルの変更・削除」に分けて抽出する。
-      # 後方互換の検出（次ステップ）は追加ファイルのみを対象にする。コメント修正だけの適用済み
-      # ファイルまで全文スキャンすると、既に本番で実行済みの UPDATE 等が ⚠️ 節に並び、
-      # 本当に注意が必要な新規マイグレーションの判断のノイズになるため。
-      # 変更・削除は内容が再適用されないが、履歴との不整合の注意喚起として別枠で一覧表示する。
-      # --no-renames: リネームは「旧名の削除 + 新名の追加」として扱う。タイムスタンプ（先頭14桁の
-      # バージョン）が変わったファイルは本番の適用履歴から見て新しいバージョンであり、db push で
-      # 再実行されるため、追加として後方互換の検出にかける。バージョンが同じまま説明部分だけ
-      # 変えたリネームは再適用されないため、追加から外して「変更」と同じ別枠に出す。
+      # Split release..main migration changes into "added" and "modified/deleted applied files". Backward-compatibility detection covers added files only: scanning applied files changed only in comments would list already-run UPDATEs and drown out new migrations. Modified/deleted files are listed separately as a history-mismatch notice. --no-renames treats a rename as delete + add: a changed timestamp (first 14 digits) is a new version for the prod history and is re-run by db push, so it is scanned as added; a rename keeping the version is not re-applied, so it goes to the "modified" list.
       - name: マイグレーション差分を検出
         id: migrations
         run: |
@@ -183,7 +155,7 @@ jobs:
           done <<< "$ADDED_ALL"
           ADDED=$(printf '%s' "$ADDED" | sed '/^$/d')
           RENAMED=$(printf '%s' "$RENAMED" | sed '/^$/d')
-          # 同一バージョンのリネーム元は「削除」ではなく「リネーム」として1行にまとめる
+          # A same-version rename source is reported as one "rename" line, not a deletion.
           DELETED=$(printf '%s\n' "$DELETED_ALL" | while IFS= read -r f; do
             [ -z "$f" ] && continue
             if printf '%s' "$RENAMED_FROM" | grep -qx "$(version_of "$f")"; then continue; fi
@@ -227,15 +199,10 @@ jobs:
             fi
           } >> "$GITHUB_OUTPUT"
 
-      # 後方互換でない変更を含むマイグレーションを検出して警告する。
-      # ブロックはせず注意喚起に留める。対象は release..main で追加されたファイルのみ
-      # （前ステップの files）。変更のみの適用済みファイルは内容が再適用されないため対象外。
-      # 誤検出を抑えるため、判定前に行コメント（--）とブロックコメント（/* */）を除去し、
-      # 以下の絞り込みを行う:
-      # - DROP TRIGGER IF EXISTS の定型プレリュードは除外（同ファイルでの CREATE と対になる再作成が通例のため）
-      # - ALTER ... TYPE は ALTER TABLE ... ALTER COLUMN ... TYPE の列型変更に限定
-      # - UPDATE / DELETE は文頭の DML 文のみを対象にし、関数本体（$$ ... $$）内は除外する
-      #   （ON DELETE CASCADE / BEFORE UPDATE / トリガー名 update_..._updated_at / 実行時ロジックへの反応を防ぐ）
+      # Warn (not block) about migrations with backward-incompatible changes, scanning only files added in release..main (applied files that only changed are not re-run). To limit false positives, line (--) and block comments are stripped first, then:
+      # - the DROP TRIGGER IF EXISTS prelude is excluded (normally paired with a CREATE in the same file)
+      # - ALTER ... TYPE is limited to ALTER TABLE ... ALTER COLUMN ... TYPE
+      # - UPDATE / DELETE count only as top-level statements, not inside function bodies ($$ ... $$) (avoids ON DELETE CASCADE, BEFORE UPDATE, trigger names, runtime logic)
       - name: 後方互換でないマイグレーションを検出
         id: breaking
         env:
@@ -245,9 +212,7 @@ jobs:
           strip_comments() {
             sed -E 's/--.*$//' | sed -E ':a; s|/\*[^*]*\*/||g; ta'
           }
-          # ドルクォート関数本体（$$ ... $$）を除去する。UPDATE / DELETE の判定では
-          # デプロイ時に実行されるトップレベルの DML のみを対象にし、関数・トリガー本体内の
-          # 実行時ロジックには反応させない。grep が標準入力を消費するため、先に変数へ退避する。
+          # Strip dollar-quoted function bodies ($$ ... $$) so only top-level DML run at deploy time is judged. Save to a variable first, since grep consumes stdin.
           strip_function_bodies() {
             local input
             input=$(cat)
@@ -309,10 +274,7 @@ jobs:
             fi
           } >> "$GITHUB_OUTPUT"
 
-      # コード側の process.env 参照の差分（release..main で新規追加）を検出する。
-      # 本リポジトリは .env.local.example を同梱していない（docs/setup.md）ため、
-      # コード側（app/** と middleware.ts）の差分だけを見る。
-      # 直接形式（process.env.X）とブラケット形式（process.env[CONST]。定義値まで解決）の両方を集計する。
+      # Detect newly added process.env references in code only (app/** and middleware.ts); the repo has no .env.local.example (docs/setup.md). Counts both direct (process.env.X) and bracket (process.env[CONST], resolved to its value) forms.
       - name: 新規環境変数を検出
         id: env-vars
         run: |
@@ -382,20 +344,16 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
-      # 本番DBに対して migration list を読み取り専用で実行し、未適用ファイルと履歴不整合を掲載する。
-      # db push は実行しない。接続失敗でリリースをブロックせず、PR 本文に手動確認の案内を出す。
-      # 無料プランのため本番DBが Pause されている可能性があり、その場合もフォールバック扱いにする。
+      # Run migration list read-only against the prod DB to show unapplied files and history mismatches; never db push. A connection failure does not block the release: the PR body gets a manual-check note (also when a free-plan prod DB is paused).
       - name: 本番DBの migration list を取得
         id: migration-list
         env:
-          # 接続文字列（パスワードを含めない）とパスワードは別の Secret にする（Issue #195）
+          # Connection string (without password) and password are separate Secrets (Issue #195).
           SUPABASE_READONLY_DB_URL: ${{ secrets.SUPABASE_READONLY_DB_URL }}
           SUPABASE_READONLY_DB_PASSWORD: ${{ secrets.SUPABASE_READONLY_DB_PASSWORD }}
         run: |
           set -euo pipefail
-          # 接続情報をログに出さない。set -x / -v は使わない。
-          # 手元確認の案内は supabase link 済みのプロジェクト向け（--db-url にパスワード入りの URL を渡して
-          # yarn 経由で実行すると、yarn v1 がコマンド行ごと表示するため、npx で案内する。Issue #195）
+          # Do not log connection info (no set -x / -v). The manual-check note assumes a supabase-linked project and uses npx: passing --db-url with a password via yarn makes yarn v1 print the whole command line.
           MANUAL_CHECK="手元で \`npx supabase migration list\`（\`supabase link\` 済みの本番プロジェクト）を実行して確認してください。"
           fallback() {
             {
@@ -410,12 +368,7 @@ jobs:
             exit 0
           fi
 
-          # パスワードはコマンドライン（argv）に載せず、PGPASSWORD（環境変数）で CLI に渡す。argv に載ると、
-          # yarn などのラッパーが表示するコマンド行が OUTPUT 経由で PR 本文に出る（Issue #195）。
-          # そのため URL にパスワードが含まれている（旧形式の Secret）場合は実行しない。
-          # 判定: :// の後に @ があり、最初の @ より前（ユーザー部分）が空でなく : を含まないこと
-          # （パスワードにエンコードされていない / や ? があっても、最初の @ で区切るため取りこぼさない）。
-          # クエリパラメータでのパスワード指定（?password=...、大文字小文字を問わない）も不正とする。
+          # Pass the password via PGPASSWORD, not argv: a wrapper such as yarn would print the command line into OUTPUT and thus the PR body (Issue #195). So do not run if the URL contains a password (old-format Secret). Check: an @ after ://, and the user part before the first @ is non-empty and has no ":" (splitting at the first @ tolerates unencoded / or ? in the password). A ?password=... query (any case) is also invalid.
           DB_URL_OK=false
           case "$SUPABASE_READONLY_DB_URL" in
             *://*@*)
@@ -431,15 +384,14 @@ jobs:
             DB_URL_OK=false
           fi
           if [ "$DB_URL_OK" != "true" ]; then
-            # 案内文に URL の例（scheme://...@）を書かない。PR 作成ステップの本文チェックに一致して、
-            # 案内のはずが PR 作成の失敗になるため
+            # Do not write a URL example (scheme://...@) in the note: it would match the PR-body check and turn the note into a PR creation failure.
             fallback "Secret SUPABASE_READONLY_DB_URL の形式が不正。URL にパスワードを含めず、パスワードは SUPABASE_READONLY_DB_PASSWORD に分けて登録する。docs/release.md の「読み取り専用ロール」参照"
             exit 0
           fi
 
-          # Session Pooler の接続文字列を使うこと（直接接続は IPv6 のみで到達できない場合がある）。
+          # Use the Session Pooler connection string (direct connections may be IPv6-only and unreachable).
           if OUTPUT=$(PGPASSWORD="$SUPABASE_READONLY_DB_PASSWORD" ./node_modules/.bin/supabase migration list --db-url "$SUPABASE_READONLY_DB_URL" 2>&1); then
-            # 念のため、出力にパスワードが含まれていたら PR を作らずに失敗させる（フェイルクローズ）
+            # Fail closed (no PR) if the output contains the password.
             if [[ "$OUTPUT" == *"$SUPABASE_READONLY_DB_PASSWORD"* ]]; then
               echo "::error::migration list の出力にパスワードが含まれているため中断します（Issue #195）。"
               exit 1
@@ -456,8 +408,7 @@ jobs:
             fallback "DB Pause 等の可能性あり"
           fi
 
-      # 既存の main→release オープン PR の有無は validate-input で先に確認済み
-      # （品質ゲート実行後の二重チェックはしない）。
+      # An open main -> release PR was already checked in validate-input (no double check after the quality gates).
       - name: リリース PR を作成
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -474,9 +425,7 @@ jobs:
           MIGRATION_CONFIRMED: ${{ steps.migration-list.outputs.confirmed }}
         run: |
           set -euo pipefail
-          # NOTE: HTML コメントマーカーは create-release.yml が PR 本文からサマリーのみを抽出して
-          # Release ノートに転記するために使用する。マーカーで囲むのはサマリー本文だけにし、
-          # 「### リリースサマリー」見出しは PR 表示用にマーカー外へ配置する。
+          # NOTE: create-release.yml extracts only the summary between the HTML comment markers into the Release notes, so wrap only the summary body; the "### リリースサマリー" heading stays outside the markers for PR display.
           if [ -n "$(printf '%s' "${SUMMARY:-}" | tr -d '[:space:]')" ]; then
             SUMMARY_SECTION=$(printf '### リリースサマリー\n\n<!-- release-summary-start -->\n%s\n<!-- release-summary-end -->' "$SUMMARY")
           else
@@ -490,7 +439,7 @@ jobs:
           fi
 
           if [ "$HAS_MIGRATIONS_CHANGED" = "true" ]; then
-            # shellcheck disable=SC2016 # 書式文字列中のバッククォートは Markdown のコード表記（展開させない）
+            # shellcheck disable=SC2016 # backticks are Markdown code, not to be expanded
             MIGRATIONS_CHANGED_SECTION=$(printf '**適用済みマイグレーションの変更・削除（後方互換の検出対象外）:**\n\n`release` に含まれるファイルは本番に適用済みである前提で、内容を変更しても再適用されません。意図した変更か、`supabase migration list` の履歴と不整合が生じないかを確認してください（前回リリースで未適用のまま残ったファイルがある場合は、下の migration list で確認してください）。\n\n%s' "$MIGRATIONS_CHANGED_LIST")
           else
             MIGRATIONS_CHANGED_SECTION=""
@@ -502,17 +451,13 @@ jobs:
             MIGRATION_NOTICE=""
           fi
 
-          # 本文テンプレートは <<'EOF'（クォート付き）の固定文字列として扱い、テンプレート中の
-          # バッククォートや $(...) をコマンドとして実行させない（Issue #168）。差し込み値は
-          # envsubst に変数名を列挙して明示的に展開する（列挙外の $ 表記は文字列のまま残る）。
-          # envsubst は 1 パスで置換するため、差し込み値（サマリー等）に含まれる ${...} も再展開されない。
-          # envsubst は環境変数しか参照しないため、このステップ内で組み立てた値は export する。
+          # The body template is a quoted <<'EOF' fixed string so backticks and $(...) are not executed (Issue #168). Values are expanded explicitly by listing variable names to envsubst (other $ forms stay literal). envsubst substitutes in one pass, so ${...} inside inserted values (e.g. the summary) is not re-expanded. It reads only environment variables, so export values built in this step.
           if ! command -v envsubst >/dev/null 2>&1; then
             echo "::error::envsubst（gettext-base）が見つかりません。PR 本文を組み立てられないため中断します。"
             exit 1
           fi
           export SUMMARY_SECTION BREAKING_SECTION MIGRATIONS_CHANGED_SECTION MIGRATION_NOTICE
-          # shellcheck disable=SC2016 # envsubst に渡す変数名の一覧であり、シェルでは展開しない
+          # shellcheck disable=SC2016 # list of variable names for envsubst, not expanded by the shell
           BODY_VARS='${VERSION} ${SUMMARY_SECTION} ${BREAKING_SECTION} ${MIGRATIONS_LIST} ${MIGRATIONS_CHANGED_SECTION} ${BREAKING_LIST} ${ENV_ADDED_LIST} ${ENV_CODE_LIST} ${MIGRATION_NOTICE} ${MIGRATION_LIST_BODY}'
           TEMPLATE=$(cat <<'EOF'
           ## リリース ${VERSION}
@@ -557,9 +502,7 @@ jobs:
           EOF
           )
 
-          # テンプレート中の ${...} と BODY_VARS の列挙が食い違っていたら失敗させる。列挙漏れの変数は
-          # 展開されずに ${...} のまま PR 本文に出てしまい、列挙だけ残った変数は不要な設定になるため。
-          # 照合するのは ${NAME} 形式のみ。差し込む変数は必ず ${NAME} で書き、テンプレートに $ を文字どおり書くときは ${...} 形式を使わないこと。
+          # Fail if ${...} in the template and the BODY_VARS list disagree (an unlisted variable would appear unexpanded in the PR body; a leftover name is needless config). Only ${NAME} form is checked: write inserted variables as ${NAME}, and do not use ${...} for a literal $ in the template.
           TEMPLATE_VARS=$(printf '%s\n' "$TEMPLATE" | grep -oE '\$\{[A-Za-z_][A-Za-z0-9_]*\}' | sort -u || true)
           LISTED_VARS=$(printf '%s\n' "$BODY_VARS" | tr ' ' '\n' | sed '/^$/d' | sort -u)
           if [ "$TEMPLATE_VARS" != "$LISTED_VARS" ]; then
@@ -572,18 +515,16 @@ jobs:
           fi
           BODY=$(printf '%s\n' "$TEMPLATE" | envsubst "$BODY_VARS")
 
-          # 認証情報（userinfo）付きの URL が本文に含まれていたら PR を作らずに失敗させる
-          # （公開リポジトリの PR 本文は編集履歴にも残るため、フェイルクローズにする。Issue #195）。
-          # - scheme://<userinfo>@ : user が空（://:pw@）やトークンだけ（https://ghp_xxx@）の形も対象
-          # - postgres(ql)://...@  : パスワードにエンコードされていない / などがあっても取りこぼさない
-          # 一致した内容はログに出さない。パイプにしない（pipefail 下で grep -q が先に終わると
-          # printf が SIGPIPE になり、一致しても偽になる）。
+          # Fail without creating the PR if the body contains a URL with credentials (userinfo); PR bodies in a public repo persist in edit history (fail closed; Issue #195).
+          # - scheme://<userinfo>@ : also empty user (://:pw@) or token-only (https://ghp_xxx@)
+          # - postgres(ql)://...@ : tolerates unencoded / etc. in the password
+          # Do not log the match. Do not pipe: under pipefail, grep -q exiting early makes printf get SIGPIPE and a match evaluates false.
           if grep -qiE '[a-z][a-z0-9+.-]*://[^[:space:]/?#@]+@|postgres(ql)?://[^[:space:]]*@' <<<"$BODY"; then
             echo "::error::PR 本文に認証情報付きの URL が含まれているため、PR を作成せずに中断します（Issue #195）。"
             exit 1
           fi
 
-          # Draft で作成する（マイグレーション適用前の誤マージ防止）。
+          # Create as Draft (prevents merging before migrations are applied).
           gh pr create \
             --base release \
             --head main \

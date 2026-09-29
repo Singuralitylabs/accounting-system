@@ -6,15 +6,15 @@ import { parseDateString, toDateString } from "../utils/formatter";
 
 interface CustomDatePickerProps {
   label?: string;
-  description?: string; // 入力欄の下に出す補足説明（Mantine の description）
+  description?: string;
   required?: boolean;
   placeholder: string;
   disabled?: boolean;
-  value: string | null; // "YYYY-MM-DD"
+  value: string | null;
   onChange: (date: string | null) => void;
   className?: string;
   showIcon?: boolean;
-  // 選択させない日付（"YYYY-MM-DD" で判定。確定済みの月の日付を選ばせない用途など）
+  // Dates that cannot be selected ("YYYY-MM-DD"), e.g. dates in closed months.
   excludeDate?: (date: string) => boolean;
 }
 

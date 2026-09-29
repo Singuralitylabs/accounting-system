@@ -38,10 +38,8 @@ import { CustomMonthPicker } from "../CustomMonthPicker";
 
 type Props = {
   initialData: BudgetRecurringItemType[];
-  // チームリーダーは自チーム固定。経理・管理者は全チームから選択できる
   canEditAllTeams: boolean;
-  // teamLocked のときの固定チーム（チームリーダー自身のチーム）。
-  // 未設定（プロフィール取得失敗等）の場合、新規行を追加できない
+  // Fixed team for teamLocked; if unset (e.g. profile fetch failed), new rows cannot be added.
   ownTeam: string | null;
   teamList: string[];
   memberList: { value: string; label: string }[];
@@ -68,8 +66,7 @@ const BudgetRecurringItemList = ({
   const [rows, setRows] = useState<BudgetRecurringItemInListType[]>(
     toListRows(initialData),
   );
-  // 編集中フラグ。バックグラウンド再取得で保存前の編集内容が黙って
-  // 破棄されるのを防ぐ（RecurringCostList と同方針）
+  // Editing flag; prevents background refetch from silently discarding unsaved edits (same as RecurringCostList).
   const [isDirty, setIsDirty] = useState(false);
 
   useEffect(() => {
@@ -134,11 +131,8 @@ const BudgetRecurringItemList = ({
 
     try {
       await saveMutation.mutateAsync(rows);
-      setIsDirty(false); // 保存成功後は再取得結果との同期を再開する
-      // 成功通知はミューテーションの onSuccess 側で行う（ここで重ねて出さない）
-    } catch {
-      // 通知はミューテーションの onError 側で行う
-    }
+      setIsDirty(false);
+    } catch {}
   };
 
   const visibleRows = rows.filter((row) => !row.isRemoved);
@@ -200,9 +194,7 @@ const BudgetRecurringItemList = ({
                 <Table.Td>
                   <Select
                     value={row.team || null}
-                    // チームマスタから外れた（無効化・改名された）チームの既存行でも
-                    // 選択肢に無い値のまま表示が空欄になるのを防ぐ（保存される値自体は
-                    // 変えない。BudgetDeclarationForm の teamOptions と同方針）
+                    // Keep a team removed from the master (disabled/renamed) displayable instead of blank (the saved value is unchanged; same as teamOptions in BudgetDeclarationForm).
                     data={
                       row.team && !teamList.includes(row.team)
                         ? [row.team, ...teamList]
@@ -224,7 +216,7 @@ const BudgetRecurringItemList = ({
                     onChange={(value) =>
                       handleUpdateRow(row.id, {
                         entry_type: value ?? "income",
-                        // 種別が変わると分類マスタも変わるため入力し直させる
+                        // Category master depends on type, so re-entry is required.
                         category: "",
                       })
                     }

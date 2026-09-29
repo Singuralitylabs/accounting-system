@@ -14,19 +14,13 @@ import {
 import { ExtraEntryInListType, ExtraEntryType } from "../types/types";
 import { useQueryWithInvalidation } from "./useQueryWithInvalidation";
 
-// 経理追加収支一覧（対象月のエントリ＋月未確定のエントリ）。
-// 月を切り替えている間は前月の表を残す（毎回フルスピナーにしない）
 export const useExtraEntryList = (
   month: string,
   initialData?: ExtraEntryType[] | null,
-  // initialData をサーバで取得した時刻。渡さないと TanStack Query は
-  // 「今」シードされたものとして扱い、GC 後に古い initialData が
-  // 新鮮なデータとして再表示される（QueryProvider は refetchOnMount: false）。
+  // Time initialData was fetched on the server (see useBudgetDeclarationList).
   initialDataUpdatedAt?: number,
 ) =>
-  // 画面を離れている間に無効化された一覧（損益計算書での前月コピー・確定の後など）は、
-  // 開き直したときに取り直し、無効化されたままの一覧での編集・保存を止められるように
-  // isInvalidated を購読して返す（useQueryWithInvalidation。Issue #170, #189）
+  // Subscribe to isInvalidated so a list invalidated while away is refetched on reopen and edits on it are blocked (useQueryWithInvalidation).
   useQueryWithInvalidation({
     queryKey: ["extraEntries", "list", month],
     queryFn: async () => {
@@ -39,13 +33,11 @@ export const useExtraEntryList = (
     initialData: initialData ?? undefined,
     initialDataUpdatedAt: initialData ? initialDataUpdatedAt : undefined,
     enabled: !!month,
-    staleTime: 2 * 60 * 1000, // 2分
-    // 月を切り替えている間は前月の表を残す（毎回フルスピナーにしない）
+    staleTime: 2 * 60 * 1000,
     placeholderData: keepPreviousData,
   });
 
-// 内容・請求先のサジェスト候補（直近12ヶ月＋月未確定分の過去の入力値）。
-// 補助的な表示のため staleTime を長めにし、保存時の ["extraEntries"] 無効化で追従する
+// Long staleTime: auxiliary; follows ["extraEntries"] invalidation on save.
 export type ExtraEntrySuggestion = Pick<
   ExtraEntryType,
   "description" | "billing_target"
@@ -64,13 +56,11 @@ export const useExtraEntrySuggestions = (
       return suggestionList ?? [];
     },
     initialData: initialData ?? undefined,
-    staleTime: 10 * 60 * 1000, // 10分
+    staleTime: 10 * 60 * 1000,
   });
 };
 
-// サーバが保存を拒否・失敗として返したことを表すエラー（何も書き込まれていない。
-// 保存は 1 トランザクションのため一部だけ保存されることはない）。
-// 通信の失敗など結果が分からない場合と画面の案内を分けるために区別する
+// Server rejected or failed the save; nothing was written (single transaction). Distinguished from unknown outcomes (e.g. network) for UI messaging.
 export class ExtraEntryValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -78,33 +68,27 @@ export class ExtraEntryValidationError extends Error {
   }
 }
 
-// 経理追加収支の一括登録・更新・削除
 export const useUpsertExtraEntry = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    // 新規行の INSERT を含む非冪等な書き込みのため、グローバル retry による
-    // mutationFn 再実行（コミット後に応答だけ失われた場合の二重登録）を防ぐ。
-    // 検証エラー（ExtraEntryValidationError）も再実行せずすぐ表示する
+    // Non-idempotent (INSERT): prevent global retry (double insert after a commit with a lost response). Validation errors show immediately.
     retry: 0,
     mutationFn: async (extraEntries: ExtraEntryInListType[]) => {
       const result = await bulkUpsertExtraEntry(extraEntries);
       if (result.error) {
-        // 保存前の検証（確定済みの月の編集ロック等）で拒否された、または保存に失敗した。
-        // いずれも何も書き込まれていない
         throw new ExtraEntryValidationError(result.error.message);
       }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["extraEntries"] });
-      // 経理追加収支の変更は月次・年間推移の損益レポートに影響するため、損益側もまとめて無効化する
+      // Also invalidate profit/loss reports (monthly and annual).
       queryClient.invalidateQueries({ queryKey: ["profitLoss"] });
     },
     onError: (error) => {
       console.error("経理追加収支更新エラー:", error);
       if (!(error instanceof ExtraEntryValidationError)) {
-        // 通信の失敗などで保存できたかどうか分からない（コミット後に応答だけ失われた可能性が
-        // ある）。一覧を取り直して実際の保存結果を表示する（画面側は取り直すまで編集を止める）
+        // Outcome unknown (response may have been lost after commit); refetch to show the actual result (the UI blocks editing until then).
         queryClient.invalidateQueries({ queryKey: ["extraEntries"] });
         queryClient.invalidateQueries({ queryKey: ["profitLoss"] });
       }
@@ -112,11 +96,7 @@ export const useUpsertExtraEntry = () => {
   });
 };
 
-// 対象月の前月分の経理追加収支（「前月の経理追加収支をコピー」ボタンの活性判定・
-// 件数表示・複製対象 id の一覧を兼ねる）。表示のみに使い、実際の複製時は
-// サーバ側で id 指定により改めて取得するため、ここでの多少のキャッシュ古さは
-// 実行結果（実登録件数）には影響しない。staleTime 経過後や、対象月を変える
-// （= 月次タブが再マウントされる）たびに最新化する（refetchOnMount: "always"）
+// Previous month's entries; drives button state, count, and ids to copy. Display only: the server refetches by id on copy. Refetch on mount so it refreshes when the month changes.
 export const usePreviousMonthExtraEntries = (month: string) => {
   return useQuery<ExtraEntryType[]>({
     queryKey: ["extraEntries", "previousMonth", month],
@@ -134,13 +114,11 @@ export const usePreviousMonthExtraEntries = (month: string) => {
   });
 };
 
-// 前月分の経理追加収支（sourceIds）を当月分として一括複製する
 export const useCopyExtraEntriesFromPreviousMonth = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    // 非冪等な書き込みのため、グローバル retry による mutationFn 再実行を防ぐ
-    // （useSaveBudgetRecurringItems / useSaveBudgetDeclaration と同方針）
+    // Non-idempotent: prevent global retry.
     retry: 0,
     mutationFn: async ({
       sourceIds,
@@ -159,11 +137,10 @@ export const useCopyExtraEntriesFromPreviousMonth = () => {
       }
       return { insertedCount, skippedCount };
     },
-    // 失敗した場合も一覧を取り直す（コピーの結果（件数）を読めずに失敗扱いにした場合でも、
-    // 行は登録済みの可能性があるため。何も書き込まれていない失敗では取り直すだけで害はない）
+    // Refetch on failure too: the copy may have been written even if the result could not be read.
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["extraEntries"] });
-      // 経理追加収支の変更は月次・年間推移の損益レポートに影響するため、損益側もまとめて無効化する
+      // Also invalidate profit/loss reports.
       queryClient.invalidateQueries({ queryKey: ["profitLoss"] });
     },
     onError: (error) => {

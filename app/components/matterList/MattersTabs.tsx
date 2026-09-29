@@ -14,11 +14,7 @@ type Props = {
   tabs: MattersTabItem[];
 };
 
-// 案件カード（/matters）配下のタブ切替。表示するタブ自体は
-// layout（サーバ側）で ROUTE_PERMISSIONS に基づき絞り込み済み。
-// タブが1つ（自分の案件のみ）の場合は切替の意味がないため表示しない。
-// ヘッダーの角丸ボタン列（濃色・矩形）と隣接して並ぶため、pills タブ＋背景バンドで
-// 見た目を変え、直下に別のナビゲーション行が続くように誤読されないようにする。
+// Tabs under /matters; which tabs to show is already filtered in the (server) layout by ROUTE_PERMISSIONS. Hidden when there is a single tab. Pills on a background band, so it is not mistaken for another nav row below the header's button row.
 const MattersTabs = ({ tabs }: Props) => {
   const pathname = usePathname();
 
@@ -26,9 +22,7 @@ const MattersTabs = ({ tabs }: Props) => {
     return null;
   }
 
-  // 前方一致でアクティブなタブを判定する（各タブ配下に将来サブルートが増えても
-  // ハイライトが外れないように）。"/matters" は他タブの href の前方一致にもなるため、
-  // href が最も長い＝最も具体的なタブを優先する
+  // Prefix match for the active tab (so future subroutes keep it highlighted); "/matters" prefixes other tabs' hrefs too, so the longest href wins.
   const activeTab = [...tabs]
     .sort((a, b) => b.href.length - a.href.length)
     .find((tab) => matchesRoute(pathname, tab.href));
@@ -41,10 +35,7 @@ const MattersTabs = ({ tabs }: Props) => {
             <Tabs.Tab
               key={tab.href}
               value={tab.href}
-              // Mantine が渡す root props には button 専用の type="button" が
-              // 含まれる。Link（<a>）にそのまま乗せると意味を持たない属性に
-              // なるため除外する（ignoreRestSiblings によりこの type は
-              // no-unused-vars の対象外）
+              // Drop Mantine's root prop type="button", meaningless on <a> (ignoreRestSiblings exempts it from no-unused-vars).
               renderRoot={({ type, ...rootProps }) => (
                 <Link href={tab.href} {...rootProps} />
               )}

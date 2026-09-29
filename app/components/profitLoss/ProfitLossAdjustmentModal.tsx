@@ -23,17 +23,14 @@ type Props = {
   opened: boolean;
   onClose: () => void;
   target: AdjustmentTarget;
-  targetMonth: string; // "YYYY-MM"
-  label: string; // 対象の表示名（確認ダイアログ・見出しに使う）
-  sourceAmount: number; // 元データの現在の金額
-  currentActualAmount: number; // 初期値（未調整なら sourceAmount と同じ）
-  currentReason: string; // 既存の調整理由（未調整なら空文字）
+  targetMonth: string;
+  label: string;
+  sourceAmount: number;
+  currentActualAmount: number;
+  currentReason: string;
 };
 
-// 損益計算書の明細行に対する「実績額を修正」モーダル。
-// 入力は実績額のみで、保存時に adjustment_amount = 実績額 − 元データ金額 を
-// システムが計算する（Issue #108）。実績額を元データと同額に戻すと、既存の
-// 調整レコードは削除される（0 の調整は保持しない）。
+// Adjustment modal for statement lines. Only the actual amount is entered; adjustment_amount = actual - source is computed on save. Restoring the source amount deletes the existing adjustment (zero adjustments are not kept).
 const ProfitLossAdjustmentModal = ({
   opened,
   onClose,
@@ -55,10 +52,8 @@ const ProfitLossAdjustmentModal = ({
     onClose();
   };
 
-  // 開いた時点で既に調整が存在したか（実績額が元データと同額なら調整は無い）
   const hadExistingAdjustment = currentActualAmount !== sourceAmount;
-  // 元々調整が無く、実績額も変更していない場合は保存する対象が無い
-  // （ボタンを無効化し、無反応な保存操作や不要な確認・トーストを避ける）
+  // Nothing to save when there was no adjustment and the amount is unchanged (disable the button).
   const hasNothingToSave =
     actualAmount === sourceAmount && !hadExistingAdjustment;
 
@@ -83,12 +78,7 @@ const ProfitLossAdjustmentModal = ({
     if (!confirmed) return;
 
     try {
-      // 実際に削除・保存・変更なしのいずれかはサーバ側（元データの再取得を伴う
-      // 差分計算）の結果で判断する。willRevert は保存前の見込み（画面表示時点の
-      // 古い sourceAmount に基づく）でしかなく、その間に元データが変わっていると
-      // 一致しない場合がある。差分 0 で削除対象が無い場合（Issue #139。別タブで
-      // 先に削除済み等）は deleted=false・adjustmentAmount=0 が返るため、
-      // 「保存しました」ではなく「既に削除されています」として扱う
+      // Delete/save/no-change is decided by the server (which refetches the source). willRevert is only an estimate from a possibly stale sourceAmount. Zero diff with nothing to delete (e.g. already deleted in another tab) returns deleted=false, adjustmentAmount=0: report "already deleted".
       const { deleted, adjustmentAmount } = await saveMutation.mutateAsync({
         target,
         targetMonth,
@@ -121,10 +111,10 @@ const ProfitLossAdjustmentModal = ({
           value={actualAmount}
           thousandSeparator=","
           prefix="¥"
-          // DB は numeric(15,2) のため小数第2位までに制限する
+          // numeric(15,2): limit to 2 decimals.
           decimalScale={2}
           fixedDecimalScale
-          // マイナス金額（減額調整）を許容するため min は設定しない
+          // No min: negative amounts (reductions) are allowed.
           onChange={(value) =>
             setActualAmount(typeof value === "number" ? value : "")
           }

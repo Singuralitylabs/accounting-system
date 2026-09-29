@@ -8,15 +8,13 @@ import {
 } from "@/app/utils/profitLossClosing";
 
 type Props = {
-  savedStartDate: string | null; // 保存済みの案件開始日（新規作成は null）
-  currentStartDate?: string | null; // 入力中の案件開始日（編集できない画面では省略）
-  // 下書き（経理申請前・新規作成）か。下書きは損益計算書に計上されないため文言を変える
+  savedStartDate: string | null;
+  currentStartDate?: string | null;
+  // Draft (before accounting request / new): drafts are not counted in the statement, so the wording differs.
   isDraft: boolean;
 };
 
-// 案件が損益計算書の確定済みの月（Issue #148）に計上される場合の注意表示（Issue #149）。
-// 保存済み・入力中の案件開始日のどちらかの月が確定済みのとき表示する（開始日を
-// 確定済みの月へ / から変更する場合も含む）。保存は妨げない
+// Notice when the matter counts in a closed month of the statement: either the saved or the entered start date is in a closed month (including moving the date into or out of one). Does not block saving.
 const ClosedMonthMatterNotice = ({
   savedStartDate,
   currentStartDate,

@@ -21,8 +21,7 @@ import DisplayMenu from "../buttons/display-menu";
 import { useAtomValue } from "jotai";
 import { optionsAtom } from "../../atoms/optionsAtom";
 
-// 案件詳細モーダルはフォーム一式（日付ピッカー等）を含み重いため、
-// 初期バンドルから外して開くときに読み込む
+// The matter detail modal includes a full form (date pickers etc.) and is heavy, so it is loaded on open instead of in the initial bundle.
 const MatterCardDetail = dynamic(
   () =>
     import("../modal/MatterCardDetail").then(
@@ -47,10 +46,8 @@ export function UserMatterList({
 }: {
   initialData?: MatterType[];
 }) {
-  // React Queryでデータを管理（初期データ付き）
   const { data: matterList } = useUserMatterList(initialData);
-  // 件数増加に伴う DOM 肥大を抑えるためのクライアント側ページネーション。
-  // サーバ側の取得・ソートは変えず、表示範囲だけを切り出す。
+  // Client-side pagination to limit DOM size; server fetching and sorting are unchanged.
   const {
     page,
     setPage,

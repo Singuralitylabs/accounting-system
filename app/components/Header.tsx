@@ -64,9 +64,7 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      // auth-js のロック保持中に非同期処理を走らせない（公式推奨の回避策）。
-      // session.user は名前・アイコン・ナビ表示にのみ使う。認可は middleware / RLS が担う。
-      // Header は再マウントされないため、表示更新は本コールバックの session.user が担う。
+      // Do not run async work while auth-js holds its lock. session.user is for display only; authorization is done by middleware / RLS.
       const timerId = setTimeout(async () => {
         try {
           if (session?.user) {
@@ -139,9 +137,7 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
         >
           経理システム
         </Link>
-        {/* ロゴの右側の余白をここで一括吸収し、ナビ・ユーザーメニューを
-            まとめて右寄せにする（個々に ml-auto を付けると余白が分散し、
-            中央寄りになってしまうため、グループ全体に1つだけ付ける） */}
+        {/* One margin on the whole group absorbs the space right of the logo; per-item margins would push the nav toward the center. */}
         <div className="ml-auto flex items-center gap-4">
           {!isHub && (
             <div className="hidden sm:flex flex-wrap gap-2">

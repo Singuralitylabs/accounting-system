@@ -19,8 +19,7 @@ export const SignIn = () => {
 
   useEffect(() => {
     const onPageShow = (event: PageTransitionEvent) => {
-      // クロスオリジンの OAuth 画面から「戻る」と bfcache で state が残るため、
-      // スピナー付き disabled のまま固まらないよう loading を解除する。
+      // Cross-origin OAuth pages can be left with "back" (bfcache keeps state), so clear loading to avoid a stuck disabled spinner.
       if (event.persisted) {
         setLoading(false);
       }
@@ -42,8 +41,7 @@ export const SignIn = () => {
       } = await supabase.auth.getUser();
 
       if (user) {
-        // 既存ユーザーがいる場合のドメインチェック（UX 用の早期判定。
-        // 実際の強制はサーバの /auth/callback で行う）
+        // Early domain check for UX; the real enforcement is server-side in /auth/callback.
         if (!isAllowedEmailDomain(user.email)) {
           await supabase.auth.signOut();
           notifyError(
@@ -60,8 +58,7 @@ export const SignIn = () => {
         provider: "google",
         options: {
           redirectTo: `${window.location.origin}/auth/callback`,
-          // Google 側でも組織ドメインのアカウント選択に絞る（UX 改善）。
-          // セキュリティ上の強制はサーバ側コールバックが担う。
+          // Restrict Google's account chooser to the org domain (UX); enforcement is in the server callback.
           queryParams: {
             hd: ALLOWED_EMAIL_DOMAIN,
           },

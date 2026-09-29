@@ -27,8 +27,7 @@ export async function GET(request: Request) {
       return NextResponse.redirect(`${requestUrl.origin}/auth-error`);
     }
 
-    // ドメイン制限のサーバ側担保。クライアントのチェックはバイパス可能なため、
-    // 許可ドメイン外のアカウントはここでセッションを破棄しプロフィールも作らせない。
+    // Server-side enforcement of the domain restriction (client checks can be bypassed): destroy the session and do not create a profile for accounts outside the allowed domain.
     if (!isAllowedEmailDomain(user.email)) {
       console.warn(
         `許可されていないドメインのログインを拒否しました: ${user.email}`,

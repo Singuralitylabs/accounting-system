@@ -8,12 +8,11 @@ interface CustomMonthPickerProps {
   required?: boolean;
   placeholder: string;
   disabled?: boolean;
-  value: string | null; // "YYYY-MM"
+  value: string | null;
   onChange: (month: string | null) => void;
   className?: string;
   isClearable?: boolean;
-  // 月の選択肢に付ける目印（"YYYY-MM" で判定）。"alert" は強調色、"closed" は下線で示す
-  // （損益計算書の確定済みの月・確定後に未反映の変更がある月の表示に使う）
+  // Marker per month ("YYYY-MM"): "alert" highlights, "closed" underlines.
   getMonthIndicator?: (month: string) => "alert" | "closed" | null;
 }
 

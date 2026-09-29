@@ -43,8 +43,7 @@ import { ENTRY_TYPE_OPTIONS } from "@/app/utils/extraEntry";
 import { formatCurrency, formatMonthLabel } from "@/app/utils/formatter";
 import { notifyError } from "@/app/utils/notify";
 
-// fromRecurring は定期明細から自動展開された行かを表す表示用フラグ（バッジ表示のみに使う。
-// 保存時は他の項目と同様に通常の明細として送信するため、送信ペイロード組み立て時には含めない）
+// fromRecurring is a display-only flag (badge); not included in the submit payload.
 type ItemRow = BudgetDeclarationItemInput & {
   key: number;
   fromRecurring?: boolean;
@@ -62,17 +61,13 @@ const emptyItem = (key: number): ItemRow => ({
 type Props = {
   opened: boolean;
   onClose: () => void;
-  targetMonth: string; // "YYYY-MM"（一覧で選択中の月。フォーム内では固定表示）
-  team: string; // クリックした行のチーム（初期値）
-  declarationId: number | null; // null なら新規作成
-  // チーム選択を固定するか（teamleader は自チーム固定。経理・管理者は選択可だが、
-  // 編集時は対象月・チームの組み合わせを変えないよう常に固定する）
+  targetMonth: string;
+  team: string;
+  declarationId: number | null;
+  // Team select is fixed for teamleader, and always when editing (month/team pair must not change).
   teamLocked: boolean;
-  // 明細の担当者候補（全メンバー。チーム所属で絞らない。経理追加収支の責任者と同じ方式）
   memberList: { value: string; label: string }[];
-  // 担当者候補の取得に失敗したか。true の間は担当者 Select を disabled にする
-  // （memberList が空のまま有効にすると、既存明細の manager_id が選択肢に無いため
-  // Select が空欄に見え、値は保持されているのに「クリアされた」と誤認しうる）
+  // While true, the manager Select is disabled: with an empty memberList, existing manager_id values would look cleared.
   memberListError?: boolean;
 };
 
@@ -110,12 +105,7 @@ const BudgetDeclarationForm = ({
     initialValues: { team, comment: "" },
   });
 
-  // 前月・同チームの申告明細（「前月の明細をコピー」ボタン用）。新規作成時のみ
-  // 有効化する（編集時は既存明細の取得完了を待つ必要があり、detail 取得中の
-  // 競合を避けるため単純に対象外にする。用途としても、既存申告を編集中に前月を
-  // 取り込む場面は薄い）。チーム選択が変わる（経理・管理者の新規作成時）たびに
-  // 対象チームを切り替えて再取得する。保存・削除後にキャッシュが古いまま
-  // 残らないよう、useBudgetDeclarationDetail と同様にマウントのたび再取得する
+  // Previous month's items for "copy previous"; enabled only for new declarations (editing waits on detail, so it is excluded) and refetched on team change and on every mount (stale after save/delete).
   const {
     data: previousItems,
     isLoading: isPreviousItemsLoading,
@@ -134,9 +124,7 @@ const BudgetDeclarationForm = ({
         ? "前月の明細がありません。"
         : null;
 
-  // 対象月が適用期間内の定期明細（新規作成時のみ、対象チームの分を自動投入する）。
-  // previousItems と同じ理由で新規作成時のみ有効化し、チーム切り替えのたび
-  // 対象チームを切り替えて再取得する
+  // Recurring items active in the target month, auto-seeded for new declarations only; refetched on team change.
   const {
     data: activeRecurringItems,
     isFetching: isActiveRecurringItemsFetching,
@@ -147,44 +135,26 @@ const BudgetDeclarationForm = ({
     form.values.team,
   );
 
-  // 編集時は既存明細の取得が完了する（detail を受け取る）まで保存を止める。
-  // 取得失敗・未完了のまま保存すると、ローカルの items（空のまま）で
-  // 明細差し替えが走り、既存明細を消してしまう。
-  // isDetailFetching も見るのは、他画面で既にキャッシュされた古い detail が
-  // 即座に返りつつ裏で最新化中（refetchOnMount: "always"）の間に、古い内容の
-  // まま保存できてしまうと他編集者の変更を消しかねないため
-  // （populate effect も同じ理由で isDetailFetching の完了を待つ）。
-  // 新規作成時は、対象月が適用期間内の定期明細の取得が終わる（自動投入が
-  // 済む）まで保存を止める。取得中に保存できてしまうと、投入されるはずの
-  // 定期明細が無いまま申告が作成され、受け入れ基準（自動投入されていること）
-  // が満たせない。取得失敗時も同様に止める（成功と誤認して定期明細なしで
-  // 作成されるのを防ぐ。エラー時の案内は下記の Alert 参照）
+  // Block saving until detail is loaded when editing: saving with empty local items would replace (delete) existing items. Also wait for isDetailFetching: a stale cached detail returned while refetching (refetchOnMount: "always") could overwrite another editor's changes (the populate effect waits for the same reason).
+  // For new declarations, block until recurring items are fetched (and on failure), or the declaration would be created without them (see the Alert below).
   const saveDisabled =
     isSaving ||
     (isEditMode
       ? !detail || isDetailFetching
       : isActiveRecurringItemsFetching || isActiveRecurringItemsError);
 
-  // 削除済みが確定した申告（別タブでの先行削除等で detail が null に収束）は
-  // 削除の操作対象が無いため、削除ボタンも止める（保存は saveDisabled の
-  // !detail が既に止めている）。取得中・取得失敗時は行が残っている可能性が
-  // あるため、従来どおり押せる状態を維持する
+  // Also disable delete once the declaration is confirmed gone (detail converges to null, e.g. deleted in another tab). While fetching or failed the row may still exist, so keep it enabled.
   const isDetailMissing =
     isEditMode && !isDetailLoading && !isDetailError && !detail;
 
   const [items, setItems] = useState<ItemRow[]>([]);
   const nextKeyRef = useRef(0);
-  // detail から items/comment を反映済みの declarationId。編集中に detail が
-  // 再取得（保存成功時の invalidate・ウィンドウ再フォーカス等）されても、
-  // 同じ申告を反映済みなら上書きしない（入力中の内容を消さないため）
+  // declarationId whose detail is already applied; do not overwrite in-progress input when detail refetches (invalidate after save, window refocus).
   const populatedForIdRef = useRef<number | null>(null);
-  // 定期明細を自動投入済みのチーム。同じチームでの再レンダーでは再投入しない
-  // （投入後に利用者がその行を削除しても、無関係な再レンダーで復活させないため）。
-  // モーダルを開き直す・チームを変更するたびに null / 新チームへリセットする
+  // Team whose recurring items were already seeded; do not re-seed on re-render (a row the user deleted must not reappear). Reset on reopen or team change.
   const recurringPopulatedForTeamRef = useRef<string | null>(null);
 
-  // モーダルを開くたび（対象行の切り替え含む）に初期値へ戻す。
-  // 編集時は明細取得を待って反映する（既存データを空で上書きしないため）
+  // Reset to initial values on every open (including target row change); when editing, wait for detail so existing data is not overwritten with empty.
   useEffect(() => {
     if (!opened) return;
     form.setValues({ team, comment: "" });
@@ -195,10 +165,7 @@ const BudgetDeclarationForm = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [opened, declarationId, team]);
 
-  // 新規作成時のみ、対象月が適用期間内の定期明細を明細行として自動投入する
-  // （案 A: 申告作成時に展開する。既存申告の編集時は展開しない＝二重計上防止）。
-  // isActiveRecurringItemsFetching の完了を待つのは populate effect（detail 用）と
-  // 同じ理由（取得完了前の空配列で「対象なし」と誤判定しないため）
+  // Seed recurring items active in the target month for new declarations only (not when editing, to avoid double counting). Wait for the fetch to finish so an empty array is not mistaken for "none".
   useEffect(() => {
     if (!opened || isEditMode) return;
     if (isActiveRecurringItemsFetching) return;
@@ -223,11 +190,7 @@ const BudgetDeclarationForm = ({
 
   useEffect(() => {
     if (!opened || !isEditMode || !detail) return;
-    // refetchOnMount: "always" により、他画面で先に取得済みの古いキャッシュが
-    // 即座に返りつつ裏で再取得中のことがある。取得中のうちに古い内容で
-    // populatedForIdRef をセットしてしまうと、直後に届く最新データが
-    // 「反映済み」判定でガードされ、古い内容のまま保存できてしまう
-    // （lost update）。取得が完全に終わるまで populate 自体を待つ
+    // A stale cache may be returned while refetching (refetchOnMount: "always"); setting populatedForIdRef then would guard the fresh data as already applied and allow a stale save (lost update). Wait until the fetch fully finishes.
     if (isDetailFetching) return;
     if (populatedForIdRef.current === declarationId) return;
     populatedForIdRef.current = declarationId;
@@ -251,10 +214,7 @@ const BudgetDeclarationForm = ({
     setItems((prev) => [...prev, emptyItem(nextKeyRef.current++)]);
   };
 
-  // チームを変更すると、既に取り込んだ明細が別チームのものとして紛れ込む
-  // （前月コピーで担当者ごと別チームの明細一式を持ち込める経路ができたため、
-  // 手入力より誤操作の実害が大きい）。明細行がある状態でチームを変えるときは
-  // 確認のうえクリアする
+  // Changing team would leave items imported for another team (copy previous can bring a whole team's items), so confirm and clear when rows exist.
   const handleTeamChange = async (value: string | null) => {
     if (!value || value === form.values.team) return;
 
@@ -269,8 +229,7 @@ const BudgetDeclarationForm = ({
     form.setFieldValue("team", value);
   };
 
-  // 前月・同チームの明細を現在の明細行の末尾に追加する（未保存状態のまま。
-  // コメントはコピー対象に含めない＝前月固有の内容の可能性が高いため）
+  // Append previous month's items (same team) to the current rows, unsaved. Comments are not copied (likely specific to the previous month).
   const handleCopyPreviousItems = async () => {
     if (!previousItems) return;
 
@@ -340,7 +299,7 @@ const BudgetDeclarationForm = ({
       });
       onClose();
     } catch {
-      // 通知はミューテーションの onError 側で行う
+      // Notified in the mutation's onError.
     }
   };
 
@@ -357,13 +316,12 @@ const BudgetDeclarationForm = ({
       await deleteMutation.mutateAsync({ declarationId, team: currentTeam });
       onClose();
     } catch {
-      // 通知はミューテーションの onError 側で行う
+      // Notified in the mutation's onError.
     }
   };
 
   const summary = summarizeBudgetItems(items);
-  // マスタから外れた（無効化・改名された）分類を持つ行数。前月コピー・定期明細の
-  // 自動展開で持ち込まれた場合を含み、保存時は選び直しが必要になる
+  // Rows whose category was removed from the master (disabled/renamed), including carried-in ones; must be reselected on save.
   const unregisteredCategoryCount = items.filter((item) =>
     isCategoryUnregistered(
       item.entry_type,
@@ -498,7 +456,7 @@ const BudgetDeclarationForm = ({
                       onChange={(value) =>
                         handleUpdateItem(item.key, {
                           entry_type: value ?? "income",
-                          // 種別が変わると分類マスタも変わるため入力し直させる
+                          // Category master depends on type, so re-entry is required.
                           category: "",
                         })
                       }

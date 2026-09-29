@@ -12,15 +12,12 @@ import { Badge, Group, Paper, Switch, Text } from "@mantine/core";
 import { FaLock } from "react-icons/fa";
 
 type Props = {
-  month: string; // "YYYY-MM"
+  month: string;
   closing: ClosingInfo | null;
-  canClose: boolean; // 確定・確定解除を操作できるか（accounting / admin）
+  canClose: boolean;
 };
 
-// 月次タブの「確定済み」チェックと確定情報の表示（Issue #148）。
-// オン = その時点のライブ集計をスナップショットとして保存（既に確定済みの月は拒否される）、
-// オフ = 確定の解除（スナップショットと見送り記録を削除し、ライブ集計の表示に戻る）。
-// チームリーダーには確定情報のみ表示し、操作はさせない
+// On = save the live aggregation as a snapshot (rejected if already closed); off = reopen (delete snapshot and dismissals, back to live). Teamleaders see info only.
 const ClosingControl = ({ month, closing, canClose }: Props) => {
   const closeMutation = useCloseProfitLossMonth();
   const reopenMutation = useReopenProfitLossMonth();

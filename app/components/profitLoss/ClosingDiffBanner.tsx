@@ -10,14 +10,11 @@ import ClosingDiffScopeNote from "./ClosingDiffScopeNote";
 type Props = {
   summary: ClosingDiffSummary;
   onSelectMonth: (month: string) => void;
-  // 件数集計の対象の開始月（Issue #172）。それより前の確定済みの月があるときだけ渡し、
-  // 対象範囲を注記する（その月の変更はバナーに出ないため）
+  // Start month of the count; passed only when closed months exist before it (their changes are not shown in the banner).
   scopeFromMonth?: string;
 };
 
-// 損益計算書ページ上部の警告バナー（Issue #149。経理担当者・管理者のみ）。
-// 表示中のタブ・月に関わらず、確定後に未処理の変更がある確定済みの月を一覧表示し、
-// 月名のクリックで月次タブのその月へ切り替える
+// Warning banner for closed months with unprocessed changes, regardless of tab/month; clicking a month switches to it. Accounting/admin only.
 const ClosingDiffBanner = ({
   summary,
   onSelectMonth,

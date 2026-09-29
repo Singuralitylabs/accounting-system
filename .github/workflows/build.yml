@@ -1,6 +1,5 @@
 name: Build Test
 
-# 本番相当のビルド成立性を検証（docs/testing.md 3.4）
 on:
   push:
     branches: [main]
@@ -20,8 +19,7 @@ on:
       - "package.json"
       - "yarn.lock"
   workflow_dispatch:
-  # リリース PR 作成時の品質ゲートから再利用する（release-pr.yml）。
-  # 既存の push / pull_request トリガーと paths フィルタの挙動は変えない。
+  # Reused by the release-PR quality gate (release-pr.yml).
   workflow_call:
 
 jobs:
@@ -29,8 +27,7 @@ jobs:
     name: next build
     runs-on: ubuntu-latest
     env:
-      # ビルド成立性の検証のみが目的のためダミー値を渡す
-      # （全ページ force-dynamic のため、ビルド時に実際の接続は発生しない）
+      # Dummy values: only build viability is checked (all pages are force-dynamic, so no real connection at build time).
       NEXT_PUBLIC_SUPABASE_URL: https://dummy.supabase.co
       NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-anon-key
     steps:
