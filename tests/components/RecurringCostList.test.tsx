@@ -128,7 +128,7 @@ describe("RecurringCostList の保存失敗後の扱い", { timeout: 15000 }, ()
 
     expect(
       await screen.findByText(
-        "保存結果を確認できず、最新の定期費用情報も取得できませんでした",
+        "保存できたか確認できず、最新の定期費用情報も取得できませんでした",
       ),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "保存" })).toHaveProperty(
@@ -180,7 +180,7 @@ describe("RecurringCostList の保存失敗後の扱い", { timeout: 15000 }, ()
 
     expect(
       await screen.findByText(
-        "保存結果を確認できず、最新の定期費用情報も取得できませんでした",
+        "保存できたか確認できず、最新の定期費用情報も取得できませんでした",
       ),
     ).toBeTruthy();
     expect(screen.getByText(/通信が回復すると自動で取得します/)).toBeTruthy();

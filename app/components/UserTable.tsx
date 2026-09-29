@@ -1,7 +1,8 @@
 import { Badge, Select, Table, TextInput } from "@mantine/core";
 import { ProfilesType } from "../types/types";
 import { UserValidationErrors } from "../utils/userList";
-import { classList, teamOptionsFor } from "./UserList";
+import { ROLES } from "@/app/utils/permissions";
+import { teamOptionsFor } from "./UserList";
 
 type Props = {
   userInfo: ProfilesType;
@@ -42,7 +43,7 @@ const UserTable = ({
       <Table.Td>
         <Select
           aria-label={`${userInfo.name}の権限`}
-          data={classList}
+          data={ROLES}
           value={userInfo.class ?? null}
           onChange={(value) => onUpdateUserList(userInfo.id, { class: value })}
           placeholder="権限を選択"

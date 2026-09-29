@@ -9,6 +9,7 @@ import {
   useUpsertExtraEntry,
 } from "@/app/hooks/useExtraEntryData";
 import { useClosedMonths } from "@/app/hooks/useClosedMonths";
+import { useSaveRefreshLock } from "@/app/hooks/useSaveRefreshLock";
 import {
   CLOSED_MONTH_LOCK_MESSAGE,
   findExtraEntryLockViolations,
@@ -41,6 +42,7 @@ import { CiSquarePlus } from "react-icons/ci";
 import { RiDeleteBin6Line } from "react-icons/ri";
 import { CustomDatePicker } from "../CustomDatePicker";
 import { CustomMonthPicker } from "../CustomMonthPicker";
+import { SaveRefreshAlert } from "../SaveRefreshAlert";
 
 type Props = {
   initialMonth: string; // "YYYY-MM"
@@ -105,21 +107,23 @@ const ExtraEntryList = ({
   // キャッシュ済みの stale な月への切替では placeholder を経由しないため、
   // 再取得が終わるまで（isFetching && isStale）もロックする
   const isSwitchingMonth = isPlaceholderData || (isFetching && isStale);
-  // 保存した対象月と、保存に成功した（saved）か、通信の失敗などで保存できたか分からない
-  // （unknown）か。保存後（unknown のときも）フックが一覧を無効化するので、再取得に成功して
-  // 無効化が解けるまでは、保存前の古い一覧で画面を上書きせず、保存しようとした内容を表示した
-  // まま編集・保存を止める（Issue #170）。unknown のときも、応答だけ失われてコミット済みの
-  // 可能性があるため、編集を続けて再度保存すると新規行が二重に登録されうる
-  const [savedSnapshot, setSavedSnapshot] = useState<{
-    month: string;
-    kind: "saved" | "unknown";
-  } | null>(null);
-  const isAwaitingRefresh =
-    savedSnapshot !== null && savedSnapshot.month === month && isInvalidated;
-  // 無効化された一覧（保存・確定などで古いと分かっている）を取り直せないまま表示している。
-  // 月を切り替えて戻った・画面を開き直した場合も含め、二重登録や上書きを防ぐため
-  // 最新の一覧を取得できるまで編集・保存を止め、再読み込みを促す（Issue #170）
-  const isOutdated = isInvalidated && !isFetching && (isError || isPaused);
+  // 保存後（通信の失敗などで保存できたか分からないときも）と、無効化された一覧
+  // （保存・確定などで古いと分かっている。月を切り替えて戻った・画面を開き直した場合も含む）
+  // を取り直せるまでのロック。保存前の古い一覧で画面を上書きせず、二重登録や上書きを防ぐため
+  // 編集・保存を止める（Issue #170, #190）
+  const {
+    locked: isRefreshLocked,
+    isStalled,
+    outcome: saveOutcome,
+    markSaved,
+    reset: resetSaveLock,
+  } = useSaveRefreshLock({
+    isInvalidated,
+    isFetching,
+    isError,
+    isPaused,
+    scope: month,
+  });
   const isMonthClosed = isClosedMonth(closedMonths, month);
   // 確定済みの月の情報がまだ無い（取得中・取得失敗）間は、確定済みか判定できない
   // ため追加ボタンを無効にする（保存はロック判定・RLS で拒否されるが、仕様どおり
@@ -129,10 +133,7 @@ const ExtraEntryList = ({
   // 再取得待ちの間の行には保存済みの新規行（isNew のまま）が含まれるため、
   // 再度保存すると二重に登録されてしまう
   const formLocked =
-    isSwitchingMonth ||
-    upsertMutation.isPending ||
-    isAwaitingRefresh ||
-    isOutdated;
+    isSwitchingMonth || upsertMutation.isPending || isRefreshLocked;
   // 追加は対象月が確定済みでなく、確定済みかが判明し、ロックされていないときだけ
   const canAddRow = !isMonthClosed && !isClosedUnknown && !formLocked;
   // 最新の保存済みの行（編集ロックは変更前の日付で判定する）
@@ -157,19 +158,11 @@ const ExtraEntryList = ({
   // 保存後の再取得などでサーバ状態が変わったらローカル編集状態をリセットする
   // （編集中・月切替中・保存後の再取得待ちは同期しない）
   useEffect(() => {
-    if (extraEntryList && !isDirty && !isSwitchingMonth && !isAwaitingRefresh) {
+    if (extraEntryList && !isDirty && !isSwitchingMonth && !isRefreshLocked) {
       setRows(toListRows(extraEntryList));
       setBaseline(toRowMap(extraEntryList));
     }
-  }, [extraEntryList, isDirty, isSwitchingMonth, isAwaitingRefresh]);
-
-  // 再取得に成功して無効化が解けたら、保存後の待ち状態を終える（後で別の理由で
-  // 無効化されたときに、保存後の待ちと取り違えないようにする）
-  useEffect(() => {
-    if (savedSnapshot && !isInvalidated && !isFetching) {
-      setSavedSnapshot(null);
-    }
-  }, [savedSnapshot, isInvalidated, isFetching]);
+  }, [extraEntryList, isDirty, isSwitchingMonth, isRefreshLocked]);
 
   const visibleRows = rows.filter((row) => !row.isRemoved);
   const incomeRows = visibleRows.filter((row) => row.entry_type === "income");
@@ -209,8 +202,8 @@ const ExtraEntryList = ({
       setIsDirty(false);
     }
     // 別の月に移ったら再取得待ちを解く（画面の行は移った先の月の一覧に置き換わるため。
-    // 戻ったときに古い一覧しか無ければ isOutdated で編集を止める）
-    setSavedSnapshot(null);
+    // 戻ったときに古い一覧しか無ければ isStalled で編集を止める）
+    resetSaveLock();
     setMonth(selected);
   };
 
@@ -326,10 +319,10 @@ const ExtraEntryList = ({
     try {
       await upsertMutation.mutateAsync(changedRows);
       // 保存後の再取得待ちにする。フックの onSuccess で一覧が無効化されており、再取得に
-      // 成功して無効化が解けるまで（isAwaitingRefresh の間）は保存前のキャッシュで同期しない。
+      // 成功して無効化が解けるまで（isRefreshLocked の間）は保存前のキャッシュで同期しない。
       // 保存の完了時に進行中だった再取得は無効化で取り消されるため、無効化を解くのは
       // 保存後に取得した一覧だけ
-      setSavedSnapshot({ month, kind: "saved" });
+      markSaved("saved");
       setIsDirty(false);
       notifySuccess("経理追加収支情報を更新しました。");
     } catch (error) {
@@ -344,7 +337,7 @@ const ExtraEntryList = ({
       // 応答だけ失われてコミット済みの可能性があるため、再度保存すると新規行が二重に
       // 登録されうる。一覧を取り直す（フックの onError で無効化済み）まで編集・保存を止め、
       // 取り直した一覧（実際の保存結果）に同期する
-      setSavedSnapshot({ month, kind: "unknown" });
+      markSaved("unknown");
       setIsDirty(false);
       notifyError(
         "経理追加収支情報の更新結果を確認できませんでした。最新の内容を取得して表示します。保存されていなかった場合は入力し直してください。",
@@ -506,38 +499,21 @@ const ExtraEntryList = ({
 
   return (
     <div className="px-4 pb-8 relative">
-      <LoadingOverlay visible={upsertMutation.isPending || isSwitchingMonth} />
+      <LoadingOverlay
+        visible={
+          upsertMutation.isPending ||
+          isSwitchingMonth ||
+          (isRefreshLocked && isFetching)
+        }
+      />
       {monthPicker}
-      {isOutdated ? (
-        <Alert
-          color="yellow"
-          title={
-            !isAwaitingRefresh
-              ? "最新の経理追加収支情報を取得できませんでした"
-              : savedSnapshot?.kind === "unknown"
-                ? "保存できたか確認できず、最新の経理追加収支情報も取得できませんでした"
-                : "保存は完了しましたが、最新の経理追加収支情報を取得できませんでした"
-          }
-          className="mb-4"
-        >
-          <p>
-            {!isAwaitingRefresh
-              ? "表示中の内容は、保存・確定などの前に取得した古いものです。"
-              : savedSnapshot?.kind === "unknown"
-                ? "表示中の内容は保存しようとした時点のもので、実際に保存されたかは分かりません。"
-                : "表示中の内容は保存した時点のものです。"}
-            二重登録や上書きを防ぐため、最新の内容を取得できるまで編集・保存はできません。
-          </p>
-          <Button
-            type="button"
-            size="xs"
-            variant="light"
-            className="mt-2"
-            onClick={() => refetch()}
-          >
-            再読み込み
-          </Button>
-        </Alert>
+      {isStalled ? (
+        <SaveRefreshAlert
+          subject="経理追加収支情報"
+          outcome={saveOutcome}
+          isPaused={isPaused}
+          onReload={() => refetch()}
+        />
       ) : (
         isError &&
         !isFetching && (
