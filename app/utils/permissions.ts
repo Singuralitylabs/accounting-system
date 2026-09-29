@@ -1,7 +1,7 @@
 // profiles.class が取りうるロールの単一の定義（DB 上は string | null のため、判定側で文字列を受ける）。
 // ロールを追加・改名するときは、ここと、update_profiles（migration 33）が受け付ける値
 // （tests/utils/permissions.test.ts が一致を確認する）、ROLE_DISPLAY_RANK を直す。
-// USER_CLASS_LIST（app/utils/userList.ts）と表示順（app/utils/userListSort.ts）はここから導く
+// ユーザーリストの選択肢・入力チェック（userList.ts）と表示順（userListSort.ts）はここから導く
 export const ROLES = ["public", "teamleader", "accounting", "admin"] as const;
 export type Role = (typeof ROLES)[number];
 

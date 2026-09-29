@@ -18,7 +18,6 @@ import { confirmAction } from "../utils/confirmAction";
 import {
   formatUserValidationErrors,
   selectChangedUsers,
-  USER_CLASS_LIST,
   UserValidationErrors,
   validateUserUpdates,
 } from "../utils/userList";
@@ -36,7 +35,6 @@ const elementListOfUser = [
   "チーム",
   "slack ID",
 ];
-export const classList = USER_CLASS_LIST;
 
 // チーム欄の選択肢。Select は value が data に無いと空表示になるため、
 // 選択肢に無い現在値（無効化・名前変更されたチーム、選択肢の取得失敗時）も先頭に補い、

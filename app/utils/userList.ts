@@ -1,13 +1,9 @@
 import { ProfilesType } from "../types/types";
-import { isRole, ROLES, type Role } from "./permissions";
+import { isRole } from "./permissions";
 
 // 管理画面のユーザーリスト（/dashboard/users）の一括保存まわりの純粋関数。
 // Supabase アクセス（app/utils/supabase/profiles.ts）・画面（app/components/UserList.tsx）から
 // 切り離し、副作用なしでユニットテストできるようにする（docs/testing.md「2.6」）。
-
-// 権限（profiles.class）の選択肢。ロールの単一の定義（permissions.ts の ROLES）から作る。
-// update_profiles（migration 33）が受け付ける値との一致はテストで確認する
-export const USER_CLASS_LIST: readonly Role[] = ROLES;
 
 // 一括保存でサーバへ送る 1 行分（update_profiles の p_updates の要素。migration 33）
 export type ProfileUpdateInput = Pick<
@@ -61,7 +57,7 @@ export const CLASS_INVALID_MESSAGE = "権限の値が正しくありません。
 export const TEAM_REQUIRED_MESSAGE = "チームリーダーはチームが必須です。";
 
 // 保存前の入力チェック（id → 項目ごとのエラー）。エラーの無い行は含めない。
-// - 権限は必須で、選択肢（USER_CLASS_LIST）のいずれか
+// - 権限は必須で、選択肢（ROLES。permissions.ts）のいずれか
 // - teamleader はチームが必須（docs/specification.md §5.3.9）
 export const validateUserUpdates = (
   rows: ProfileUpdateInput[],
