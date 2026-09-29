@@ -4,7 +4,6 @@ import { RecurringCostInListType, RecurringCostType } from "@/app/types/types";
 import { useRecurringCostList } from "@/app/hooks/useRecurringCostData";
 import { useUpsertRecurringCost } from "@/app/hooks/useRecurringCostData";
 import {
-  Alert,
   Button,
   LoadingOverlay,
   NumberInput,
@@ -24,6 +23,8 @@ import { notifyError, notifySuccess } from "@/app/utils/notify";
 import { confirmAction } from "@/app/utils/confirmAction";
 import { PAYMENT_CYCLE_OPTIONS } from "@/app/utils/paymentCycle";
 import { CustomMonthPicker } from "../CustomMonthPicker";
+import { SaveRefreshAlert } from "../SaveRefreshAlert";
+import { useSaveRefreshLock } from "@/app/hooks/useSaveRefreshLock";
 import { useClosedMonths } from "@/app/hooks/useClosedMonths";
 import { closedMonthsInRecurringRange } from "@/app/utils/profitLossClosing";
 import { formatMonthLabel } from "@/app/utils/formatter";
@@ -59,25 +60,18 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
   // 編集中フラグ。バックグラウンド再取得（再接続時など）で
   // 保存前の編集内容が黙って破棄されるのを防ぐ
   const [isDirty, setIsDirty] = useState(false);
-  // 保存後の再取得待ち。保存に成功した（saved）か、失敗した（failed）か。
-  // - saved: 表示中の一覧（キャッシュ）は保存前のもので、保存した新規行が含まれない。
-  //   そのまま同期・編集させると、再取得に失敗した場合に保存が消えたように見え、
-  //   入力し直して二重に登録されうる（Issue #170 と同じ）
-  // - failed: 追加・更新・削除は並列に送るため、一部だけ反映されている（または応答だけ
-  //   失われて反映済みの）可能性があり、そのまま保存し直すと新規行が二重に登録されうる
-  // いずれもフックが一覧を無効化するので、再取得に成功して無効化が解けるまで同期と
-  // 編集・保存を止め、取り直した一覧（実際の状態）に同期する。
-  // awaitingRefresh は案内の文言を選ぶためだけに使う（コンポーネントの state なので
-  // 画面を離れて戻ると消える）。同期と編集を止めるかどうかは、キャッシュに残る一覧の
-  // 無効化（isInvalidated）で判定する。再取得待ちのまま画面を離れて戻った場合も、
-  // 保存前のキャッシュで上書きせず、サーバから届いた最新の initialData を表示したまま
-  // 取り直しを待つ（フックが開き直したときに取り直す）
-  const [awaitingRefresh, setAwaitingRefresh] = useState<
-    "saved" | "failed" | null
-  >(null);
-  const needsReload = isInvalidated;
-  // 再取得を試みたが取得できていない（失敗・オフラインで一時停止）
-  const reloadStalled = needsReload && !isFetching && (isError || isPaused);
+  // 保存後（保存の失敗で一部だけ反映された可能性があるときも）と、無効化された一覧を
+  // 取り直せるまでのロック。追加・更新・削除は並列に送るため、失敗時は一部だけ反映されている
+  // （または応答だけ失われて反映済みの）可能性があり、そのまま保存し直すと新規行が二重に
+  // 登録されうる。再取得に成功して無効化が解けるまで同期と編集・保存を止め、取り直した一覧
+  // （実際の状態）に同期する。再取得待ちのまま画面を離れて戻った場合も、キャッシュに残る
+  // 無効化で止まる（Issue #170, #190）
+  const {
+    locked: needsReload,
+    isStalled: reloadStalled,
+    outcome: saveOutcome,
+    markSaved,
+  } = useSaveRefreshLock({ isInvalidated, isFetching, isError, isPaused });
   const formLocked = upsertMutation.isPending || needsReload;
 
   // 保存後の再取得などでサーバ状態が変わったらローカル編集状態をリセットする
@@ -87,13 +81,6 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
       setRows(toListRows(recurringCostList));
     }
   }, [recurringCostList, isDirty, needsReload]);
-
-  // 再取得に成功して無効化が解けたら、保存後の再取得待ちを終える
-  useEffect(() => {
-    if (awaitingRefresh && !isInvalidated && !isFetching) {
-      setAwaitingRefresh(null);
-    }
-  }, [awaitingRefresh, isInvalidated, isFetching]);
 
   const handleUpdateRow = (
     id: number,
@@ -163,12 +150,12 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
       await upsertMutation.mutateAsync(rows);
       // 保存後の再取得（フックの onSuccess で無効化済み）が届くまで、保存前のキャッシュで
       // 画面を上書きせず、保存した内容を表示したまま編集・保存を止める
-      setAwaitingRefresh("saved");
+      markSaved("saved");
       setIsDirty(false);
       notifySuccess("定期費用情報を更新しました。");
     } catch (error) {
       console.error("定期費用情報の保存に失敗しました。", error);
-      setAwaitingRefresh("failed");
+      markSaved("unknown");
       setIsDirty(false);
       notifyError(
         "定期費用情報の更新に失敗しました。一部のみ反映されている可能性があるため、最新の内容を取得して表示します。反映されていない変更は入力し直してください。",
@@ -184,36 +171,13 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
         visible={upsertMutation.isPending || (needsReload && isFetching)}
       />
       {reloadStalled && (
-        <Alert
-          color="yellow"
-          title={
-            awaitingRefresh === "saved"
-              ? "保存は完了しましたが、最新の定期費用情報を取得できませんでした"
-              : awaitingRefresh === "failed"
-                ? "保存結果を確認できず、最新の定期費用情報も取得できませんでした"
-                : "最新の定期費用情報を取得できませんでした"
-          }
-          className="mb-4"
-        >
-          <p>
-            {awaitingRefresh === "saved"
-              ? "表示中の内容は保存した時点のものです。"
-              : awaitingRefresh === "failed"
-                ? "表示中の内容は保存しようとした時点のもので、実際にどこまで反映されたかは分かりません。"
-                : "表示中の内容は最新でない可能性があります。"}
-            二重登録を防ぐため、最新の内容を取得できるまで編集・保存はできません。
-            {isPaused && "通信が回復すると自動で取得します。"}
-          </p>
-          <Button
-            type="button"
-            size="xs"
-            variant="light"
-            className="mt-2"
-            onClick={() => refetch()}
-          >
-            再読み込み
-          </Button>
-        </Alert>
+        <SaveRefreshAlert
+          subject="定期費用情報"
+          outcome={saveOutcome}
+          partialPossible
+          isPaused={isPaused}
+          onReload={() => refetch()}
+        />
       )}
       <div className="flex justify-between items-center mb-4 gap-4">
         <p className="text-sm text-gray-600">

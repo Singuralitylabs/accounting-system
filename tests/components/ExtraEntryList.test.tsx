@@ -458,6 +458,22 @@ describe(
       );
     });
 
+    it("無効化された一覧は、再取得中も取り直せるまで編集・保存を止める（定期費用と同じロック条件。Issue #190）", () => {
+      extraEntryListOverrides.value = { isInvalidated: true, isFetching: true };
+      renderList([entry({ id: 2, description: "9月協賛" })]);
+
+      expect(screen.getByRole("button", { name: "保存" })).toHaveProperty(
+        "disabled",
+        true,
+      );
+      expect(screen.getByRole("button", { name: "収入を追加" })).toHaveProperty(
+        "disabled",
+        true,
+      );
+      // 再取得中は取得失敗の案内を出さない
+      expect(screen.queryByText("再読み込み")).toBeNull();
+    });
+
     it("通信の失敗などで保存できたか分からないときは、一覧を取り直すまで編集・保存を止める（押し直しによる二重登録を防ぐ）", async () => {
       // 実際のフックは、保存できたか分からない失敗（通信エラー）のとき一覧を無効化する
       mutateAsync.mockImplementationOnce(async () => {
