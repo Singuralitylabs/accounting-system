@@ -60,6 +60,8 @@ npm install
 
 Supabase CLI は `package.json` の devDependencies にバージョン固定している。グローバルインストールは不要で、手順 2 の `yarn install` を実行すれば同じバージョンが入る。CLI を直接叩く場合は `yarn supabase <サブコマンド>` を使うこと（以降のコマンド例の `supabase ...` も同様に読み替える）。
 
+ただし、`--db-url` に接続文字列を渡すとき（本番 DB を直接指定する場合など）は `yarn` 経由にしないこと。yarn v1 は実行するコマンド行をそのまま表示するため、URL に含めたパスワードがターミナルや CI のログに出る。`npx supabase ...` か `./node_modules/.bin/supabase ...` を使い、パスワードは URL に入れず環境変数 `PGPASSWORD` で渡す（手順は `docs/release.md` の「読み取り専用ロール」。Issue #195）。
+
 ```bash
 yarn supabase --version
 ```

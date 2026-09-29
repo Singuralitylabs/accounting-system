@@ -388,68 +388,56 @@ jobs:
       - name: 本番DBの migration list を取得
         id: migration-list
         env:
+          # 接続文字列（パスワードを含めない）とパスワードは別の Secret にする（Issue #195）
           SUPABASE_READONLY_DB_URL: ${{ secrets.SUPABASE_READONLY_DB_URL }}
+          SUPABASE_READONLY_DB_PASSWORD: ${{ secrets.SUPABASE_READONLY_DB_PASSWORD }}
         run: |
           set -euo pipefail
-          # 接続文字列をログに出さない。set -x / -v は使わない。
-          # 手元確認の案内は supabase link 済みのプロジェクト向け（--db-url を付けて yarn 経由で実行すると、
-          # yarn v1 がコマンド行ごと接続文字列を表示するため、npx で案内する。Issue #195）
+          # 接続情報をログに出さない。set -x / -v は使わない。
+          # 手元確認の案内は supabase link 済みのプロジェクト向け（--db-url にパスワード入りの URL を渡して
+          # yarn 経由で実行すると、yarn v1 がコマンド行ごと表示するため、npx で案内する。Issue #195）
           MANUAL_CHECK="手元で \`npx supabase migration list\`（\`supabase link\` 済みの本番プロジェクト）を実行して確認してください。"
-          if [ -z "${SUPABASE_READONLY_DB_URL:-}" ]; then
+          fallback() {
             {
               echo "body<<MIGRATION_LIST_EOF"
-              echo "自動確認できませんでした（Secret 未設定）。${MANUAL_CHECK}"
+              echo "自動確認できませんでした（$1）。${MANUAL_CHECK}"
               echo "MIGRATION_LIST_EOF"
               echo "confirmed=false"
             } >> "$GITHUB_OUTPUT"
+          }
+          if [ -z "${SUPABASE_READONLY_DB_URL:-}" ] || [ -z "${SUPABASE_READONLY_DB_PASSWORD:-}" ]; then
+            fallback "Secret 未設定"
             exit 0
           fi
 
-          # パスワードを取り出す。path / query に @ があってもずれないよう、先に authority（:// から最初の / か ? まで）
-          # だけを切り出してから user:password@host に分解する。@ の無い URL はパスワードなしとして扱う。
-          DB_AUTHORITY="${SUPABASE_READONLY_DB_URL#*://}"
-          DB_AUTHORITY="${DB_AUTHORITY%%[/?]*}"
-          DB_PASSWORD=""
-          case "$DB_AUTHORITY" in
-            *@*)
-              DB_USERINFO="${DB_AUTHORITY%@*}"
-              case "$DB_USERINFO" in
-                *:*) DB_PASSWORD="${DB_USERINFO#*:}" ;;
+          # パスワードはコマンドライン（argv）に載せず、PGPASSWORD（環境変数）で CLI に渡す。argv に載ると、
+          # yarn などのラッパーが表示するコマンド行が OUTPUT 経由で PR 本文に出る（Issue #195）。
+          # そのため URL にパスワードが含まれている（旧形式の Secret）場合は実行しない。
+          # 判定: :// の後に @ があり、最初の @ より前（ユーザー部分）が空でなく : を含まないこと
+          # （パスワードにエンコードされていない / や ? があっても、最初の @ で区切るため取りこぼさない）。
+          DB_URL_OK=false
+          case "$SUPABASE_READONLY_DB_URL" in
+            *://*@*)
+              DB_URL_USER="${SUPABASE_READONLY_DB_URL#*://}"
+              DB_URL_USER="${DB_URL_USER%%@*}"
+              case "$DB_URL_USER" in
+                '' | *:*) ;;
+                *) DB_URL_OK=true ;;
               esac
               ;;
           esac
-          # パーセントエンコードされている場合、CLI がデコード後の値を出すことに備えて両方を対象にする
-          DB_PASSWORD_DECODED="$DB_PASSWORD"
-          case "$DB_PASSWORD" in
-            *%*) DB_PASSWORD_DECODED=$(printf '%b' "${DB_PASSWORD//%/\\x}") ;;
-          esac
-          # 伏せ字処理をすり抜けた値が後続ステップの env 表示などでジョブログに出ないよう、マスク対象に登録する
-          # （Actions の自動マスクは Secret 全体と完全一致した箇所にしか効かない）
-          for secret_part in "$DB_PASSWORD" "$DB_PASSWORD_DECODED"; do
-            if [ -n "$secret_part" ]; then
-              echo "::add-mask::${secret_part}"
-            fi
-          done
+          if [ "$DB_URL_OK" != "true" ]; then
+            fallback "Secret SUPABASE_READONLY_DB_URL の形式が不正。パスワードを含めない postgresql://<ユーザー>@<ホスト>:5432/postgres の形で登録し、パスワードは SUPABASE_READONLY_DB_PASSWORD に分ける。docs/release.md 参照"
+            exit 0
+          fi
 
           # Session Pooler の接続文字列を使うこと（直接接続は IPv6 のみで到達できない場合がある）。
-          # yarn 経由で実行しない。yarn v1 は実行するコマンド行（展開後の --db-url の値＝パスワード入り）を
-          # 出力し、OUTPUT 経由で PR 本文に載ってしまう（Actions の secret マスクはログにしか効かない。Issue #195）。
-          if OUTPUT=$(./node_modules/.bin/supabase migration list --db-url "$SUPABASE_READONLY_DB_URL" 2>&1); then
-            # 念のため、パスワード単体と URL 形式（scheme://...@）の両方を伏せる
-            for secret_part in "$DB_PASSWORD" "$DB_PASSWORD_DECODED"; do
-              if [ -n "$secret_part" ]; then
-                OUTPUT="${OUTPUT//"$secret_part"/<redacted>}"
-              fi
-            done
-            OUTPUT=$(printf '%s\n' "$OUTPUT" | sed -E 's#(postgres(ql)?://)[^[:space:]]*@#\1<redacted>@#g')
-            # 伏せ字処理の後にパスワードが残っていたら PR を作らずに失敗させる（フェイルクローズ）。
-            # 後続の本文チェックは Secret を参照できず URL 形式しか検出できないため、ここで確認する
-            for secret_part in "$DB_PASSWORD" "$DB_PASSWORD_DECODED"; do
-              if [ -n "$secret_part" ] && [[ "$OUTPUT" == *"$secret_part"* ]]; then
-                echo "::error::migration list の出力にパスワードが残っているため中断します（Issue #195）。"
-                exit 1
-              fi
-            done
+          if OUTPUT=$(PGPASSWORD="$SUPABASE_READONLY_DB_PASSWORD" ./node_modules/.bin/supabase migration list --db-url "$SUPABASE_READONLY_DB_URL" 2>&1); then
+            # 念のため、出力にパスワードが含まれていたら PR を作らずに失敗させる（フェイルクローズ）
+            if [[ "$OUTPUT" == *"$SUPABASE_READONLY_DB_PASSWORD"* ]]; then
+              echo "::error::migration list の出力にパスワードが含まれているため中断します（Issue #195）。"
+              exit 1
+            fi
             {
               echo "body<<MIGRATION_LIST_EOF"
               echo '```'
@@ -459,12 +447,7 @@ jobs:
               echo "confirmed=true"
             } >> "$GITHUB_OUTPUT"
           else
-            {
-              echo "body<<MIGRATION_LIST_EOF"
-              echo "自動確認できませんでした（DB Pause 等の可能性あり）。${MANUAL_CHECK}"
-              echo "MIGRATION_LIST_EOF"
-              echo "confirmed=false"
-            } >> "$GITHUB_OUTPUT"
+            fallback "DB Pause 等の可能性あり"
           fi
 
       # 既存の main→release オープン PR の有無は validate-input で先に確認済み
@@ -583,12 +566,14 @@ jobs:
           fi
           BODY=$(printf '%s\n' "$TEMPLATE" | envsubst "$BODY_VARS")
 
-          # 認証情報付きの接続文字列（scheme://user:password@host）が本文に残っていたら PR を作らずに失敗させる
+          # 認証情報（userinfo）付きの URL が本文に含まれていたら PR を作らずに失敗させる
           # （公開リポジトリの PR 本文は編集履歴にも残るため、フェイルクローズにする。Issue #195）。
-          # 伏せ字（<redacted>）は通す。一致した内容はログにも出さない。
-          # パイプにしない（pipefail 下で grep -q が先に終わると printf が SIGPIPE になり、一致しても偽になる）。
-          if grep -qiE '[a-z][a-z0-9+.-]*://[^[:space:]/@<>]+:[^[:space:]/@<>]+@' <<<"$BODY"; then
-            echo "::error::PR 本文に認証情報付きの接続文字列が含まれているため、PR を作成せずに中断します（Issue #195）。"
+          # - scheme://<userinfo>@ : user が空（://:pw@）やトークンだけ（https://ghp_xxx@）の形も対象
+          # - postgres(ql)://...@  : パスワードにエンコードされていない / などがあっても取りこぼさない
+          # 一致した内容はログに出さない。パイプにしない（pipefail 下で grep -q が先に終わると
+          # printf が SIGPIPE になり、一致しても偽になる）。
+          if grep -qiE '[a-z][a-z0-9+.-]*://[^[:space:]/?#@]+@|postgres(ql)?://[^[:space:]]*@' <<<"$BODY"; then
+            echo "::error::PR 本文に認証情報付きの URL が含まれているため、PR を作成せずに中断します（Issue #195）。"
             exit 1
           fi
 
