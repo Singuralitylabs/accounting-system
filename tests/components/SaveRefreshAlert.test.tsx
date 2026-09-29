@@ -36,4 +36,23 @@ describe("SaveRefreshAlert", () => {
     fireEvent.click(screen.getByRole("button", { name: "再読み込み" }));
     expect(onReload).toHaveBeenCalledTimes(1);
   });
+
+  it("保存できたか分からないとき、一部反映の可能性がある画面だけ「どこまで反映されたか」と案内する", () => {
+    const render = (partialPossible: boolean) =>
+      renderWithMantine(
+        <SaveRefreshAlert
+          subject="一覧"
+          outcome="unknown"
+          partialPossible={partialPossible}
+          isPaused={false}
+          onReload={() => {}}
+        />,
+      );
+    const first = render(false);
+    expect(screen.queryByText(/どこまで反映されたか/)).toBeNull();
+    expect(screen.getByText(/実際に保存されたかは分かりません/)).toBeTruthy();
+    first.unmount();
+    render(true);
+    expect(screen.getByText(/どこまで反映されたか/)).toBeTruthy();
+  });
 });

@@ -6,6 +6,10 @@ type Props = {
   subject: string;
   // 保存後の再取得待ちの保存結果。保存と無関係の無効化なら null
   outcome: SaveOutcome | null;
+  // 保存が複数の書き込みを別々に送り、一部だけ反映されている可能性があるか
+  // （定期費用: 追加・更新・削除を並列に送る）。1 トランザクションで保存する画面
+  // （経理追加収支）は false にし、「どこまで反映されたか」とは案内しない
+  partialPossible?: boolean;
   isPaused: boolean;
   onReload: () => void;
 };
@@ -15,6 +19,7 @@ type Props = {
 export const SaveRefreshAlert = ({
   subject,
   outcome,
+  partialPossible = false,
   isPaused,
   onReload,
 }: Props) => (
@@ -33,7 +38,9 @@ export const SaveRefreshAlert = ({
       {outcome === "saved"
         ? "表示中の内容は保存した時点のものです。"
         : outcome === "unknown"
-          ? "表示中の内容は保存しようとした時点のもので、実際に保存されたか（どこまで反映されたか）は分かりません。"
+          ? partialPossible
+            ? "表示中の内容は保存しようとした時点のもので、実際に保存されたか（どこまで反映されたか）は分かりません。"
+            : "表示中の内容は保存しようとした時点のもので、実際に保存されたかは分かりません。"
           : "表示中の内容は、保存・確定などの前に取得した古いものです。"}
       二重登録や上書きを防ぐため、最新の内容を取得できるまで編集・保存はできません。
       {isPaused && "通信が回復すると自動で取得します。"}

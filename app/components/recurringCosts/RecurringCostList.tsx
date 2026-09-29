@@ -174,6 +174,7 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
         <SaveRefreshAlert
           subject="定期費用情報"
           outcome={saveOutcome}
+          partialPossible
           isPaused={isPaused}
           onReload={() => refetch()}
         />

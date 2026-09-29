@@ -1,5 +1,6 @@
 import { useCallback, useSyncExternalStore } from "react";
 import {
+  hashKey,
   QueryKey,
   useQuery,
   useQueryClient,
@@ -13,9 +14,15 @@ import {
 // queryCache を購読して変化のたびに再描画する（Issue #189）
 export const useIsQueryInvalidated = (queryKey: QueryKey): boolean => {
   const queryClient = useQueryClient();
+  // queryKey は毎レンダー新しい配列なので、ハッシュ文字列を依存にする。対象のクエリの
+  // イベントだけ通し、他のクエリのイベントで getSnapshot を走らせない
+  const hash = hashKey(queryKey);
   const subscribe = useCallback(
-    (onChange: () => void) => queryClient.getQueryCache().subscribe(onChange),
-    [queryClient],
+    (onChange: () => void) =>
+      queryClient.getQueryCache().subscribe((event) => {
+        if (event.query.queryHash === hash) onChange();
+      }),
+    [queryClient, hash],
   );
   return useSyncExternalStore(
     subscribe,
