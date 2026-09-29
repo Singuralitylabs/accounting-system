@@ -32,22 +32,26 @@ GitHub の **Settings > Environments** で以下を設定する。
 
 ### 読み取り専用ロール（`migration_reader`）
 
-`SUPABASE_READONLY_DB_URL` 用のロールはマイグレーションでは作らず、本番の SQL Editor で手動作成する。権限は `migration list` に必要な履歴テーブルの参照だけに絞る（接続文字列が漏れても業務データを読めないようにする）。
+`SUPABASE_READONLY_DB_URL` 用のロールはマイグレーションでは作らず、本番で手動作成する。権限は `migration list` に必要な履歴テーブルの参照だけに絞る（接続文字列が漏れても業務データを読めないようにする）。
 
-```sql
-CREATE ROLE migration_reader LOGIN PASSWORD '<openssl rand -hex 32 の値>';
-GRANT USAGE ON SCHEMA supabase_migrations TO migration_reader;
-GRANT SELECT ON supabase_migrations.schema_migrations TO migration_reader;
-```
+1. 本番の SQL Editor で、パスワードなしでロールを作り権限を付ける。
 
-- 接続文字列は `postgresql://migration_reader.<project-ref>:<パスワード>@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres`（Session pooler）。パスワードは英数字だけ（`openssl rand -hex 32`）にし、URL エンコードやシェル展開の問題を避ける。
+   ```sql
+   CREATE ROLE migration_reader LOGIN;
+   GRANT USAGE ON SCHEMA supabase_migrations TO migration_reader;
+   GRANT SELECT ON supabase_migrations.schema_migrations TO migration_reader;
+   ```
+
+2. パスワードは SQL Editor に平文で書かず、手元の `psql`（`postgres` ロールで本番に接続）から `\password migration_reader` で設定する。`\password` はクライアント側で SCRAM-SHA-256 のハッシュにしてから送るため、平文が SQL Editor の履歴や Postgres のログに残らない。パスワードは `openssl rand -hex 32` で作る。
+
+- 接続文字列は、ダッシュボードの **Connect > Session pooler** に表示される文字列をコピーし、ユーザー部分を `migration_reader.<project-ref>`、パスワード部分を上記の値に置き換えて作る（pooler のホスト名は `aws-0-...` / `aws-1-...` などプロジェクトによって異なるため、手で組み立てない）。パスワードは英数字だけ（`openssl rand -hex 32`）にし、URL エンコードやシェル展開の問題を避ける。
 - 業務テーブルが読める権限（`pg_read_all_data` への所属、`BYPASSRLS` など）を付けないこと。付与状況は `pg_roles` / `pg_auth_members` / `information_schema.role_table_grants` で確認できる。
 - 手元で `--db-url` を渡すときは `yarn supabase ...` を使わない（yarn v1 がコマンド行を URL ごと表示する）。`npx supabase ...` か `./node_modules/.bin/supabase ...` を使い、URL は `read -rs` で環境変数に読み込んでシェル履歴に残さない。
 
 #### パスワードのローテーション（漏洩時・定期）
 
 1. `openssl rand -hex 32` で新しいパスワードを作る。
-2. 本番の SQL Editor で `ALTER ROLE migration_reader WITH PASSWORD '<新しいパスワード>';` を実行し、`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = 'migration_reader';` で既存の接続を切る。
+2. 手元の `psql`（`postgres` ロールで本番に接続）から `\password migration_reader` で新しいパスワードを設定する（SQL Editor で `ALTER ROLE ... PASSWORD '<平文>'` を実行しない。平文が SQL Editor の履歴や Postgres のログに残り得るため。やむを得ず実行した場合は、実行後に SQL Editor の該当クエリ・スニペットを削除する）。続けて `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = 'migration_reader';` で既存の接続を切る。
 3. **Settings > Environments > `production-db-readonly`** の `SUPABASE_READONLY_DB_URL` を更新する。
 4. 手元で新しい URL の `migration list` が通り、古い URL が `password authentication failed` になることを確認する。Session pooler（Supavisor）がロールの認証情報をキャッシュするため、**変更直後は新しいパスワードが拒否され、古いパスワードが通ることがある**。数分おいてから確認し直す。
 5. 漏洩時は、Supabase の **Logs > Postgres** で `migration_reader` の接続元を確認する（GitHub Actions のランナーと手元以外が無いこと）。漏洩元が PR 本文などの場合は、本文から削除し、「edited」の履歴からも該当リビジョンを削除する（履歴は公開されたまま残るため、ローテーションは省略しない）。
@@ -122,7 +126,7 @@ Vercel の本番デプロイ後に動作確認し、問題がなければ `creat
   - `HTTP 200`（「Required reviewers が設定されていません」）: Environment はあるが承認者が未設定。メッセージに設定済みの保護ルール（`wait_timer` など）が出る。Required reviewers を設定して再実行する。
   - それ以外の HTTP ステータス（5xx など）や「HTTP 応答なし」: GitHub 側の一時的な障害やネットワーク障害の可能性がある。時間をおいて再実行する。
 - `create-release.yml` の手動実行が「マージ済みのリリース PR のマージコミットではありません」「指定バージョン X.Y.Z のリリース PR ではありません」で失敗する: リリース PR のマージ前に実行したか、`version` が違う。リリース PR をマージしてから、正しい `version` で実行する（上記「手動実行はマージ後の再実行専用」を参照）。
-- `migration list` が「自動確認できませんでした」になる: Secret 未設定または DB Pause。手元で `yarn supabase migration list` を実行して確認する（リリース自体はブロックされない）。
+- `migration list` が「自動確認できませんでした」になる: Secret 未設定または DB Pause。手元で `npx supabase migration list`（本番プロジェクトに link 済みの状態で実行）を実行して確認する（リリース自体はブロックされない）。`--db-url` を渡す場合も `yarn supabase ...` は使わない（上記「読み取り専用ロール」参照）。
   - ローテーション直後の場合は、Session pooler のキャッシュで一時的に認証に失敗していることがある。数分おいて再実行する。
 - `release-pr.yml` が「PR 本文に認証情報付きの接続文字列が含まれている」で失敗する: `migration list` の出力などに接続文字列が混入している（PR は作成されない）。ワークフローの伏せ字処理を確認し、修正してから再実行する（Issue #195）。
 - タグ重複で失敗する: バージョン番号を変える。部分失敗後の再実行で同名タグが同一 SHA を指している場合は正常系として続行される。
