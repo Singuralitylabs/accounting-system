@@ -15,7 +15,6 @@ import { createServerSupabase } from "@/app/utils/supabase/clients";
 import {
   collectLabelTargetIds,
   fetchReportSourceRows,
-  supplementAdjustmentTargets,
 } from "@/app/utils/supabase/profitLossSource";
 import type { ReportSourceRows } from "@/app/utils/supabase/profitLossSource";
 import { fetchClosedMonthKeys } from "@/app/utils/supabase/closedMonthsQuery";
@@ -110,80 +109,84 @@ describe("fetchAllByIds（ID 指定の取得の分割・ページング）", () 
   });
 });
 
-describe("supplementAdjustmentTargets の teamleader スキップ（Issue #142）", () => {
-  const rowsWithOrphan = (): ReportSourceRows => ({
-    businessRows: [],
-    costRows: [],
-    recurringCosts: [],
-    extraEntries: [],
-    adjustments: [
-      {
-        id: 1,
-        target_month: "2026-07-01",
-        business_id: 99,
-        cost_id: null,
-        recurring_cost_id: null,
-        adjustment_amount: 1000,
-        source_amount_snapshot: 0,
-        reason: "理由",
-        adjusted_by: 1,
-        inserted_at: "2026-07-01T00:00:00+09:00",
-        updated_at: "2026-07-01T00:00:00+09:00",
-      },
-    ],
-    labels: [],
-    closings: new Map(),
-  });
+describe("調整対象行の補完取得のスキップ条件（Issue #142）", () => {
+  const period = { startMonth: "2026-07", endMonth: "2026-07" };
 
-  const emptyPageQuery = () => {
-    const query: Record<string, unknown> = {};
-    query.select = vi.fn(() => query);
-    query.in = vi.fn(() => query);
-    query.gt = vi.fn(() => query);
-    query.order = vi.fn(() => query);
-    query.limit = vi.fn(() => Promise.resolve({ data: [], error: null }));
-    return query;
+  // 期間外（8 月）へ移動した売上 99 を対象とする 7 月の調整（対象行が期間内に無い）
+  const tablesWithOrphan = (): Record<string, FakeRow[]> => ({
+    business: [
+      {
+        ...businessRow(99, 30),
+        matters: { ...matterOf(30), start_date: "2026-08-05" },
+      } as unknown as FakeRow,
+    ],
+    costs: [],
+    recurring_costs: [],
+    extra_entries: [],
+    profit_loss_adjustments: [
+      {
+        ...adjustmentRow(1, { business_id: 99 }),
+        target_month: "2026-07-01",
+      } as FakeRow,
+    ],
+    profit_loss_closings: [],
+    profit_loss_closing_lines: [],
+    profit_loss_closing_dismissals: [],
+    profit_loss_labels: [],
+  });
+  const julyOnly = {
+    business: (row: FakeRow) =>
+      (row as unknown as BusinessRow).matters.start_date?.startsWith(
+        "2026-07",
+      ) ?? false,
   };
+  const supplementQueries = (calls: QueryCall[]) =>
+    calls.filter(
+      (call) =>
+        call.table === "business" &&
+        call.method === "in" &&
+        call.args[0] === "id",
+    );
 
   it("includeTeamBreakdown が false なら補完クエリを発行しない", async () => {
-    vi.mocked(createServerSupabase).mockReset();
-    const rows = rowsWithOrphan();
+    const { calls } = fakeSupabase(tablesWithOrphan(), julyOnly);
 
-    await supplementAdjustmentTargets("2026-07", rows, {
-      includeTeamBreakdown: false,
-      includeMonthlyDetails: true,
+    const rows = await fetchReportSourceRows(period, {
+      supplement: {
+        month: "2026-07",
+        includeTeamBreakdown: false,
+        includeMonthlyDetails: true,
+      },
     });
 
-    expect(createServerSupabase).not.toHaveBeenCalled();
-    expect(rows.businessRows).toEqual([]);
+    expect(supplementQueries(calls)).toEqual([]);
+    expect(rows?.businessRows).toEqual([]);
   });
 
   it("年間推移（includeMonthlyDetails が false）なら補完クエリを発行しない", async () => {
-    vi.mocked(createServerSupabase).mockReset();
-    const rows = rowsWithOrphan();
+    const { calls } = fakeSupabase(tablesWithOrphan(), julyOnly);
 
-    await supplementAdjustmentTargets("2026-07", rows, {
-      includeTeamBreakdown: true,
-      includeMonthlyDetails: false,
+    const rows = await fetchReportSourceRows(period, {
+      supplement: {
+        month: "2026-07",
+        includeTeamBreakdown: true,
+        includeMonthlyDetails: false,
+      },
     });
 
-    expect(createServerSupabase).not.toHaveBeenCalled();
-    expect(rows.businessRows).toEqual([]);
+    expect(supplementQueries(calls)).toEqual([]);
+    expect(rows?.businessRows).toEqual([]);
   });
 
   it("月次表示（両方 true。省略時含む）なら欠けている対象行を補完取得する", async () => {
-    vi.mocked(createServerSupabase).mockReset();
-    vi.mocked(createServerSupabase).mockReturnValue({
-      from: vi.fn(() => emptyPageQuery()),
-    } as unknown as ReturnType<typeof createServerSupabase>);
-    const rows = rowsWithOrphan();
+    const { calls } = fakeSupabase(tablesWithOrphan(), julyOnly);
 
-    await supplementAdjustmentTargets("2026-07", rows, {
-      includeTeamBreakdown: true,
-      includeMonthlyDetails: true,
+    const rows = await fetchReportSourceRows(period, {
+      supplement: { month: "2026-07" },
     });
 
-    expect(createServerSupabase).toHaveBeenCalled();
+    expect(supplementQueries(calls)).toHaveLength(1);
+    expect(rows?.businessRows.map((row) => row.id)).toEqual([99]);
   });
 });
 
@@ -495,49 +498,67 @@ describe("fetchReportSourceRows の表示タイトルの取得（Issue #172）",
   });
 });
 
-describe("supplementAdjustmentTargets の表示タイトルの追加取得（Issue #172）", () => {
-  const rowsWith = (labels: ProfitLossLabelType[]): ReportSourceRows => ({
-    businessRows: [businessRow(1, 10)],
-    costRows: [],
-    recurringCosts: [],
-    extraEntries: [],
-    adjustments: [adjustmentRow(1, { business_id: 7 })],
-    labels,
-    closings: new Map(),
+describe("調整対象行の補完取得の表示タイトルの追加取得（Issue #172）", () => {
+  const period = { startMonth: "2026-08", endMonth: "2026-08" };
+  const augustOnly = {
+    business: (row: FakeRow) =>
+      (row as unknown as BusinessRow).matters.start_date?.startsWith(
+        "2026-08",
+      ) ?? false,
+  };
+  // 8 月の売上 1（案件 10）と、9 月へ移動した売上 7（案件 movedMatterId）を対象とする調整
+  const tables = (
+    movedMatterId: number,
+    labels: ProfitLossLabelType[],
+  ): Record<string, FakeRow[]> => ({
+    business: [
+      businessRow(1, 10) as unknown as FakeRow,
+      {
+        ...businessRow(7, movedMatterId),
+        matters: { ...matterOf(movedMatterId), start_date: "2026-09-05" },
+      } as unknown as FakeRow,
+    ],
+    costs: [],
+    recurring_costs: [],
+    extra_entries: [],
+    profit_loss_adjustments: [adjustmentRow(1, { business_id: 7 })],
+    profit_loss_closings: [],
+    profit_loss_closing_lines: [],
+    profit_loss_closing_dismissals: [],
+    profit_loss_labels: labels as unknown as FakeRow[],
   });
 
   it("補完した行の案件のうち、まだ問い合わせていない案件の表示タイトルだけを追加で取得する", async () => {
-    const { labelInCalls } = fakeSupabase({
-      // 期間外へ移動した売上 7（案件 30）
-      business: [businessRow(7, 30)],
-      costs: [],
-      recurring_costs: [],
-      profit_loss_labels: [
+    const { labelInCalls } = fakeSupabase(
+      tables(30, [
         labelRow(1, { matter_id: 30 }),
         labelRow(2, { matter_id: 99 }),
-      ],
+        labelRow(5, { business_id: 7 }),
+      ]),
+      augustOnly,
+    );
+    const rows = await fetchReportSourceRows(period, {
+      supplement: { month: "2026-08" },
     });
-    const rows = rowsWith([labelRow(5, { business_id: 7 })]);
-    await supplementAdjustmentTargets("2026-08", rows);
-    expect(rows.businessRows.map((row) => row.id)).toEqual([1, 7]);
-    expect(labelInCalls().map((call) => call.args)).toEqual([
-      ["matter_id", [30]],
-    ]);
-    expect(rows.labels.map((label) => label.id)).toEqual([5, 1]);
+    expect(rows?.businessRows.map((row) => row.id)).toEqual([1, 7]);
+    expect(labelInCalls().at(-1)?.args).toEqual(["matter_id", [30]]);
+    expect(sorted(rows!.labels.map((label) => label.id))).toEqual([1, 5]);
   });
 
-  it("補完した行の案件が取得済みの案件なら表示タイトルを問い合わせない", async () => {
-    const { labelInCalls } = fakeSupabase({
-      business: [businessRow(7, 10)],
-      costs: [],
-      recurring_costs: [],
-      profit_loss_labels: [labelRow(1, { matter_id: 10 })],
+  it("補完した行の案件が取得済みの案件なら表示タイトルを追加で問い合わせない", async () => {
+    const { labelInCalls } = fakeSupabase(
+      tables(10, [labelRow(1, { matter_id: 10 })]),
+      augustOnly,
+    );
+    const rows = await fetchReportSourceRows(period, {
+      supplement: { month: "2026-08" },
     });
-    const rows = rowsWith([]);
-    await supplementAdjustmentTargets("2026-08", rows);
-    expect(rows.businessRows.map((row) => row.id)).toEqual([1, 7]);
-    expect(labelInCalls()).toEqual([]);
-    expect(rows.labels).toEqual([]);
+    expect(rows?.businessRows.map((row) => row.id)).toEqual([1, 7]);
+    // 最初の取得（案件 10・売上 1・7）だけ。追加の案件の取得は無い
+    expect(
+      labelInCalls().filter((call) => call.args[0] === "matter_id"),
+    ).toHaveLength(1);
+    expect(rows?.labels.map((label) => label.id)).toEqual([1]);
   });
 });
 
@@ -644,12 +665,11 @@ describe("表示タイトルを絞って取得しても損益計算書の表示�
       },
     );
 
-    const rows = await fetchReportSourceRows({
-      startMonth: month,
-      endMonth: month,
-    });
+    const rows = await fetchReportSourceRows(
+      { startMonth: month, endMonth: month },
+      { supplement: { month } },
+    );
     expect(rows).not.toBeNull();
-    await supplementAdjustmentTargets(month, rows!);
     // 補完行（売上 8）の案件 31 のタイトルは補完時に追加で取得している
     expect(labelInCalls().at(-1)?.args).toEqual(["matter_id", [31]]);
     // 表示に関係しない表示タイトルは取得していない
@@ -699,5 +719,133 @@ describe("表示タイトルを絞って取得しても損益計算書の表示�
     expect(scoped.orphanedAdjustments?.map((o) => o.label)).toEqual([
       "タイトル5 - タイトル9",
     ]);
+  });
+});
+
+describe("fetchReportSourceRows の調整対象行の補完取得（supplement。Issue #193）", () => {
+  const period = { startMonth: "2026-08", endMonth: "2026-08" };
+  const supplement = { month: "2026-08" };
+
+  // 期間外（9 月）へ移動した売上 7（案件 30）を対象とする調整
+  const movedBusiness = (): FakeRow =>
+    ({
+      ...businessRow(7, 30),
+      matters: { ...matterOf(30), start_date: "2026-09-05" },
+    }) as unknown as FakeRow;
+
+  const tablesWithMovedBusiness = (): Record<string, FakeRow[]> => ({
+    business: [businessRow(1, 10) as unknown as FakeRow, movedBusiness()],
+    costs: [],
+    recurring_costs: [],
+    extra_entries: [],
+    profit_loss_adjustments: [adjustmentRow(1, { business_id: 7 })],
+    profit_loss_closings: [],
+    profit_loss_closing_lines: [],
+    profit_loss_closing_dismissals: [],
+    profit_loss_labels: [
+      labelRow(1, { matter_id: 10 }),
+      labelRow(2, { business_id: 7 }),
+      labelRow(3, { matter_id: 30 }),
+      labelRow(99, { matter_id: 99 }),
+    ],
+  });
+
+  const periodFilters = {
+    business: (row: FakeRow) =>
+      (row as unknown as BusinessRow).matters.start_date?.startsWith(
+        "2026-08",
+      ) ?? false,
+  };
+
+  it("補完行と、その案件の表示タイトルを取得して rows に加える", async () => {
+    const { labelInCalls } = fakeSupabase(
+      tablesWithMovedBusiness(),
+      periodFilters,
+    );
+    const rows = await fetchReportSourceRows(period, { supplement });
+
+    expect(rows?.businessRows.map((row) => row.id)).toEqual([1, 7]);
+    // 案件 30 の表示タイトルだけを追加で取得する（最初の取得は案件 10・売上 1・7）
+    expect(labelInCalls().at(-1)?.args).toEqual(["matter_id", [30]]);
+    expect(sorted(rows!.labels.map((label) => label.id))).toEqual([1, 2, 3]);
+  });
+
+  // ライブ行の表示タイトルの取得と補完行の取得は並列に行う（直列だと往復が 1 つ増える）。
+  // 表示タイトルの取得を「補完行の取得が始まるまで完了しない」ようにして確かめる
+  // （直列の実装なら補完行の取得が始まらないため、タイムアウトで失敗する）
+  it("表示タイトルの取得と補完行の取得を並列に行う", async () => {
+    const fake = fakeSupabase(tablesWithMovedBusiness(), periodFilters);
+    let markSupplementStarted!: () => void;
+    const supplementStarted = new Promise<void>((resolve) => {
+      markSupplementStarted = resolve;
+    });
+    fake.from.mockImplementation((table: string) => {
+      const query = fake.buildQuery(table);
+      if (table === "business") {
+        const original = query.in as (...args: unknown[]) => unknown;
+        query.in = (...args: unknown[]) => {
+          if (args[0] === "id" && (args[1] as number[]).includes(7)) {
+            markSupplementStarted();
+          }
+          return original(...args);
+        };
+      }
+      if (table === "profit_loss_labels") {
+        const original = query.limit as (...args: unknown[]) => Promise<unknown>;
+        query.limit = (...args: unknown[]) =>
+          supplementStarted.then(() => original(...args));
+      }
+      return query;
+    });
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<"timeout">((resolve) => {
+      timer = setTimeout(() => resolve("timeout"), 1000);
+    });
+    const result = await Promise.race([
+      fetchReportSourceRows(period, { supplement }),
+      timeout,
+    ]).finally(() => clearTimeout(timer));
+
+    expect(result).not.toBe("timeout");
+    expect((result as ReportSourceRows).businessRows.map((r) => r.id)).toEqual([
+      1, 7,
+    ]);
+  });
+
+  it("補完が不要なら補完行を取得しない（欠けている対象行が無い）", async () => {
+    const tables = tablesWithMovedBusiness();
+    tables.profit_loss_adjustments = [adjustmentRow(1, { business_id: 1 })];
+    const { calls } = fakeSupabase(tables, periodFilters);
+
+    const rows = await fetchReportSourceRows(period, { supplement });
+
+    expect(rows?.businessRows.map((row) => row.id)).toEqual([1]);
+    expect(
+      calls.filter(
+        (call) =>
+          call.table === "business" &&
+          call.method === "in" &&
+          call.args[0] === "id",
+      ),
+    ).toEqual([]);
+  });
+
+  it("teamleader（チーム別内訳なし）は補完行を取得しない", async () => {
+    const { calls } = fakeSupabase(tablesWithMovedBusiness(), periodFilters);
+
+    const rows = await fetchReportSourceRows(period, {
+      supplement: { ...supplement, includeTeamBreakdown: false },
+    });
+
+    expect(rows?.businessRows.map((row) => row.id)).toEqual([1]);
+    expect(
+      calls.filter(
+        (call) =>
+          call.table === "business" &&
+          call.method === "in" &&
+          call.args[0] === "id",
+      ),
+    ).toEqual([]);
   });
 });

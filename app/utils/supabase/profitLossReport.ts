@@ -12,7 +12,6 @@ import { buildMonthReport } from "../profitLossClosing";
 import {
   fetchDiffMoveContext,
   fetchReportSourceRows,
-  supplementAdjustmentTargets,
 } from "./profitLossSource";
 import { annotateDiffMoves } from "../profitLossDiff";
 import { getAuthorizedViewer } from "./viewerAccess";
@@ -35,18 +34,22 @@ export const getProfitLossReport = async (
     return null;
   }
 
-  const rows = await fetchReportSourceRows({
-    startMonth: month,
-    endMonth: month,
-  });
+  // 調整対象行の補完取得（対象行が期間外へ移動した調整）は、表示タイトルの取得と並列に行う
+  // （往復を減らす。Issue #193）
+  const flags = reportFlags(profileInfo.class);
+  const rows = await fetchReportSourceRows(
+    { startMonth: month, endMonth: month },
+    {
+      supplement: {
+        month,
+        includeTeamBreakdown: flags.includeTeamBreakdown,
+        includeMonthlyDetails: true,
+      },
+    },
+  );
   if (!rows) {
     return null;
   }
-  const flags = reportFlags(profileInfo.class);
-  await supplementAdjustmentTargets(month, rows, {
-    includeTeamBreakdown: flags.includeTeamBreakdown,
-    includeMonthlyDetails: true,
-  });
 
   // 確定済みの月は確定明細から、未確定の月はライブ集計から組み立てる（Issue #148）
   const report = buildMonthReport({
