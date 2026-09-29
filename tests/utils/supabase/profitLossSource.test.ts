@@ -37,7 +37,7 @@ import type {
 
 describe("fetchAllPages（PostgREST の max_rows 打ち切り対策）", () => {
   it("1 ページが PAGE_SIZE 件なら直前の最大 id の次から取得し、全件をつなげる", async () => {
-    // id は飛び番（削除済みの行がある）
+    // Ids skip (deleted rows exist).
     const all = Array.from({ length: PAGE_SIZE + 5 }, (_, i) => ({
       id: i * 2 + 1,
     }));
@@ -112,7 +112,6 @@ describe("fetchAllByIds（ID 指定の取得の分割・ページング）", () 
 describe("調整対象行の補完取得のスキップ条件（Issue #142）", () => {
   const period = { startMonth: "2026-07", endMonth: "2026-07" };
 
-  // 期間外（8 月）へ移動した売上 99 を対象とする 7 月の調整（対象行が期間内に無い）
   const tablesWithOrphan = (): Record<string, FakeRow[]> => ({
     business: [
       {
@@ -189,8 +188,6 @@ describe("調整対象行の補完取得のスキップ条件（Issue #142）", 
     expect(rows?.businessRows.map((row) => row.id)).toEqual([99]);
   });
 });
-
-// ===== 表示タイトルの取得範囲（Issue #172） =====
 
 const matterOf = (id: number) => ({
   id,
@@ -282,12 +279,11 @@ const labelRow = (
   updated_at: "",
 });
 
-// テーブルごとの行を持つ簡易的な Supabase クライアントのモック。
-// .in / .gt("id") は実際の PostgREST と同じく行を絞り、呼び出しを記録する
+// Simple Supabase mock holding rows per table. .in / .gt("id") filter rows like real PostgREST and record calls.
 type QueryCall = { table: string; method: string; args: unknown[] };
 type FakeRow = { id: number } & Record<string, unknown>;
-// periodFilters: 期間で絞る取得（.or() を使う business / costs 等の取得）に掛ける行の条件
-// （PostgREST 側の期間の絞り込みの代わり。ID 指定の補完取得には掛からない）
+// periodFilters: row conditions applied to period-scoped fetches (business / costs etc. using .or()),
+// standing in for PostgREST's period filter. Not applied to ID-based supplement fetches.
 const fakeSupabase = (
   tables: Record<string, FakeRow[]>,
   periodFilters: Record<string, (row: FakeRow) => boolean> = {},
@@ -327,7 +323,7 @@ const fakeSupabase = (
       calls.push({ table, method: "limit", args: [limit] });
       return Promise.resolve({ data: rows.slice(0, limit), error: null });
     };
-    // 確定ヘッダの取得は limit を付けずに await する
+    // The closing header fetch is awaited without limit.
     query.then = (
       resolve: (value: unknown) => unknown,
       reject: (reason: unknown) => unknown,
@@ -351,11 +347,9 @@ const sourceTables = (): Record<string, FakeRow[]> => ({
   costs: [costRow(2, 10)],
   recurring_costs: [recurringRow(3)],
   extra_entries: [],
-  // 対象行が取得期間外へ移動した調整（対象の売上 7 は当月の行に無い）
   profit_loss_adjustments: [adjustmentRow(1, { business_id: 7 })],
   profit_loss_closings: [{ id: 1, target_month: "2026-08-01" }],
   profit_loss_closing_lines: [
-    // 確定後に削除された売上明細（案件 20 ごと削除）
     { id: 1, closing_id: 1, ...closingLine("business", 50, 20) },
     { id: 2, closing_id: 1, ...closingLine("recurring_cost", 60, null) },
     { id: 3, closing_id: 1, ...closingLine("extra_entry", 70, null) },
@@ -370,7 +364,6 @@ const sourceTables = (): Record<string, FakeRow[]> => ({
     labelRow(6, { matter_id: 20 }),
     labelRow(7, { business_id: 50 }),
     labelRow(8, { recurring_cost_id: 60 }),
-    // 表示期間の明細に対応しない表示タイトル（取得しない）
     labelRow(90, { matter_id: 99 }),
     labelRow(91, { business_id: 99 }),
     labelRow(92, { cost_id: 99 }),
@@ -418,7 +411,6 @@ describe("collectLabelTargetIds（表示タイトルの取得対象。Issue #172
     expect(sorted(ids.matterIds)).toEqual([10, 11, 20, 21]);
     expect(sorted(ids.businessIds)).toEqual([1, 4, 7, 50]);
     expect(sorted(ids.costIds)).toEqual([2, 8, 51]);
-    // 経理追加収支（extra_entry）は表示タイトルの対象外
     expect(sorted(ids.recurringCostIds)).toEqual([3, 9, 60]);
   });
 });
@@ -433,7 +425,6 @@ describe("fetchReportSourceRows の表示タイトルの取得（Issue #172）",
     expect(sorted(rows!.labels.map((label) => label.id))).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8,
     ]);
-    // 表示タイトルの問い合わせはすべて対象 ID の in 付き（絞り込みの無い全件取得をしない）
     const labelSelects = calls.filter(
       (call) => call.table === "profit_loss_labels" && call.method === "select",
     );
@@ -460,7 +451,6 @@ describe("fetchReportSourceRows の表示タイトルの取得（Issue #172）",
     );
     const { labelInCalls } = fakeSupabase(tables);
     await fetchReportSourceRows(month);
-    // 売上 201 件（調整の対象 7・確定明細の 50 はこの中に含まれる）
     expect(
       labelInCalls()
         .filter((call) => call.args[0] === "business_id")
@@ -506,7 +496,6 @@ describe("調整対象行の補完取得の表示タイトルの追加取得（I
         "2026-08",
       ) ?? false,
   };
-  // 8 月の売上 1（案件 10）と、9 月へ移動した売上 7（案件 movedMatterId）を対象とする調整
   const tables = (
     movedMatterId: number,
     labels: ProfitLossLabelType[],
@@ -554,7 +543,6 @@ describe("調整対象行の補完取得の表示タイトルの追加取得（I
       supplement: { month: "2026-08" },
     });
     expect(rows?.businessRows.map((row) => row.id)).toEqual([1, 7]);
-    // 最初の取得（案件 10・売上 1・7）だけ。追加の案件の取得は無い
     expect(
       labelInCalls().filter((call) => call.args[0] === "matter_id"),
     ).toHaveLength(1);
@@ -587,14 +575,12 @@ describe("fetchClosedMonthKeys の開始月の絞り込み（Issue #172）", () 
 
 describe("表示タイトルを絞って取得しても損益計算書の表示は変わらない（Issue #172 の受け入れ基準）", () => {
   const month = "2026-08";
-  // 案件開始日を変えた（他月へ移動した）行
   const inSeptember = <T extends BusinessRow | CostRow>(row: T): T => ({
     ...row,
     matters: { ...row.matters, start_date: "2026-09-10" },
   });
 
   it("確定済みの月（削除・他月への移動・追加の差分、対象行が期間外へ移動した調整の補完行を含む）で、全件取得した場合とレポート全体が一致する", async () => {
-    // 確定時点の行: 売上 1・7・50、費用 2、定期費用 3・60（いずれも 8 月に計上）
     const closedLines = monthLinesToClosingRows(
       buildLiveMonthLines({
         month,
@@ -609,8 +595,6 @@ describe("表示タイトルを絞って取得しても損益計算書の表示�
         adjustments: [],
       }),
     );
-    // 現在の行: 売上 7 は 9 月へ移動（確定明細から「削除」）、売上 50・案件 20・定期費用 60 は
-    // 削除済み、売上 3（案件 11）は確定後に追加、売上 8（案件 31）は調整を付けた後に 9 月へ移動
     const businessTable = [
       businessRow(1, 10),
       businessRow(3, 11),
@@ -631,7 +615,6 @@ describe("表示タイトルを絞って取得しても損益計算書の表示�
       labelRow(11, { cost_id: 2 }),
       labelRow(12, { recurring_cost_id: 3 }),
       labelRow(13, { recurring_cost_id: 60 }),
-      // 表示に関係しない表示タイトル
       labelRow(90, { matter_id: 99 }),
       labelRow(91, { business_id: 99 }),
       labelRow(92, { cost_id: 99 }),
@@ -657,7 +640,6 @@ describe("表示タイトルを絞って取得しても損益計算書の表示�
         profit_loss_labels: allLabels,
       },
       {
-        // 8 月（案件開始日）の行だけを期間の取得で返す
         business: (row) =>
           (row as unknown as BusinessRow).matters.start_date?.startsWith(
             month,
@@ -670,9 +652,7 @@ describe("表示タイトルを絞って取得しても損益計算書の表示�
       { supplement: { month } },
     );
     expect(rows).not.toBeNull();
-    // 補完行（売上 8）の案件 31 のタイトルは補完時に追加で取得している
     expect(labelInCalls().at(-1)?.args).toEqual(["matter_id", [31]]);
-    // 表示に関係しない表示タイトルは取得していない
     expect(sorted(rows!.labels.map((label) => label.id))).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
     ]);
@@ -690,7 +670,7 @@ describe("表示タイトルを絞って取得しても損益計算書の表示�
     const full = build(allLabels);
     expect(scoped).toEqual(full);
 
-    // 表示タイトルが実際に使われる箇所を含んでいること（比較が空振りしていないこと）
+    // Ensure the data includes places where display titles are used (the comparison must not be vacuous).
     const matter10 = scoped.matterBreakdowns.find((m) => m.matterId === 10)!;
     expect(matter10.displayTitle).toBe("タイトル1");
     expect(matter10.businesses[0].displayTitle).toBe("タイトル6");
@@ -712,7 +692,6 @@ describe("表示タイトルを絞って取得しても損益計算書の表示�
         ["business:3", "added", "タイトル2", "タイトル7"],
         ["business:50", "removed", "タイトル3", "タイトル10"],
         ["business:7", "removed", "タイトル4", "タイトル8"],
-        // 確定明細は調整なしで作ったため、費用 2 の調整が「金額変更」の差分になる
         ["cost:2", "changed", "タイトル1", "タイトル11"],
       ].sort(),
     );
@@ -726,7 +705,6 @@ describe("fetchReportSourceRows の調整対象行の補完取得（supplement�
   const period = { startMonth: "2026-08", endMonth: "2026-08" };
   const supplement = { month: "2026-08" };
 
-  // 期間外（9 月）へ移動した売上 7（案件 30）を対象とする調整
   const movedBusiness = (): FakeRow =>
     ({
       ...businessRow(7, 30),
@@ -765,14 +743,13 @@ describe("fetchReportSourceRows の調整対象行の補完取得（supplement�
     const rows = await fetchReportSourceRows(period, { supplement });
 
     expect(rows?.businessRows.map((row) => row.id)).toEqual([1, 7]);
-    // 案件 30 の表示タイトルだけを追加で取得する（最初の取得は案件 10・売上 1・7）
     expect(labelInCalls().at(-1)?.args).toEqual(["matter_id", [30]]);
     expect(sorted(rows!.labels.map((label) => label.id))).toEqual([1, 2, 3]);
   });
 
-  // ライブ行の表示タイトルの取得と補完行の取得は並列に行う（直列だと往復が 1 つ増える）。
-  // 表示タイトルの取得を「補完行の取得が始まるまで完了しない」ようにして確かめる
-  // （直列の実装なら補完行の取得が始まらないため、タイムアウトで失敗する）
+  // Live-row display titles and supplement rows are fetched in parallel (serial adds a round trip). The title
+  // fetch does not resolve until the supplement fetch starts (a serial implementation never starts it,
+  // so this times out).
   it("表示タイトルの取得と補完行の取得を並列に行う", async () => {
     const fake = fakeSupabase(tablesWithMovedBusiness(), periodFilters);
     let markSupplementStarted!: () => void;

@@ -29,9 +29,9 @@ import { useUpsertRecurringCost } from "@/app/hooks/useRecurringCostData";
 import { QueryProvider } from "@/app/components/providers/QueryProvider";
 import { useQueryClient } from "@tanstack/react-query";
 
-// 新規行の INSERT を含む一括保存は非冪等なため、mutationFn が再実行されると二重登録になる
-// （Issue #169）。QueryProvider の既定は retry: 0 だが、既定が変わってもフック側の指定で
-// 再実行されないことを固定するため、あえて retry: 1 の QueryClient で確かめる
+// Bulk saves containing new-row INSERTs are non-idempotent: re-running mutationFn would double-insert.
+// QueryProvider defaults to retry: 0, but use retry: 1 so the hook-level setting is what prevents
+// re-execution if the default changes.
 describe("非冪等な一括保存のミューテーションは失敗しても再実行しない", () => {
   let queryClient: QueryClient;
 
@@ -41,12 +41,12 @@ describe("非冪等な一括保存のミューテーションは失敗しても�
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // フックの onError は console.error でログする。テスト出力を汚さない
+    // The hook's onError logs via console.error; silence it to keep test output clean.
     vi.spyOn(console, "error").mockImplementation(() => {});
     queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
-        // QueryProvider と同じ retry: 1。再実行されたらすぐ分かるよう待ち時間は 0 にする
+        // retry: 1 (unlike QueryProvider's default of 0) so a re-run would be visible; zero wait keeps it immediate.
         mutations: { retry: 1, retryDelay: 0 },
       },
     });

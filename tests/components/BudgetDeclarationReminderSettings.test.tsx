@@ -22,18 +22,16 @@ vi.mock("@/app/utils/supabase/budgetDeclarationReminderSettings", () => ({
   updateBudgetDeclarationReminderTargetDays,
 }));
 
-// 「リマインド設定」ボタンを押してモーダルを開く（Mantine の入場トランジションで
-// 1 tick 遅れてマウントされるため、ダイアログが現れるまで待つ）
+// Open the modal; Mantine's enter transition mounts it one tick late, so wait for the dialog.
 const openModal = async () => {
   fireEvent.click(screen.getByRole("button", { name: "リマインド設定" }));
   await screen.findByRole("dialog");
 };
 
-// モーダルが閉じきる（Mantine の退場トランジション後にアンマウントされる）まで待つ
+// Wait for unmount after Mantine's exit transition.
 const waitForModalClosed = () =>
   waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
-// モーダルのオーバーレイ（背景）をクリックする
 const clickOverlay = () => {
   const overlay = document.querySelector(".mantine-Modal-overlay");
   if (!overlay) throw new Error("モーダルのオーバーレイが見つかりません");
@@ -41,8 +39,8 @@ const clickOverlay = () => {
   fireEvent.click(overlay);
 };
 
-// 閉じる操作が受け付けられていれば退場トランジション（既定 200ms）後に
-// アンマウントされるため、それより長く待ってからモーダルが残っていることを確認する
+// If the close was accepted, unmount happens after the exit transition (default 200ms);
+// wait longer than that before asserting the modal remains.
 const waitLongerThanTransition = () =>
   new Promise((resolve) => setTimeout(resolve, 400));
 
@@ -70,7 +68,6 @@ describe("BudgetDeclarationReminderSettings", () => {
       <BudgetDeclarationReminderSettings initialTargetDays={null} />,
     );
 
-    // 取得失敗時は状態が不明なので「リマインド無効」バッジは出さない
     expect(screen.queryByText("リマインド無効")).not.toBeInTheDocument();
 
     await openModal();
@@ -140,7 +137,6 @@ describe("BudgetDeclarationReminderSettings", () => {
     expect(
       screen.getByText("保存するとリマインドが無効になります"),
     ).toBeInTheDocument();
-    // 未保存のためバッジも出さない
     expect(screen.queryByText("リマインド無効")).not.toBeInTheDocument();
   });
 
@@ -203,13 +199,11 @@ describe("BudgetDeclarationReminderSettings", () => {
       expect.stringContaining("リマインドが停止します"),
     );
     expect(notifySuccess).toHaveBeenCalled();
-    // 保存成功後は「現在」の状態が更新され、ボタン横のバッジに反映される
     await waitFor(() =>
       expect(screen.getByText("リマインド無効")).toBeInTheDocument(),
     );
     await waitForModalClosed();
 
-    // 再度開くと「現在」の無効警告に切り替わっている
     await openModal();
     expect(screen.getByText("現在リマインドは無効です")).toBeInTheDocument();
   });
@@ -234,7 +228,6 @@ describe("BudgetDeclarationReminderSettings", () => {
     expect(notifySuccess).toHaveBeenCalled();
     await waitForModalClosed();
 
-    // 再度開くと保存した値で初期化されている
     await openModal();
     expect(screen.getByRole("checkbox", { name: "18" })).toBeChecked();
   });
@@ -328,7 +321,6 @@ describe("BudgetDeclarationReminderSettings", () => {
     fireEvent.click(saveButton);
     expect(confirmAction).toHaveBeenCalledTimes(1);
 
-    // 確認をキャンセルすると再び押せるようになる
     resolveConfirm(false);
     await waitFor(() => expect(saveButton).not.toBeDisabled());
     expect(updateBudgetDeclarationReminderTargetDays).not.toHaveBeenCalled();
@@ -362,14 +354,12 @@ describe("BudgetDeclarationReminderSettings", () => {
     await waitLongerThanTransition();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
 
-    // 確認をキャンセルすると閉じる手段が元に戻る
     resolveConfirm(false);
     await waitFor(() => expect(cancelButton).not.toBeDisabled());
     expect(screen.getByRole("button", { name: "閉じる" })).toBeInTheDocument();
   });
 
   it("確認ダイアログを Esc で閉じても設定モーダルは開いたまま（未保存の選択も保持）", async () => {
-    // 実際の confirmAction（@mantine/modals の確認ダイアログ）を使う
     const actual = await vi.importActual<
       typeof import("@/app/utils/confirmAction")
     >("@/app/utils/confirmAction");
@@ -386,7 +376,7 @@ describe("BudgetDeclarationReminderSettings", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     const message = await screen.findByText(/未申告リマインドが停止します/);
-    // Mantine 7.13 は開いている Modal すべてが window で Esc を拾う
+    // Mantine 7.13: every open Modal listens for Esc on window.
     fireEvent.keyDown(message, { key: "Escape" });
 
     await waitFor(() =>
@@ -439,7 +429,6 @@ describe("BudgetDeclarationReminderSettings", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "18" })).toBeChecked();
 
-    // 保存が完了すると閉じる
     resolveUpdate({});
     await waitFor(() => expect(notifySuccess).toHaveBeenCalled());
     await waitForModalClosed();

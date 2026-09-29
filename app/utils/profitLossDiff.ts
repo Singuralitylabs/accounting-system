@@ -1,8 +1,7 @@
-// 損益計算書の確定後の変更検知・反映・見送り（Issue #149）の純粋関数。
-// 確定明細（profit_loss_closing_lines）と当月のライブ集計の明細を
-// (source_type, source_id) で突き合わせて差分を算出する。DB トリガーや変更フラグは使わない。
-// 対象は案件の売上・費用の明細のみ（定期費用マスタの変更は確定済みの月に反映せず
-// アラートも出さない。損益調整・経理追加収支は確定中はロックされ変更できない）。
+// Detects post-closing changes by matching closing lines against live lines on
+// (source_type, source_id); no DB triggers or change flags. Only matter sales/cost lines are
+// covered (recurring cost changes never reach closed months; adjustments and extra entries are
+// locked while closed).
 
 import {
   ClosingDiff,
@@ -35,10 +34,9 @@ export const parseDiffKey = (key: string): ClosingDiffKey | null => {
   return { sourceType, sourceId };
 };
 
-// 金額は numeric(15,2)。浮動小数の誤差で差分を誤検知しないよう銭単位で比較する
+// numeric(15,2): compare in sen units to avoid false diffs from float error.
 const toCents = (value: number) => Math.round(value * 100);
 
-// 比較・表示用に正規化した明細（ライブ・確定の共通形）
 type ComparableLine = DiffLineState & {
   sourceType: DiffSourceType;
   sourceId: number;
@@ -91,7 +89,6 @@ const closedComparableLines = (rows: ClosingLineInput[]): ComparableLine[] =>
       category: row.category ?? "",
     }));
 
-// 見送り記録と比較するライブの状態
 export type LiveDiffState = {
   present: boolean;
   actualAmount: number | null;
@@ -125,7 +122,6 @@ const sameLiveState = (
       dismissal.live_category === state.category
     : true);
 
-// 当月のライブの明細から、指定キーのライブの状態を求める（見送りの保存に使う）
 export const liveDiffStates = (
   liveLines: PLMonthLines,
   keys: ClosingDiffKey[],
@@ -143,8 +139,8 @@ export const liveDiffStates = (
 };
 
 export type DiffClosingLinesInput = {
-  liveLines: PLMonthLines; // 当月のライブの明細（buildLiveMonthLines の結果）
-  closedLines: ClosingLineInput[]; // 当月の確定明細
+  liveLines: PLMonthLines;
+  closedLines: ClosingLineInput[];
   dismissals: Pick<
     ProfitLossClosingDismissalType,
     | "source_type"
@@ -159,14 +155,10 @@ export type DiffClosingLinesInput = {
   labelIndex?: LabelIndex;
 };
 
-// 確定明細とライブの明細の差分を算出する。
-// - 追加: ライブにのみある（確定後に経理申請された / 明細が追加された / 他月から移ってきた）
-// - 削除: 確定明細にのみある（案件・明細の削除 / 下書きに戻された / 他月へ移った）
-// - 変更: 両方にあり、実績額（金額変更・調整の消滅）または分類・チーム（区分変更）が異なる
-// 名称だけの変更は差分にしない（名称は常に最新を表示するため）。
-// 見送り記録があり、見送った時点のライブの状態が現在と一致するものは見送り済みに、
-// 一致しない（見送り後にさらに変更された）ものは未処理に分ける。差分でなくなった
-// （元データが確定値に戻った）明細の見送り記録は無視する
+// added: live only; removed: closing only; changed: actual amount or category/team differs
+// (name-only changes are not diffs because names always show the latest).
+// A skip record whose live state still matches is "skipped"; if it changed again it is pending.
+// Skip records for lines that are no longer diffs are ignored.
 export const diffClosingLines = ({
   liveLines,
   closedLines,
@@ -211,7 +203,7 @@ export const diffClosingLines = ({
       !!before &&
       (after.team !== before.team || after.category !== before.category);
     if (after && before && !amountChanged && !classificationChanged) {
-      return; // 差分なし（名称だけの変更を含む）
+      return;
     }
     const matterTitle =
       labelIndex.matter.get(base.matterId) ?? base.matterTitle;
@@ -275,10 +267,9 @@ export const diffClosingLines = ({
   return { pending: pending.sort(order), dismissed: dismissed.sort(order) };
 };
 
-// 追加・削除の差分に、他の月との移動（案件開始日の変更）・削除の理由を付ける。
-// liveLocations: 削除の差分のキー → 現在のライブの行の所在（行が無ければ削除済み）
-// otherClosedMonths: 追加の差分のキー → その明細を確定明細に持つ他の確定済みの月
-// closedMonths: 確定済みの月の集合（移動先・移動元が確定済みかの判定）
+// Attaches move/deletion reasons to added/removed diffs.
+// liveLocations: removed key -> where the live row is now (none = deleted);
+// otherClosedMonths: added key -> other closed months holding that line.
 export const annotateDiffMoves = (
   result: ClosingDiffResult,
   context: {
@@ -324,9 +315,8 @@ export const annotateDiffMoves = (
   };
 };
 
-// 選択した差分を反映した場合の影響額（確定値 → 反映後）。
-// 売上明細の差は売上、費用明細の差は案件費用へ。管理費は変わらないため
-// 経常利益の差は粗利の差と同じ
+// Applying diffs: sales diffs go to sales, cost diffs to matter cost. Admin cost is unchanged, so
+// ordinary profit delta equals the gross profit delta.
 export type DiffImpact = {
   revenue: { before: number; after: number };
   matterCost: { before: number; after: number };
@@ -368,9 +358,8 @@ export const computeDiffImpact = (
   };
 };
 
-// 選択した差分を反映するための確定明細の変更内容。
-// ライブにある明細（追加・変更）は最新の値で upsert、無い明細（削除）は delete する。
-// 値は必ずサーバ側でライブ集計し直した liveLines から作る（クライアントの値は使わない）
+// Live lines are upserted, missing ones deleted. Values must come from server-recomputed
+// liveLines, never from the client.
 export const buildApplyPayload = (
   liveLines: PLMonthLines,
   keys: ClosingDiffKey[],
@@ -399,7 +388,6 @@ export const buildApplyPayload = (
   };
 };
 
-// 差分の種類の表示名
 export const diffKindLabel = (diff: ClosingDiff): string => {
   if (diff.kind === "added") return "追加";
   if (diff.kind === "removed") return "削除";
@@ -410,7 +398,7 @@ export const diffKindLabel = (diff: ClosingDiff): string => {
   return labels.join("・");
 };
 
-// Server Action に渡された差分キーの検証（重複除去）。不正な値が 1 つでもあれば null
+// Deduplicates; null if any value is invalid.
 export const sanitizeDiffKeys = (keys: unknown): ClosingDiffKey[] | null => {
   if (!Array.isArray(keys) || keys.length === 0 || keys.length > 5000) {
     return null;
@@ -432,7 +420,6 @@ export const sanitizeDiffKeys = (keys: unknown): ClosingDiffKey[] | null => {
   return Array.from(result.values());
 };
 
-// 差分一覧で選んだ明細の、画面に表示していた最新の状態（反映・見送りの Server Action に渡す）
 export const toDiffSelection = (diff: ClosingDiff): ClosingDiffSelection => ({
   sourceType: diff.sourceType,
   sourceId: diff.sourceId,
@@ -446,13 +433,13 @@ export const toDiffSelection = (diff: ClosingDiff): ClosingDiffSelection => ({
     : { present: false, actualAmount: null, team: null, category: null },
 });
 
-// Server Action に渡された選択（キー＋画面で見ていた状態）の検証。不正な値があれば null
+// Null if any selection is invalid (duplicates included).
 export const sanitizeDiffSelections = (
   selections: unknown,
 ): ClosingDiffSelection[] | null => {
   if (!Array.isArray(selections)) return null;
   const keys = sanitizeDiffKeys(selections);
-  if (!keys || keys.length !== selections.length) return null; // 重複も不正とする
+  if (!keys || keys.length !== selections.length) return null;
   const result: ClosingDiffSelection[] = [];
   for (let index = 0; index < selections.length; index++) {
     const expected = (selections[index] as ClosingDiffSelection | null)
@@ -476,8 +463,8 @@ export const sanitizeDiffSelections = (
   return result;
 };
 
-// 画面で見ていた状態と、サーバで集計し直した現在の状態が食い違う選択（表示後に
-// さらに変更された明細）を返す。1 件でもあれば反映・見送りを拒否し、再読み込みを促す
+// Returns selections whose displayed state differs from the server's current state (changed after
+// display). Any hit makes apply/skip reject and ask for a reload.
 export const findStaleSelections = (
   liveLines: PLMonthLines,
   selections: ClosingDiffSelection[],
@@ -499,16 +486,13 @@ export const findStaleSelections = (
     .map(({ sourceType, sourceId }) => ({ sourceType, sourceId }));
 };
 
-// 確定後の変更の件数集計（ページ上部のバナー・月ピッカー・年間推移のアイコン。
-// getClosingDiffSummary）の対象とする月数（当月を含む直近 24 ヶ月）。
-// 件数集計は対象の確定済みの月のライブの行・確定明細・見送り記録をすべて取得して
-// 差分を計算するため、確定済みの月すべてを対象にすると運用期間に比例して取得量が増え続ける
-// （Issue #172）。24 ヶ月は前年度（7月〜翌6月）の全月を常に含む長さ（決算・申告の
-// 期間中も前年度の変更を見落とさない）。対象外の月も、月次タブでその月を表示すれば
-// 差分一覧は従来どおり表示される（月次レポートは表示月の差分を常に計算する）
+// Months covered by the closing-diff count summary (current month plus the previous 23).
+// The summary fetches live rows, closing lines and skip records for every covered month, so
+// covering all closed months would grow unbounded. 24 months always includes the whole previous
+// fiscal year (July - June), so filing/settlement periods do not miss its changes. Months outside
+// still show their diff list in the monthly tab (monthly report always computes it).
 export const CLOSING_DIFF_SUMMARY_MONTHS = 24;
 
-// 件数集計の対象の開始月（当月の 23 ヶ月前）。これより後の確定済みの月（当月より後の
-// 月を確定していればそれも）を対象にする
+// Start month of the summary (23 months before the current month). Closed months after it count.
 export const closingDiffSummaryStartMonth = (currentMonth: string): string =>
   addMonths(currentMonth, -(CLOSING_DIFF_SUMMARY_MONTHS - 1));

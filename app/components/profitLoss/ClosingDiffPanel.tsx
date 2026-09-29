@@ -50,7 +50,6 @@ const toKey = (diff: ClosingDiff): ClosingDiffKey => ({
   sourceId: diff.sourceId,
 });
 
-// 差分の補足（他の月との移動・削除の理由）
 const diffNote = (diff: ClosingDiff): string | null => {
   if (diff.kind === "added" && diff.movedMonth) {
     return `${formatMonthLabel(diff.movedMonth)}から移動`;
@@ -77,7 +76,6 @@ const diffNote = (diff: ClosingDiff): string | null => {
 const stateText = (state: ClosingDiff["before"]) =>
   state ? formatCurrency(state.actualAmount) : "-";
 
-// 影響額（確定値 → 反映後）の表示
 const ImpactGrid = ({ impact }: { impact: DiffImpact }) => {
   const items = [
     { label: "売上", value: impact.revenue },
@@ -114,8 +112,7 @@ const impactText = (impact: DiffImpact) =>
     `経常利益: ${formatCurrency(impact.ordinaryProfit.before)} → ${formatCurrency(impact.ordinaryProfit.after)}`,
   ].join("\n");
 
-// 確定後の案件の変更（差分）の一覧と、明細単位の反映・見送り（Issue #149）。
-// 経理担当者・管理者のみ表示する（report.closingDiffs はそのロールにのみ入る）
+// Only shown to accounting/admin (report.closingDiffs is populated for them only).
 const ClosingDiffPanel = ({ report, loadingMatterId, onShowMatter }: Props) => {
   const diffs = report.closingDiffs;
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -131,7 +128,6 @@ const ClosingDiffPanel = ({ report, loadingMatterId, onShowMatter }: Props) => {
     dismissMutation.isPending ||
     undoMutation.isPending;
 
-  // 再取得で差分が変わったら、無くなった差分の選択を外す
   useEffect(() => {
     const pendingKeys = new Set(diffs?.pending.map((diff) => diff.key));
     const dismissedKeys = new Set(diffs?.dismissed.map((diff) => diff.key));
@@ -155,8 +151,7 @@ const ClosingDiffPanel = ({ report, loadingMatterId, onShowMatter }: Props) => {
   );
   const hasMoveWarning = (list: ClosingDiff[]) =>
     list.some((diff) => diff.movedMonthClosed);
-  // 他の月との移動の情報を取得できなかった場合は、片方の月だけ反映して両月の合計が
-  // ずれることを警告できないため、反映を止めて再読み込みを促す（見送りは確定値を変えない）
+  // Without move info, applying one month would silently unbalance both months' totals, so block applying and prompt a reload (dismissing does not change closing values).
   const moveInfoUnavailable = !!diffs.moveInfoUnavailable;
 
   const handleApply = async (targets: ClosingDiff[]) => {

@@ -2,8 +2,7 @@ import { getSelectOptions } from "@/app/utils/supabase/selectOptions";
 import { Title } from "@mantine/core";
 import SelectOptionList from "../SelectOptionList";
 
-// 項目管理で扱う選択肢の種類（表示順）と、取得失敗時のメッセージに使う名称
-// （名称は SelectOptionList のカードの見出しと揃える）
+// Option kinds (display order) and names for fetch-failure messages (match the SelectOptionList card headings).
 const OPTION_CLASSES = [
   { optionClass: "team", label: "チーム" },
   { optionClass: "category", label: "分類" },
@@ -13,13 +12,12 @@ const OPTION_CLASSES = [
   { optionClass: "payment_method", label: "決済方法" },
 ] as const;
 
-// 管理画面の項目管理（/dashboard/options）
 const DynamicDashboardOptions = async () => {
-  // 6 種の選択肢（React.cache で 1 クエリにまとまる）を並列に取得する
+  // The six kinds are fetched in parallel (collapsed into one query by React.cache).
   const results = await Promise.all(
     OPTION_CLASSES.map(({ optionClass }) => getSelectOptions(optionClass)),
   );
-  // 選択肢の取得に失敗しても画面全体はエラーにせず、該当するカードの中にエラーを表示する
+  // A failed fetch shows an error inside its card instead of failing the whole page.
   OPTION_CLASSES.forEach(({ label }, index) => {
     const { error } = results[index];
     if (error) {

@@ -39,15 +39,15 @@ describe("SelectOptionList", () => {
     confirmAction.mockResolvedValue(true);
   });
 
-  // 同じページのユーザーリストはサーバ取得の選択肢を props で受け取るため、
-  // 保存後に Server Component を再描画しないと新しいチームが候補に出ない
+  // The sibling user list receives server-fetched options via props, so the Server Component
+  // must re-render after save for new teams to appear.
   it("保存に成功したらページを refresh して最新の選択肢を反映する", async () => {
     bulkUpsertSelectOptions.mockResolvedValue({ insertedIds: [] });
     renderWithMantine(
       <SelectOptionList optionClass="team" optionList={optionList} />,
     );
 
-    // 未保存の変更が無い間は「更新」を押せないため、項目名を編集してから押す
+    // Update stays disabled until something changes; edit the name first.
     editOption();
     fireEvent.click(screen.getByRole("button", { name: "更新" }));
 
@@ -65,7 +65,7 @@ describe("SelectOptionList", () => {
       <SelectOptionList optionClass="team" optionList={optionList} />,
     );
 
-    // 未保存の変更が無い間は「更新」を押せないため、項目名を編集してから押す
+    // Update stays disabled until something changes; edit the name first.
     editOption();
     fireEvent.click(screen.getByRole("button", { name: "更新" }));
 
@@ -79,7 +79,7 @@ describe("SelectOptionList", () => {
       <SelectOptionList optionClass="team" optionList={optionList} />,
     );
 
-    // 未保存の変更が無い間は「更新」を押せないため、項目名を編集してから押す
+    // Update stays disabled until something changes; edit the name first.
     editOption();
     fireEvent.click(screen.getByRole("button", { name: "更新" }));
 
@@ -137,7 +137,6 @@ describe("SelectOptionList", () => {
       renderCards(teamOptions, categoryOptions),
     );
 
-    // 2 枚のカードを編集し、分類（B）だけを保存する
     fireEvent.change(screen.getByDisplayValue("チームA"), {
       target: { value: "チームA2" },
     });
@@ -150,7 +149,7 @@ describe("SelectOptionList", () => {
     fireEvent.click(categorySaveButton);
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
 
-    // B の refresh の応答（チームは保存前の内容の新しい配列）が、チームの編集中に届く
+    // B's refresh response (stale team array) arrives while the team is being edited.
     rerender(
       renderCards(
         [{ id: 1, value: "チームA", display_order: 1, is_active: true }],
@@ -159,7 +158,6 @@ describe("SelectOptionList", () => {
     );
     expect(screen.getByDisplayValue("チームA2")).toBeInTheDocument();
 
-    // チーム（A）を保存しても、届いていた保存前の内容で表示を戻さない
     fireEvent.click(teamSaveButton);
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
     expect(screen.getByDisplayValue("チームA2")).toBeInTheDocument();
@@ -174,8 +172,7 @@ describe("SelectOptionList", () => {
       is_active: boolean | null;
       isNew: boolean;
     };
-    // bulkUpsertSelectOptions と同じく、有効な追加行を 1 行ずつ INSERT したものとして
-    // DB の id（100 から）を返す
+    // Mimic bulkUpsertSelectOptions: return DB ids (from 100) for each inserted row.
     let nextDbId = 100;
     const insertedValues: string[] = [];
     const sentOptions = (call: number): SentOption[] =>
@@ -213,16 +210,13 @@ describe("SelectOptionList", () => {
       expect(sentOptions(0)).toContainEqual(
         expect.objectContaining({ value: "チームB", isNew: true }),
       );
-      // 保存した状態が基準になり、未保存の変更は無い
       expect(screen.getByRole("button", { name: "更新" })).toBeDisabled();
 
-      // refresh の結果が届く前（props は保存前のまま）に既存の項目を編集して保存する
+      // Edit before the refresh result arrives (props still hold the pre-save state).
       editOption();
       fireEvent.click(screen.getByRole("button", { name: "更新" }));
       await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
 
-      // 追加した行は DB の id の保存済みの行になり、変更していないので送らない。
-      // 送るのは編集した行だけで、INSERT は 1 回だけ
       expect(sentOptions(1)).toEqual([
         expect.objectContaining({ id: 1, value: "チームA2", isNew: false }),
       ]);
@@ -235,7 +229,7 @@ describe("SelectOptionList", () => {
       );
       await addAndSaveTeamB();
 
-      // 行の削除ボタン（ドラッグハンドルも role="button" を持つため button 要素で選ぶ）
+      // The drag handle also has role="button", so select by button element.
       const removeButton = screen
         .getByDisplayValue("チームB")
         .closest("tr")
@@ -282,13 +276,11 @@ describe("SelectOptionList", () => {
         "チーム情報の保存に失敗しました。項目の追加に失敗しました。一部の項目は保存済みです。",
       );
       expect(refresh).not.toHaveBeenCalled();
-      // 一部しか保存できていないため、未保存の変更ありのまま
       expect(screen.getByRole("button", { name: "更新" })).toBeEnabled();
 
       fireEvent.click(screen.getByRole("button", { name: "更新" }));
       await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
 
-      // 登録できた「チームB」は保存済み（変更なし）のため送らず、「チームC」だけを送る
       expect(sentOptions(1)).toEqual([
         expect.objectContaining({ value: "チームC", isNew: true }),
       ]);
@@ -322,7 +314,6 @@ describe("SelectOptionList", () => {
     fireEvent.click(screen.getByRole("button", { name: "更新" }));
     await waitFor(() => expect(bulkUpsertSelectOptions).toHaveBeenCalled());
     const [, sent] = bulkUpsertSelectOptions.mock.calls[0];
-    // 変更していない「チームB」は送らない
     expect(sent).toEqual([
       expect.objectContaining({ id: 1, value: "チームA2", valueChanged: true }),
       expect.objectContaining({ value: "チームC", isNew: true }),
@@ -331,22 +322,19 @@ describe("SelectOptionList", () => {
       (option: { value: string }) => option.value === "チームC",
     ).id;
 
-    // 保存の応答待ちの間（LoadingOverlay はフォーカスを閉じ込めない）に別の行を編集する
+    // LoadingOverlay does not trap focus, so another row can be edited while the save is pending.
     fireEvent.change(screen.getByDisplayValue("チームB"), {
       target: { value: "チームB2" },
     });
     resolveSave({ insertedIds: [{ tempId, id: 100 }], updatedIds: [1] });
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
 
-    // 応答後も編集内容が残り、保存した内容（送った内容）との差分で「変更あり」になる
     expect(screen.getByDisplayValue("チームB2")).toBeInTheDocument();
     expect(screen.getByDisplayValue("チームA2")).toBeInTheDocument();
     expect(screen.getByDisplayValue("チームC")).toBeInTheDocument();
     const saveButton = screen.getByRole("button", { name: "更新" });
     expect(saveButton).toBeEnabled();
 
-    // 続けて保存すると、応答待ちの間に編集した行だけを送る（保存済みの「チームA2」と、
-    // DB の id に置き換えた追加行は送らない）
     bulkUpsertSelectOptions.mockResolvedValueOnce({
       insertedIds: [],
       updatedIds: [2],
@@ -373,7 +361,7 @@ describe("SelectOptionList", () => {
       <SelectOptionList optionClass="team" optionList={optionList} />,
     );
 
-    // 画面に出ていない削除済みの項目と同じ名前を追加した（サーバで判明する）場合
+    // Found only on the server: the name collides with a deleted item not shown on screen.
     fireEvent.click(screen.getByRole("button", { name: "チーム追加" }));
     fireEvent.change(screen.getByDisplayValue(""), {
       target: { value: "チームZ" },
@@ -391,7 +379,6 @@ describe("SelectOptionList", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     bulkUpsertSelectOptions.mockResolvedValue({
       insertedIds: [],
-      // 名前を変えた行の UPDATE は成功し、別の行が失敗した
       updatedIds: [1],
       error: "項目の更新に失敗しました。",
     });
@@ -444,7 +431,6 @@ describe("SelectOptionList", () => {
     expect(confirmAction).not.toHaveBeenCalled();
     expect(bulkUpsertSelectOptions).not.toHaveBeenCalled();
 
-    // 片方を削除すれば保存できる
     const [first] = screen.getAllByDisplayValue("チームA");
     fireEvent.click(
       first.closest("tr")?.querySelector("button") as HTMLButtonElement,
@@ -456,7 +442,6 @@ describe("SelectOptionList", () => {
 
   it("保存が途中で失敗しても、保存できた行は保存済みとして扱い、画面で元に戻したら保存し直せる", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    // 「チームA→チームA2」の UPDATE は成功し、追加した「チームB」の INSERT が失敗した
     bulkUpsertSelectOptions.mockResolvedValueOnce({
       insertedIds: [],
       updatedIds: [1],
@@ -478,7 +463,6 @@ describe("SelectOptionList", () => {
       ),
     );
 
-    // 「チームA2」を「チームA」に戻し、追加した行を削除する（DB は「チームA2」のまま）
     fireEvent.change(screen.getByDisplayValue("チームA2"), {
       target: { value: "チームA" },
     });
@@ -512,7 +496,6 @@ describe("SelectOptionList", () => {
       <SelectOptionList optionClass="team" optionList={optionList} />,
     );
 
-    // チームA を削除して保存する（画面には無効化した行として残る）
     const removeButton = screen
       .getByDisplayValue("チームA")
       .closest("tr")
@@ -521,7 +504,7 @@ describe("SelectOptionList", () => {
     fireEvent.click(screen.getByRole("button", { name: "更新" }));
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
 
-    // 同じ名前を追加して保存すると、サーバは削除済みの行（id: 1）を再び有効にする
+    // The server reactivates the deleted row (id: 1) when the same name is added.
     fireEvent.click(screen.getByRole("button", { name: "チーム追加" }));
     fireEvent.change(screen.getByDisplayValue(""), {
       target: { value: "チームA" },
@@ -542,7 +525,6 @@ describe("SelectOptionList", () => {
     expect(screen.getAllByDisplayValue("チームA")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "更新" })).toBeDisabled();
 
-    // 続けて名前を変えて保存すると、id: 1 の行を有効なまま 1 回だけ送る
     bulkUpsertSelectOptions.mockResolvedValueOnce({
       insertedIds: [],
       updatedIds: [1],

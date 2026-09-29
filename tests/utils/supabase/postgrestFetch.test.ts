@@ -17,8 +17,7 @@ const jsonResponse = (status: number, body: unknown) =>
     headers: { "Content-Type": "application/json" },
   });
 
-// PostgREST の `JwtClaimsErr` はすべて PGRST303 になる。再試行してよいのは
-// `JWT issued at future` だけ。
+// PostgREST maps every `JwtClaimsErr` to PGRST303. Only `JWT issued at future` is worth retrying.
 const issuedAtFuture = () =>
   jsonResponse(401, {
     code: "PGRST303",
@@ -53,8 +52,8 @@ describe("isJwtIssuedAtFutureError", () => {
   });
 
   it("同じ PGRST303 でも他の claims エラーは対象外", () => {
-    // PostgREST の Error.hs では JWTExpired / JWTNotYetValid / JWTNotInAudience /
-    // ParsingClaimsFailed も PGRST303 になる。これらを再試行しても必ず失敗する。
+    // In PostgREST's Error.hs, JWTExpired / JWTNotYetValid / JWTNotInAudience / ParsingClaimsFailed
+    // also map to PGRST303. Retrying these always fails.
     for (const message of [
       "JWT expired",
       "JWT not yet valid",
@@ -114,7 +113,6 @@ describe("createPostgrestFetch", () => {
 
     expect(response.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    // 同じトークンで送り直す（refresh しない）
     expect(fetchMock.mock.calls[0]?.[1]).toBe(init);
     expect(fetchMock.mock.calls[1]?.[1]).toBe(init);
     expect(sleep).toHaveBeenCalledTimes(1);
@@ -191,7 +189,6 @@ describe("createPostgrestFetch", () => {
     );
 
     expect(response.status).toBe(401);
-    // 最後に返すレスポンスの body は解放していないので読める
     expect(await response.json()).toMatchObject({
       message: "JWT issued at future",
     });
@@ -244,7 +241,6 @@ describe("createPostgrestFetch", () => {
     );
 
     expect(response.status).toBe(200);
-    // 再試行 1 回ごとに内側のタイムアウトが適用される
     expect(inner).toHaveBeenCalledTimes(2);
   });
 });

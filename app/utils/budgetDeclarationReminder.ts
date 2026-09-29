@@ -1,31 +1,23 @@
-// 事前収支申告の未申告 Slack リマインドの純粋関数（対象日判定・未申告チーム抽出・メッセージ生成）。
-// DB アクセス（app/utils/supabase/budgetDeclarationReminderData.ts）・Slack Webhook 送信
-// （app/utils/slack/sendBudgetDeclarationReminder.ts）から切り離しているのは、副作用なしで
-// ユニットテストできるようにするため（docs/testing.md「2.6 テスト容易化リファクタリング方針」）。
+// Pure functions for the unsubmitted-budget-declaration Slack reminder, separate from DB and Webhook
+// access so they can be unit-tested.
 
 import { currentJstDate, formatMonthLabel } from "./formatter";
 import { Role, hasClassAccess } from "./permissions";
 
-// リマインド対象日（JST の日）のフォールバックデフォルト値。期限（毎月20日）の
-// 数日前から通知する運用のため、20日を含め複数日を対象にしている。
-// 実際の対象日は budget_declaration_reminder_settings テーブルで管理し、DB 取得に
-// 失敗した場合のみこの値を使う（app/utils/supabase/budgetDeclarationReminderData.ts の
-// getBudgetDeclarationReminderTargetDays 参照）。
+// Fallback target days (JST) used only when fetching budget_declaration_reminder_settings fails.
+// Notification starts a few days before the 20th deadline.
 export const DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS: readonly number[] =
   [15, 18, 20];
 
-// 申告期限（毎月この日まで）。メッセージ本文の表示にのみ使う
-// （期限は Slack リマインドのトリガーであり、DB / UI ではロックしない）。
+// Deadline day; only shown in the message (not locked in DB / UI).
 export const BUDGET_DECLARATION_DEADLINE_DAY = 20;
 
-// 今日（JST）がリマインド対象日か。targetDays が空配列の場合は常に false
-// （= 対象日リストを空にするとリマインドが停止する運用。Issue #94）。
+// An empty targetDays is always false (emptying the list stops reminders).
 export const isBudgetDeclarationReminderTargetDay = (
   now: Date,
   targetDays: readonly number[],
 ): boolean => targetDays.includes(currentJstDate(now));
 
-// チームマスタ全体から、対象月の申告が無いチームを抽出する
 export const undeclaredBudgetTeams = (
   teams: readonly string[],
   declaredTeams: readonly string[],
@@ -39,9 +31,7 @@ export type TeamLeaderSlackRow = {
   slack_id: string | null;
 };
 
-// 未申告チームごとに、チームリーダーの slack_id（未設定は除外）をまとめる。
-// リーダーが複数いるチームは全員分、リーダー不在・slack_id 未設定のチームは
-// 空配列になり、buildBudgetDeclarationReminderMessage 側でチーム名のみの表示に落ちる。
+// Teams without leaders / slack_id get an empty array; the message then shows the team name only.
 export const groupSlackIdsByTeam = (
   undeclaredTeams: readonly string[],
   leaderRows: readonly TeamLeaderSlackRow[],
@@ -63,8 +53,7 @@ export type BudgetDeclarationReminderTeam = {
   slackIds: readonly string[];
 };
 
-// リマインド対象チームが 0 件のときは通知しないため null を返す
-// （申告済みチームには通知されない = 呼び出し側はこの場合 Slack 送信自体をスキップする）
+// Null when no team is targeted; callers skip the Slack send.
 export const buildBudgetDeclarationReminderMessage = (
   teams: readonly BudgetDeclarationReminderTeam[],
   targetMonth: string,
@@ -88,14 +77,11 @@ export const buildBudgetDeclarationReminderMessage = (
   ].join("\n");
 };
 
-// 対象日設定 UI（Issue #97）の編集・保存に使う純粋関数。
-
-// リマインド対象日として保存できる値か（1〜31 の整数）。
 export const isValidBudgetDeclarationReminderTargetDay = (
   day: number,
 ): boolean => Number.isInteger(day) && day >= 1 && day <= 31;
 
-// 対象日の入力値を保存用に正規化する: 範囲外を除外し、重複を排除して昇順ソートする。
+// Drops out-of-range values, dedupes and sorts ascending.
 export const normalizeBudgetDeclarationReminderTargetDays = (
   days: readonly number[],
 ): number[] =>
@@ -103,9 +89,7 @@ export const normalizeBudgetDeclarationReminderTargetDays = (
     new Set(days.filter(isValidBudgetDeclarationReminderTargetDay)),
   ).sort((a, b) => a - b);
 
-// リマインド設定（対象日）の閲覧・編集ができるロール。DB 側の RLS
-// （budget_declaration_reminder_settings の select/update policy、migration 20）と
-// 同じ区分。片方だけ変えるとアプリと RLS がずれるため、変更時は両方を直す
+// Mirrors RLS on budget_declaration_reminder_settings (select/update, migration 20); change both together.
 export const BUDGET_DECLARATION_REMINDER_SETTINGS_ALLOWED_CLASSES: readonly Role[] =
   ["admin", "accounting"];
 

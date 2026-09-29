@@ -13,7 +13,6 @@ const { chartMounts, chartUnmounts } = vi.hoisted(() => ({
 
 const trend: AnnualTrendType = { fiscalYear: 2026, months: [] };
 
-// データ取得フックは固定値を返す（月次はデータ無し、年間推移は空の年度）
 vi.mock("@/app/hooks/useProfitLossData", () => ({
   useProfitLossReport: () => ({
     data: null,
@@ -27,7 +26,6 @@ vi.mock("@/app/hooks/useProfitLossClosing", () => ({
   useClosingDiffSummary: () => ({ data: [] }),
 }));
 
-// 月次タブ側の子コンポーネント（サーバ側の取得処理を読み込む）は描画しないためスタブ化する
 vi.mock("@/app/components/profitLoss/ProfitLossStatement", () => ({
   default: () => null,
   DEFAULT_BREAKDOWN_TAB: "matter",
@@ -43,9 +41,8 @@ vi.mock("@/app/components/profitLoss/CopyPreviousExtraEntriesButton", () => ({
   default: () => null,
 }));
 
-// グラフ本体（AnnualTrendChart）は実物を next/dynamic で読み込み、描画ライブラリ（Recharts）の
-// グラフだけをマウント・アンマウントの回数を数えるスタブに差し替える
-// （next/dynamic 経由の動的 import はテスト側の vi.mock で差し替わらないため、その先の静的 import を差し替える）
+// Replace only the chart (Recharts) with a stub that counts mounts/unmounts. AnnualTrendChart is loaded
+// via next/dynamic, whose dynamic import is not affected by vi.mock, so mock the static import behind it.
 vi.mock("@mantine/charts", () => ({
   CompositeChart: () => {
     useEffect(() => {
@@ -82,10 +79,8 @@ describe("ProfitLossView の年間推移グラフ（Issue #177）", () => {
   it("年間推移タブの表示中だけグラフをマウントし、月次タブに戻るとアンマウントする", async () => {
     renderView();
 
-    // 初期表示（月次タブ）ではグラフを描画しない
     expect(screen.queryByTestId("annual-trend-chart")).toBeNull();
 
-    // 年間推移タブ：読み込み中のプレースホルダーの後にグラフを表示する
     fireEvent.click(screen.getByRole("tab", { name: "年間推移" }));
     expect(
       screen.getByRole("status", { name: "読み込み中" }),
@@ -94,7 +89,6 @@ describe("ProfitLossView の年間推移グラフ（Issue #177）", () => {
     expect(chartMounts.count).toBe(1);
     expect(screen.queryByRole("status", { name: "読み込み中" })).toBeNull();
 
-    // 月次タブへ戻ると、非表示のパネル内にグラフを残さない（表・枠は残る）
     fireEvent.click(screen.getByRole("tab", { name: "月次" }));
     expect(screen.queryByTestId("annual-trend-chart")).toBeNull();
     expect(chartUnmounts.count).toBe(1);
@@ -102,7 +96,6 @@ describe("ProfitLossView の年間推移グラフ（Issue #177）", () => {
       screen.getByText("売上・利益の推移（2026年度）"),
     ).toBeInTheDocument();
 
-    // もう一度開くと再表示する（読み込み済みのため即座に描画される）
     await act(async () => {
       fireEvent.click(screen.getByRole("tab", { name: "年間推移" }));
     });

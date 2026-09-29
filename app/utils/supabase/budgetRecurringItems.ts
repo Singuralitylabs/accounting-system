@@ -22,8 +22,7 @@ import { getAuthorizedViewer } from "./viewerAccess";
 
 const SUBJECT = "事前収支申告の定期明細";
 
-// 定期明細の管理セクション用の一覧取得。可視範囲は RLS が担保する
-// （経理・管理者は全チーム、チームリーダーは自チームのみ。budget_declarations と同じ判定）
+// Visibility is bounded by RLS (accounting/admin: all teams; teamleader: own team, same as budget_declarations).
 export const getBudgetRecurringItemList =
   async (): Promise<BudgetRecurringItemListResult> => {
     const { error: accessError } = await getAuthorizedViewer(
@@ -53,11 +52,8 @@ export const getBudgetRecurringItemList =
     return { items: data ?? [] };
   };
 
-// 新規申告フォームを開いたときに初期投入する、対象月（"YYYY-MM"）が適用期間内の
-// 定期明細（同チーム）を取得する。継続中（end_month が NULL）または
-// 対象月が end_month 以前のものが対象。0 件は正常な結果として返す
-// （前月コピー用の getPreviousBudgetDeclarationItems と異なり、
-// 「該当する定期明細が無い」ことと「取得失敗」だけを区別すればよい）
+// Recurring lines in the target month's period for the team (end_month NULL or >= month). 0 rows is
+// a normal result; only "none" vs "fetch failed" needs distinguishing.
 export const getActiveBudgetRecurringItems = async (
   targetMonth: string,
   team: string,
@@ -92,7 +88,6 @@ export const getActiveBudgetRecurringItems = async (
   return { items: data ?? [] };
 };
 
-// 一覧の行データを DB 書き込み用の形に変換する（INSERT / UPDATE 共通）
 const toDbRow = (row: BudgetRecurringItemInListType) => ({
   team: row.team,
   entry_type: row.entry_type.trim(),
@@ -105,8 +100,8 @@ const toDbRow = (row: BudgetRecurringItemInListType) => ({
   display_order: row.display_order,
 });
 
-// 定期明細管理セクションの一括保存（RecurringCostList の bulkUpsertRecurringCost と
-// 同方式のステージング編集。新規 INSERT・既存 UPDATE・削除予定 DELETE を並列実行する）
+// Bulk save with staged edits, same approach as bulkUpsertRecurringCost in RecurringCostList
+// (INSERT / UPDATE / DELETE run in parallel).
 export const bulkSaveBudgetRecurringItems = async (
   rows: BudgetRecurringItemInListType[],
 ): Promise<BudgetRecurringItemSaveResult> => {
@@ -128,8 +123,8 @@ export const bulkSaveBudgetRecurringItems = async (
     };
   }
 
-  // RLS が最終防御だが、事前にわかりやすいエラーメッセージを返す。
-  // 削除予定行のチームも見る（他チームの行を誤って削除しようとした場合を弾くため）
+  // RLS is the last defense; check first for a clearer message. Deleted rows' teams are checked too,
+  // to reject deleting another team's row.
   const teams = Array.from(new Set(rows.map((row) => row.team)));
   const forbiddenTeam = teams.find(
     (team) => !canWriteBudgetTeam(profileInfo.class, profileInfo.team, team),
@@ -143,15 +138,10 @@ export const bulkSaveBudgetRecurringItems = async (
     };
   }
 
-  // display_order はステージング編集中の並びからチームごとに 0 から採番し直す。
-  // handleAddRow はクライアント側で常に display_order: 0 のまま新規行を追加する
-  // ため、渡された値をそのまま使うと新規行が「先頭」扱いになり、team で絞って
-  // display_order 順に取得する getActiveBudgetRecurringItems / 一覧取得で並びが
-  // 崩れる（saveBudgetDeclaration が明細差し替え時に index で採番し直すのと同じ理由）。
-  // 全チーム通し（rows の配列 index）で採番すると、他チームの行に触れていない保存でも
-  // 他チームの全行が「変更あり」と判定され、変更行だけを UPDATE する lost update 抑止が
-  // 無効化される（Issue #136）。チームごとに採番することで、触っていないチームの行は
-  // UPDATE 対象にならない。
+  // Renumber display_order from 0 per team. handleAddRow always adds display_order: 0, so keeping it
+  // would put new rows first and break the display_order ordering of the fetches. Numbering across
+  // all teams (array index) would mark other teams' untouched rows as changed and defeat the
+  // changed-rows-only UPDATE that prevents lost updates; per team, untouched teams are not updated.
   const orderByTeam = new Map<string, number>();
   const activeRows = rows
     .filter((row) => !row.isRemoved)
@@ -164,8 +154,7 @@ export const bulkSaveBudgetRecurringItems = async (
   const updateRows = activeRows.filter((row) => !row.isNew);
   const deleteRows = rows.filter((row) => row.isRemoved && !row.isNew);
 
-  // INSERT/UPDATE/DELETE は非トランザクションで並列実行するため、存在しない
-  // manager_id のまま進めると一部だけ失敗し、他の変更のみ反映された状態になりうる
+  // Writes are parallel and non-transactional, so a missing manager_id could leave only some changes applied.
   const managerIds = Array.from(
     new Set(
       [...newRows, ...updateRows]
@@ -182,10 +171,9 @@ export const bulkSaveBudgetRecurringItems = async (
     return { error: managerIdError };
   }
 
-  // 分類がマスタ（収入 = category、支出 = item）に存在するか保存前に照合する
-  // （saveBudgetDeclaration と同方針。Issue #116）。定期明細は申告作成時に
-  // 明細として展開されるため、ここで無効値を許すと翌月以降の申告へ自動で
-  // 広がる。クライアントのマスタは使わずサーバ側で最新の有効値を引き直す
+  // Check categories against the master before saving (same as saveBudgetDeclaration). Recurring lines
+  // expand into later declarations, so an invalid value here would spread. Uses the server's latest
+  // values, not the client's master.
   const { optionsByType: categoryOptionsByType, error: categoryMasterError } =
     await getActiveSelectOptionsByType(["category", "item"]);
   if (categoryMasterError) {
@@ -215,14 +203,10 @@ export const bulkSaveBudgetRecurringItems = async (
 
   const supabase = createServerSupabase();
 
-  // ステージング編集は「削除されていない既存行」全件を updateRows として送ってくる
-  // （どの行を実際に編集したかを区別しない、RecurringCostList と同方式）。しかし
-  // 全チームを見られるロール（経理・管理者）は同じ画面で他チームの行も一緒に
-  // 編集するため、触っていない行までそのまま UPDATE すると、保存の直前に他の
-  // 利用者がその行へ加えた変更を無条件に上書きしてしまう（lost update）。
-  // 現在の DB の値と比較し、実際に内容が変わった行だけを UPDATE 対象にすることで、
-  // 触っていない行への影響を無くす（同じ行を同時に編集した場合の競合検知
-  // （updated_at 等によるバージョンチェック）まではここでは行わない）
+  // Staged editing sends every non-deleted existing row as updateRows, and all-team roles edit other
+  // teams' rows on the same screen; UPDATEing untouched rows would overwrite a concurrent change
+  // (lost update). Compare with current DB values and UPDATE only truly changed rows. Version-based
+  // conflict detection (updated_at) is not done here.
   let rowsToUpdate = updateRows;
   if (updateRows.length > 0) {
     const { data: currentRows, error: currentError } = await supabase
@@ -250,8 +234,7 @@ export const bulkSaveBudgetRecurringItems = async (
     );
     rowsToUpdate = updateRows.filter((row) => {
       const current = currentById.get(row.id);
-      // 保存直前に他の利用者が削除した行は、そのまま UPDATE を試みても
-      // 0 行ヒットで無害（RLS 越しでも同様）。念のため対象に残しておく
+      // A row deleted by someone else just before saving hits 0 rows harmlessly; keep it anyway.
       if (!current) return true;
       const desired = toDbRow(row);
       return (Object.keys(desired) as (keyof typeof desired)[]).some(

@@ -134,9 +134,8 @@ describe("BudgetRecurringItemList", () => {
         isRemoved: false,
       }),
     ]);
-    // 成功通知はミューテーションの onSuccess 側のみが出す。
-    // ここ（コンポーネント側）で重ねて notifySuccess を呼ぶと保存成功時に
-    // 通知が二重に表示されてしまう
+    // The success notification comes only from the mutation's onSuccess; calling notifySuccess here too
+    // would show it twice.
     expect(notifySuccess).not.toHaveBeenCalled();
   });
 
@@ -154,7 +153,6 @@ describe("BudgetRecurringItemList", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "定期明細追加" }));
     const teamInputs = screen.getAllByDisplayValue("開発チーム");
-    // 新規行のチーム Select は disabled ではない
     expect(teamInputs[teamInputs.length - 1]).not.toBeDisabled();
   });
 
@@ -172,11 +170,9 @@ describe("BudgetRecurringItemList", () => {
       ownTeam: null,
     });
 
-    // teamList（マスタ）に無い値でも、Select の表示値としてそのまま見える
-    // （保存される値自体も変わらない）。空欄のままだと「担当チームが
-    // クリアされた」と誤認させてしまう。Mantine の Select は 1 行につき
-    // 複数要素が同じ表示値を持ちうるため getAllByDisplayValue で確認する
-    // （チームリーダー無効化のテストと同方針）
+    // A team missing from teamList must still show as the Select value (blank would look like the team
+    // was cleared). A Mantine Select can have several elements with the same display value per row,
+    // hence getAllByDisplayValue.
     expect(screen.getAllByDisplayValue("旧チーム").length).toBeGreaterThan(0);
   });
 

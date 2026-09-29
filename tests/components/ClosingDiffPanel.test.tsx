@@ -131,7 +131,6 @@ describe("ClosingDiffPanel", () => {
     fireEvent.click(
       screen.getByRole("checkbox", { name: "案件X 取引先Aを選択" }),
     );
-    // 影響額: 売上 150,000 → 170,000、経常利益 20,000 → 40,000
     const impact = screen.getByText(
       "選択した 1 件を反映した場合の影響額",
     ).parentElement!;
@@ -195,7 +194,6 @@ describe("ClosingDiffPanel", () => {
       screen.getByRole("button", { name: "選択した変更を見送る" }),
     ).toBeEnabled();
 
-    // 見送り済み一覧
     fireEvent.click(screen.getByRole("button", { name: /見送り済み/ }));
     fireEvent.click(
       screen.getByRole("checkbox", { name: "案件X コストBを選択" }),

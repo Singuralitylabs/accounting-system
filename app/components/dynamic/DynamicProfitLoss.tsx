@@ -16,10 +16,7 @@ const DynamicProfitLoss = async () => {
     getProfitLossReport(initialMonth),
     getCachedProfileInfo(),
   ]);
-  // 定期費用マスタ・経理追加収支への管理リンクの表示可否。それぞれのルートの
-  // ROUTE_PERMISSIONS を個別に見る（ロール定義がルートごとに変わっても UI が
-  // 追従するよう、単一のフラグに丸めない）。取得失敗時は未認可（false）に
-  // フォールバックする（フェイルクローズ）
+  // Link visibility per route's own ROUTE_PERMISSIONS (not one flag, so the UI follows role changes per route). Fails closed (false) on fetch failure.
   const profileClass = error ? null : profileInfo?.class;
   const canEditRecurringCosts = hasClassAccess(
     ROUTE_PERMISSIONS["/recurring-costs"],
@@ -29,15 +26,14 @@ const DynamicProfitLoss = async () => {
     ROUTE_PERMISSIONS["/extra-entries"],
     profileClass,
   );
-  // 損益調整（実績額修正）の操作を表示するか。専用ルートを持たないため
-  // PL_ADJUSTMENT_WRITE_CLASSES を直接見る（RLS の accounting/admin 判定と揃える）
+  // No dedicated route, so check PL_ADJUSTMENT_WRITE_CLASSES directly (matches RLS accounting/admin).
   const canEditAdjustments = hasClassAccess(
     PL_ADJUSTMENT_WRITE_CLASSES,
     profileClass,
   );
-  // 表示タイトル（Issue #150）の変更操作を表示するか（RLS の accounting/admin 判定と揃える）
+  // Matches RLS accounting/admin.
   const canEditLabels = hasClassAccess(PL_LABEL_WRITE_CLASSES, profileClass);
-  // 月次収支の確定・確定解除（Issue #148）を操作できるか（RLS の accounting/admin 判定と揃える）
+  // Matches RLS accounting/admin.
   const canClose = hasClassAccess(PL_CLOSING_WRITE_CLASSES, profileClass);
 
   return (

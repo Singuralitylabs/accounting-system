@@ -20,9 +20,8 @@ import { createPostgrestFetch } from "./app/utils/supabase/postgrestFetch";
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // ネットワークを伴う認証チェック（getUser）の前に、認証不要なパスを先に返す。
-  // 除外は拡張子ホワイトリスト方式（フェイルクローズ）とし、
-  // ここに該当しないパスは必ず認証チェックへ落とす
+  // Bypass paths that need no auth before the networked getUser(). The exclusion is an allowlist
+  // (fail-closed): anything not matched falls through to the auth check.
   const pathClass = classifyPath(pathname);
 
   if (pathClass.kind === "public_skip" || pathClass.kind === "open") {
@@ -48,14 +47,10 @@ export async function middleware(req: NextRequest) {
           );
         },
       },
-      // Supabase への 1 リクエストが数秒で打ち切られるようにする（Auth／PostgREST 共通）。
-      // 到達不能時に auth-js が指数バックオフで約 30 秒再試行し続けると
-      // Edge の 25 秒制限で 504 になるため、短時間で 503 の経路に落とす。
-      //
-      // さらに PostgREST の `JWT issued at future`（修正前バージョンの不具合）
-      // だけを同一トークンで再送する層を外側に重ねる。再試行 1 回ごとに上の
-      // 5 秒タイムアウトが適用され、再試行の待ちは合計 700ms しかないため、
-      // profiles 取得の外側の打ち切り（AUTH_FETCH_TIMEOUT_MS）に収まる。
+      // Bound each Supabase request (Auth and PostgREST): unreachable Supabase makes auth-js retry
+      // ~30s, hitting the Edge 25s limit (504), so fail fast into the 503 path. The outer layer retries
+      // only PostgREST `JWT issued at future` with the same token; its total wait (700ms) fits within
+      // the profiles outer timeout.
       global: {
         fetch: createPostgrestFetch({
           fetch: createTimeoutFetch(AUTH_FETCH_TIMEOUT_MS),
@@ -64,19 +59,15 @@ export async function middleware(req: NextRequest) {
     },
   );
 
-  // res 以外を返す場合も、getUser()/getSession() が発行したローテーション後の Cookie
-  // （リフレッシュされたトークン等）を引き継ぐ。redirect() や新規 NextResponse は
-  // 別の Response になるため、res に積まれた Set-Cookie を明示的にコピーしないと失われる。
-  // リフレッシュトークンはローテーションされる（supabase/config.toml）ため、
-  // 取りこぼすとクライアントが古いトークンを持ったままログアウトさせられる。
+  // Non-`res` responses (redirect/new NextResponse) lose the Set-Cookie headers queued on `res`, so
+  // copy them. Refresh tokens are rotated (supabase/config.toml); dropping them logs the client out.
   const withCookies = (response: NextResponse) => {
     res.cookies.getAll().forEach((cookie) => response.cookies.set(cookie));
     return response;
   };
   const redirectTo = (path: string) =>
     withCookies(NextResponse.redirect(new URL(path, req.url)));
-  // Supabase 側の一時的障害は 503 に落とす（未ログイン扱いにはしない）。
-  // `Retry-After` を付けてクライアントの再試行に委ねる。
+  // Transient Supabase failures return 503 (not "logged out"); Retry-After defers to client retry.
   const serviceUnavailable = (error: unknown) => {
     console.error("Supabase Auth への到達に失敗しました（一時的障害）:", error);
     return withCookies(
@@ -88,14 +79,10 @@ export async function middleware(req: NextRequest) {
   };
 
   try {
-    // getUser() は Supabase Auth サーバへ問い合わせてアクセストークンの署名・有効性を
-    // 検証する。getSession() はローカル Cookie の値をそのまま返すだけで署名検証を
-    // 行わないため（auth-js 自身が偽装され得る旨を警告している）、認証の可否判定には
-    // 使わない（#26: 偽造 Cookie による認証バイパスを防ぐ）。
-    //
-    // 到達不能時は期限切れトークンのリフレッシュ再試行ループが約 30 秒続くため、
-    // 外側の待ちも打ち切って 503 に落とす（Edge の 25 秒制限より短くする）。
-    // 制限超過は AuthRetryableFetchError になるため、下の `catch` 節で 503 を返す。
+    // getUser() verifies the token signature with the Auth server; getSession() only echoes the
+    // local cookie, so never use it for authentication (forged-cookie bypass).
+    // The outer timeout keeps the refresh retry loop under the Edge 25s limit; an overrun becomes
+    // AuthRetryableFetchError and is turned into 503 by the catch below.
     const {
       data: { user },
       error: getUserError,
@@ -105,10 +92,8 @@ export async function middleware(req: NextRequest) {
     );
 
     if (getUserError && isTransientAuthError(getUserError)) {
-      // Supabase Auth 側のネットワークエラー・5xx（一時的障害）。攻撃者が意図的に
-      // 発生させることはできないため、ログイン中ユーザーを一律 /login へ飛ばす
-      // （＝実質ログアウト扱いにする）のではなく 503 を返し、クライアントの
-      // 再試行に委ねる。未ログイン扱いにはしない点でフェイルクローズは維持する。
+      // Network errors/5xx cannot be triggered by an attacker; return 503 instead of redirecting
+      // logged-in users to /login. Still fail-closed (not treated as logged out).
       return serviceUnavailable(getUserError);
     }
 
@@ -122,27 +107,18 @@ export async function middleware(req: NextRequest) {
         if (!user) {
           return redirectTo("/login");
         }
-        // 直前の getUser() がこのユーザーのアクセストークンの署名を検証済みのため、
-        // 同じトークンから読む user_class クレームも改ざんされていないとみなせる
-        // （ペイロードのどこかを書き換えると署名検証に失敗し getUser() がエラーになるため）。
-        // getSession() はローカル Cookie を読むだけなので追加のネットワーク往復は発生しない。
+        // getUser() just verified this token's signature, so its user_class claim is trustworthy
+        // (tampering would fail verification). getSession() reads the local cookie: no extra round trip.
         const {
           data: { session },
         } = await supabase.auth.getSession();
-        // クレームが有効な文字列でない場合（フック未設定 / 旧トークン / プロフィール
-        // 未作成で明示的に null 等）は profiles への DB クエリにフォールバックする。
+        // Invalid claim (hook disabled / old token / profile not yet created) falls back to a profiles query.
         let userClass = readClassClaim(session?.access_token);
 
         if (userClass === null) {
-          // profiles 取得はボディ停滞でも Edge の 25 秒制限に掛からないよう
-          // 外側からも打ち切る。外側は `AUTH_PROFILES_TIMEOUT_MS`（内側 + 1 秒）
-          // とし、ヘッダ待ちハングでは内側の fetch 中断を先に発火させる。
-          // 内側の中断は postgrest-js に捕捉されて `{ error }` の戻り値になる
-          // ため、タイムアウト由来か判定して 503 に落とす（Issue #137）。
-          // ボディ停滞（ヘッダ到着後に body が止まる）の制限超過は throw で
-          // `catch` 節の 503 に落ちる。それ以外の取得失敗は既存どおり
-          // `/` へ転送する。
-          // なお `global.fetch` の 5 秒タイムアウトは PostgREST にも適用される。
+          // Outer timeout is AUTH_PROFILES_TIMEOUT_MS (inner + 1s) so the inner abort fires first on
+          // header hangs; postgrest-js turns it into `{ error }`, hence isProfilesTimeoutError -> 503.
+          // A body stall throws into the catch's 503. Other fetch failures redirect to `/`.
           const profileQuery = supabase
             .from("profiles")
             .select("class")
@@ -178,14 +154,12 @@ export async function middleware(req: NextRequest) {
       }
     }
   } catch (error) {
-    // withAuthTimeout の制限超過（AuthRetryableFetchError）は throw で届くため、
-    // ここでも一時的障害は 503 に落とす。未ログイン扱いにはしない。
+    // withAuthTimeout overruns arrive as throws; treat transient errors as 503, not logged out.
     if (isTransientAuthError(error as AuthError)) {
       return serviceUnavailable(error);
     }
     console.error("Middleware error:", error);
-    // /login 上での想定外エラーは /login へ転送すると無限リダイレクトになるため、
-    // そのまま進める（ログイン画面の表示に委ねる）。
+    // Redirecting to /login from /login would loop forever, so render the page.
     if (pathClass.kind === "auth_route") {
       return res;
     }
@@ -195,9 +169,8 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    // Next.js の静的アセットのみ matcher で除外する。
-    // それ以外の除外（拡張子・/api）はコード側のホワイトリストで行い、
-    // 未知のパスが認証チェックをすり抜けない（フェイルクローズ）状態を保つ
+    // Exclude only Next.js static assets here; other exclusions (extensions, /api) live in code
+    // allowlists so unknown paths cannot skip the auth check (fail-closed).
     "/((?!_next/static|_next/image|favicon.ico).*)",
   ],
 };

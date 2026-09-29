@@ -1,11 +1,8 @@
 "use server";
 
-// 事前収支申告リマインドの対象日設定を admin / accounting が編集する UI（Issue #97）用の
-// Server Action。cron 用の getBudgetDeclarationReminderTargetDays
-// （budgetDeclarationReminderData.ts、service role・失敗時はデフォルト値へフォールバック）
-// とは別モジュールにしているのは、こちらは RLS 前提（createServerSupabase）で
-// getAuthorizedViewer による権限確認を経る通常の Server Action であり、
-// service role クライアントは使わないため（Issue #97 仕様どおり）。
+// Server Action for the admin/accounting settings UI. Separate from the cron's service-role
+// getBudgetDeclarationReminderTargetDays: this one runs under RLS (createServerSupabase) after
+// getAuthorizedViewer.
 
 import {
   BudgetDeclarationReminderSettingsResult,
@@ -49,9 +46,8 @@ export const getBudgetDeclarationReminderSettings =
     return { targetDays: data.target_days };
   };
 
-// id = 1 の既存行への UPDATE のみ（RLS 上 INSERT / DELETE は不可）。
-// 呼び出し側（UI）で正規化済みの値を渡す想定だが、Server Action は任意の配列を
-// 渡して呼び出せてしまうため、ここでも正規化してから保存する（多層防御）。
+// UPDATE of the existing id = 1 row only (RLS forbids INSERT / DELETE). Normalized again here
+// because Server Actions accept arbitrary arrays (defense in depth).
 export const updateBudgetDeclarationReminderTargetDays = async (
   targetDays: readonly number[],
 ): Promise<BudgetDeclarationReminderSettingsSaveResult> => {
@@ -82,9 +78,8 @@ export const updateBudgetDeclarationReminderTargetDays = async (
     };
   }
 
-  // RLS で 0 行になっても PostgREST は error なしで [] を返す
-  // （saveBudgetDeclaration などと同方針）。id = 1 の行は migration で必ず
-  // 1 行存在する運用のため、0 行は権限不足の取りこぼしを示す
+  // PostgREST returns [] without error when RLS filters to 0 rows. The id = 1 row always exists, so 0
+  // rows means permission denied.
   if (!data || data.length !== 1) {
     return {
       error: {

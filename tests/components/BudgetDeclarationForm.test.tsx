@@ -46,12 +46,9 @@ vi.mock("@/app/utils/notify", () =>
   import("@/tests/testUtils/mockNotify").then((m) => m.mockNotify()),
 );
 
-// 「チーム」Select のドロップダウンは、この Modal 配下では開いた後も
-// ラッパーに aria-hidden が残る（Mantine + jsdom の組み合わせによる既知の
-// 表示上のクセで、他の Select（担当者・分類など）では発生しない）ため
-// screen.findByRole("option", …) では見つからない。実 DOM 上には
-// role="option" の要素自体は存在し、click も正しく処理されるため、
-// querySelector で直接取得してクリックする
+// The team Select dropdown keeps aria-hidden on its wrapper inside this Modal (Mantine + jsdom quirk;
+// other Selects are unaffected), so findByRole("option") fails. The role="option" elements exist and
+// handle clicks, so query and click them via querySelector.
 const selectTeamOption = async (teamInput: HTMLElement, label: string) => {
   fireEvent.click(teamInput);
   const option = await vi.waitFor(() => {
@@ -73,9 +70,8 @@ const testMemberList = [
   { value: "2", label: "鈴木花子" },
 ];
 
-// 保存まで行うテストは分類マスタが必要（Issue #116 のマスタ照合により、
-// 空マスタのままだと「セミナー」「外注費」も未登録扱いで保存が止まる）。
-// マスタ付きの store でラップして描画するヘルパー
+// Saving tests need a category master: with an empty master "セミナー"/"外注費" count as unregistered
+// and block the save. Helper renders wrapped in a store seeded with the master.
 const renderFormWithMasters = (
   props: React.ComponentProps<typeof BudgetDeclarationForm>,
   masters: { categoryList: string[]; itemList: string[] } = {
@@ -218,8 +214,8 @@ describe("BudgetDeclarationForm", () => {
         },
       ],
     };
-    // useQuery は staleTime 内のキャッシュを即座に返しつつ、
-    // refetchOnMount: "always" によりバックグラウンドで再取得中の状態を模す
+    // useQuery returns the cache within staleTime while refetchOnMount: "always" refetches in the
+    // background; simulate that in-flight refetch state.
     useBudgetDeclarationDetail.mockReturnValue({
       data: staleDetail,
       isLoading: false,
@@ -239,11 +235,9 @@ describe("BudgetDeclarationForm", () => {
       />,
     );
 
-    // 取得中は古いキャッシュの内容を反映しない（明細 0 件のまま）
     expect(screen.getByText("明細が登録されていません。")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
 
-    // 再取得が完了し、最新データが届く
     useBudgetDeclarationDetail.mockReturnValue({
       data: staleDetail,
       isLoading: false,
@@ -412,8 +406,7 @@ describe("BudgetDeclarationForm", () => {
     fireEvent.change(descriptionInput, { target: { value: "編集中の内容" } });
     expect(descriptionInput).toHaveValue("編集中の内容");
 
-    // 保存成功時の invalidate や再フォーカス等で detail が新しい参照になった状況を模す
-    // （declarationId は同じ 7 のまま）
+    // Simulate detail getting a new reference (invalidate/refocus after save) with the same declarationId 7.
     useBudgetDeclarationDetail.mockReturnValue({
       data: { ...initialDetail, items: [...initialDetail.items] },
       isLoading: false,
@@ -571,7 +564,6 @@ describe("BudgetDeclarationForm", () => {
       memberList: testMemberList,
     });
 
-    // 担当者を選択する
     const managerInput = screen.getByPlaceholderText("担当者を選択");
     fireEvent.click(managerInput);
     fireEvent.click(await screen.findByRole("option", { name: "山田太郎" }));
@@ -584,7 +576,6 @@ describe("BudgetDeclarationForm", () => {
       }),
     );
 
-    // 担当者を変更する
     saveMutation.mutateAsync.mockClear();
     fireEvent.click(managerInput);
     fireEvent.click(await screen.findByRole("option", { name: "鈴木花子" }));
@@ -597,7 +588,6 @@ describe("BudgetDeclarationForm", () => {
       }),
     );
 
-    // 担当者をクリアする（未選択で保存できる）
     saveMutation.mutateAsync.mockClear();
     const managerCell = managerInput.closest("td") as HTMLElement;
     fireEvent.click(within(managerCell).getByRole("button", { hidden: true }));
@@ -856,7 +846,6 @@ describe("BudgetDeclarationForm", () => {
 
       expect(confirmAction).toHaveBeenCalled();
       await screen.findByDisplayValue("外注A");
-      // 既存の空行 + コピーした 1 行で明細は 2 行になる
       expect(
         screen.getAllByRole("button", { name: "明細を削除" }),
       ).toHaveLength(2);
@@ -954,9 +943,8 @@ describe("BudgetDeclarationForm", () => {
 
       await vi.waitFor(() => expect(confirmAction).toHaveBeenCalled());
       expect(screen.queryByDisplayValue("外注A")).not.toBeInTheDocument();
-      // confirmAction の resolve から setItems/form.setFieldValue までは
-      // イベントハンドラの外（Promise 継続）での state 更新のため、
-      // 反映まで 1 tick 分のズレが生じうる。値の確定を待ってから検証する
+      // State updates after confirmAction resolves (setItems/form.setFieldValue) run in a promise
+      // continuation outside event handlers, so they can lag by one tick; wait for the value to settle.
       await vi.waitFor(() =>
         expect(screen.getByRole("textbox", { name: "チーム" })).toHaveValue(
           "経理チーム",
@@ -1282,7 +1270,6 @@ describe("BudgetDeclarationForm", () => {
       expect(
         screen.getByText("マスタ未登録のため選び直してください"),
       ).toBeInTheDocument();
-      // 値は保持され、選択肢には「（マスタ未登録）」付きで表示される
       expect(
         screen.getByDisplayValue("旧品目（マスタ未登録）"),
       ).toBeInTheDocument();

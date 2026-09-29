@@ -2,8 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { getClosedMonths } from "../utils/supabase/profitLossClosedMonths";
 
-// 確定済みの月（"YYYY-MM"）の一覧（Issue #148）。
-// 損益計算書のキャッシュ（["profitLoss"]）と一緒に無効化されるよう、キーの先頭を揃える
+// Key prefix matches ["profitLoss"] so it is invalidated together with the statement cache.
 export const useClosedMonths = (enabled = true) => {
   const query = useQuery({
     queryKey: ["profitLoss", "closedMonths"],

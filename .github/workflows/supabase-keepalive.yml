@@ -1,33 +1,21 @@
 name: Supabase Keep-Alive
 
-# Supabase 無料プランの自動 Pause（1 週間アクセスが無いとプロジェクトが一時停止され、
-# <ref>.supabase.co の DNS も消えて middleware が 504 になる）を防ぐため、
-# 開発用・本番用の両プロジェクトに 1 日 1 回 PostgREST 経由の軽い SELECT を送る（Issue #125）。
-# 必要な GitHub Secrets・手動実行・停止手順は docs/setup.md の「Supabase keep-alive」を参照。
+# Prevents Supabase free-plan auto-pause (after 1 week idle the project pauses and its DNS disappears, so middleware returns 504) by sending a light PostgREST SELECT daily to both dev and prod projects. Secrets, manual run and stop procedure: docs/setup.md "Supabase keep-alive".
 #
-# 仕組み:
-# - Auth API の /auth/v1/health は DB アクティビティとして数えられない可能性があるため、
-#   RLS で anon に読める select_options テーブル（docs/database.md 5.5）へ REST（PostgREST）で問い合わせる。
-# - Vercel Cron は production デプロイでしか動かず開発用 Supabase を叩けない（Hobby の cron 枠も既存
-#   リマインドで消費している）ため GitHub Actions を使う。本番用は既存の Vercel Cron
-#   （/api/cron/budget-declaration-reminder）が毎日 DB を SELECT しており単体でも Pause しないが、
-#   Vercel Cron 停止時の保険として本番用も対象に含める。Issue #125 で Pause したのは開発用側。
+# - /auth/v1/health may not count as DB activity, so query select_options (anon-readable via RLS) through REST.
+# - Vercel Cron runs only on production deployments (and the Hobby cron quota is used by the reminder), so use GitHub Actions. Prod is included as insurance in case Vercel Cron stops.
 #
-# 注意:
-# - schedule トリガーはデフォルトブランチ（main）上のワークフロー定義でのみ動く。
-# - schedule の実行者は cron 行を最後に変更したユーザーになる。失敗通知はその人にしか届かず、
-#   その人がリポジトリから外れると schedule 自体が止まるため、担当者離脱時は別メンバーが cron 行を編集して
-#   コミットし直すこと。
-# - 公開リポジトリのため、60 日間リポジトリに活動が無いと GitHub が schedule を自動的に無効化する。
-#   Actions 画面で無効化されていないか定期的に確認し、無効化されていたら Enable workflow で再開する。
+# Caveats:
+# - schedule runs only from the workflow on the default branch (main).
+# - The schedule runs as the user who last edited the cron line; failure notices reach only them and the schedule stops if they leave the repo, so another member should re-commit the cron line then.
+# - GitHub disables schedules after 60 days of repo inactivity (public repo); check the Actions page periodically and re-enable.
 on:
   schedule:
-    # 毎日 06:17 JST（21:17 UTC）。Vercel Cron（00:00 UTC）とは時間帯をずらし、
-    # GitHub Actions の schedule が最も遅延・スキップされやすい「毎時 0 分」も避けている
+    # 06:17 JST (21:17 UTC): offset from Vercel Cron (00:00 UTC) and off the top of the hour, where schedules are delayed/skipped most.
     - cron: "17 21 * * *"
   workflow_dispatch:
 
-# checkout も行わないため GITHUB_TOKEN に権限は一切与えない
+# No checkout, so GITHUB_TOKEN gets no permissions.
 permissions: {}
 
 jobs:
@@ -36,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
-      # 片方が失敗してももう片方には必ずリクエストを送る
+      # Send the request to the other project even if one fails.
       fail-fast: false
       matrix:
         include:
@@ -58,8 +46,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # ダッシュボードで貼り付けた際に混入しがちな改行・空白類を除去する
-          # （URL に改行が残ると curl exit 3（Malformed URL）で落ち、anon key に残ると不正なヘッダになる）
+          # Strip newlines/whitespace that creep in when pasting from the dashboard (a newline in the URL gives curl exit 3; in the anon key an invalid header).
           SUPABASE_URL="${SUPABASE_URL//[$'\r\n\t ']/}"
           SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY//[$'\r\n\t ']/}"
 
@@ -68,24 +55,19 @@ jobs:
             exit 1
           fi
 
-          # スキーム欠落（http でアクセスして 301 になる）などの登録ミスを、Supabase 側の障害と切り分けて報告する。
-          # ホスト名だけを取り出して URL を組み立て直すため、末尾スラッシュの個数や余分なパスにも影響されない
+          # Report registration mistakes (e.g. missing scheme giving a 301) separately from Supabase outages; rebuild the URL from the hostname only so trailing slashes and extra paths do not matter.
           if [[ ! "${SUPABASE_URL}" =~ ^https://([^/]+) ]]; then
             echo "::error::GitHub Secret ${URL_SECRET_NAME} の URL 形式が不正です（https://<project-ref>.supabase.co の形式で登録してください）"
             exit 1
           fi
           host="${BASH_REMATCH[1]}"
 
-          # Secrets はログ上で自動マスクされるが、curl のエラーメッセージ
-          # （例: Could not resolve host: <project-ref>.supabase.co）にはスキーム抜きのホスト名が出るため、
-          # ホスト名単体もマスク対象に追加する（Actions ログは公開リポジトリでは誰でも閲覧できる）
+          # Secrets are auto-masked, but curl errors (e.g. Could not resolve host) print the bare hostname, so mask it too (Actions logs are public in a public repo).
           echo "::add-mask::${host}"
 
           endpoint="https://${host}/rest/v1/select_options?select=id&limit=1"
 
-          # DNS 失敗（Pause 中は <ref>.supabase.co の DNS レコードが消える）など
-          # レスポンスが得られない場合は curl 自体が非 0 で終了するので、終了コードを保持して fail にする。
-          # --retry-all-errors: 一時的な名前解決失敗・接続失敗も再試行対象にする（最悪でも約 100 秒で timeout-minutes 内）
+          # When no response is obtained (e.g. DNS failure while paused) curl exits non-zero; keep the exit code and fail. --retry-all-errors retries transient resolution/connection failures (worst case about 100 s, within timeout-minutes).
           rc=0
           status="$(curl --silent --show-error \
                 --output /dev/null --write-out '%{http_code}' \
@@ -95,7 +77,7 @@ jobs:
                 "${endpoint}")" || rc=$?
 
           if [ "${rc}" -ne 0 ]; then
-            # curl の終了コードで原因を切り分ける（6: 名前解決失敗 = Pause の可能性大、28: タイムアウト）
+            # Distinguish by curl exit code (6: resolution failure, likely paused; 28: timeout).
             case "${rc}" in
               6)  hint="名前解決に失敗。プロジェクトが Pause していないか Supabase ダッシュボードで確認してください" ;;
               28) hint="タイムアウト" ;;

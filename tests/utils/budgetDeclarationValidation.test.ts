@@ -93,7 +93,6 @@ describe("validateBudgetDeclarationItem", () => {
     expect(
       validateBudgetDeclarationItem(validItem({ entry_type: "invalid" })),
     ).toBe("required");
-    // 前後の空白を trim した上で値そのものが不正なケース
     expect(
       validateBudgetDeclarationItem(validItem({ entry_type: " income " })),
     ).toBe("ok");
@@ -149,7 +148,6 @@ describe("validateBudgetDeclarationItem", () => {
     expect(
       validateBudgetDeclarationItem(validItem({ category: "旧分類" }), masters),
     ).toBe("category");
-    // 種別違いのマスタ混同も弾く（収入行に支出マスタの値）
     expect(
       validateBudgetDeclarationItem(
         validItem({ entry_type: "expense", category: "セミナー" }),

@@ -42,8 +42,7 @@ const toOptionRows = (
   >[],
 ): OptionRow[] => optionList.map((option) => ({ ...option, isNew: false }));
 
-// 変更の有無の比較用（並び順・項目名・表示順・有効 / 無効・追加した行）。
-// 追加してすぐ削除した行は保存されないため比較から除く
+// For change detection (order, name, display order, enabled, added rows); rows added then deleted are never saved, so excluded.
 const optionRowsKey = (rows: OptionRow[]) =>
   JSON.stringify(
     rows
@@ -57,17 +56,12 @@ const optionRowsKey = (rows: OptionRow[]) =>
       ]),
   );
 
-// 保存済みの状態（baseline）から編集されているか
 export const hasOptionListChanges = (
   baseline: OptionRow[],
   rows: OptionRow[],
 ) => optionRowsKey(baseline) !== optionRowsKey(rows);
 
-// 保存で追加された行を、仮 id から DB の id に置き換えて保存済み（isNew: false）にする。
-// これを baseline・表示にすることで、再取得（router.refresh）が届く前に続けて保存しても
-// 同じ行を再び追加せず、保存済みの行の削除も無効化（UPDATE）として送られる。
-// 削除済みの行を再び有効にした場合（同じ名前の行を削除してから追加した場合）は、
-// 追加した行がその行の id になるため、画面に残っている削除済みの同じ id の行は除く
+// Replace saved rows' temporary ids with DB ids (isNew: false) in baseline and display, so saving again before the refetch (router.refresh) does not re-add rows and deleting a saved row is sent as a disable (UPDATE). If a deleted row was re-enabled by adding the same name, the added row takes that id, so drop the remaining deleted row with the same id.
 export const applyInsertedOptionIds = (
   rows: OptionRow[],
   insertedIds: InsertedSelectOptionId[],
@@ -82,12 +76,7 @@ export const applyInsertedOptionIds = (
     });
 };
 
-// 保存で送る行。変更した既存の行（baseline と項目名・表示順・有効 / 無効のいずれかが
-// 異なる行。並べ替えで表示順だけが変わった行を含む）と、追加した行（追加してすぐ削除した
-// 行を除く）だけを送り、変更していない行は送らない（UPDATE しない）。既存の行には
-// 項目名を変えたか（valueChanged）を添える（サーバは名前を変えた行だけを 1 行ずつ、
-// それ以外を並行に UPDATE する）。表示順が未設定（null / 0）の行は、全行を送っていた
-// ときと同じく画面の行数を表示順にする
+// Rows to send: changed existing rows (name, display order or enabled differs from baseline, including reorder-only) and added rows (excluding added-then-deleted); unchanged rows are not UPDATEd. Existing rows carry valueChanged (server UPDATEs renamed rows one by one, others in parallel). Rows with unset (null / 0) display order get their row position, as when all rows were sent.
 export const optionRowsToSave = (
   baseline: OptionRow[],
   rows: OptionRow[],
@@ -115,13 +104,10 @@ export const optionRowsToSave = (
   });
 };
 
-// 追加してすぐ削除した行（保存していない行）を除く
 const withoutDiscardedNewRows = (rows: OptionRow[]) =>
   rows.filter((row) => !(row.isNew && !row.is_active));
 
-// 保存が途中で失敗したとき、保存できた行に変更した内容が含まれていたか
-// （追加できた行がある、または UPDATE できた既存の行が baseline から変わっていた）。
-// sentRows は保存した時点の画面の全行（送ったのはこのうち optionRowsToSave の行）
+// Whether a partially failed save had persisted changed content (an added row, or an UPDATEd existing row that differs from baseline). sentRows is all rows at save time.
 export const hasPartiallySavedChanges = (
   baseline: OptionRow[],
   sentRows: OptionRow[],
@@ -141,13 +127,7 @@ export const hasPartiallySavedChanges = (
   );
 };
 
-// 保存が途中で失敗したときの、新しい保存済みの状態（baseline）。保存できた行（UPDATE
-// できた既存の行と追加できた行）は送った内容（追加した行は DB の id に置き換える）、
-// 保存できなかった既存の行・送っていない（変更していない）既存の行は元の baseline の
-// 内容にする。保存できなかった追加行は DB に無いため含めない。sentRows は保存した時点の
-// 画面の全行で、行の並びはこれに合わせる。
-// これにより、保存できた変更を画面で元に戻した場合も「未保存の変更あり」になり、
-// 保存し直して DB を画面に合わせられる
+// New baseline after a partial failure: saved rows (UPDATEd existing and added, with DB ids) take the sent content; unsaved existing and unsent rows keep the old baseline; unsaved added rows are excluded (not in the DB). Row order follows sentRows. This way, reverting a saved change on screen still counts as unsaved, so saving again syncs the DB to the screen.
 export const baselineAfterPartialSave = (
   baseline: OptionRow[],
   sentRows: OptionRow[],
@@ -166,8 +146,7 @@ export const baselineAfterPartialSave = (
   return applyInsertedOptionIds(merged, insertedIds);
 };
 
-// 表示中の（有効な）行どうしで重なっている項目名（最初に見つかったもの）。
-// 項目名は種類ごとに一意（UNIQUE(type_id, value)）のため、保存前に止める
+// First duplicate name among displayed (enabled) rows; names are unique per type (UNIQUE(type_id, value)), so stop before saving.
 export const findDuplicateOptionValue = (rows: OptionRow[]) => {
   const seen = new Set<string>();
   for (const row of rows) {
@@ -191,8 +170,7 @@ const SelectOptionList = ({
   const [updatedOptionList, setUpdatedOptionList] = useState<OptionRow[]>(() =>
     toOptionRows(optionList),
   );
-  // 画面に読み込んだ時点（または直前の保存成功時点）の状態。これと比べて未保存の変更が
-  // あるかを管理画面のメニュー（DashboardNav）に知らせ、切り替え前の確認に使う
+  // State when loaded (or at the last successful save); compared to detect unsaved changes, reported to DashboardNav for the confirm before switching.
   const [baseline, setBaseline] = useState<OptionRow[]>(() =>
     toOptionRows(optionList),
   );
@@ -201,11 +179,9 @@ const SelectOptionList = ({
   const hasChanges = hasOptionListChanges(baseline, updatedOptionList);
   useReportDashboardUnsavedChanges(hasChanges);
 
-  // 保存後の再取得（router.refresh）などでサーバの選択肢が変わったら、未保存の変更が
-  // 無い場合に限り表示を同期する（保存で追加した行に DB の id を反映する。編集中の
-  // 内容は黙って破棄しない。編集を終えて変更が無くなった時点で同期する）
+  // Sync the display after router.refresh etc. only when there are no unsaved changes (reflects DB ids for saved rows without silently discarding edits; syncs once edits end).
   const syncedOptionListRef = useRef(optionList);
-  // 最新の props（保存成功時に「同期済み」として扱うため）
+  // Latest props, so a successful save can treat them as synced.
   const latestOptionListRef = useRef(optionList);
   latestOptionListRef.current = optionList;
   useEffect(() => {
@@ -263,8 +239,7 @@ const SelectOptionList = ({
   };
 
   const handleAddOption = () => {
-    // 追加した行の仮 id は負の数にする（保存で DB が採番する id（正の数）と重ならない
-    // ように。保存に成功した行は DB の id に置き換える）
+    // Temporary ids are negative so they never collide with positive DB-assigned ids.
     const newId =
       Math.min(0, ...updatedOptionList.map((option) => option.id)) - 1;
     const newOption = {
@@ -307,16 +282,13 @@ const SelectOptionList = ({
       );
       if (!confirmed) return;
 
-      // 保存した時点の画面の全行（保存の応答を待つ間にも編集できるため、保存結果の
-      // baseline はこれから作り、表示には最新の編集内容に id の置き換えだけを適用する）。
-      // サーバへは、このうち変更した行と追加した行だけを送る
+      // All rows at save time (edits continue while awaiting the response, so the baseline is built from this while the display only gets id replacement). Only changed and added rows are sent.
       const sentRows = updatedOptionList;
       const { insertedIds, updatedIds, error } = await bulkUpsertSelectOptions(
         optionClass,
         optionRowsToSave(baseline, sentRows),
       );
-      // 追加できた行は DB の id に置き換える（途中で失敗した場合も、保存し直したときに
-      // 同じ行を再び追加しないように）
+      // Replace saved added rows with DB ids (also on partial failure, so saving again does not re-add them).
       setUpdatedOptionList((prev) => applyInsertedOptionIds(prev, insertedIds));
       if (error) {
         console.error(`${optionTitle}情報の保存に失敗しました。`, error);
@@ -328,12 +300,11 @@ const SelectOptionList = ({
           savedIds,
         );
         if (insertedIds.length > 0 || savedIds.length > 0) {
-          // 保存できた行を baseline に取り込む（保存できた変更を画面で元に戻したときに
-          // 「変更なし」になって DB と画面がずれたままにならないように）
+          // Merge saved rows into the baseline (so reverting a saved change on screen still counts as unsaved).
           setBaseline((prev) =>
             baselineAfterPartialSave(prev, sentRows, insertedIds, savedIds),
           );
-          // 保存に成功した場合と同じく、保留していた保存前の props で表示を戻さない
+          // As on success, do not revert the display to the held pre-save props.
           syncedOptionListRef.current = latestOptionListRef.current;
         }
         notifyError(
@@ -343,19 +314,15 @@ const SelectOptionList = ({
         );
         return;
       }
-      // 保存した時点の内容を新しい baseline にする（保存の応答を待つ間に編集していなければ、
-      // 未保存の変更なしになる）。追加してすぐ削除した行は保存していないため除く
+      // Save-time content becomes the new baseline (no unsaved changes if nothing was edited while awaiting the response); added-then-deleted rows were not saved, so excluded.
       setBaseline(
         withoutDiscardedNewRows(applyInsertedOptionIds(sentRows, insertedIds)),
       );
       setUpdatedOptionList((prev) => withoutDiscardedNewRows(prev));
-      // 編集中に届いて保留していた props（この保存より前の内容）を同期済みとして扱い、
-      // 保存した値が保存前の内容でいったん戻って見えないようにする（次に届く props から反映する）
+      // Treat props held during editing (pre-save content) as synced so saved values do not flash back to pre-save content; apply from the next props.
       syncedOptionListRef.current = latestOptionListRef.current;
       notifySuccess(`${optionTitle}情報を更新しました。`);
-      // ユーザー管理画面（/dashboard/users）のチーム欄などはサーバで取得した選択肢を
-      // props で受け取っているため、Server Component を再描画し、クライアントの
-      // ルーターキャッシュも破棄して、画面を切り替えたときに最新の選択肢を反映する
+      // Server-fetched options are passed as props (e.g. team column of /dashboard/users), so re-render Server Components and drop the client router cache to reflect the latest when switching screens.
       router.refresh();
     } catch (error) {
       console.error(`${optionTitle}情報の保存に失敗しました。`, error);
@@ -373,8 +340,7 @@ const SelectOptionList = ({
         </Title>
         <Button
           type="button"
-          // 未保存の変更が無い間は押せない（保存後の再取得を待つ間の連打で、追加した行が
-          // 再び登録されるのを防ぐ）
+          // Disabled while there are no unsaved changes (repeated clicks while awaiting the refetch would re-register added rows).
           disabled={isLoading || !hasChanges}
           onClick={handleSaveOption}
         >

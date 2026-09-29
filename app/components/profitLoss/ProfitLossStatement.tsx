@@ -51,26 +51,23 @@ import { confirmAction } from "@/app/utils/confirmAction";
 import { useDeleteProfitLossAdjustment } from "@/app/hooks/useProfitLossAdjustments";
 import { CLOSED_MONTH_LOCK_MESSAGE } from "@/app/utils/profitLossClosing";
 
-// 収支の内訳タブ（Issue #152）。分類別は損益計算書の売上総利益の「案件」行の内訳に
-// 統合したためタブを持たない（Issue #164）
+// Breakdown tabs. The by-category view is merged into the gross-profit "matter" row, so it has no tab.
 export type BreakdownTab = "matter" | "team";
 export const DEFAULT_BREAKDOWN_TAB: BreakdownTab = "matter";
-// 表示するタブ。チーム別タブはチーム別内訳のあるロール（accounting / admin）のみのため、
-// 内訳が無ければ案件別を表示する（選択は親の ProfitLossView が持ち、ここで解決して渡す）
+// Displayed tab; the team tab exists only for roles with a team breakdown (accounting/admin), otherwise show per-matter (selection lives in the parent ProfitLossView).
 export const resolveBreakdownTab = (
   tab: BreakdownTab,
   hasTeamBreakdown: boolean,
 ): BreakdownTab =>
   tab === "team" && !hasTeamBreakdown ? DEFAULT_BREAKDOWN_TAB : tab;
 
-// 損益計算書の展開行のキー（Issue #164）。費目は利用者のマスタ値のため種別のプレフィックスを付ける
-const GROSS_MATTER_KEY = "gross:matter"; // 売上総利益 > 案件（分類別の粗利）
-const GROSS_EXTRA_KEY = "gross:extra"; // 売上総利益 > 経理追加収支（収入）
-const ADMIN_EXTRA_KEY = "admin:extra"; // 管理費 > 経理追加収支（支出）
+// Expandable row keys. Item names are user master values, hence the type prefix.
+const GROSS_MATTER_KEY = "gross:matter";
+const GROSS_EXTRA_KEY = "gross:extra";
+const ADMIN_EXTRA_KEY = "admin:extra";
 const recurringRowKey = (item: string) => `recurring:${item}`;
 
-// 「売上 X − 費用 Y」の注記の本文（括弧なし）。費用が null（収入エントリの経費なし）なら売上のみ。
-// 見出し行・分類行・明細行の注記はすべてこれで組み、書式を揃える
+// Body of the "revenue X - cost Y" note (no parentheses); null cost (income entry without expense) shows revenue only. Shared by heading, category and line rows for consistent format.
 const revenueCostText = (
   revenueLabel: string,
   revenue: number,
@@ -81,7 +78,6 @@ const revenueCostText = (
     ? `${revenueLabel} ${formatCurrency(revenue)}`
     : `${revenueLabel} ${formatCurrency(revenue)} − ${costLabel} ${formatCurrency(cost)}`;
 
-// 「（売上 X − 費用 Y）」の注記
 const revenueCostNote = (
   revenueLabel: string,
   revenue: number,
@@ -89,7 +85,6 @@ const revenueCostNote = (
   cost: number,
 ) => `（${revenueCostText(revenueLabel, revenue, costLabel, cost)}）`;
 
-// 損益計算書の内訳の見出し行（子の階層）。onToggle があれば展開できる
 const BreakdownHeadingRow = ({
   label,
   note,
@@ -127,7 +122,6 @@ const BreakdownHeadingRow = ({
   </Table.Tr>
 );
 
-// 損益計算書の内訳の明細行（孫の階層。元データ / 調整の無い行）
 const BreakdownDetailRow = ({
   label,
   note,
@@ -155,28 +149,24 @@ const BreakdownDetailRow = ({
   </Table.Tr>
 );
 
-// 経理追加収支の明細の補足（分類 / チーム / 日付）
 const extraEntryAttributes = (entry: ExtraEntryLine) =>
   `${entry.category} / ${teamLabel(entry.team)} / ${formatDateToJp(entry.entryDate)}`;
 
 type Props = {
   report: PLReportType;
-  canEditAdjustments: boolean; // 実績額修正の操作を表示するか（accounting / admin）
-  canEditLabels: boolean; // 表示タイトルの変更操作を表示するか（accounting / admin）
-  // 選択中の内訳タブ。月を切り替えるとこのコンポーネントは作り直されるため、
-  // 選択は親（ProfitLossView）が持つ
+  canEditAdjustments: boolean;
+  canEditLabels: boolean;
+  // Selected breakdown tab; owned by the parent because this component is recreated on month change.
   breakdownTab?: BreakdownTab;
   onBreakdownTabChange?: (tab: BreakdownTab) => void;
 };
 
-// 「タイトルを変更」モーダルに渡す対象の情報
 type LabelModalState = {
   target: LabelTarget;
   originalTitle: string;
   currentTitle: string | null;
 };
 
-// 「実績額を修正」モーダルに渡す対象の情報
 type AdjustmentModalState = {
   target: AdjustmentTarget;
   label: string;
@@ -185,8 +175,7 @@ type AdjustmentModalState = {
   currentReason: string;
 };
 
-// 経理追加収支の金額1件分の表示行（全体共通（参考）セクション用）。
-// 収入エントリは請求額と経費（任意）の最大2行に分解する。
+// Display rows for one extra-entry amount (org-wide reference section); an income entry splits into billing amount and optional expense (up to 2 rows).
 type ExtraEntryAmountLine = {
   key: string;
   description: string;
@@ -217,7 +206,6 @@ const toExtraEntryAmountLines = (
   return lines;
 };
 
-// 対象種別の日本語表示（「対象行が当月に存在しません」の一覧用）
 const targetTypeLabel = {
   business: "売上",
   cost: "案件費用",
@@ -231,17 +219,14 @@ const ProfitLossStatement = ({
   breakdownTab = DEFAULT_BREAKDOWN_TAB,
   onBreakdownTabChange = () => {},
 }: Props) => {
-  // 損益計算書の展開状態（案件別収支の展開状態は MatterProfitTable が持つ）。
-  // 案件の分類別の粗利は初期表示で開いておく（Issue #164）
+  // Expansion state of the statement (per-matter expansion lives in MatterProfitTable). The category gross-profit breakdown starts open.
   const { expandedRows, toggleRow, expandAll, collapseAll } = useExpandedRows([
     GROSS_MATTER_KEY,
   ]);
-  // 経理追加収支は収入を売上総利益、支出を管理費の内訳に表示する（Issue #164。
-  // 振り分けは集計側 splitExtraEntries で済んでいるため、ここでは表示するだけ）
+  // Income entries show under gross profit, expense entries under admin cost; splitting is done in splitExtraEntries, so this only displays.
   const incomeExtraEntries = report.extraIncome.entries;
   const expenseExtraEntries = report.extraExpense.entries;
-  // 展開できる行の有無はここだけで判定し、描画条件と「すべて開く / 閉じる」の対象キーの
-  // 両方で同じ値を使う（片方だけ直して一括開閉が効かなくなるのを防ぐ）
+  // Single source for whether rows are expandable, used for both rendering and the bulk toggle keys (so fixing one side cannot break bulk toggle).
   const canExpandMatter = report.categoryBreakdown.length > 0;
   const hasIncomeExtra = incomeExtraEntries.length > 0;
   const hasExpenseExtra = expenseExtraEntries.length > 0;
@@ -260,10 +245,7 @@ const ProfitLossStatement = ({
   const [adjustmentModal, setAdjustmentModal] =
     useState<AdjustmentModalState | null>(null);
   const [labelModal, setLabelModal] = useState<LabelModalState | null>(null);
-  // 削除中の対象行が当月に存在しない調整の id 集合（deleteAdjustmentMutation.isPending
-  // だけで判定すると全行のボタンが連動してスピナーになるため、行ごとに個別管理する。
-  // Set にしているのは、複数行を続けて削除したときに片方の完了で他方のスピナーが
-  // 消えてしまわないようにするため）
+  // Ids of adjustments being deleted (rows absent from the month); tracked per row since mutation.isPending alone spins every button. A Set so finishing one deletion does not stop another row's spinner.
   const [deletingAdjustmentIds, setDeletingAdjustmentIds] = useState<
     Set<number>
   >(new Set());
@@ -330,7 +312,7 @@ const ProfitLossStatement = ({
     }
   };
 
-  // 確定済みの月（Issue #148）は損益調整を編集できない（確定済みチェックをオフにしてから編集する）
+  // Closed months cannot be adjusted (turn off the closed check first).
   const isClosed = !!report.closing;
 
   const hasUndated =
@@ -338,7 +320,6 @@ const ProfitLossStatement = ({
     report.undated.matterCost !== 0 ||
     report.undated.adminCost !== 0;
 
-  // 案件費用・管理費は損益計算書の行で確認できるため、カードは 3 指標のみ（Issue #164）
   const summaryCards = [
     { label: "売上", value: report.revenueTotal, color: "text-green-700" },
     {
@@ -353,7 +334,6 @@ const ProfitLossStatement = ({
     },
   ];
 
-  // 確定後の未処理の変更（Issue #149）がある明細・案件。案件別収支に変更アイコンを付ける
   const pendingDiffs = report.closingDiffs?.pending ?? [];
   const changedKeys = new Set(pendingDiffs.map((diff) => diff.key));
   const changedMatterIds = new Set(pendingDiffs.map((diff) => diff.matterId));
@@ -376,14 +356,12 @@ const ProfitLossStatement = ({
 
   return (
     <div>
-      {/* 確定後の案件の変更（差分一覧・反映・見送り。経理担当者・管理者のみ） */}
       <ClosingDiffPanel
         report={report}
         loadingMatterId={loadingMatterId}
         onShowMatter={handleShowMatter}
       />
 
-      {/* サマリーカード */}
       <SimpleGrid cols={{ base: 1, xs: 3 }} className="mb-6">
         {summaryCards.map((card) => (
           <Paper key={card.label} withBorder p="md" radius="md">
@@ -397,7 +375,6 @@ const ProfitLossStatement = ({
         ))}
       </SimpleGrid>
 
-      {/* 売上総利益（案件 / 経理追加収支（収入））→ 管理費（定期費用 / 経理追加収支（支出））→ 経常利益（Issue #164） */}
       <Paper withBorder radius="md" className="overflow-x-auto mb-6">
         <Table verticalSpacing="sm" highlightOnHover>
           <Table.Thead>
@@ -406,7 +383,7 @@ const ProfitLossStatement = ({
               <Table.Th className="text-right w-32">元データ</Table.Th>
               <Table.Th className="text-right w-32">調整</Table.Th>
               <Table.Th className="text-right w-32">実績</Table.Th>
-              {/* 列見出しの名前は「操作」（一括開閉のボタンの文言を列名として読み上げないようにする） */}
+              {/* Column name is "操作" so the bulk-toggle button text is not read as the column name. */}
               <Table.Th className="w-36" aria-label="操作">
                 <ExpandAllButtons
                   label="損益計算書の内訳"
@@ -418,7 +395,6 @@ const ProfitLossStatement = ({
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {/* 売上総利益（粗利）= 案件 + 経理追加収支（収入） */}
             <Table.Tr className="bg-slate-50">
               <Table.Td className="font-bold">
                 売上総利益（粗利）
@@ -443,7 +419,6 @@ const ProfitLossStatement = ({
               <Table.Td />
             </Table.Tr>
 
-            {/* 案件（案件別収支の「案件の合計」と一致）→ 分類別の粗利 */}
             <BreakdownHeadingRow
               label="案件"
               note={revenueCostNote(
@@ -471,7 +446,6 @@ const ProfitLossStatement = ({
                 />
               ))}
 
-            {/* 経理追加収支（収入）: 請求額 − 経費（収入に紐づく経費） */}
             {hasIncomeExtra && (
               <>
                 <BreakdownHeadingRow
@@ -505,7 +479,6 @@ const ProfitLossStatement = ({
               </>
             )}
 
-            {/* 管理費合計 = 定期費用（費目別。展開で明細）+ 経理追加収支（支出） */}
             <Table.Tr className="bg-slate-50">
               <Table.Td className="font-bold">
                 管理費合計
@@ -606,7 +579,6 @@ const ProfitLossStatement = ({
               );
             })}
 
-            {/* 経理追加収支（支出）: 経費を管理費へ算入する */}
             {hasExpenseExtra && (
               <>
                 <BreakdownHeadingRow
@@ -627,7 +599,6 @@ const ProfitLossStatement = ({
               </>
             )}
 
-            {/* 経常利益 = 売上総利益 − 管理費合計 */}
             <Table.Tr className="bg-slate-100 border-t-2 border-gray-400">
               <Table.Td className="font-bold text-lg">経常利益</Table.Td>
               <Table.Td />
@@ -645,12 +616,7 @@ const ProfitLossStatement = ({
         </Table>
       </Paper>
 
-      {/* 収支の内訳（Issue #152。案件別 / チーム別をタブで切り替える。分類別は Issue #164 で
-          損益計算書の「案件」行の内訳に統合した。
-          チーム別は accounting / admin のみデータが入る。チーム別内訳の無いロールは
-          タブが 1 つになるため、タブを出さずに案件別収支だけを表示する。
-          非表示のタブも描画したままにする Mantine v7 の既定（keepMounted）で、
-          タブを切り替えても案件別収支の展開状態を保つ） */}
+      {/* Keep the per-matter expansion state when switching tabs. */}
       {report.byTeam ? (
         <Tabs
           value={breakdownTab}
@@ -678,7 +644,6 @@ const ProfitLossStatement = ({
         <div className="mb-6">{matterProfitTable}</div>
       )}
 
-      {/* 対象行が当月に存在しない損益調整（案件開始日の変更等）。削除を促す */}
       {report.orphanedAdjustments && report.orphanedAdjustments.length > 0 && (
         <Alert
           color="orange"
@@ -687,8 +652,7 @@ const ProfitLossStatement = ({
         >
           <Text size="sm" className="mb-2">
             {isClosed
-              ? // 判定はライブの状態で行う。確定値に算入済みかは行ごとに示す
-                "案件開始日の変更や下書きへの差し戻しなどにより、対象行が当月の集計から外れている損益調整があります。確定値への算入の有無は各行に表示しています。調整を削除するには「確定済み」をオフにしてください。"
+              ? "案件開始日の変更や下書きへの差し戻しなどにより、対象行が当月の集計から外れている損益調整があります。確定値への算入の有無は各行に表示しています。調整を削除するには「確定済み」をオフにしてください。"
               : "案件開始日の変更や下書きへの差し戻しなどにより、対象行が当月の集計から外れています。損益には反映されていません。内容を確認して削除してください。"}
           </Text>
           <Table verticalSpacing="xs">
@@ -757,7 +721,7 @@ const ProfitLossStatement = ({
         </Alert>
       )}
 
-      {/* 全体共通（参考）: teamleader のみデータが入る */}
+      {/* Org-wide (reference): populated for teamleader only. */}
       {((report.orgWideRecurringCosts &&
         report.orgWideRecurringCosts.length > 0) ||
         (report.orgWideExtraEntries &&
@@ -808,7 +772,6 @@ const ProfitLossStatement = ({
         </Paper>
       )}
 
-      {/* 月未確定 */}
       {hasUndated && (
         <Alert color="yellow" title="月未確定のデータがあります">
           案件開始日・経理追加収支の日付が未入力のため、月次集計に含まれていないデータがあります（売上:
@@ -820,7 +783,6 @@ const ProfitLossStatement = ({
         </Alert>
       )}
 
-      {/* 案件詳細モーダル（閲覧専用） */}
       {selectedMatter && (
         <MatterCardDetail
           variant="readonly"
@@ -830,7 +792,6 @@ const ProfitLossStatement = ({
         />
       )}
 
-      {/* タイトル変更モーダル（accounting / admin のみ開ける） */}
       {labelModal && (
         <ProfitLossLabelModal
           opened
@@ -841,7 +802,6 @@ const ProfitLossStatement = ({
         />
       )}
 
-      {/* 実績額修正モーダル（accounting / admin のみ開ける） */}
       {adjustmentModal && (
         <ProfitLossAdjustmentModal
           opened

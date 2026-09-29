@@ -13,15 +13,12 @@ export type DashboardMenuItem = {
   label: string;
 };
 
-// 管理画面（/dashboard）のメニュー。/dashboard 自体は /dashboard/users へリダイレクトする
 export const DASHBOARD_MENU_ITEMS: DashboardMenuItem[] = [
   { href: "/dashboard/users", label: "ユーザー管理" },
   { href: "/dashboard/options", label: "項目管理" },
 ];
 
-// 選択中のメニューを判定する。MattersTabs と同じく前方一致で判定し
-// （各メニュー配下に将来サブルートが増えてもハイライトが外れないように）、
-// 複数が一致する場合は href が最も長い＝最も具体的なメニューを優先する
+// Pick the selected menu by prefix match (like MattersTabs) so future subroutes keep it highlighted; when several match, the longest href (most specific) wins.
 export const findActiveDashboardMenu = (
   pathname: string,
   items: DashboardMenuItem[] = DASHBOARD_MENU_ITEMS,
@@ -33,18 +30,14 @@ export const findActiveDashboardMenu = (
 export const UNSAVED_CHANGES_LEAVE_MESSAGE =
   "未保存の変更があります。破棄して移動しますか？";
 
-// 管理画面のメニュー。PC（768px 以上）は左のサイドメニュー、モバイル（768px 未満）は
-// 画面上部の横並びタブで表示する。切り替えは CSS（Tailwind の md ブレークポイント）で行い、
-// useViewportSize のように初回描画（幅 0）でモバイル表示が一瞬出ることを避ける
+// Side menu on PC (768px+), horizontal tabs on mobile. Switched by CSS (Tailwind md) rather than useViewportSize, which flashes mobile on first render (width 0).
 const DashboardNav = () => {
   const pathname = usePathname();
   const router = useRouter();
   const activeItem = findActiveDashboardMenu(pathname);
   const hasUnsavedChanges = useDashboardHasUnsavedChanges();
 
-  // 未保存の変更がある状態で別の画面へ切り替えようとしたら確認し、キャンセルなら遷移しない
-  // （アプリ内の遷移では beforeunload が発火しないため）。新しいタブで開く操作
-  // （修飾キー付き・中ボタン）は今の画面の編集内容を失わないので、そのまま通す
+  // Confirm before switching away with unsaved changes (beforeunload does not fire for in-app navigation); opening in a new tab (modifier / middle click) keeps the current edits, so let it through.
   const handleNavigate = async (
     event: MouseEvent<HTMLElement>,
     href: string,
@@ -95,8 +88,7 @@ const DashboardNav = () => {
                 key={item.href}
                 value={item.href}
                 onClick={(event) => handleNavigate(event, item.href)}
-                // Mantine が渡す root props の type="button" は <a> では意味を持たないため
-                // 除外する（MattersTabs と同じ）
+                // Drop Mantine's root prop type="button", meaningless on <a> (same as MattersTabs).
                 renderRoot={({ type, ...rootProps }) => (
                   <Link href={item.href} {...rootProps} />
                 )}

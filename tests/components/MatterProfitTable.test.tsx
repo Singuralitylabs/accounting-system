@@ -105,12 +105,10 @@ describe("MatterProfitTable", () => {
     expect(within(matterRowX).getByText("￥900,000")).toBeInTheDocument();
     expect(within(matterRowX).getByText("￥300,000")).toBeInTheDocument();
     expect(within(matterRowX).getByText("￥600,000")).toBeInTheDocument();
-    // チームの見出し行は無い
     expect(
       screen.queryByRole("button", { name: /^シンラボ/ }),
     ).not.toBeInTheDocument();
 
-    // 案件の合計（損益計算書の「案件」行と一致する旨を注記する。Issue #164）
     const totalRow = screen.getByText("案件の合計").closest("tr")!;
     expect(within(totalRow).getByText("￥1,100,000")).toBeInTheDocument();
     expect(within(totalRow).getByText("￥800,000")).toBeInTheDocument();
@@ -126,13 +124,11 @@ describe("MatterProfitTable", () => {
     ).not.toBeInTheDocument();
 
     fireEvent.click(matterToggle(12, "案件X"));
-    // 上書きタイトルを表示し、元の名称はバッジのツールチップで確認できる
     expect(screen.getByText("取引先A（経理表記）")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "元の名称: 取引先A" }),
     ).toBeInTheDocument();
     expect(screen.getByText("外注費用")).toBeInTheDocument();
-    // 調整がある明細は元データ・調整を補足表示し、調整ありバッジを付ける
     expect(
       screen.getByText("元データ ￥1,000,000 / 調整 -￥100,000"),
     ).toBeInTheDocument();

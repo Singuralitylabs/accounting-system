@@ -1,10 +1,7 @@
-// 閲覧者のプロフィール取得 + ロール確認をまとめたサーバ側ヘルパ。
-// middleware はページ遷移しか守らないため、Server Action 側でも権限を確認する
-// （多層防御）。同じ「取得 → hasClassAccess」の組が各ドメインの取得関数に
-// 散らばると、片方だけ条件を直したときに気付けないためここに集約する。
-//
-// "use server" を付けないのは、型・非 async のエクスポートを持てるようにするため
-// （requestCache.ts と同じ理由）。サーバ専用モジュールからのみ import する。
+// Profile fetch + role check for the server side. middleware protects only navigation, so Server
+// Actions check too (defense in depth); kept here so the pair is not scattered per domain.
+// No "use server" so it can export types / non-async values (same as requestCache.ts); import from
+// server-only modules only.
 
 import { AccessFailure, ProfilesType } from "../../types/types";
 import { Role, hasClassAccess } from "../permissions";
@@ -16,7 +13,7 @@ export type ViewerAccessResult =
 
 export const getAuthorizedViewer = async (
   allowedClasses: readonly Role[],
-  // ログ・ユーザー向けメッセージに使う対象名（例: "事前収支申告"）
+  // Name used in logs and user-facing messages (e.g. "事前収支申告").
   subject: string,
 ): Promise<ViewerAccessResult> => {
   const { profileInfo, error } = await getProfileInfo();

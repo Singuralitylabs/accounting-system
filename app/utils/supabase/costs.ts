@@ -143,7 +143,6 @@ export const bulkInsertCostInfo = async (
   return { error: null };
 };
 
-// バルク操作関数
 
 export const bulkUpsertCostInfo = async (
   costs: Array<{
@@ -165,16 +164,12 @@ export const bulkUpsertCostInfo = async (
 ) => {
   const supabase = createServerSupabase();
   
-  // 新規作成用
   const newCosts = costs.filter(c => c.isNew && !c.isRemoved);
-  // 更新用  
   const updateCosts = costs.filter(c => !c.isNew && !c.isRemoved);
-  // 削除用
   const deleteCosts = costs.filter(c => c.isRemoved && !c.isNew);
   
   const operations = [];
   
-  // バルクINSERT
   if (newCosts.length > 0) {
     const insertData = newCosts.map(cost => ({
       name: cost.name,
@@ -194,7 +189,6 @@ export const bulkUpsertCostInfo = async (
     );
   }
   
-  // バルクUPDATE
   if (updateCosts.length > 0) {
     const updatePromises = updateCosts.map(cost => {
       if (!cost.id) {
@@ -225,7 +219,6 @@ export const bulkUpsertCostInfo = async (
     operations.push(...updatePromises);
   }
   
-  // バルクDELETE
   if (deleteCosts.length > 0) {
     const deleteIds = deleteCosts.map(c => c.id).filter(id => id !== undefined);
     if (deleteIds.length > 0) {
@@ -235,7 +228,6 @@ export const bulkUpsertCostInfo = async (
     }
   }
   
-  // 全て並列実行
   if (operations.length > 0) {
     const results = await Promise.all(operations);
     const errors = results.filter(result => result.error).map(result => result.error);

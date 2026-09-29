@@ -24,8 +24,6 @@ import {
   RecurringCostType,
 } from "@/app/types/types";
 
-// ===== フィクスチャ =====
-
 const matter = (
   id: number,
   team: string,
@@ -167,7 +165,6 @@ const baseInput = (
   ...override,
 });
 
-// 確定時点のライブ集計からスナップショット（DB 保存形式）を作る
 const snapshotOf = (input: MonthlyReportInput): MonthClosingSnapshot => ({
   header: {
     target_month: `${input.month}-01`,
@@ -180,7 +177,7 @@ const snapshotOf = (input: MonthlyReportInput): MonthClosingSnapshot => ({
   dismissals: [],
 });
 
-// スナップショットをチームリーダーが読む（RLS: 自チーム＋全体共通の明細のみ）
+// Team leader reads the snapshot (RLS: only own-team and company-wide lines).
 const visibleToTeamLeader = (
   snapshot: MonthClosingSnapshot,
   team: string,
@@ -191,13 +188,10 @@ const visibleToTeamLeader = (
   ),
 });
 
-// ===== テスト =====
-
 describe("確定明細への変換と再構成（Issue #148）", () => {
   it("明細行 → 確定明細 → 明細行の往復で内容が一致する（調整額・調整理由を含む）", () => {
     const lines = buildLiveMonthLines(baseInput());
     const restored = closingRowsToMonthLines(monthLinesToClosingRows(lines));
-    // 確定値は元データ変更の警告・調整レコードを持たない（金額と理由のみ保持する）
     const normalize = <T extends { adjustment?: unknown }>(items: T[]) =>
       items.map((item) => ({ ...item, adjustment: null }));
     expect(restored.businesses).toEqual(normalize(lines.businesses));
@@ -220,7 +214,6 @@ describe("確定明細への変換と再構成（Issue #148）", () => {
       const input = baseInput({
         isTeamLeader,
         includeTeamBreakdown: !isTeamLeader,
-        // チームリーダーは RLS で自チーム＋全体共通の行しか読めない
         ...(team
           ? {
               businessRows: baseInput().businessRows.filter(
@@ -305,7 +298,6 @@ describe("確定明細への変換と再構成（Issue #148）", () => {
     const snapshot = snapshotOf(input);
     const before = buildMonthReport({ ...input, closing: snapshot });
     const changed = baseInput({
-      // 案件 1 の売上を増額、案件 2 の明細を削除（調整も CASCADE で削除）、定期費用を値上げ
       businessRows: [business(1, 999999, 1, "シンラボ")],
       costRows: [cost(1, 30000, 1, "シンラボ")],
       recurringCosts: [
@@ -320,7 +312,6 @@ describe("確定明細への変換と再構成（Issue #148）", () => {
     expect(after.recurringCostTotal).toBe(before.recurringCostTotal);
     expect(after.ordinaryProfit).toBe(before.ordinaryProfit);
     expect(after.byTeam).toEqual(before.byTeam);
-    // ライブ集計は変わっている（確定値との差分は Issue #149 で検知する）
     expect(buildMonthReport(changed).revenueTotal).not.toBe(
       before.revenueTotal,
     );
@@ -329,7 +320,6 @@ describe("確定明細への変換と再構成（Issue #148）", () => {
   it("年間推移: 確定済みの月はスナップショット、未確定の月はライブ集計を使う", () => {
     const august = baseInput();
     const snapshot = snapshotOf(august);
-    // 確定後、両月とも定期費用が値上げされた
     const rows = baseInput({
       recurringCosts: [
         recurringCost({ id: 1, team: "シンラボ", price: 20000 }),
@@ -346,8 +336,8 @@ describe("確定明細への変換と再構成（Issue #148）", () => {
       month: "2026-09",
       closing: null,
     });
-    expect(closedAugust.recurringCostTotal).toBe(85000); // 確定時点（10000 + 70000 + 調整 5000）
-    expect(liveSeptember.recurringCostTotal).toBe(90000); // 値上げ後（20000 + 70000）
+    expect(closedAugust.recurringCostTotal).toBe(85000);
+    expect(liveSeptember.recurringCostTotal).toBe(90000);
     expect(closedAugust.closing).not.toBeNull();
     expect(liveSeptember.closing).toBeNull();
   });
@@ -355,7 +345,6 @@ describe("確定明細への変換と再構成（Issue #148）", () => {
   it("確定済みの月の「対象行が当月に存在しない調整」に、確定値へ算入済みかを付ける", () => {
     const input = baseInput();
     const snapshot = snapshotOf(input);
-    // 確定後、案件 1 の開始日を 9 月へ移した（business:1 の調整は確定値に算入済み）
     const moved = baseInput({
       businessRows: [
         {
@@ -366,7 +355,6 @@ describe("確定明細への変換と再構成（Issue #148）", () => {
       ],
       adjustments: [
         ...input.adjustments,
-        // 確定時点で既に対象行が当月に無かった調整（business:99 は確定明細にも無い）
         {
           ...input.adjustments[0],
           id: 9,
@@ -384,7 +372,6 @@ describe("確定明細への変換と再構成（Issue #148）", () => {
       [1, true],
       [9, false],
     ]);
-    // ライブの月では付けない
     expect(
       buildMonthReport(moved).orphanedAdjustments?.[0].includedInClosing,
     ).toBeUndefined();
@@ -424,11 +411,9 @@ describe("確定明細への変換と再構成（Issue #148）", () => {
     expect(renamed.businesses[0]).toMatchObject({
       name: "取引先1（改名）",
       matterTitle: "案件1（改名）",
-      actualAmount: 90000, // 金額は確定値のまま
+      actualAmount: 90000,
     });
-    // 同じ案件の費用明細にも最新の案件名を使う
     expect(renamed.costs[0].matterTitle).toBe("案件1（改名）");
-    // 元の行が取得範囲に無い明細は確定時点の名称
     expect(renamed.businesses[1].name).toBe("取引先2");
     expect(renamed.costs[1].matterTitle).toBe("案件2");
   });
@@ -453,10 +438,10 @@ describe("確定済みの月の判定と編集可否（Issue #148）", () => {
     expect(canWriteExtraEntry(closed, undefined, "2026-09-20")).toBe(true);
     expect(canWriteExtraEntry(closed, null, null)).toBe(true);
     expect(canWriteExtraEntry(closed, "2026-08-10", "2026-08-10")).toBe(false);
-    expect(canWriteExtraEntry(closed, "2026-09-10", "2026-08-10")).toBe(false); // 確定済みの月へ移動
-    expect(canWriteExtraEntry(closed, "2026-08-10", "2026-09-10")).toBe(false); // 確定済みの月から移動
+    expect(canWriteExtraEntry(closed, "2026-09-10", "2026-08-10")).toBe(false);
+    expect(canWriteExtraEntry(closed, "2026-08-10", "2026-09-10")).toBe(false);
     expect(canWriteExtraEntry(closed, "2026-08-10", null)).toBe(false);
-    expect(canWriteExtraEntry(closed, undefined, "2026-10-01")).toBe(false); // 確定済みの月への追加
+    expect(canWriteExtraEntry(closed, undefined, "2026-10-01")).toBe(false);
   });
 
   it("一括保存で送る行（編集した行のみ）から編集ロックに抵触する行を抽出する", () => {
@@ -480,7 +465,6 @@ describe("確定済みの月の判定と編集可否（Issue #148）", () => {
       row({ ...originals.get(2)!, entry_date: "2026-09-15" }),
       row({ ...originals.get(3)!, entry_date: "2026-10-15" }),
       row(originals.get(4)!, { isRemoved: true }),
-      // 確定済みの月の行でも編集していなければ送らない（違反にならない）
       row(originals.get(8)!),
       row(saved(5, "2026-08-01", "確定月に追加"), { isNew: true }),
       row(saved(6, "2026-08-01", "追加して取り消し"), {

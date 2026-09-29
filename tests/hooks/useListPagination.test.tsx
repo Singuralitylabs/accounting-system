@@ -62,7 +62,6 @@ describe("useListPagination", () => {
       result.current.setPage(3);
     });
     rerender({ list: items(30) });
-    // 30件では最終2ページ。件数変動ではリセットせず丸める
     expect(result.current.page).toBe(2);
     expect(result.current.pagedItems.map((item) => item.id)).toEqual([
       25, 26, 27, 28, 29, 30,

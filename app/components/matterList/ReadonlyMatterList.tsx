@@ -9,7 +9,6 @@ import { Badge } from "@mantine/core";
 import { useListPagination } from "../../hooks/useListPagination";
 import { MatterListPagination } from "./MatterListPagination";
 
-// チーム案件一覧で使用する型（担当者情報を含む）
 export type TeamMatterType = {
   id: number;
   title: string;
@@ -33,13 +32,12 @@ interface ReadonlyMatterListProps {
 }
 
 const ReadonlyMatterList: FC<ReadonlyMatterListProps> = ({ matterList }) => {
-  const [switchDisplay, setSwitchDisplay] = useState(false); // false: カード表示, true: テーブル表示
+  const [switchDisplay, setSwitchDisplay] = useState(false);
   const [selectedMatter, setSelectedMatter] = useState<TeamMatterType | null>(
     null,
   );
   const [detailOpened, setDetailOpened] = useState(false);
-  // 件数増加に伴う DOM 肥大を抑えるためのクライアント側ページネーション。
-  // 取得・ソートは変えず、表示範囲だけを切り出す。
+  // Client-side pagination to limit DOM size; fetching and sorting are unchanged.
   const {
     page,
     setPage,
@@ -217,7 +215,6 @@ const ReadonlyMatterList: FC<ReadonlyMatterListProps> = ({ matterList }) => {
 
   return (
     <div className="px-8 py-4">
-      {/* 表示切替ボタン */}
       <div className="mb-4 flex justify-between items-center">
         <div className="text-sm text-gray-500">
           {showPagination
@@ -230,7 +227,6 @@ const ReadonlyMatterList: FC<ReadonlyMatterListProps> = ({ matterList }) => {
         />
       </div>
 
-      {/* メイン表示エリア */}
       {switchDisplay ? renderTableView() : renderCardView()}
 
       {showPagination && (
@@ -246,7 +242,6 @@ const ReadonlyMatterList: FC<ReadonlyMatterListProps> = ({ matterList }) => {
         />
       )}
 
-      {/* 詳細モーダル */}
       {selectedMatter && (
         <MatterCardDetail
           variant="readonly"

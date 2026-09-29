@@ -44,7 +44,7 @@ const UserBusinessBlock = ({
     onBusinessUpdate({ ...businessInfo, ...updates });
   };
 
-  // 申請済みの案件でも、新規追加された項目は編集可能
+  // Newly added items stay editable even in submitted matters.
   const isItemDisabled = isFixed && !businessInfo.isNew;
   const mdBgColorClass = formType === "new" ? "md:bg-slate-50" : "md:bg-white";
 

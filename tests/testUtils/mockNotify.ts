@@ -1,16 +1,15 @@
 import { vi } from "vitest";
 
-// `@/app/utils/notify` の共有モック。
-// 通知の副作用（Mantine の notifications.show）だけを vi.fn に差し替え、
-// toErrorMessage は実装をそのまま使う。手書きの vi.mock を増やすと
-// toErrorMessage の分岐がファイルごとにずれ、notify.ts の API 変更に追従できない。
+// Shared mock for `@/app/utils/notify`. Replaces only the notification side effect (Mantine's
+// notifications.show) with vi.fn and keeps the real toErrorMessage; hand-written vi.mock copies would let
+// toErrorMessage branches drift per file and miss notify.ts API changes.
 //
-// vi.mock は import より前にホイストされるため、ファクトリ内で動的 import する。
-// `@` はリポジトリルートなので、テストの階層に依存しない:
+// vi.mock is hoisted above imports, so import dynamically inside the factory.
+// `@` is the repo root, so this is independent of test depth:
 //   vi.mock("@/app/utils/notify", () =>
 //     import("@/tests/testUtils/mockNotify").then((m) => m.mockNotify()),
 //   );
-// アサーション側はモック後の `@/app/utils/notify` から notifyError 等を import する。
+// Import notifyError etc. for assertions from the mocked `@/app/utils/notify`.
 export async function mockNotify() {
   const actual =
     await vi.importActual<typeof import("@/app/utils/notify")>(

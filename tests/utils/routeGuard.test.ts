@@ -18,8 +18,7 @@ import {
   withAuthTimeout,
 } from "@/app/utils/routeGuard";
 
-// 応答せず、signal の中断だけを中継する fetch（undici の実挙動に相当）。
-// タイムアウト／中断の振る舞い検証で共有する。
+// fetch that never responds and only relays signal aborts (mimics undici); shared by the timeout/abort tests.
 const hangingFetch = ((
   _input: Parameters<typeof fetch>[0],
   init?: Parameters<typeof fetch>[1],
@@ -204,18 +203,17 @@ describe("createTimeoutFetch", () => {
       },
       (reason) => reason,
     );
-    // タイムアウト（5 秒）を待たず素通りすることの厳密な保証は、下の同一性
-    // アサーション（`toBe(networkError)`）が担う。上の wall-clock 上限は
-    // 高負荷 CI でも flaky にならないよう 5000ms と十分な余裕を持たせている。
+    // That the call passes through without waiting for the timeout (5s) is strictly guaranteed by the identity
+    // assertion below (`toBe(networkError)`). The wall-clock upper bound above is a generous 5000ms so it
+    // stays non-flaky on loaded CI.
     expect(Date.now() - start).toBeLessThan(5000);
     expect(error).toBe(networkError);
   });
 
   it("中断理由を auth-js と同じ包み方にすると一時的障害になる", async () => {
-    // auth-js 2.65.1 の `_handleRequest`（`lib/fetch.js`）は fetch の reject を
-    // 種類によらず `new AuthRetryableFetchError(message, 0)` に包む。この前提が
-    // 崩れる（将来の更新時）と middleware の 503 経路に載らなくなるため、
-    // 結合を固定化する。更新時は包み方の実コードを再確認すること。
+    // auth-js 2.65.1 `_handleRequest` (`lib/fetch.js`) wraps any fetch rejection in
+    // `new AuthRetryableFetchError(message, 0)`. If that assumption breaks (on a future update) the error
+    // no longer takes middleware's 503 path, so pin the coupling. Re-check the wrapping code when updating.
     const abortReason = await createTimeoutFetch(
       20,
       hangingFetch,
@@ -248,23 +246,21 @@ describe("withAuthTimeout", () => {
   });
 
   it("既定の上限と後続取得の合算でも Edge の 25 秒制限に収まる", () => {
-    // getUser 全体の上限＋後続の profiles 取得（外側打ち切り）の合算
     expect(AUTH_GET_USER_TIMEOUT_MS + AUTH_PROFILES_TIMEOUT_MS).toBeLessThan(
       25000,
     );
-    // profiles 取得の外側は内側（1 リクエスト上限）より長くする。
-    // Promise.resolve(thenable) が .then をマイクロタスクで呼ぶため、
-    // 同一遅延では外側が先に登録・発火して内側が勝てない。マージンで順序を明示する
+    // The outer profiles timeout must be longer than the inner one (per-request limit). Promise.resolve(thenable)
+    // calls .then in a microtask, so with the same delay the outer registers/fires first and the inner cannot win;
+    // the margin makes the order explicit.
     expect(AUTH_FETCH_TIMEOUT_MS).toBeLessThan(AUTH_PROFILES_TIMEOUT_MS);
     expect(AUTH_FETCH_TIMEOUT_MS).toBeLessThan(AUTH_GET_USER_TIMEOUT_MS);
-    // 受け入れ基準「数秒以内に 503」の回帰検出（引き上げは基準との再合意が必要）
     expect(AUTH_GET_USER_TIMEOUT_MS).toBeLessThanOrEqual(6000);
     expect(AUTH_PROFILES_TIMEOUT_MS).toBeLessThanOrEqual(6000);
   });
 
   it("期限切れトークンの再試行ループ想定でも全体上限で打ち切る", async () => {
-    // auth-js の `_refreshAccessToken` 相当：ハングする試行＋バックオフ再試行を
-    // 繰り返すループを、外側の上限で打ち切って一時的障害（＝503）に落とす。
+    // Equivalent of auth-js `_refreshAccessToken`: a loop of hanging attempts plus backoff retries is cut off by
+    // the outer limit and becomes a transient failure (503).
     const fetchWithTimeout = createTimeoutFetch(50, hangingFetch);
     const refreshLoopLike = (async () => {
       for (let attempt = 0; attempt < 10; attempt++) {
@@ -302,7 +298,6 @@ describe("タイムアウト後のタイマー残存", () => {
       5000,
       baseFetch,
     )("https://example.test/user");
-    // 成功パスで cleanup() が走り、保留タイマーは消える
     await pending;
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -356,8 +351,8 @@ describe("classifyPath（public / protected / restricted）", () => {
   });
 
   it("ロール制限ルートと許可ロール", () => {
-    // /matters/team・/matters/accounting は /matters（AUTH_ONLY_ROUTES）の配下だが、
-    // ROUTE_PERMISSIONS に一致するルートがあるため restricted が優先される
+    // /matters/team and /matters/accounting are under /matters (AUTH_ONLY_ROUTES), but a matching
+    // ROUTE_PERMISSIONS entry exists, so restricted takes priority.
     expect(classifyPath("/matters/team")).toEqual({
       kind: "restricted",
       route: "/matters/team",
@@ -373,7 +368,6 @@ describe("classifyPath（public / protected / restricted）", () => {
       route: "/matters/team",
       allowed: ["teamleader", "admin"],
     });
-    // 旧 URL。新 URL と同じ許可ロールで、リダイレクト前の保護として残す
     expect(classifyPath("/team")).toEqual({
       kind: "restricted",
       route: "/team",
@@ -420,7 +414,7 @@ describe("classifyPath（public / protected / restricted）", () => {
 
 describe("isProfilesTimeoutError（Issue #137）", () => {
   it("postgrest-js が包んだ TimeoutError をタイムアウトと判定する", () => {
-    // PostgrestBuilder.ts の catch 節は `${name}: ${message}` の形式で包む
+    // PostgrestBuilder.ts's catch clause wraps errors as `${name}: ${message}`.
     expect(
       isProfilesTimeoutError({
         message: `TimeoutError: Supabase Auth request timed out after ${AUTH_FETCH_TIMEOUT_MS}ms`,
@@ -459,9 +453,9 @@ describe("profiles 取得のタイムアウト合成（Issue #137）", () => {
     vi.useRealTimers();
   });
 
-  // middleware と同じ合成（Promise.resolve(thenable) + withAuthTimeout）を
-  // fake timer で再現し、どちらの経路で 503 相当になるかを示す。
-  // postgrest-js 相当：fetch の中断を throw ではなく { error } の戻り値に包む
+  // Reproduce middleware's composition (Promise.resolve(thenable) + withAuthTimeout) with fake timers to show
+  // which path yields the 503 equivalent. postgrest-js equivalent: a fetch abort is wrapped in an
+  // { error } return value instead of being thrown.
   const postgrestLike = (fetch: typeof globalThis.fetch) =>
     ({
       then: (
@@ -500,9 +494,8 @@ describe("profiles 取得のタイムアウト合成（Issue #137）", () => {
     );
     const assertion = pending.then(
       (result) => {
-        // 外側の throw ではなく内側の中断が error として届く。
-        // 同一遅延では外側が先に発火するため、このアサーションは
-        // AUTH_PROFILES_TIMEOUT_MS のマージンが無いと失敗する
+        // The inner abort arrives as error, not as an outer throw. With the same delay the outer fires first,
+        // so this assertion fails without the AUTH_PROFILES_TIMEOUT_MS margin.
         expect(result.error).not.toBeNull();
         expect(isProfilesTimeoutError(result.error)).toBe(true);
       },

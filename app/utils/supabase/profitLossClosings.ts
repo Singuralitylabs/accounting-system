@@ -39,14 +39,11 @@ import { fetchClosedMonthKeys } from "./closedMonthsQuery";
 
 export type ProfitLossClosingWriteResult = { error?: AccessFailure };
 
-// 月次収支の確定（「確定済み」チェックのオン）。
-// クライアントから送られた金額は使わず、サーバ側で当月をライブ集計し直した明細を
-// スナップショットとして保存する（損益計算書の表示と同じ buildLiveMonthLines）。
-// 保存は DB 関数 save_profit_loss_closing（ヘッダの追加 + 明細の全置換）の
-// 単一トランザクション。書き込み権限（accounting / admin）は DB 関数内でも判定される。
-// 経理担当者・管理者は RLS で全行を読めるため、明細は全チーム分になる。
-// 既に確定済みの月は DB 関数が ALREADY_CLOSED で拒否する（未確定の表示のまま残った
-// 古い画面から確定し、他の経理担当者の確定・見送りを黙って上書きしないため）
+// Closes a month. Client-sent amounts are ignored: the server recomputes live lines
+// (buildLiveMonthLines) and stores them as the snapshot, via one transaction (save_profit_loss_closing:
+// header insert + full line replacement). Write permission is also checked in the DB function.
+// Accounting/admin read all rows via RLS, so lines cover all teams. An already-closed month is
+// rejected with ALREADY_CLOSED so a stale screen cannot overwrite another accountant's closing/skips.
 export const closeProfitLossMonth = async (
   month: string,
 ): Promise<ProfitLossClosingWriteResult> => {
@@ -64,7 +61,7 @@ export const closeProfitLossMonth = async (
   }
 
   const supabase = createServerSupabase();
-  // 確定の明細に要るのはライブ集計の行だけ（表示タイトル・確定明細等は取得しない）
+  // Closing lines only need the live rows (no display titles / closing lines).
   const liveClosingRows = async () => {
     const rows = await fetchLiveSourceRows({
       startMonth: month,
@@ -74,7 +71,7 @@ export const closeProfitLossMonth = async (
       ? monthLinesToClosingRows(buildLiveMonthLines({ month, ...rows }))
       : null;
   };
-  // closingId を渡すと、確定直後の再検証で自分の確定を取り直す（新規の確定は渡さない）
+  // With closingId, re-fetches our own closing for post-close verification (not passed for new closings).
   const save = async (
     lines: ClosingLineInput[],
     closingId?: number,
@@ -133,16 +130,16 @@ export const closeProfitLossMonth = async (
     };
   }
 
-  // 集計（上の取得）から確定のコミットまでの間は、まだ編集ロックが掛かっていないため、
-  // 他の経理担当者が当月の損益調整・経理追加収支を保存するとスナップショットから漏れる
-  // （しかも以後ロックされ、定期費用・経理追加収支は変更検知の対象外で気付けない）。
-  // 確定のコミット後（= ロック後）にもう一度集計し、違いがあれば取り直して確定値に含める。
-  // 確定の DB 関数と損益調整・経理追加収支の書き込み（トリガー）は同じ月の advisory lock で
-  // 直列化されている（Issue #171）。確定より先に始まった書き込みは確定のコミット前に
-  // コミットされるためこの再集計に必ず含まれ、確定より後の書き込みは確定済みとして拒否される
+  // Between the aggregation above and the closing commit there is no edit lock yet, so another
+  // accountant's adjustment/extra entry saved in that window would be missing from the snapshot (and
+  // then locked; recurring-cost adjustments and extra entries are outside diff detection, so unnoticed). After
+  // commit (= locked), aggregate again and re-take the snapshot if anything differs.
+  // The closing DB function and the adjustment/extra-entry write triggers are serialized by the same
+  // month advisory lock: writes started before closing commit first and are included in the re-aggregation;
+  // later writes are rejected as closed.
   const verified = await liveClosingRows();
   if (!verified) {
-    // 確定自体は完了している。確認できなかったことだけを知らせる
+    // Closing itself is done; only report that verification could not complete.
     return {
       error: {
         kind: "fetchFailed",
@@ -154,7 +151,7 @@ export const closeProfitLossMonth = async (
   if (!sameClosingRows(lines, verified)) {
     const retaken = await save(verified, saved.closingId);
     if (retaken.failure === "closingChanged") {
-      // 確定の直後に他の経理担当者が解除・確定し直した。その確定を上書きしない
+      // Someone else unclosed/reclosed right after; do not overwrite their closing.
       return {
         error: {
           kind: "validationFailed",
@@ -176,8 +173,7 @@ export const closeProfitLossMonth = async (
   return {};
 };
 
-// 確定の解除（「確定済み」チェックのオフ）。ヘッダを削除し、明細・見送り記録は
-// CASCADE で削除される。ライブ集計の表示に戻り、損益調整・経理追加収支の編集ロックも解ける
+// Deletes the header; lines and skip records go by CASCADE. Returns to live view and releases the edit lock.
 export const reopenProfitLossMonth = async (
   month: string,
 ): Promise<ProfitLossClosingWriteResult> => {
@@ -195,8 +191,7 @@ export const reopenProfitLossMonth = async (
   }
 
   const supabase = createServerSupabase();
-  // RLS で拒否された DELETE はエラーにならず 0 行になるだけのため、削除した行を返させて
-  // 件数を確かめる（既に解除済み・権限が変わった等で何も消えなければ成功扱いにしない）
+  // RLS-rejected DELETE returns 0 rows without an error, so return deleted rows and check the count.
   const { data: deleted, error: deleteError } = await supabase
     .from("profit_loss_closings")
     .delete()
@@ -223,19 +218,16 @@ export const reopenProfitLossMonth = async (
   return {};
 };
 
-// ===== 確定後の変更の検知・反映・見送り（Issue #149） =====
+// ===== Detect / apply / skip post-closing changes =====
 
 export type ClosingDiffSummaryResult =
   | (ClosingDiffSummaryData & { error?: undefined })
   | { summary?: undefined; fromMonth?: undefined; error: AccessFailure };
 
-// 未処理の差分がある確定済みの月と件数（損益計算書ページ上部のバナー・月ピッカー・
-// 年間推移のアイコン用。accounting / admin のみ）。
-// 対象は当月を含む直近 CLOSING_DIFF_SUMMARY_MONTHS ヶ月（とそれより後）の確定済みの月に
-// 限る（確定済みの月が増えても取得量が増え続けないようにする。Issue #172）。
-// その確定済みの月の一覧を取得したうえで、連続する確定済みの月ごと（通常は 1 つの範囲）に
-// ライブの行・確定明細・見送り記録を並列に取得し、月別に差分を数える
-// （離れた確定済みの月の間の未確定の月の行まで取得しないようにする）
+// Closed months with pending diffs and counts (banner, month picker, annual trend icon; accounting /
+// admin only), limited to the last CLOSING_DIFF_SUMMARY_MONTHS months onward so fetch volume does
+// not grow. Fetches live rows, closing lines and skip records per range of consecutive closed
+// months in parallel (avoids fetching unclosed months between distant closed months).
 export const getClosingDiffSummary =
   async (): Promise<ClosingDiffSummaryResult> => {
     const { profileInfo, error } = await getAuthorizedViewer(
@@ -245,7 +237,7 @@ export const getClosingDiffSummary =
     if (!profileInfo) {
       return { error };
     }
-    // 集計の対象の開始月。画面で対象外の月を注記できるよう結果にも含める
+    // Included in the result so the UI can note months outside the window.
     const fromMonth = closingDiffSummaryStartMonth(currentJstMonth());
     const { months, error: closedMonthsError } = await fetchClosedMonthKeys({
       fromMonth,
@@ -294,7 +286,7 @@ export const getClosingDiffSummary =
     };
   };
 
-// 反映・見送りの共通の前処理（入力検証・権限確認・当月のライブ集計・表示後の変更の確認）
+// Shared preprocessing for apply/skip: validation, permission, live aggregation, stale-view check.
 const prepareDiffOperation = async (
   month: string,
   selections: ClosingDiffSelection[],
@@ -337,8 +329,8 @@ const prepareDiffOperation = async (
     };
   }
   const liveLines = buildLiveMonthLines({ month, ...rows });
-  // 画面で見ていた状態から変わった明細があれば、利用者が見ていない変更を反映・見送り
-  // しないよう拒否する（値そのものは常にサーバで集計し直したものを使う）
+  // Reject if any line changed since the user's view so unseen changes are not applied/skipped;
+  // values always come from the server's recomputation.
   if (findStaleSelections(liveLines, validSelections).length > 0) {
     return {
       error: {
@@ -354,9 +346,9 @@ const prepareDiffOperation = async (
   return { keys, liveLines };
 };
 
-// 選択した差分の反映。クライアントからは対象の明細（source_type, source_id）と画面で
-// 見ていた状態だけを受け取り、値はサーバ側でライブ集計し直したものを使う（ライブにある明細は最新の値で
-// upsert、無い明細は確定明細から削除）。反映者・反映日時を記録する
+// Receives only (source_type, source_id) and the viewed state from the client; values come from
+// server-side recomputation (existing lines upserted, missing ones deleted from closing lines).
+// Records who applied and when.
 export const applyClosingDiffs = async (
   month: string,
   selections: ClosingDiffSelection[],
@@ -384,8 +376,7 @@ export const applyClosingDiffs = async (
   return {};
 };
 
-// 選択した差分の見送り。その時点のライブの状態（サーバ側で集計し直した値）を記録し、
-// 以後その状態のままならアラート・件数から外す
+// Records the live state (server-recomputed) at the time; while unchanged it is excluded from alerts/counts.
 export const dismissClosingDiffs = async (
   month: string,
   selections: ClosingDiffSelection[],
@@ -417,7 +408,6 @@ export const dismissClosingDiffs = async (
   return {};
 };
 
-// 見送りの取り消し（未処理の差分に戻す）
 export const undoClosingDismissals = async (
   month: string,
   keys: ClosingDiffKey[],

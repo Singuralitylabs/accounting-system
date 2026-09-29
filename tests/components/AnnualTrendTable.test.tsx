@@ -55,12 +55,10 @@ describe("AnnualTrendTable（Issue #152）", () => {
     );
     expect(closedHeaders).toHaveLength(1);
     expect(closedHeaders[0]).toHaveTextContent("8月");
-    // 確定済みの鍵アイコンも残す
     expect(
       within(closedHeaders[0]).getByRole("img", { name: "確定済み" }),
     ).toBeInTheDocument();
 
-    // 各行（売上〜経常利益の 5 行）の 8 月のセルだけが色付き
     const monthIndex = headers.indexOf(closedHeaders[0]);
     const bodyRows = screen.getAllByRole("row").slice(1);
     expect(bodyRows).toHaveLength(5);
@@ -101,7 +99,7 @@ describe("AnnualTrendTable（Issue #152）", () => {
       />,
     );
     const adminRow = screen.getByText("管理費").closest("tr")!;
-    expect(within(adminRow).getAllByText("￥25,000")).toHaveLength(2); // 7月 + 年度合計
+    expect(within(adminRow).getAllByText("￥25,000")).toHaveLength(2);
   });
 
   describe("確定後の変更の目印の対象範囲の注記（Issue #172）", () => {

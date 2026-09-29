@@ -56,7 +56,6 @@ const userList = [
 ];
 const teamList = ["チームA", "チームB"];
 
-// 一括保存の確認用（権限・チーム未設定の一般ユーザーを含む 3 人）
 const editableUserList = [
   ...userList,
   makeUser({
@@ -70,15 +69,13 @@ const editableUserList = [
   }),
 ];
 
-// Select は value が data に無いと表示欄が空になる（hidden input には値が入る）ため、
-// 表示用の input の値で確認する
+// A Select shows blank when its value is not in data (the hidden input still holds it), so assert on the display input.
 const teamInputValues = () =>
   screen
     .getAllByPlaceholderText("チームを選択")
     .map((input) => (input as HTMLInputElement).value);
 
-// Mantine の Select は aria-label を入力欄とドロップダウン（listbox）の両方に付けるため、
-// 入力欄（input）を選ぶ
+// Mantine Select puts aria-label on both the input and the listbox; pick the input.
 const inputByLabel = (label: string) => {
   const input = screen
     .getAllByLabelText(label)
@@ -102,7 +99,6 @@ const selectOption = async (label: string, option: string) => {
 const saveButton = () => screen.getByRole("button", { name: "一括保存" });
 const discardButton = () => screen.getByRole("button", { name: "変更を破棄" });
 
-// 変更ありとしてハイライトされている行（PC は tr、モバイルはカード）の名前
 const changedRowNames = (container: HTMLElement) =>
   Array.from(container.querySelectorAll("[data-changed]")).map(
     (row) =>
@@ -165,7 +161,6 @@ describe("UserList", () => {
     ["PC（テーブル）", 1024],
     ["モバイル（カード）", 375],
   ])("%s: 表示項目と並び順", (_label, width) => {
-    // id 順（取得順）では権限もチームもばらばらになるユーザー
     const unsortedUserList = [
       makeUser({ id: 11, name: "一般 次郎", class: "public", team: null }),
       makeUser({
@@ -194,11 +189,9 @@ describe("UserList", () => {
       "経理 太郎",
       "リーダー A",
       "リーダー B",
-      // 選択肢に無いチームは選択肢のチームの後ろ
       "リーダー 旧",
       "一般 次郎",
     ];
-    // 画面に並んでいる順のユーザー名（Slack ID 欄の aria-label から読む）
     const displayedNames = () =>
       screen
         .getAllByRole("textbox")
@@ -235,7 +228,6 @@ describe("UserList", () => {
         <UserList userList={unsortedUserList} teamList={teamList} />,
       );
 
-      // 一般ユーザーを admin に、リーダー A を public に変える
       await selectOption("一般 次郎の権限", "admin");
       await selectOption("リーダー Aの権限", "public");
       expect(displayedNames()).toEqual(sortedNames);
@@ -244,7 +236,6 @@ describe("UserList", () => {
       await waitFor(() => expect(refresh).toHaveBeenCalled());
 
       expect(displayedNames()).toEqual([
-        // admin 同士は名前順
         "一般 次郎",
         "管理 花子",
         "経理 太郎",
@@ -272,7 +263,6 @@ describe("UserList", () => {
       expect(displayedNames()).toEqual(sortedNames);
     });
 
-    // router.refresh() 等でサーバから新しい一覧を受け取ったとき
     const refreshedUserList = unsortedUserList.map((user) =>
       user.id === 11 ? { ...user, class: "admin", slack_id: "U-NEW" } : user,
     );
@@ -319,7 +309,6 @@ describe("UserList", () => {
       rerender(<UserList userList={refreshedUserList} teamList={teamList} />);
       fireEvent.click(discardButton());
 
-      // 読み込み時点の古い値ではなく、届いていた最新の一覧になる
       expect(displayedNames()).toEqual([
         "一般 次郎",
         "管理 花子",
@@ -358,7 +347,6 @@ describe("UserList", () => {
       changeSlackId("経理 太郎", "U-AGAIN");
       fireEvent.click(discardButton());
 
-      // 再取得前の古い props（U000001）ではなく、保存した値に戻る
       expect(inputValue("経理 太郎の Slack ID")).toBe("U-SAVED");
       expect(screen.getByText("変更はありません")).toBeInTheDocument();
     });
@@ -368,13 +356,12 @@ describe("UserList", () => {
         <UserList userList={unsortedUserList} teamList={teamList} />,
       );
 
-      // 1 回目の保存。refresh の応答が届く前に次の編集を始める
       changeSlackId("経理 太郎", "U-1");
       fireEvent.click(saveButton());
       await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
       changeSlackId("経理 太郎", "U-2");
 
-      // 1 回目の refresh の応答（2 回目の編集より古い内容）が編集中に届く
+      // The first refresh response (older than the second edit) arrives mid-edit.
       rerender(
         <UserList
           userList={unsortedUserList.map((user) =>
@@ -385,7 +372,6 @@ describe("UserList", () => {
       );
       expect(inputValue("経理 太郎の Slack ID")).toBe("U-2");
 
-      // 2 回目の保存に成功しても、届いていた古い一覧で表示を戻さない
       fireEvent.click(saveButton());
       await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
       expect(inputValue("経理 太郎の Slack ID")).toBe("U-2");
@@ -414,7 +400,6 @@ describe("UserList", () => {
       expect(saveButton()).toBeEnabled();
       expect(discardButton()).toBeEnabled();
 
-      // 元の値に戻したら変更なしに戻る
       changeSlackId("鈴木一郎", "");
       expect(saveButton()).toBeDisabled();
       expect(discardButton()).toBeDisabled();
@@ -484,13 +469,11 @@ describe("UserList", () => {
         />,
       );
 
-      // teamleader（チームA）→ accounting → teamleader
       await selectOption("山田太郎の権限", "accounting");
       expect(inputValue("山田太郎のチーム")).toBe("");
       await selectOption("山田太郎の権限", "teamleader");
       expect(inputValue("山田太郎のチーム")).toBe("チームA");
 
-      // public（チームB）→ admin → public
       await selectOption("田中次郎の権限", "admin");
       expect(inputValue("田中次郎のチーム")).toBe("");
       await selectOption("田中次郎の権限", "public");
@@ -506,7 +489,6 @@ describe("UserList", () => {
         <UserList userList={editableUserList} teamList={teamList} />,
       );
 
-      // 一般ユーザーを teamleader（チームB）にして保存する
       await selectOption("鈴木一郎の権限", "teamleader");
       await selectOption("鈴木一郎のチーム", "チームB");
       fireEvent.click(saveButton());
@@ -536,7 +518,6 @@ describe("UserList", () => {
       expect(confirmAction).not.toHaveBeenCalled();
       expect(bulkUpdateProfiles).not.toHaveBeenCalled();
 
-      // チームを選ぶとエラーが消え、保存できる
       await selectOption("鈴木一郎のチーム", "チームA");
       expect(
         screen.queryByText("入力内容を確認してください"),

@@ -6,15 +6,13 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      // tsconfig.json の paths（"@/*": ["./*"]）に合わせる
       "@": path.resolve(__dirname, "."),
     },
   },
   test: {
-    // ビジネスロジック（純粋関数）のテストが対象のため node 環境をデフォルトとする。
-    // コンポーネントテストはファイル先頭の `// @vitest-environment jsdom` で切り替える。
+    // Node environment by default (pure-function tests); component tests opt in to jsdom via `// @vitest-environment jsdom`.
     environment: "node",
-    // 日付処理が JST 前提のため、CI（UTC）でも結果が変わらないようタイムゾーンを固定する
+    // Dates assume JST; pin the timezone so results do not change on UTC CI.
     env: {
       TZ: "Asia/Tokyo",
     },

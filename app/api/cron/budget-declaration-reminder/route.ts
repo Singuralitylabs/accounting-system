@@ -15,12 +15,10 @@ import {
   getTeamLeaderSlackContacts,
 } from "@/app/utils/supabase/budgetDeclarationReminderData";
 
-// Vercel Cron からのみ実行される Route Handler のため、force-dynamic でキャッシュを無効化する
-// （app/layout.tsx の全体設定と揃えているだけで、ここでは実質的にキャッシュ対象にならない）。
+// Runs only from Vercel Cron; force-dynamic disables caching (matches app/layout.tsx).
 export const dynamic = "force-dynamic";
 
-// 申告ページの絶対 URL。Vercel が自動で設定する環境変数から組み立てるため、
-// 追加の環境変数設定は不要（docs/setup.md にも専用の環境変数は追加しない）。
+// Absolute URL of the declaration page, built from Vercel's automatic env vars (no extra env var needed).
 const resolveBudgetDeclarationUrl = (): string => {
   const host =
     process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL;
@@ -31,8 +29,7 @@ const resolveBudgetDeclarationUrl = (): string => {
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
-  // CRON_SECRET が未設定だと `Bearer undefined` という推測可能な文字列との比較になり、
-  // 環境変数の設定漏れ時にも認証が通ってしまう。未設定は明示的に弾く。
+  // An unset CRON_SECRET would compare against the guessable "Bearer undefined" and let requests through; reject it explicitly.
   if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -82,10 +79,7 @@ export async function GET(request: NextRequest) {
     resolveBudgetDeclarationUrl(),
   );
 
-  // reminderTeams は undeclaredTeams（このスコープでは 0 件を弾いた後なので必ず 1 件以上）
-  // から作るため、buildBudgetDeclarationReminderMessage が null を返す（teams.length === 0
-  // のときのみ）ことは現状ない。将来その条件が増えても壊れた Slack POST を送らないための
-  // 防御（ここに来るのは実装不整合なので all-declared とは別の internal-error として扱う）。
+  // Defensive: reminderTeams is non-empty here, so a null message is not expected today; treat it as internal-error (implementation inconsistency), distinct from all-declared, rather than sending a broken Slack POST.
   if (!message) {
     console.error(
       "事前収支申告リマインドのメッセージ生成に失敗しました（未申告チームがあるのに message が null）。",

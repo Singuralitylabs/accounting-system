@@ -1,8 +1,6 @@
 import { redirect } from "next/navigation";
 
-// 管理画面はユーザー管理（/dashboard/users）と項目管理（/dashboard/options）に分かれている。
-// ナビゲーション（NAV_ITEMS / NavigationHub）の入口は /dashboard のままとし、ここで
-// ユーザー管理へリダイレクトする
+// /dashboard stays the navigation entry point (NAV_ITEMS / NavigationHub) and redirects to /dashboard/users.
 const DashboardPage = () => {
   redirect("/dashboard/users");
 };

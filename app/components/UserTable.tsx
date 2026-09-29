@@ -7,9 +7,9 @@ import { teamOptionsFor } from "./UserList";
 type Props = {
   userInfo: ProfilesType;
   teamList: string[];
-  // 読み込み時点から権限・チーム・Slack ID が変わっているか（行をハイライトする）
+  // Whether role/team/Slack ID changed since load (highlights the row).
   isChanged: boolean;
-  // 保存前の入力チェックのエラー（保存を試みた後だけ渡される）
+  // Validation errors before save (passed only after a save attempt).
   errors?: UserValidationErrors;
   disabled?: boolean;
   onUpdateUserList: (userId: number, updates: Partial<ProfilesType>) => void;

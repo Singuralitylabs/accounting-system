@@ -1,8 +1,6 @@
 name: TypeScript Type Check
 
-# 型安全性と静的品質の早期検出（docs/testing.md 3.3 / 3.5）
-# Lint には no-console / no-debugger ルールが含まれるため、
-# デバッグ出力検知（docs/testing.md 4.2 の Check console.log and debugger）も本ワークフローが兼ねる。
+# Lint includes no-console / no-debugger, so this workflow also covers debug-output detection.
 on:
   push:
     branches: [main]
@@ -22,8 +20,7 @@ on:
       - "package.json"
       - "yarn.lock"
   workflow_dispatch:
-  # リリース PR 作成時の品質ゲートから再利用する（release-pr.yml）。
-  # 既存の push / pull_request トリガーと paths フィルタの挙動は変えない。
+  # Reused by the release-PR quality gate (release-pr.yml).
   workflow_call:
 
 jobs:

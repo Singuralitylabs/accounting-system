@@ -16,16 +16,15 @@ import {
 import { annotateDiffMoves } from "../profitLossDiff";
 import { getAuthorizedViewer } from "./viewerAccess";
 
-// 月次損益レポートの取得（month: "YYYY-MM"）
 export const getProfitLossReport = async (
   month: string,
 ): Promise<PLReportType | null> => {
-  // 不正な月キーは沈黙の空表示にせず取得失敗として扱う（呼び出し元が再取得を促す）
+  // Invalid month keys are a fetch failure (caller prompts a refetch), not a silent empty view.
   if (!isMonthKey(month)) {
     console.error(`損益レポートの対象月の形式が不正です: ${month}`);
     return null;
   }
-  // 取得失敗・権限不足はどちらも null（呼び出し元が再取得を促す）
+  // Fetch failure and permission denial are both null.
   const { profileInfo } = await getAuthorizedViewer(
     PL_ALLOWED_CLASSES,
     "損益レポート",
@@ -34,8 +33,7 @@ export const getProfitLossReport = async (
     return null;
   }
 
-  // 調整対象行の補完取得（対象行が期間外へ移動した調整）は、表示タイトルの取得と並列に行う
-  // （往復を減らす。Issue #193）
+  // Adjustment-target supplement runs in parallel with the display-title fetch (fewer round trips).
   const flags = reportFlags(profileInfo.class);
   const rows = await fetchReportSourceRows(
     { startMonth: month, endMonth: month },
@@ -51,7 +49,7 @@ export const getProfitLossReport = async (
     return null;
   }
 
-  // 確定済みの月は確定明細から、未確定の月はライブ集計から組み立てる（Issue #148）
+  // Closed months come from closing lines, unclosed from live aggregation.
   const report = buildMonthReport({
     month,
     ...rows,
@@ -60,9 +58,8 @@ export const getProfitLossReport = async (
     ...flags,
   });
 
-  // 確定後の差分（Issue #149）の追加・削除に、他の月との移動の情報を付ける。
-  // 取得に失敗した場合は、相手側の月も確定済みかどうか（片方だけ反映すると両月の合計が
-  // ずれる警告）が分からないため、差分一覧で注意を出して反映を止める
+  // Attaches move info to added/removed diffs. If that fetch fails, whether the counterpart month is
+  // closed is unknown (applying one side would skew both months' totals), so the diff list warns and blocks applying.
   if (report.closingDiffs) {
     const { context, failed } = await fetchDiffMoveContext(month, [
       ...report.closingDiffs.pending,
@@ -80,11 +77,11 @@ export const getProfitLossReport = async (
   return report;
 };
 
-// 年間推移の取得（fiscalYear: 年度の開始年。2026 = 2026/7〜2027/6）
+// fiscalYear = start year (2026 = 2026/7 - 2027/6).
 export const getAnnualTrend = async (
   fiscalYear: number,
 ): Promise<AnnualTrendType | null> => {
-  // 不正な年度は沈黙の空表示にせず取得失敗として扱う（呼び出し元が再取得を促す）
+  // Invalid fiscal years are a fetch failure, not a silent empty view.
   if (!Number.isInteger(fiscalYear)) {
     console.error(`年間推移の年度の形式が不正です: ${fiscalYear}`);
     return null;
@@ -97,10 +94,8 @@ export const getAnnualTrend = async (
     return null;
   }
 
-  // 年度の全期間を 1 回のクエリで取得し、月別にバケット分けする
-  // （月単位まで絞ると12回クエリになるため年度範囲で絞る）。
-  // 年間推移（AnnualTrendTable）は月別の合計だけを表示し、案件・明細のタイトルを
-  // 表示しないため、表示タイトルは取得しない（Issue #172）
+  // One query for the whole fiscal year, bucketed by month. The annual table shows only monthly
+  // totals, so display titles are not fetched.
   const months = fiscalYearMonths(fiscalYear);
   const rows = await fetchReportSourceRows(
     {
@@ -113,15 +108,14 @@ export const getAnnualTrend = async (
     return null;
   }
 
-  // 確定済みの月は確定明細から、未確定の月はライブ集計から組み立てる（Issue #148）
+  // Closed months come from closing lines, unclosed from live aggregation.
   const trendMonths = months.map((month) =>
     buildMonthReport({
       month,
       ...rows,
       closing: rows.closings.get(month) ?? null,
-      // 年間推移は対象行なし調整・確定後の変更を表示に使わないため 12ヶ月分の
-      // 無駄な計算を避ける（AnnualTrendTable は参照しない。差分の件数はバナー用の
-      // getClosingDiffSummary から取る）
+      // The annual trend does not display orphaned adjustments / post-closing changes (counts come from
+      // getClosingDiffSummary), so skip 12 months of computation.
       includeMonthlyDetails: false,
       ...reportFlags(profileInfo.class),
     }),
@@ -130,7 +124,7 @@ export const getAnnualTrend = async (
   return { fiscalYear, months: trendMonths };
 };
 
-// 案件情報の単体取得（損益計算書の「案件を表示」ボタン → 案件詳細モーダル用）
+// Single matter for the P&L 「案件を表示」 detail modal.
 export const getMatterInfoById = async (matterId: number) => {
   const supabase = createServerSupabase();
 

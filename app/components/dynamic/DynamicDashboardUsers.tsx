@@ -2,21 +2,17 @@ import { getAllUserInfo } from "@/app/utils/supabase/profiles";
 import { getSelectOptions } from "@/app/utils/supabase/selectOptions";
 import UserList from "../UserList";
 
-// 管理画面のユーザー管理（/dashboard/users）
 const DynamicDashboardUsers = async () => {
-  // ユーザー一覧とチームの選択肢は互いに独立なので並列に取得する
+  // Users and team options are independent, so fetch in parallel.
   const [
     { userInfoList, error: userInfoError },
     { options: teamList, error: teamError },
   ] = await Promise.all([getAllUserInfo(), getSelectOptions("team")]);
-  // ユーザー一覧はこのページの主要コンテンツであり、取得失敗を「0 件」として
-  // 描画すると利用者が気付けない。失敗時は throw して
-  // ルートの error boundary（app/dashboard/users/error.tsx）に処理させる。
+  // Users are the page's main content and a failure rendered as "0 rows" would go unnoticed; throw to the route error boundary (app/dashboard/users/error.tsx).
   if (userInfoError || !userInfoList) {
     throw new Error("ユーザー情報の取得に失敗しました。");
   }
-  // チームの選択肢の取得失敗は画面全体のエラーにせず、チーム欄に現在の値だけを出して
-  // その旨を表示する（UserList の teamListError）
+  // A team options failure shows only the current value in the team column with a notice (teamListError in UserList).
   if (teamError) {
     console.error("チーム情報の取得に失敗しました。", teamError);
   }

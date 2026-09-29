@@ -10,7 +10,6 @@ import ProfitLossStatement, {
 import { ExtraEntryLine, PLReportType } from "@/app/types/types";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
 
-// サーバ処理・データ取得を伴う子要素は表示順・タブの確認に不要なためモックする
 vi.mock("@/app/utils/supabase/profitLossReport", () => ({
   getMatterInfoById: vi.fn(),
 }));
@@ -55,9 +54,9 @@ const extraEntry = (
   ...overrides,
 });
 
-// 案件: 売上 120,000 − 費用 30,000 = 90,000（受託案件 70,000 / 研修 20,000）
-// 経理追加収支（収入）: 請求 50,000 − 経費 10,000 = 40,000
-// 管理費: 定期費用 20,000 + 経理追加収支（支出）5,000 = 25,000
+// matter: revenue 120,000 - cost 30,000 = 90,000 (contract 70,000 / training 20,000)
+// extra entries (income): billing 50,000 - expense 10,000 = 40,000
+// admin cost: recurring 20,000 + extra entries (expense) 5,000 = 25,000
 const report = (withTeamBreakdown: boolean): PLReportType => ({
   month: "2026-08",
   revenueTotal: 170000,
@@ -139,7 +138,7 @@ const report = (withTeamBreakdown: boolean): PLReportType => ({
   closing: null,
 });
 
-// 月を切り替えても選択を保つため、タブの選択は親（ProfitLossView）が持つ
+// Tab selection is owned by the parent (ProfitLossView) so it survives month changes.
 const Controlled = ({
   withTeamBreakdown,
   value = report(withTeamBreakdown),
@@ -159,7 +158,6 @@ const Controlled = ({
   );
 };
 
-// 損益計算書の表の行（見出しセル → 実績セル）
 const plRow = (label: string) => {
   const table = screen.getAllByRole("table")[0];
   const row = within(table)
@@ -172,7 +170,6 @@ const plRow = (label: string) => {
 describe("ProfitLossStatement のサマリーカードと損益計算書（Issue #164）", () => {
   it("サマリーカードは 売上 / 粗利 / 経常利益 の 3 枚", () => {
     renderWithMantine(<Controlled withTeamBreakdown />);
-    // 表（損益計算書・内訳）の外にある見出しがサマリーカード
     const cards = screen
       .getAllByText(/^(売上|粗利|経常利益|案件費用|管理費)$/)
       .filter((element) => element.closest("table") === null);
@@ -195,7 +192,6 @@ describe("ProfitLossStatement のサマリーカードと損益計算書（Issue
     const extraRow = plRow("経理追加収支");
     expect(extraRow).toHaveTextContent("（請求 ￥50,000 − 経費 ￥10,000）");
     expect(extraRow).toHaveTextContent("￥40,000");
-    // 経理追加収支の明細は展開で表示する
     expect(screen.queryByText("講演謝礼")).not.toBeInTheDocument();
     fireEvent.click(within(extraRow).getByRole("button", { expanded: false }));
     expect(plRow("講演謝礼")).toHaveTextContent("￥40,000");
@@ -249,7 +245,6 @@ describe("ProfitLossStatement のサマリーカードと損益計算書（Issue
       within(expenseRow).getByRole("button", { expanded: false }),
     );
     expect(plRow("出張旅費")).toHaveTextContent("￥5,000");
-    // 売上総利益側（収入）には支出エントリを出さない
     expect(
       screen
         .getAllByRole("row")

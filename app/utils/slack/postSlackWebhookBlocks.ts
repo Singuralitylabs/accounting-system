@@ -1,9 +1,6 @@
 import { SlackNotificationResponse } from "@/app/types/types";
 
-// Slack Incoming Webhook への POST 共通処理（blocks 形式のペイロードのみ）。
-// メッセージ内容・ブロック構成の組み立ては呼び出し側の責務とし、ここでは
-// fetch とエラーハンドリングだけを担う（app/actions/slack/index.ts の
-// sendSlackNotification と app/utils/slack/sendBudgetDeclarationReminder.ts で共用）。
+// Shared Slack Incoming Webhook POST (blocks payload only); callers build the content.
 export const postSlackWebhookBlocks = async (
   webhookUrl: string,
   blocks: unknown[],
@@ -18,8 +15,7 @@ export const postSlackWebhookBlocks = async (
     });
 
     if (!response.ok) {
-      // statusText だけでは Slack 側の失敗理由（invalid_payload / channel_not_found 等）が
-      // 追えないため、ステータスコードとレスポンス本文も含めて調査しやすくする
+      // Include status code and body: statusText alone hides Slack's reason (invalid_payload / channel_not_found).
       const body = await response.text();
       throw new Error(
         `Failed to send Slack notification: ${response.status} ${response.statusText} ${body}`,

@@ -9,9 +9,7 @@ type Props = {
   byTeam: TeamBreakdown[];
 };
 
-// チーム別収支（収支の内訳タブの「チーム別」。accounting / admin のみ。Issue #152）。
-// 集計は docs/specification.md 4.16.2（明細行ごとのチーム + 経理追加収支のチーム）。
-// 管理費は定期費用 + 経理追加収支（支出）の経費（Issue #164）
+// Per-team results (accounting/admin only). Aggregation: docs/specification.md 4.16.2.
 const TeamProfitTable = ({ byTeam }: Props) => {
   if (byTeam.length === 0) {
     return (

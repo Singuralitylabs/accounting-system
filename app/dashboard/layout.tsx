@@ -2,10 +2,7 @@ import { ReactNode } from "react";
 import DashboardNav from "../components/dashboard/DashboardNav";
 import { DashboardUnsavedChangesProvider } from "../components/dashboard/DashboardUnsavedChanges";
 
-// 管理画面（/dashboard/users・/dashboard/options）で共有するシェル。
-// PC は左にサイドメニュー・右にコンテンツの 2 カラム、モバイルは上部のタブ＋コンテンツ。
-// ロール保護は middleware（ROUTE_PERMISSIONS["/dashboard"] の前方一致）がサブルートにも効く。
-// 未保存の変更の有無は DashboardUnsavedChangesProvider で共有し、メニューからの切り替え前に確認する
+// Shell shared by /dashboard/users and /dashboard/options: side menu + content on PC, top tabs on mobile. Role protection applies to subroutes via prefix match of ROUTE_PERMISSIONS["/dashboard"] in middleware. Unsaved state is shared via DashboardUnsavedChangesProvider and confirmed before switching from the menu.
 const DashboardLayout = ({ children }: { children: ReactNode }) => {
   return (
     <DashboardUnsavedChangesProvider>

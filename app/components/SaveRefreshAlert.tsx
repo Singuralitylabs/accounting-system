@@ -2,20 +2,15 @@ import { Alert, Button } from "@mantine/core";
 import type { SaveOutcome } from "@/app/hooks/useSaveRefreshLock";
 
 type Props = {
-  // 一覧の名称（例: 経理追加収支情報）
   subject: string;
-  // 保存後の再取得待ちの保存結果。保存と無関係の無効化なら null
   outcome: SaveOutcome | null;
-  // 保存が複数の書き込みを別々に送り、一部だけ反映されている可能性があるか
-  // （定期費用: 追加・更新・削除を並列に送る）。1 トランザクションで保存する画面
-  // （経理追加収支）は false にし、「どこまで反映されたか」とは案内しない
+  // Whether the save sends multiple writes separately (recurring costs), so partial application is possible. False for single-transaction saves (extra entries): do not say "how far it applied".
   partialPossible?: boolean;
   isPaused: boolean;
   onReload: () => void;
 };
 
-// 保存後の再取得待ちで、最新の一覧を取得できずに編集・保存を止めているときの案内
-// （useSaveRefreshLock の isStalled のときに表示する）
+// Shown while a post-save refetch failed to fetch the latest list and editing is blocked (isStalled of useSaveRefreshLock).
 export const SaveRefreshAlert = ({
   subject,
   outcome,

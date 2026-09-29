@@ -41,7 +41,7 @@ describe("ROUTE_PERMISSIONS による各保護ルートの認可", () => {
     ["/matters/team", "accounting", false],
     ["/matters/accounting", "accounting", true],
     ["/matters/accounting", "teamleader", false],
-    // 旧 URL。許可ロールは新 URL と同一（リダイレクト前の保護を維持するため残す）
+    // Legacy URLs keep the same roles as the new ones (kept for protection before the redirect).
     ["/team", "teamleader", true],
     ["/team", "accounting", false],
     ["/accounting", "accounting", true],
@@ -99,9 +99,6 @@ describe("visibleNavItems", () => {
   const hrefsFor = (profileClass: string | null | undefined) =>
     visibleNavItems(profileClass).map((item) => item.href);
 
-  // 新規作成・チーム案件・経理用一覧は案件カード（/matters）内のタブ・ボタンに、
-  // 定期費用マスタ・経理追加収支は損益計算書（/profit-loss）内のボタンに集約したため、
-  // トップページ／ヘッダーのナビ項目は4つ（案件カード・損益計算書・事前収支申告・管理画面）のみ。
   it("admin には全項目を表示する", () => {
     expect(hrefsFor("admin")).toEqual([
       "/matters",
@@ -167,9 +164,8 @@ describe("ロール一覧（ROLES）の整合（Issue #192）", () => {
     for (const role of used) expect(isRole(role)).toBe(true);
   });
 
-  // update_profiles の許可値と ROLES がずれると、選択肢に出ない・保存時に INVALID_INPUT で
-  // 弾かれるといった不整合がエラーなしに起きる。後続のマイグレーションが update_profiles を
-  // 再定義しても古い定義を見続けないよう、最後に定義したマイグレーションを対象にする
+  // If the values update_profiles allows drift from ROLES, options vanish or saves fail with INVALID_INPUT
+  // silently. Target the last migration that defines update_profiles so later redefinitions are not missed.
   it("update_profiles（最後に定義したマイグレーション）が受け付ける class の許可値と ROLES が一致する", () => {
     const dir = resolve(__dirname, "../../supabase/migrations");
     const definitions = readdirSync(dir)

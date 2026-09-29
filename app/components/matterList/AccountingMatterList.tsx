@@ -48,18 +48,13 @@ export const AccountingMatterList = ({
   );
   const optionSourceRef = useRef<MatterInfoWithUserNameType[]>([]);
 
-  // React Queryでデータを管理。
-  // サーバー側で取得済みのデータを initialData としてキャッシュにシードし、
-  // マウント直後の再フェッチ（同じ全件取得の二重実行）を防ぐ。
-  // フィルタ条件は queryKey に含め、変更時はサーバ側で絞り込んだ結果を取る。
+  // Seed the cache with server-fetched initialData to avoid a duplicate full fetch right after mount; filters are in the queryKey, so changes fetch server-filtered results.
   const { data: rawMatterList } = useAllMatterList(
     initialData,
     compactedFilters,
   );
 
-  // rawMatterListをMatterInfoWithUserNameType[]に変換。
-  // 取得前・取得失敗時も常に配列を返し、子コンポーネントへの
-  // non-null アサーションを不要にする
+  // Always an array (also before fetch / on failure), so children need no non-null assertion.
   const matterList: MatterInfoWithUserNameType[] = useMemo(() => {
     if (!rawMatterList) return [];
 
@@ -79,11 +74,7 @@ export const AccountingMatterList = ({
   const headerMatterList =
     optionSourceRef.current.length > 0 ? optionSourceRef.current : matterList;
 
-  // 件数増加に伴う DOM 肥大を抑えるためのクライアント側ページネーション。
-  // サーバ側の絞り込み結果・チェック選択は変えず、表示範囲だけを切り出す。
-  // チェック選択はページをまたいで保持され、完了・通知の対象解決はページ外も含む
-  // matterList 全体で行う（対象外になるのはサーバ側の絞り込みで非表示の分のみで、
-  // partitionCheckedMatters の hiddenCheckedIds として扱われる）。
+  // Client-side pagination to limit DOM size; server filtering and checked selection are unchanged. Selection persists across pages and target resolution covers the whole matterList; only rows hidden by server filtering are outside it (hiddenCheckedIds in partitionCheckedMatters).
   const {
     page,
     setPage,
@@ -195,7 +186,6 @@ export const AccountingMatterList = ({
         return;
       }
 
-      // チェックされた案件を取得（最新の表示リストから解決する）
       const { visibleChecked, hiddenCheckedIds } = partitionCheckedMatters(
         matterList,
         checkedMatterIdList,
@@ -221,8 +211,7 @@ export const AccountingMatterList = ({
             message,
           });
 
-        // 送信対象（表示中）のチェックだけ外す。非表示のチェックは残す。
-        // 部分失敗でも送信済み ID を残すと再送信で二重通知になるため外す。
+        // Uncheck only the sent (displayed) rows and keep hidden checks. Also uncheck on partial failure, since keeping sent IDs would double-notify on resend.
         const sentIds = new Set(visibleChecked.map((matter) => matter.id));
         setNotificationOpened(false);
         setCheckedMatterIdList((prev) => prev.filter((id) => !sentIds.has(id)));

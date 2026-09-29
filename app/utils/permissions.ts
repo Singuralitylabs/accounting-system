@@ -1,15 +1,13 @@
-// profiles.class が取りうるロールの単一の定義（DB 上は string | null のため、判定側で文字列を受ける）。
-// ロールを追加・改名するときは、ここと、update_profiles（migration 33）が受け付ける値
-// （tests/utils/permissions.test.ts が一致を確認する）、ROLE_DISPLAY_RANK を直す。
-// ユーザーリストの選択肢・入力チェック（userList.ts）と表示順（userListSort.ts）はここから導く
+// Single definition of the roles profiles.class can hold. When adding/renaming a role, update this,
+// the values update_profiles (migration 33) accepts (tests/utils/permissions.test.ts checks), and
+// ROLE_DISPLAY_RANK.
 export const ROLES = ["public", "teamleader", "accounting", "admin"] as const;
 export type Role = (typeof ROLES)[number];
 
 export const isRole = (value: string | null | undefined): value is Role =>
   !!value && (ROLES as readonly string[]).includes(value);
 
-// ユーザーリストでの権限の表示順（小さいほど先）。Record<Role, number> にして、
-// ロールの追加時に順位の定義漏れを型検査で検出する
+// Display order in the user list (lower first). Record<Role, number> so a missing rank for a new role fails type checking.
 export const ROLE_DISPLAY_RANK: Record<Role, number> = {
   admin: 0,
   accounting: 1,
@@ -17,17 +15,14 @@ export const ROLE_DISPLAY_RANK: Record<Role, number> = {
   public: 3,
 };
 
-// ルートごとの閲覧許可ロール。
-// middleware のルート保護・ヘッダーのナビゲーション表示・Server Action の権限確認で
-// 共用する単一の定義（ロール変更時はここだけ直せばよい）。
+// Single definition of allowed roles per route, shared by middleware, header navigation and
+// Server Action permission checks.
 export const ROUTE_PERMISSIONS: Record<string, Role[]> = {
-  // 案件カード（/matters）配下のタブ。/matters 自体は AUTH_ONLY_ROUTES で
-  // ログインのみ必須（ロール制限なし）のため、サブルートのみここに追加する。
-  // どちらも "/matters" 配下の他方の前方一致にはならないため評価順は問わない。
+  // /matters itself is login-only (AUTH_ONLY_ROUTES); only sub-routes are restricted here.
+  // Neither prefix-matches the other, so order does not matter.
   "/matters/team": ["teamleader", "admin"],
   "/matters/accounting": ["accounting", "admin"],
-  // 旧 URL。ページ側で新 URL へリダイレクトするが、リダイレクト前のロール保護は
-  // 従来どおりここで行う（未許可ロールは旧 URL の時点で "/" に弾く）。
+  // Old URLs redirect on the page, but role protection must still apply before the redirect.
   "/team": ["teamleader", "admin"],
   "/accounting": ["accounting", "admin"],
   "/profit-loss": ["teamleader", "accounting", "admin"],
@@ -37,29 +32,23 @@ export const ROUTE_PERMISSIONS: Record<string, Role[]> = {
   "/dashboard": ["admin"],
 };
 
-// 損益計算書を閲覧できるロール（/profit-loss のルート保護と常に一致する）
+// Always matches the /profit-loss route protection.
 export const PL_ALLOWED_CLASSES = ROUTE_PERMISSIONS["/profit-loss"];
 
-// 損益調整（実績額修正）を書き込めるロール。/profit-loss 内の操作で専用ルートを
-// 持たないため ROUTE_PERMISSIONS ではなくここに直接定義する。
-// profit_loss_adjustments の RLS（INSERT/UPDATE/DELETE は accounting / admin のみ）と揃える
+// Has no dedicated route, so defined here. Matches profit_loss_adjustments RLS (write: accounting / admin).
 export const PL_ADJUSTMENT_WRITE_CLASSES: Role[] = ["accounting", "admin"];
 
-// 損益計算書の表示タイトル（Issue #150）を変更できるロール。
-// profit_loss_labels の RLS（INSERT/UPDATE/DELETE は accounting / admin のみ）と揃える
+// Matches profit_loss_labels RLS (write: accounting / admin).
 export const PL_LABEL_WRITE_CLASSES: Role[] = ["accounting", "admin"];
 
-// 損益計算書の月次収支確定（確定・確定解除。Issue #148）と、確定後の変更の反映・見送り
-// （Issue #149）を操作できるロール。profit_loss_closings / profit_loss_closing_lines の
-// RLS（INSERT/UPDATE/DELETE は accounting / admin のみ）と揃える
+// Closing/unclosing and applying/skipping post-closing changes. Matches profit_loss_closings /
+// profit_loss_closing_lines RLS (write: accounting / admin).
 export const PL_CLOSING_WRITE_CLASSES: Role[] = ["accounting", "admin"];
 
-// 管理画面のユーザーリストの一括保存（権限・チーム・Slack ID の変更。bulkUpdateProfiles）を
-// 実行できるロール。権限の付与は特権の昇格にあたるため、/dashboard を開けるロール
-// （ROUTE_PERMISSIONS["/dashboard"]）とは別に定義する（/dashboard の許可ロールを広げても、
-// 権限の変更まで許可されない）。profiles の UPDATE の RLS（他人の行の更新は admin のみ。
-// migration 13）と update_profiles（migration 33）と揃える。
-// 書き込めるロールは必ず画面を開ける（tests/utils/permissions.test.ts が確認する）
+// Roles that may bulk-save the user list (bulkUpdateProfiles). Granting roles is privilege
+// escalation, so this is separate from ROUTE_PERMISSIONS["/dashboard"]. Matches profiles UPDATE RLS
+// (others' rows: admin only; migration 13) and update_profiles (migration 33). Every role that can
+// write must be able to open the page (tests/utils/permissions.test.ts).
 export const PROFILE_WRITE_CLASSES: Role[] = ["admin"];
 
 export const hasClassAccess = (
@@ -72,10 +61,7 @@ export const hasClassAccess = (
 export const matchesRoute = (pathname: string, route: string) =>
   pathname === route || pathname.startsWith(`${route}/`);
 
-// ロール制限は無いが、未ログインではアクセスできないルート。
-// matchesRoute の引数は (pathname, route)。`matchesRoute("/matters", "/")` は
-// `"/matters" === "/"` でも `"/matters".startsWith("//")` でもないので false。
-// そのため AUTH_ONLY_ROUTES の "/" はトップページだけにマッチする。
+// Login-only routes. matchesRoute("/matters", "/") is false, so "/" matches only the top page.
 export const AUTH_ONLY_ROUTES = ["/", "/matters"] as const;
 
 export const isAuthOnlyPath = (pathname: string) =>
@@ -87,14 +73,9 @@ export type NavItem = {
   description: string;
 };
 
-// ヘッダー（PC / モバイル共通）とトップページハブのナビゲーション項目。
-// ROUTE_PERMISSIONS に無いルートはログインユーザー全員に表示する。
-// アイコンはここに置かない（middleware が本モジュールを import するため、
-// Edge バンドルに React コンポーネントが漏れる）。href → アイコンの対応はハブ側。
-//
-// 案件カード（新規作成・チーム案件・経理用一覧）と損益計算書（定期費用マスタ・
-// 経理追加収支）はそれぞれのページ内タブ・ボタンに集約したため、ここには
-// カテゴリの入口となる4項目のみを置く（案件カード / 損益計算書 / 事前収支申告 / 管理画面）。
+// Navigation for the header and top-page hub; routes absent from ROUTE_PERMISSIONS show to all
+// logged-in users. No icons here: middleware imports this module and would leak React components
+// into the Edge bundle (href -> icon mapping lives in the hub).
 const NAV_ITEMS: NavItem[] = [
   {
     href: "/matters",
@@ -120,7 +101,6 @@ const NAV_ITEMS: NavItem[] = [
   },
 ];
 
-// 指定ロールが閲覧できるナビゲーション項目を返す
 export const visibleNavItems = (profileClass: string | null | undefined) =>
   NAV_ITEMS.filter((item) => {
     const allowedClasses = ROUTE_PERMISSIONS[item.href];

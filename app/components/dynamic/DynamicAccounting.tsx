@@ -5,8 +5,7 @@ import { MatterList } from "../MatterList";
 const DynamicAccouting = async () => {
   const matterListWithProfile = await getAllMatterInfoList();
 
-  // TanStack Query のキャッシュをシードするため、profiles を含む生の形のまま渡す
-  // （MatterInfoWithUserNameType への変換はクライアント側の useMemo で行う）
+  // Passed in raw form (with profiles) to seed the TanStack Query cache; conversion to MatterInfoWithUserNameType happens client-side in useMemo.
   return (
     <main>
       <MatterList

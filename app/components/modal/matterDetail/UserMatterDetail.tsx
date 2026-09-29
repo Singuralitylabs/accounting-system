@@ -57,7 +57,6 @@ export function UserMatterDetail({
   isNew,
   setIsNew,
 }: Props) {
-  // React Queryを使用してデータ取得
   const { data, isLoading, error } = useMatterDetail(
     matterInfo.id,
     opened && !isNew,
@@ -66,7 +65,6 @@ export function UserMatterDetail({
   const createMatterMutation = useCreateMatter();
   const deleteMatterMutation = useDeleteMatter();
 
-  // React Queryから取得したデータを使用、新規作成時は空配列
   const [costInfoInCardList, setCostInfoInCardList] = useState<
     CostInCardType[]
   >([]);
@@ -74,7 +72,6 @@ export function UserMatterDetail({
     BusinessInCardType[]
   >([]);
 
-  // データが取得できた場合にstateを更新
   useEffect(() => {
     if (data && !isNew) {
       setCostInfoInCardList(data.costs);
@@ -85,7 +82,6 @@ export function UserMatterDetail({
     }
   }, [data, isNew]);
 
-  // エラーハンドリング
   if (error && !isNew) {
     console.error("Error fetching matter details:", error);
   }
@@ -151,7 +147,6 @@ export function UserMatterDetail({
   };
 
   const handleUpdateMatterInfo = async (isFixed: boolean) => {
-    // 経理申請後の更新かどうかを判定
     const isPostSubmissionUpdate = matterInfo.is_fixed && isFixed;
 
     const updatedMatterInfo: MatterType = {
@@ -162,7 +157,7 @@ export function UserMatterDetail({
       start_date: form.values.start_date,
       description: form.values.description,
       is_fixed: isFixed,
-      has_updates: isPostSubmissionUpdate ? true : matterInfo.has_updates, // 経理申請後の更新ならtrue
+      has_updates: isPostSubmissionUpdate ? true : matterInfo.has_updates,
     };
 
     const confirmed = await confirmAction(

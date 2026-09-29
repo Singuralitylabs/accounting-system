@@ -11,8 +11,7 @@ vi.mock("@/app/utils/supabase/matters", () => ({
   deleteMatterInfo,
 }));
 
-// 明細の先行削除が復活していないことを検知するためのスパイ
-// （現在の deleteMatter はこれらを import しない）
+// Spies to detect a regression of the old detail-first deletion (the current deleteMatter does not import these).
 vi.mock("@/app/utils/supabase/costs", () => ({
   deleteCostsByMatterId,
 }));

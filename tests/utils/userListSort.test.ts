@@ -19,7 +19,6 @@ const user = (overrides: Partial<User>): User => ({
 
 const names = (users: User[]) => users.map((u) => u.name);
 
-// 項目管理の表示順（display_order）で並んだチームの選択肢
 const teamList = ["開発", "営業", "広報"];
 
 describe("sortUserList", () => {
@@ -64,7 +63,6 @@ describe("sortUserList", () => {
     expect(sorted.slice(0, 4)).toEqual([
       "開発",
       "広報",
-      // 選択肢に無いチーム同士はチーム名の順にまとめる
       "旧チームA",
       "旧チームB",
     ]);

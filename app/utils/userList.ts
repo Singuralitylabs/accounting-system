@@ -1,19 +1,16 @@
 import { ProfilesType } from "../types/types";
 import { isRole } from "./permissions";
 
-// 管理画面のユーザーリスト（/dashboard/users）の一括保存まわりの純粋関数。
-// Supabase アクセス（app/utils/supabase/profiles.ts）・画面（app/components/UserList.tsx）から
-// 切り離し、副作用なしでユニットテストできるようにする（docs/testing.md「2.6」）。
+// Pure functions for the admin user list bulk save, separate from Supabase access and UI so they
+// can be unit-tested.
 
-// 一括保存でサーバへ送る 1 行分（update_profiles の p_updates の要素。migration 33）
 export type ProfileUpdateInput = Pick<
   ProfilesType,
   "id" | "name" | "class" | "team" | "slack_id"
 >;
 
-// 一覧の行を DB 書き込み用の形に変換する。書き込むのは権限・チーム・Slack ID だけ
-// （name はエラーメッセージ用で書き込まない）。空文字は未設定（null）として扱う。
-// updated_at は update_profiles（と既存のトリガー）が now() で設定する
+// Writes only role, team and Slack ID (name is for error messages). Empty string becomes null.
+// updated_at is set by update_profiles / triggers.
 export const toProfileDbRow = (user: ProfileUpdateInput) => ({
   id: user.id,
   class: user.class || null,
@@ -21,7 +18,6 @@ export const toProfileDbRow = (user: ProfileUpdateInput) => ({
   slack_id: user.slack_id || null,
 });
 
-// 読み込み時点の行（baseline）から、権限・チーム・Slack ID のいずれかが変わったか
 export const isUserChanged = (
   original: ProfileUpdateInput,
   user: ProfileUpdateInput,
@@ -35,9 +31,7 @@ export const isUserChanged = (
   );
 };
 
-// 一括保存でサーバへ送る行（変更した行）を選ぶ。baseline は画面に読み込んだ時点
-// （または直前の保存成功時点）の行（id → 行）。変更していない行は送らない
-// （他の管理者がその後に保存した内容を、読み込み時点の値で上書きしない）
+// Sends only changed rows so another admin's later save is not overwritten with stale values.
 export const selectChangedUsers = <T extends ProfileUpdateInput>(
   rows: T[],
   baseline: ReadonlyMap<number, ProfileUpdateInput>,
@@ -56,9 +50,8 @@ export const CLASS_REQUIRED_MESSAGE = "権限を選択してください。";
 export const CLASS_INVALID_MESSAGE = "権限の値が正しくありません。";
 export const TEAM_REQUIRED_MESSAGE = "チームリーダーはチームが必須です。";
 
-// 保存前の入力チェック（id → 項目ごとのエラー）。エラーの無い行は含めない。
-// - 権限は必須で、選択肢（ROLES。permissions.ts）のいずれか
-// - teamleader はチームが必須（docs/specification.md §5.3.9）
+// Returns id -> per-field errors (rows without errors omitted). Role is required and must be in
+// ROLES; teamleader requires a team.
 export const validateUserUpdates = (
   rows: ProfileUpdateInput[],
 ): Map<number, UserValidationErrors> => {
@@ -79,7 +72,6 @@ export const validateUserUpdates = (
   return result;
 };
 
-// 入力エラーを「名前: 内容」の一覧にする（画面上部のまとめ表示・サーバ側の拒否メッセージ用）
 export const formatUserValidationErrors = (
   rows: ProfileUpdateInput[],
   errors: ReadonlyMap<number, UserValidationErrors>,

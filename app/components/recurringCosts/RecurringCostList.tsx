@@ -50,22 +50,15 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
     refetch,
   } = useRecurringCostList(initialData);
   const upsertMutation = useUpsertRecurringCost();
-  // 損益計算書で確定済みの月（Issue #148）。定期費用マスタは確定済みの月があっても
-  // 編集できるが、確定済みの月の損益計算書（確定値）には反映されないため注記する
+  // Closed months: the master stays editable, but closed-month statements (closing values) do not reflect it, so a note is shown.
   const { closedMonths } = useClosedMonths();
 
   const [rows, setRows] = useState<RecurringCostInListType[]>(
     toListRows(initialData),
   );
-  // 編集中フラグ。バックグラウンド再取得（再接続時など）で
-  // 保存前の編集内容が黙って破棄されるのを防ぐ
+  // Editing flag; prevents background refetch from silently discarding unsaved edits.
   const [isDirty, setIsDirty] = useState(false);
-  // 保存後（保存の失敗で一部だけ反映された可能性があるときも）と、無効化された一覧を
-  // 取り直せるまでのロック。追加・更新・削除は並列に送るため、失敗時は一部だけ反映されている
-  // （または応答だけ失われて反映済みの）可能性があり、そのまま保存し直すと新規行が二重に
-  // 登録されうる。再取得に成功して無効化が解けるまで同期と編集・保存を止め、取り直した一覧
-  // （実際の状態）に同期する。再取得待ちのまま画面を離れて戻った場合も、キャッシュに残る
-  // 無効化で止まる（Issue #170, #190）
+  // Lock until the refetch after a save (including partial failures) or of an invalidated list succeeds: add/update/delete are sent in parallel, so a failure may be partially applied or lost after commit, and saving again could double register new rows. Also holds after leaving and returning, via the cached invalidation.
   const {
     locked: needsReload,
     isStalled: reloadStalled,
@@ -74,8 +67,7 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
   } = useSaveRefreshLock({ isInvalidated, isFetching, isError, isPaused });
   const formLocked = upsertMutation.isPending || needsReload;
 
-  // 保存後の再取得などでサーバ状態が変わったらローカル編集状態をリセットする
-  // （編集中・保存後の再取得待ちは同期しない）
+  // Reset local edit state when server state changes (not while editing or awaiting refetch).
   useEffect(() => {
     if (recurringCostList && !isDirty && !needsReload) {
       setRows(toListRows(recurringCostList));
@@ -148,8 +140,7 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
 
     try {
       await upsertMutation.mutateAsync(rows);
-      // 保存後の再取得（フックの onSuccess で無効化済み）が届くまで、保存前のキャッシュで
-      // 画面を上書きせず、保存した内容を表示したまま編集・保存を止める
+      // Keep showing saved content and block editing until the refetch arrives; do not overwrite from the pre-save cache.
       markSaved("saved");
       setIsDirty(false);
       notifySuccess("定期費用情報を更新しました。");

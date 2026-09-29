@@ -8,9 +8,9 @@ import { ExtraEntryType } from "@/app/types/types";
 import { notifySuccess } from "@/app/utils/notify";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
 
-// 保存後の再取得の失敗（Issue #170）を、フックをモックせず実 QueryClient と実フックで確かめる。
-// 「取得に失敗しても dataUpdatedAt・isInvalidated は変わらない」「保存の onSuccess で
-// 一覧が無効化され再取得される」といった TanStack Query の挙動に依存するため
+// Verify post-save refetch failures with a real QueryClient and hooks (no hook mocks). Relies on TanStack Query
+// behavior: a failed fetch leaves dataUpdatedAt/isInvalidated unchanged, and the save's onSuccess
+// invalidates and refetches the list.
 const { getExtraEntryList, bulkUpsertExtraEntry } = vi.hoisted(() => ({
   getExtraEntryList: vi.fn(),
   bulkUpsertExtraEntry: vi.fn(),
@@ -86,7 +86,7 @@ const FAILED_TITLE = "最新の経理追加収支情報を取得できません�
 const createQueryClient = () =>
   new QueryClient({
     defaultOptions: {
-      // QueryProvider と同じくリトライありにする（待ち時間は 0）
+      // Same as QueryProvider: retries enabled (zero wait).
       queries: { retry: 2, retryDelay: 0, refetchOnMount: false },
       mutations: { retry: 1, retryDelay: 0 },
     },
@@ -121,7 +121,7 @@ const editAndSave = async () => {
   await vi.waitFor(() => expect(notifySuccess).toHaveBeenCalled());
 };
 
-// リトライ込みの取得・月の往復を含むため、負荷の高い環境でも既定の 5 秒に掛からないようにする
+// Includes retried fetches and month round-trips; stay clear of the default 5s timeout under load.
 describe(
   "ExtraEntryList の保存後の再取得（実 QueryClient。Issue #170）",
   { timeout: 15000 },
@@ -146,7 +146,6 @@ describe(
       await editAndSave();
 
       expect(await screen.findByText(FAILED_TITLE_AFTER_SAVE)).toBeTruthy();
-      // 初回 + リトライ 2 回
       expect(getExtraEntryList).toHaveBeenCalledTimes(3);
       expect(screen.getByDisplayValue("9月協賛（修正）")).toBeTruthy();
       expect(screen.getByRole("button", { name: "保存" })).toHaveProperty(
@@ -183,8 +182,8 @@ describe(
         target: { value: "2026-09" },
       });
 
-      // 戻った先は保存前のキャッシュしか無い。古い一覧だと分かる案内を出し、
-      // 保存・追加はできない（保存した行を見失って追加し直す二重登録を防ぐ）
+      // Coming back leaves only the pre-save cache. Show a stale-list notice and block save/add
+      // (prevents re-adding rows that were saved but are not visible).
       expect(await screen.findByText(FAILED_TITLE)).toBeTruthy();
       expect(screen.getByRole("button", { name: "保存" })).toHaveProperty(
         "disabled",
@@ -258,7 +257,7 @@ describe(
       );
       view.unmount();
 
-      // 損益計算書での前月コピー・確定などで、一覧が非表示の間に無効化される
+      // The list is invalidated while hidden (e.g. previous-month copy or closing in the profit-loss view).
       await queryClient.invalidateQueries({ queryKey: ["extraEntries"] });
       getExtraEntryList.mockResolvedValue({
         extraEntryList: [

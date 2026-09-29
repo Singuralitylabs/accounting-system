@@ -23,11 +23,7 @@ const UserButtonMenu = ({
 
   useEffect(() => {
     setImageFailed(false);
-    // SSR で描画された img はハイドレート前（React が onError を
-    // アタッチする前）に読み込みが完了/失敗している場合があり、
-    // その場合 Avatar 標準の onError では失敗を検知できない。
-    // ハイドレート後に既に失敗済みかどうかを確認する（ハイドレート後の
-    // 失敗は Avatar 標準の onError が別途処理するため、ここでは扱わない）。
+    // An SSR-rendered img may finish loading or fail before hydration (before React attaches onError), which Avatar's onError misses. Check after hydration whether it already failed (failures after hydration are handled by Avatar's onError).
     const img = avatarRef.current?.querySelector("img");
     if (img?.complete && img.naturalWidth === 0) {
       setImageFailed(true);
