@@ -499,7 +499,13 @@ const ExtraEntryList = ({
 
   return (
     <div className="px-4 pb-8 relative">
-      <LoadingOverlay visible={upsertMutation.isPending || isSwitchingMonth} />
+      <LoadingOverlay
+        visible={
+          upsertMutation.isPending ||
+          isSwitchingMonth ||
+          (isRefreshLocked && isFetching)
+        }
+      />
       {monthPicker}
       {isStalled ? (
         <SaveRefreshAlert
