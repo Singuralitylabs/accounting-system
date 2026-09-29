@@ -1,10 +1,6 @@
 // @vitest-environment jsdom
 
-import {
-  fireEvent,
-  screen,
-  waitForElementToBeRemoved,
-} from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { User } from "@supabase/supabase-js";
 import UserButton from "@/app/components/buttons/user-button";
@@ -82,9 +78,11 @@ describe("UserButton", () => {
 
     fireEvent.click(trigger);
 
-    await waitForElementToBeRemoved(() =>
+    // 同期で確認する（待たない）。トランジションの無効化（docs/testing.md 参照）が外れると
+    // 閉じるのが非同期になりここで失敗するため、無効化の回帰ガードを兼ねる
+    expect(
       screen.queryByRole("menuitem", { name: "ログアウト" }),
-    );
+    ).not.toBeInTheDocument();
   });
 
   it("ログアウト項目のクリックで onSignOut が呼ばれる", async () => {
