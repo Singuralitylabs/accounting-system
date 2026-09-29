@@ -575,7 +575,7 @@ SQL 関数（RPC）に移した業務ロジックは、Vitest では RPC をモ�
 - 配置: `supabase/tests/database/<対象>.test.sql`。1 ファイル = 1 トランザクション（`BEGIN; SELECT plan(N); ... SELECT * FROM finish(); ROLLBACK;`）で、テストデータは ROLLBACK で残らない
 - 実行: ローカル Supabase を起動した状態で `supabase test db`。CI は `.github/workflows/db-test.yml`（`supabase/**` の変更時に `supabase start` → `supabase test db`）
 - 権限つきの関数は `SET LOCAL ROLE authenticated` と `set_config('request.jwt.claims', ...)` で呼び出しユーザーを切り替えて検証する（RLS・FORBIDDEN の確認を含む）
-- 対象: `copy_extra_entries`（前月コピーの重複判定。`copy_extra_entries.test.sql`）。全列一致のスキップ、1 列ずつ異なる行の登録、NULL 同士の一致、対象月の範囲外の行を重複とみなさないこと、戻り値の件数、FORBIDDEN
+- 対象: `copy_extra_entries`（前月コピーの重複判定。`copy_extra_entries.test.sql`）。全列一致のスキップ、1 列ずつ異なる行の登録、NULL 同士の一致、対象月の範囲外の行を重複とみなさないこと、戻り値の件数、FORBIDDEN。NOT NULL 列の NULL 同士の一致（`= ` への退行）は、テストのトランザクション内だけ `ALTER TABLE ... DROP NOT NULL` して確認する
 - 関数の判定条件を変えたら、対応するテストも更新する。同時実行（排他ロック）は pgTAP では扱えないため、引き続き 3.7「前月コピーの同時実行の再現手順」で確認する
 
 ## 4. CI / ツール構成

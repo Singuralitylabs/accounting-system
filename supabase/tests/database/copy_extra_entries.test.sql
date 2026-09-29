@@ -1,7 +1,7 @@
 -- copy_extra_entries（経理追加収支の前月コピー）の重複判定の pgTAP テスト（Issue #187）
 -- 実行: supabase test db（ローカル Supabase 起動中。docs/testing.md 3.8）
 BEGIN;
-SELECT plan(10);
+SELECT plan(11);
 
 INSERT INTO auth.users (id, email) VALUES
   ('11111111-1111-1111-1111-111111111111', 'acc1@example.com'),
@@ -31,6 +31,15 @@ FROM (VALUES
   ('income',  '協賛金', DATE '2026-11-01', '範囲外翌月', NULL,   888,            NULL,          NULL)
 ) AS v(entry_type, category, entry_date, description, team, billing_amount, expense_amount, payment_method);
 
+-- NULL 同士の一致（migration 37。Issue #188）の回帰ガード。description・category は現状 NOT NULL の
+-- ため、テストのトランザクション内（ROLLBACK で戻る）だけ NULL 許容にして、NULL の既存行を置く。
+-- 比較が = に戻ると（NULL = NULL は真にならず）重複と判定されなくなり、下のテストが落ちる
+ALTER TABLE public.extra_entries ALTER COLUMN description DROP NOT NULL;
+ALTER TABLE public.extra_entries ALTER COLUMN category DROP NOT NULL;
+INSERT INTO public.extra_entries
+  (entry_type, category, entry_date, description, manager_id, team, billing_amount, expense_amount, payment_method)
+SELECT 'income', NULL, DATE '2026-10-04', NULL, (SELECT m1 FROM mgr), NULL, 4242, NULL, NULL;
+
 -- コピー行の組み立て（テストのトランザクションごと ROLLBACK される）。entry_date は対象月内の日付を渡す（判定では比較されない）
 CREATE FUNCTION public.tap_mk(
   p_type text, p_cat text, p_desc text, p_team text,
@@ -58,7 +67,7 @@ SELECT results_eq(
 );
 SELECT is(
   (SELECT count(*)::int FROM public.extra_entries WHERE entry_date >= '2026-10-01' AND entry_date < '2026-11-01'),
-  3, 'スキップだけなら当月の行数は増えない');
+  4, 'スキップだけなら当月の行数は増えない（既存 3 行 + NULL 同士の確認用の 1 行）');
 
 -- どれか 1 列でも異なれば登録される（1 列ずつ変える）
 SELECT results_eq(
@@ -98,6 +107,12 @@ SELECT results_eq(
       public.tap_mk('income', '協賛金', '同一2件', NULL, 5, NULL),
       public.tap_mk('income', '協賛金', '同一2件', NULL, 5, NULL)))$$,
   $$VALUES (4, 0)$$, '範囲外の月の行は重複とみなさず、p_rows 内の同一内容の行はどちらも登録される');
+
+-- description・category が NULL 同士の行も一致とみなしてスキップされる（= だと登録されてしまう）
+SELECT results_eq(
+  $$SELECT inserted_count, skipped_count FROM public.copy_extra_entries('2026-10-01', jsonb_build_array(
+      public.tap_mk('income', NULL, NULL, NULL, 4242, NULL)))$$,
+  $$VALUES (0, 1)$$, 'description・category が NULL 同士の行は一致とみなしてスキップされる');
 
 -- 一般ユーザーは FORBIDDEN
 SELECT set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333","role":"authenticated"}', true);
