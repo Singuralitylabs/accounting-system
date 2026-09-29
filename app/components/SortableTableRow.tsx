@@ -13,10 +13,8 @@ interface Props {
     "id" | "value" | "display_order" | "is_active"
   >;
   label: string;
-  // 1-based row number used only in screen-reader labels, so rows can be told apart.
+  // 1-based position among displayed rows: shown from md up, and always in screen-reader labels so rows can be told apart.
   rowNumber: number;
-  // 1-based position among displayed rows; hidden when undefined (mobile).
-  position?: number;
   status?: OptionRowStatus;
   error?: string;
   disabled?: boolean;
@@ -36,7 +34,6 @@ export function SortableTableRow({
   option,
   label,
   rowNumber,
-  position,
   status,
   error,
   disabled,
@@ -52,6 +49,8 @@ export function SortableTableRow({
     isDragging,
   } = useSortable({ id: option.id });
 
+  const rowName = option.value || `新しい${label}`;
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -61,16 +60,14 @@ export function SortableTableRow({
 
   return (
     <Table.Tr ref={setNodeRef} style={style}>
-      {position !== undefined && (
-        <Table.Td className="w-10 text-center text-gray-500">
-          {position}
-        </Table.Td>
-      )}
+      <Table.Td className="hidden w-10 text-center text-gray-500 md:table-cell">
+        {rowNumber}
+      </Table.Td>
       <Table.Td className="w-8">
         <div
           {...attributes}
           {...listeners}
-          aria-label={`${option.value || `新しい${label}`}の並び順を変更`}
+          aria-label={`${rowName}（${rowNumber}行目）の並び順を変更`}
           title="ドラッグして並び替え"
           className="cursor-move"
         >
@@ -98,7 +95,7 @@ export function SortableTableRow({
           color="red"
           variant="subtle"
           size={36}
-          aria-label={`${option.value || `新しい${label}`}を削除`}
+          aria-label={`${rowName}（${rowNumber}行目）を削除`}
           onClick={() => onRemove(option.id)}
           disabled={disabled}
         >

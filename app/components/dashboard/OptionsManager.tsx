@@ -1,7 +1,6 @@
 "use client";
 
 import { Badge, Paper, Select, Text, UnstyledButton } from "@mantine/core";
-import { useMediaQuery } from "@mantine/hooks";
 import { useSearchParams } from "next/navigation";
 import { ComponentProps, useCallback, useState } from "react";
 import {
@@ -47,10 +46,6 @@ const OptionsManager = ({
       ]),
     ),
   );
-  // Read synchronously with a PC default so SSR and the first paint use the PC layout (useViewportSize is 0 until mounted).
-  const isMobile = useMediaQuery("(max-width: 767.98px)", false, {
-    getInitialValueInEffect: false,
-  });
 
   const handleStatusChange = useCallback(
     (optionClass: string, status: OptionListStatus) =>
@@ -97,67 +92,65 @@ const OptionsManager = ({
 
   return (
     <div className="md:flex md:items-start md:gap-6">
-      {isMobile ? (
-        <Select
-          label="編集する項目"
-          data={selectData}
-          value={selected}
-          allowDeselect={false}
-          onChange={(value) => isOptionClass(value) && handleSelect(value)}
-          className="pb-4"
-        />
-      ) : (
-        <Paper withBorder className="w-[200px] shrink-0 p-2">
-          <nav aria-label="項目の種類">
-            {OPTION_CLASS_GROUPS.map((group) => (
-              <div key={group.key} className="pb-2">
-                <Text size="xs" c="dimmed" fw={600} className="px-2 py-1">
-                  {group.label}
-                </Text>
-                {OPTION_CLASSES.filter(
-                  (option) => option.group === group.key,
-                ).map(({ optionClass, label }) => {
-                  const status = statuses[optionClass];
-                  const isSelected = selected === optionClass;
-                  return (
-                    <UnstyledButton
-                      key={optionClass}
-                      type="button"
-                      aria-current={isSelected ? "page" : undefined}
-                      onClick={() => handleSelect(optionClass)}
-                      className={`flex w-full items-center justify-between rounded px-2 py-2 text-sm ${
-                        isSelected
-                          ? "bg-blue-50 font-semibold text-blue-800"
-                          : "hover:bg-gray-100"
-                      }`}
-                    >
-                      <span>{label}</span>
-                      <span className="flex items-center gap-1">
-                        {status?.changeCount ? (
-                          <span
-                            role="img"
-                            aria-label="未保存の変更あり"
-                            className="inline-block h-2 w-2 rounded-full bg-orange-500"
-                          />
-                        ) : null}
-                        {errorByClass.get(optionClass) ? (
-                          <Badge color="red" variant="light" size="sm">
-                            失敗
-                          </Badge>
-                        ) : (
-                          <Badge color="gray" variant="light" size="sm">
-                            {status?.count ?? 0}
-                          </Badge>
-                        )}
-                      </span>
-                    </UnstyledButton>
-                  );
-                })}
-              </div>
-            ))}
-          </nav>
-        </Paper>
-      )}
+      {/* Both are rendered and switched by CSS, so SSR and hydration always agree. */}
+      <Select
+        label="編集する項目"
+        data={selectData}
+        value={selected}
+        allowDeselect={false}
+        onChange={(value) => isOptionClass(value) && handleSelect(value)}
+        className="pb-4 md:hidden"
+      />
+      <Paper withBorder className="hidden w-[200px] shrink-0 p-2 md:block">
+        <nav aria-label="項目の種類">
+          {OPTION_CLASS_GROUPS.map((group) => (
+            <div key={group.key} className="pb-2">
+              <Text size="xs" c="dimmed" fw={600} className="px-2 py-1">
+                {group.label}
+              </Text>
+              {OPTION_CLASSES.filter(
+                (option) => option.group === group.key,
+              ).map(({ optionClass, label }) => {
+                const status = statuses[optionClass];
+                const isSelected = selected === optionClass;
+                return (
+                  <UnstyledButton
+                    key={optionClass}
+                    type="button"
+                    aria-current={isSelected ? "page" : undefined}
+                    onClick={() => handleSelect(optionClass)}
+                    className={`flex w-full items-center justify-between rounded px-2 py-2 text-sm ${
+                      isSelected
+                        ? "bg-blue-50 font-semibold text-blue-800"
+                        : "hover:bg-gray-100"
+                    }`}
+                  >
+                    <span>{label}</span>
+                    <span className="flex items-center gap-1">
+                      {status?.changeCount ? (
+                        <span
+                          role="img"
+                          aria-label="未保存の変更あり"
+                          className="inline-block h-2 w-2 rounded-full bg-orange-500"
+                        />
+                      ) : null}
+                      {errorByClass.get(optionClass) ? (
+                        <Badge color="red" variant="light" size="sm">
+                          失敗
+                        </Badge>
+                      ) : (
+                        <Badge color="gray" variant="light" size="sm">
+                          {status?.count ?? 0}
+                        </Badge>
+                      )}
+                    </span>
+                  </UnstyledButton>
+                );
+              })}
+            </div>
+          ))}
+        </nav>
+      </Paper>
       <div className="min-w-0 flex-1">
         {categories.map(({ optionClass, options, hasError }) => (
           <div key={optionClass} hidden={selected !== optionClass}>

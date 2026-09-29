@@ -11,7 +11,6 @@ import {
   Text,
   Title,
 } from "@mantine/core";
-import { useMediaQuery } from "@mantine/hooks";
 import { SelectOptionType } from "../types/types";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -221,9 +220,6 @@ const SelectOptionList = ({
   // Input errors are shown only after a save attempt, so a freshly added empty row is not flagged.
   const [showErrors, setShowErrors] = useState(false);
   const router = useRouter();
-  const isMobile = useMediaQuery("(max-width: 767.98px)", false, {
-    getInitialValueInEffect: false,
-  });
   const hasChanges = hasOptionListChanges(baseline, updatedOptionList);
   const changeCount = countOptionChanges(baseline, updatedOptionList);
   const activeCount = countActiveOptions(updatedOptionList);
@@ -445,7 +441,10 @@ const SelectOptionList = ({
   );
 
   return (
-    <Paper withBorder className={`relative p-4 ${isMobile ? "pb-24" : ""}`}>
+    <Paper
+      withBorder
+      className={`relative p-4 ${hasChanges ? "pb-24 md:pb-4" : ""}`}
+    >
       <Group justify="space-between" align="flex-start" className="pb-4">
         <div>
           <Group gap="xs">
@@ -460,14 +459,15 @@ const SelectOptionList = ({
             </Text>
           )}
         </div>
-        {!isMobile && (
-          <Group gap="md">
-            <Text size="sm" c={hasChanges ? "orange.8" : "dimmed"} fw={500}>
-              {changeText}
-            </Text>
-            {actionButtons}
-          </Group>
-        )}
+        {/* One element for both layouts (a JS breakpoint would mismatch SSR): a bottom bar shown only with changes on mobile, part of the header from md up. */}
+        <div
+          className={`${hasChanges ? "flex" : "hidden md:flex"} fixed inset-x-0 bottom-0 z-40 items-center justify-between gap-2 border-t border-gray-300 bg-white px-4 py-3 shadow-md md:static md:z-auto md:justify-end md:gap-4 md:border-0 md:bg-transparent md:p-0 md:shadow-none`}
+        >
+          <Text size="sm" c={hasChanges ? "orange.8" : "dimmed"} fw={500}>
+            {changeText}
+          </Text>
+          {actionButtons}
+        </div>
       </Group>
       {errorMessages.length > 0 && (
         <Alert color="red" title="入力内容を確認してください" className="mb-4">
@@ -486,9 +486,9 @@ const SelectOptionList = ({
         <Table>
           <Table.Thead>
             <Table.Tr>
-              {!isMobile && (
-                <Table.Th className="w-10 text-center">順</Table.Th>
-              )}
+              <Table.Th className="hidden w-10 text-center md:table-cell">
+                順
+              </Table.Th>
               <Table.Th className="w-8">
                 <span className="sr-only">並び替え</span>
               </Table.Th>
@@ -509,7 +509,6 @@ const SelectOptionList = ({
                   option={option}
                   label={optionTitle}
                   rowNumber={index + 1}
-                  position={isMobile ? undefined : index + 1}
                   status={rowStatus(option)}
                   error={showErrors ? rowErrors.get(option.id) : undefined}
                   disabled={isLoading}
@@ -540,14 +539,6 @@ const SelectOptionList = ({
           左端のつまみをドラッグすると並び順を変えられます
         </Text>
       </DndContext>
-      {isMobile && hasChanges && (
-        <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-2 border-t border-gray-300 bg-white px-4 py-3 shadow-md">
-          <Text size="sm" c="orange.8" fw={500}>
-            {changeText}
-          </Text>
-          {actionButtons}
-        </div>
-      )}
       <LoadingOverlay visible={isLoading} />
     </Paper>
   );

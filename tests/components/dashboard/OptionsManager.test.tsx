@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 
 import { fireEvent, screen, within } from "@testing-library/react";
+import { MantineProvider } from "@mantine/core";
+import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import OptionsManager, {
   type OptionsManagerCategory,
@@ -8,8 +10,7 @@ import OptionsManager, {
 import { OPTION_CLASSES } from "@/app/utils/selectOptionClasses";
 import { renderWithMantine } from "../../testUtils/renderWithMantine";
 
-const { viewport, searchParams } = vi.hoisted(() => ({
-  viewport: { mobile: false },
+const { searchParams } = vi.hoisted(() => ({
   searchParams: {
     type: null as string | null,
     other: null as string | null,
@@ -33,13 +34,6 @@ vi.mock("next/navigation", () => ({
         .join("&"),
   }),
 }));
-vi.mock("@mantine/hooks", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@mantine/hooks")>();
-  return {
-    ...actual,
-    useMediaQuery: () => viewport.mobile,
-  };
-});
 
 const categories = (
   overrides: Partial<Record<string, Partial<OptionsManagerCategory>>> = {},
@@ -58,7 +52,6 @@ const nav = () => screen.getByRole("navigation", { name: "項目の種類" });
 
 describe("OptionsManager", () => {
   beforeEach(() => {
-    viewport.mobile = false;
     searchParams.type = null;
     searchParams.other = null;
     window.history.replaceState(null, "", "/dashboard/options");
@@ -67,8 +60,8 @@ describe("OptionsManager", () => {
   it("PC では左にグループ付きのカテゴリ一覧、右に選択中のカテゴリのパネルを表示する", () => {
     renderWithMantine(<OptionsManager categories={categories()} />);
 
-    expect(screen.getByText("案件・費用で使う項目")).toBeInTheDocument();
-    expect(screen.getByText("追加収支で使う項目")).toBeInTheDocument();
+    expect(within(nav()).getByText("案件・費用で使う項目")).toBeInTheDocument();
+    expect(within(nav()).getByText("追加収支で使う項目")).toBeInTheDocument();
     expect(within(nav()).getByText("決済方法")).toBeInTheDocument();
     expect(
       within(nav()).getByRole("button", { name: /^チーム/ }),
@@ -154,21 +147,27 @@ describe("OptionsManager", () => {
     ).toBeVisible();
   });
 
-  describe("モバイル（768px 未満）", () => {
-    beforeEach(() => {
-      viewport.mobile = true;
-    });
+  it("SSR の出力に、PC のカテゴリ一覧とモバイルの Select の両方を含める（表示は CSS で切り替える）", () => {
+    const html = renderToString(
+      <MantineProvider>
+        <OptionsManager categories={categories()} />
+      </MantineProvider>,
+    );
 
-    it("カテゴリ一覧の代わりに Select で切り替える", () => {
+    expect(html).toContain("項目の種類");
+    expect(html).toContain("編集する項目");
+    expect(html).toContain("md:hidden");
+    expect(html).toContain("hidden w-[200px] shrink-0 p-2 md:block");
+  });
+
+  describe("モバイル（768px 未満）の Select", () => {
+    const select = () => screen.getByRole("textbox", { name: "編集する項目" });
+
+    it("Select（グループ付き）でカテゴリを切り替えられる", () => {
       renderWithMantine(<OptionsManager categories={categories()} />);
 
-      expect(
-        screen.queryByRole("navigation", { name: "項目の種類" }),
-      ).not.toBeInTheDocument();
-      const select = screen.getByRole("textbox", { name: "編集する項目" });
-      expect(select).toHaveValue("チーム（2件）");
-
-      fireEvent.click(select);
+      expect(select()).toHaveValue("チーム（2件）");
+      fireEvent.click(select());
       fireEvent.click(screen.getByRole("option", { name: "品目（2件）" }));
 
       expect(screen.getByDisplayValue("品目の項目")).toBeVisible();
@@ -179,28 +178,30 @@ describe("OptionsManager", () => {
       fireEvent.change(screen.getByDisplayValue("チームの項目"), {
         target: { value: "編集" },
       });
+      expect(select()).toHaveValue("チーム（2件） ● 未保存");
 
-      const select = screen.getByRole("textbox", { name: "編集する項目" });
-      fireEvent.click(select);
+      fireEvent.click(select());
       fireEvent.click(screen.getByRole("option", { name: "品目（2件）" }));
-      fireEvent.click(select);
+      fireEvent.click(select());
 
       expect(
         screen.getByRole("option", { name: "チーム（2件） ● 未保存" }),
       ).toBeInTheDocument();
     });
 
-    it("未保存の変更がある間だけ、Select に「● 未保存」と画面下の固定バーを表示する", () => {
+    it("未保存の変更がある間だけ、画面下の固定バーとして表示する（CSS で切り替える）", () => {
       renderWithMantine(<OptionsManager categories={categories()} />);
-      expect(screen.queryByText("変更を破棄")).not.toBeInTheDocument();
+      const bar = () =>
+        screen.getByRole("button", { name: "保存" }).parentElement
+          ?.parentElement as HTMLElement;
+      expect(bar()).toHaveClass("hidden", "md:flex");
 
       fireEvent.change(screen.getByDisplayValue("チームの項目"), {
         target: { value: "編集" },
       });
 
-      expect(screen.getByRole("textbox", { name: "編集する項目" })).toHaveValue(
-        "チーム（2件） ● 未保存",
-      );
+      expect(bar()).toHaveClass("flex", "fixed", "bottom-0", "md:static");
+      expect(bar()).not.toHaveClass("hidden");
       expect(screen.getByRole("button", { name: "変更を破棄" })).toBeEnabled();
       expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
     });

@@ -783,13 +783,13 @@ describe("optionRowsToSave", () => {
       );
 
       expect(
-        screen.getByRole("button", { name: "チームAを削除" }),
+        screen.getByRole("button", { name: "チームA（1行目）を削除" }),
       ).toHaveAttribute("type", "button");
       expect(
         screen.getByLabelText("チームの項目名（1行目）"),
       ).toBeInTheDocument();
       expect(
-        screen.getByLabelText("チームAの並び順を変更"),
+        screen.getByLabelText("チームA（1行目）の並び順を変更"),
       ).toBeInTheDocument();
     });
 
@@ -808,6 +808,28 @@ describe("optionRowsToSave", () => {
       );
       expect(screen.getByText("項目名を入力してください")).toBeInTheDocument();
       expect(bulkUpsertSelectOptions).not.toHaveBeenCalled();
+    });
+
+    it("追加した行が複数あっても、ドラッグハンドルと削除ボタンの名前は行ごとに一意になる", () => {
+      renderWithMantine(
+        <SelectOptionList optionClass="team" optionList={optionList} />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "＋ チームを追加" }));
+      fireEvent.click(screen.getByRole("button", { name: "＋ チームを追加" }));
+
+      expect(
+        screen.getByLabelText("新しいチーム（2行目）の並び順を変更"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByLabelText("新しいチーム（3行目）の並び順を変更"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "新しいチーム（2行目）を削除" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "新しいチーム（3行目）を削除" }),
+      ).toBeInTheDocument();
     });
 
     it("空欄の行が 2 つあっても、Alert に空の名前の重複を出さない", async () => {
