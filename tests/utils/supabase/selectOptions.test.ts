@@ -14,25 +14,35 @@ import { bulkUpsertSelectOptions } from "@/app/utils/supabase/selectOptions";
 
 type Row = { id: number; value: string; is_active: boolean | null };
 
-// select_option_types の取得・select_options の INSERT（1 行ずつ）・UPDATE を記録する
-// Supabase クライアントのモック。rows は DB にある行で、UNIQUE(type_id, value) と同じく
-// 無効化済みの行を含めて項目名が重なる INSERT / UPDATE を 23505 にする
+// select_option_types の取得・select_options の INSERT（複数行を 1 回で）・既存行の取得・
+// UPDATE を記録する Supabase クライアントのモック。rows は DB にある行で、
+// UNIQUE(type_id, value) と同じく無効化済みの行を含めて項目名が重なる INSERT / UPDATE を
+// 23505 にする（一括 INSERT は 1 行でも重なれば全体が失敗し、何も追加されない）
 const createSupabaseMock = ({
   rows: initialRows = [],
-  failInsertAt,
+  failInsertCall,
   failUpdate = false,
   failUpdateIds = [],
   failType = false,
+  rowsAddedAfterFetch = [],
+  failFetchExisting = false,
 }: {
   rows?: Row[];
-  failInsertAt?: number;
+  // 23505 以外のエラーにする INSERT 呼び出しの番号（0 始まり）
+  failInsertCall?: number;
   failUpdate?: boolean;
   // 23505 以外のエラーにする UPDATE の行の id
   failUpdateIds?: number[];
   failType?: boolean;
+  // 既存の行の取得（value IN (...)）を返した後に、他の管理者が追加した行（競合の再現用）
+  rowsAddedAfterFetch?: Row[];
+  failFetchExisting?: boolean;
 } = {}) => {
   const rows: Row[] = initialRows.map((row) => ({ ...row }));
   const inserted: Record<string, unknown>[] = [];
+  // INSERT の呼び出しごとの行の項目名（一括 INSERT の回数・まとめ方の確認用）
+  const insertCalls: string[][] = [];
+  let insertCallCount = 0;
   const updated: { id: number; values: Record<string, unknown> }[] = [];
   const reactivated: { value: unknown; values: Record<string, unknown> }[] =
     [];
@@ -120,24 +130,48 @@ const createSupabaseMock = ({
       };
     }
     return {
-      insert: (values: Record<string, unknown>) => ({
-        select: () => ({
-          single: async () => {
-            operations.push(`insert:${values.value}`);
-            if (failInsertAt === inserted.length) {
-              return { data: null, error: { message: "insert failed" } };
-            }
-            if (rows.some((r) => r.value === values.value)) {
-              return { data: null, error: uniqueViolation };
-            }
-            inserted.push(values);
+      insert: (input: Record<string, unknown> | Record<string, unknown>[]) => ({
+        select: async () => {
+          const values = Array.isArray(input) ? input : [input];
+          const call = insertCallCount++;
+          insertCalls.push(values.map((v) => v.value as string));
+          operations.push(`insert:${values.map((v) => v.value).join(",")}`);
+          if (failInsertCall === call) {
+            return { data: null, error: { message: "insert failed" } };
+          }
+          const names = values.map((v) => v.value);
+          if (
+            new Set(names).size !== names.length ||
+            rows.some((r) => names.includes(r.value))
+          ) {
+            return { data: null, error: uniqueViolation };
+          }
+          const data = values.map((v) => {
+            inserted.push(v);
             const id = nextId++;
             rows.push({
               id,
-              value: values.value as string,
-              is_active: values.is_active as boolean,
+              value: v.value as string,
+              is_active: v.is_active as boolean,
             });
-            return { data: { id }, error: null };
+            // 戻り値の並び順は入力順と一致しない場合がある（逆順にして確認する）
+            return { id, value: v.value as string };
+          });
+          return { data: data.reverse(), error: null };
+        },
+      }),
+      select: () => ({
+        eq: () => ({
+          in: async (_column: string, values: string[]) => {
+            operations.push(`fetch:${values.join(",")}`);
+            if (failFetchExisting) {
+              return { data: null, error: { message: "fetch failed" } };
+            }
+            const data = rows
+              .filter((r) => values.includes(r.value))
+              .map((r) => ({ ...r }));
+            rows.push(...rowsAddedAfterFetch.map((r) => ({ ...r })));
+            return { data, error: null };
           },
         }),
       }),
@@ -149,6 +183,7 @@ const createSupabaseMock = ({
     client: { from },
     rows,
     inserted,
+    insertCalls,
     updated,
     reactivated,
     operations,
@@ -183,8 +218,8 @@ describe("bulkUpsertSelectOptions", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
-  it("追加した行を 1 行ずつ INSERT し、画面上の仮 id と DB の id の対応を返す", async () => {
-    const { client, inserted, updated } = createSupabaseMock({
+  it("追加した行を 1 回の INSERT でまとめて追加し、画面上の仮 id と DB の id の対応を項目名で返す", async () => {
+    const { client, inserted, insertCalls, updated } = createSupabaseMock({
       rows: [{ id: 1, value: "チームA", is_active: true }],
     });
     createServerSupabase.mockReturnValue(client);
@@ -203,6 +238,8 @@ describe("bulkUpsertSelectOptions", () => {
       updatedIds: [1],
     });
     expect(inserted.map((row) => row.value)).toEqual(["チームB", "チームC"]);
+    // INSERT は 1 回だけ（戻り値の並びが入力順と逆でも、項目名で仮 id に対応付ける）
+    expect(insertCalls).toEqual([["チームB", "チームC"]]);
     expect(inserted[0]).toMatchObject({ type_id: "type-team", is_active: true });
     expect(updated.map((row) => row.id)).toEqual([1]);
   });
@@ -270,14 +307,19 @@ describe("bulkUpsertSelectOptions", () => {
       insertedIds: [{ tempId: -1, id: 5 }],
       updatedIds: [5],
     });
-    expect(operations).toEqual(["update:5", "insert:広報", "reactivate:広報"]);
+    expect(operations).toEqual([
+      "update:5",
+      "insert:広報",
+      "fetch:広報",
+      "reactivate:広報",
+    ]);
     expect(rows).toEqual([
       expect.objectContaining({ id: 5, value: "広報", is_active: true }),
     ]);
   });
 
-  it("追加しようとした名前が有効な行と重なる場合は、分かるメッセージを返す", async () => {
-    const { client } = createSupabaseMock({
+  it("追加しようとした名前が有効な行と重なる場合は、何も追加せずに分かるメッセージを返す", async () => {
+    const { client, inserted, insertCalls } = createSupabaseMock({
       rows: [{ id: 1, value: "チームA", is_active: true }],
     });
     createServerSupabase.mockReturnValue(client);
@@ -288,11 +330,128 @@ describe("bulkUpsertSelectOptions", () => {
       option(-2, "チームA", { isNew: true }),
     ]);
 
+    // 重複は何かを書き込む前に見つけるため、他の追加行（チームB）も追加されない
     expect(result).toEqual({
-      insertedIds: [{ tempId: -1, id: 100 }],
+      insertedIds: [],
       updatedIds: [1],
       error: duplicateMessage("チームA"),
     });
+    expect(inserted).toEqual([]);
+    expect(insertCalls).toEqual([["チームB", "チームA"]]);
+  });
+
+  it("同じ保存で同じ名前を 2 行追加した場合は、何も追加せずに分かるメッセージを返す", async () => {
+    const { client, inserted } = createSupabaseMock();
+    createServerSupabase.mockReturnValue(client);
+
+    const result = await bulkUpsertSelectOptions("team", [
+      option(-1, "チームB", { isNew: true }),
+      option(-2, "チームB", { isNew: true }),
+    ]);
+
+    expect(result).toEqual({
+      insertedIds: [],
+      updatedIds: [],
+      error: duplicateMessage("チームB"),
+    });
+    expect(inserted).toEqual([]);
+  });
+
+  it("一括 INSERT が一意制約違反になったら、既存の行を 1 回取得して、新規は INSERT・削除済みの行は再有効化に振り分ける", async () => {
+    const { client, rows, insertCalls, reactivated, operations } =
+      createSupabaseMock({
+        rows: [
+          { id: 1, value: "チームA", is_active: true },
+          { id: 5, value: "広報", is_active: false },
+          { id: 6, value: "総務", is_active: null },
+        ],
+      });
+    createServerSupabase.mockReturnValue(client);
+
+    const result = await bulkUpsertSelectOptions("team", [
+      option(-1, "チームB", { isNew: true }),
+      option(-2, "広報", { isNew: true }),
+      option(-3, "チームC", { isNew: true }),
+      option(-4, "総務", { isNew: true }),
+    ]);
+
+    // 仮 id と DB の id の対応は追加した順（新規行 → 再有効化した行の順に記録し、項目名で対応）
+    expect(result.error).toBeUndefined();
+    expect(result.insertedIds).toEqual(
+      expect.arrayContaining([
+        { tempId: -1, id: 100 },
+        { tempId: -3, id: 101 },
+        { tempId: -2, id: 5 },
+        { tempId: -4, id: 6 },
+      ]),
+    );
+    expect(result.insertedIds).toHaveLength(4);
+    // 一括 INSERT（失敗）→ 既存の行の取得 → 新規だけまとめて INSERT → 再有効化
+    expect(insertCalls).toEqual([
+      ["チームB", "広報", "チームC", "総務"],
+      ["チームB", "チームC"],
+    ]);
+    expect(operations.filter((op) => op.startsWith("fetch"))).toEqual([
+      "fetch:チームB,広報,チームC,総務",
+    ]);
+    expect(reactivated.map((r) => r.value).sort()).toEqual(["広報", "総務"]);
+    expect(rows.find((r) => r.id === 5)?.is_active).toBe(true);
+    expect(rows.find((r) => r.id === 6)?.is_active).toBe(true);
+  });
+
+  it("既存の行の取得後に他の管理者が同じ名前を追加して INSERT が失敗したら、何も追加せずにエラーを返す", async () => {
+    const { client } = createSupabaseMock({
+      rows: [{ id: 5, value: "広報", is_active: false }],
+      rowsAddedAfterFetch: [{ id: 50, value: "チームB", is_active: true }],
+    });
+    createServerSupabase.mockReturnValue(client);
+
+    const result = await bulkUpsertSelectOptions("team", [
+      option(-1, "チームB", { isNew: true }),
+      option(-2, "広報", { isNew: true }),
+    ]);
+
+    expect(result).toEqual({
+      insertedIds: [],
+      updatedIds: [],
+      error: "項目の追加に失敗しました。",
+    });
+  });
+
+  it("既存の行の取得に失敗したら、何も追加せずにエラーを返す", async () => {
+    const { client, inserted } = createSupabaseMock({
+      rows: [{ id: 5, value: "広報", is_active: false }],
+      failFetchExisting: true,
+    });
+    createServerSupabase.mockReturnValue(client);
+
+    const result = await bulkUpsertSelectOptions("team", [
+      option(-1, "チームB", { isNew: true }),
+      option(-2, "広報", { isNew: true }),
+    ]);
+
+    expect(result).toEqual({
+      insertedIds: [],
+      updatedIds: [],
+      error: "項目の追加に失敗しました。",
+    });
+    expect(inserted).toEqual([]);
+  });
+
+  it("20 行をまとめて追加しても INSERT は 1 回（往復を増やさない）", async () => {
+    const { client, insertCalls, operations } = createSupabaseMock();
+    createServerSupabase.mockReturnValue(client);
+    const news = Array.from({ length: 20 }, (_, i) =>
+      option(-(i + 1), `項目${i + 1}`, { isNew: true }),
+    );
+
+    const result = await bulkUpsertSelectOptions("team", news);
+
+    expect(result.insertedIds).toHaveLength(20);
+    expect(result.insertedIds).toContainEqual({ tempId: -1, id: 100 });
+    expect(result.insertedIds).toContainEqual({ tempId: -20, id: 119 });
+    expect(insertCalls).toHaveLength(1);
+    expect(operations.filter((op) => op.startsWith("fetch"))).toEqual([]);
   });
 
   it("名前の変更が削除済みの行の名前と重なる場合（UPDATE の 23505）も、分かるメッセージを返し、追加へ進まない", async () => {
@@ -335,10 +494,10 @@ describe("bulkUpsertSelectOptions", () => {
     ]);
   });
 
-  it("INSERT が途中で失敗したら、それまでに INSERT できた行の対応とエラーを返す（例外にしない）", async () => {
+  it("一括 INSERT が失敗したら、何も追加せずにエラーを返す（例外にしない。UPDATE できた行は返す）", async () => {
     const { client, inserted, updated } = createSupabaseMock({
       rows: [{ id: 1, value: "チームA", is_active: true }],
-      failInsertAt: 1,
+      failInsertCall: 0,
     });
     createServerSupabase.mockReturnValue(client);
 
@@ -349,11 +508,11 @@ describe("bulkUpsertSelectOptions", () => {
     ]);
 
     expect(result).toEqual({
-      insertedIds: [{ tempId: -1, id: 100 }],
+      insertedIds: [],
       updatedIds: [1],
       error: "項目の追加に失敗しました。",
     });
-    expect(inserted.map((row) => row.value)).toEqual(["チームB"]);
+    expect(inserted).toEqual([]);
     expect(updated.map((row) => row.id)).toEqual([1]);
   });
 

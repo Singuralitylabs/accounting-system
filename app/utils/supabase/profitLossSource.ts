@@ -344,34 +344,67 @@ const fetchLabelsByTargetIds = async (
   };
 };
 
+// 月次レポートの調整対象行の補完取得（supplementAdjustmentTargets と同じ条件）の指定
+export type AdjustmentSupplementOptions = {
+  month: string;
+  includeTeamBreakdown?: boolean;
+  includeMonthlyDetails?: boolean;
+};
+
 // 集計・表示に必要な行をまとめて取得する（RLS により権限に応じた行のみ返る）
 // セッション Cookie は @supabase/ssr 形式。createServerSupabase() 以外のクライアントを混ぜない
 // 対象期間＋月未確定（NULL）行に絞る。月次は単月、年間推移は年度12ヶ月を渡し、
 // いずれも一括取得（Promise.all）のままクエリ往復を増やさない。
 // 表示タイトルは取得した行の ID で絞って取得するため、行の取得の後にもう 1 往復する
-// （Issue #172）。表示タイトルを表示しない年間推移は includeLabels: false で取得を省く
+// （Issue #172）。表示タイトルを表示しない年間推移は includeLabels: false で取得を省く。
+// 月次レポートは supplement を渡すと、対象行が期間外へ移動した調整の対象行の補完取得も
+// 行う。補完が必要かは取得した行だけで判定できるため、表示タイトルの取得と補完行の取得を
+// 並列にする（直列だと往復が 1 つ増える。Issue #193）。補完行の案件のうち、表示タイトルを
+// まだ問い合わせていないものがあるときだけ、その取得が追加の 1 往復になる
 export const fetchReportSourceRows = async (
   period: ReportPeriod,
-  options?: { includeLabels?: boolean },
+  options?: {
+    includeLabels?: boolean;
+    supplement?: AdjustmentSupplementOptions;
+  },
 ): Promise<ReportSourceRows | null> => {
   const sourceRows = await fetchClosingSourceRows(period);
   if (!sourceRows) {
     return null;
   }
-  if (options?.includeLabels === false) {
+  const includeLabels = options?.includeLabels !== false;
+  const missingIds = options?.supplement
+    ? planAdjustmentSupplement(options.supplement.month, sourceRows, options.supplement)
+    : null;
+  if (!includeLabels && !missingIds) {
     return { ...sourceRows, labels: [] };
   }
-  const labelResult = await fetchLabelsByTargetIds(
-    collectLabelTargetIds(sourceRows),
-  );
+  const labelTargetIds = collectLabelTargetIds(sourceRows);
+  const [labelResult, supplemented] = await Promise.all([
+    includeLabels
+      ? fetchLabelsByTargetIds(labelTargetIds)
+      : Promise.resolve({ data: [] as ProfitLossLabelType[], error: null }),
+    missingIds ? fetchAdjustmentTargetRows(missingIds) : null,
+  ]);
   if (labelResult.error) {
     console.error("損益レポートのデータ取得に失敗しました:", labelResult.error);
     return null;
   }
-  return {
+  const rows: ReportSourceRows = {
     ...sourceRows,
     labels: labelResult.data ?? [],
   };
+  if (supplemented) {
+    const newMatterIds = applyAdjustmentSupplement(
+      rows,
+      supplemented,
+      new Set(labelTargetIds.matterIds),
+    );
+    if (includeLabels) {
+      await appendMatterLabels(rows, newMatterIds);
+    }
+  }
+  return rows;
 };
 
 // 対象行が取得期間外へ移動した調整のラベル解決用に、欠けている対象行だけを
@@ -382,18 +415,24 @@ export const fetchReportSourceRows = async (
 // （accounting / admin）でのみ計算・表示されるため、それ以外では補完取得自体を
 // スキップする（Issue #142）。表示側（buildMonthReport）と同じ
 // needsMonthlyAdjustmentDetails で判定する
-export const supplementAdjustmentTargets = async (
+
+type MissingAdjustmentTargetIds = ReturnType<
+  typeof collectMissingAdjustmentTargetIds
+>;
+
+// 補完取得が必要な対象行の ID。不要（スキップ対象のロール・欠けが無い）なら null
+const planAdjustmentSupplement = (
   month: string,
-  rows: ReportSourceRows,
-  options?: { includeTeamBreakdown?: boolean; includeMonthlyDetails?: boolean },
-): Promise<void> => {
+  rows: ReportSourceRows | ClosingSourceRows,
+  options?: Omit<AdjustmentSupplementOptions, "month">,
+): MissingAdjustmentTargetIds | null => {
   if (
     !needsMonthlyAdjustmentDetails({
       includeTeamBreakdown: options?.includeTeamBreakdown ?? true,
       includeMonthlyDetails: options?.includeMonthlyDetails ?? true,
     })
   ) {
-    return;
+    return null;
   }
   const missingIds = collectMissingAdjustmentTargetIds(
     month,
@@ -407,8 +446,21 @@ export const supplementAdjustmentTargets = async (
     missingIds.costIds.length === 0 &&
     missingIds.recurringCostIds.length === 0
   ) {
-    return;
+    return null;
   }
+  return missingIds;
+};
+
+type SupplementedRows = {
+  businessRows: BusinessRow[];
+  costRows: CostRow[];
+  recurringCosts: RecurringCostType[];
+};
+
+// 欠けている対象行を ID 指定で取得する。失敗したら（汎用ラベルで表示するため）null
+const fetchAdjustmentTargetRows = async (
+  missingIds: MissingAdjustmentTargetIds,
+): Promise<SupplementedRows | null> => {
   const supabase = createServerSupabase();
   const [missingBusiness, missingCosts, missingRecurring] = await Promise.all([
     fetchAllByIds(missingIds.businessIds, (chunk, afterId, limit) =>
@@ -444,29 +496,46 @@ export const supplementAdjustmentTargets = async (
       "損益レポートの調整対象行の補完取得に失敗しました（汎用ラベルで表示します）:",
       missingBusiness.error ?? missingCosts.error ?? missingRecurring.error,
     );
-    return;
+    return null;
   }
-  // 表示タイトルは取得済みの行の案件 ID で絞って取得しているため、補完行の案件のうち
-  // まだ問い合わせていない案件の表示タイトルを追加で取得する（Issue #172。明細・定期費用の
-  // 表示タイトルは調整の対象 ID として取得済み）。補完行が無ければ問い合わせない
-  const queriedMatterIds = new Set(collectLabelTargetIds(rows).matterIds);
-  const supplementedBusiness = (missingBusiness.data ?? []) as BusinessRow[];
-  const supplementedCosts = (missingCosts.data ?? []) as CostRow[];
-  rows.businessRows.push(...supplementedBusiness);
-  rows.costRows.push(...supplementedCosts);
-  rows.recurringCosts.push(...(missingRecurring.data ?? []));
-  const newMatterIds = Array.from(
+  return {
+    businessRows: (missingBusiness.data ?? []) as BusinessRow[],
+    costRows: (missingCosts.data ?? []) as CostRow[],
+    recurringCosts: missingRecurring.data ?? [],
+  };
+};
+
+// 補完行を rows に追加し、表示タイトルをまだ問い合わせていない案件の ID を返す。
+// 表示タイトルは取得済みの行の案件 ID で絞って取得しているため、補完行の案件のうち
+// まだ問い合わせていない案件の表示タイトルを追加で取得する必要がある（Issue #172。明細・
+// 定期費用の表示タイトルは調整の対象 ID として取得済み）
+const applyAdjustmentSupplement = (
+  rows: ReportSourceRows,
+  supplemented: SupplementedRows,
+  queriedMatterIds: ReadonlySet<number>,
+): number[] => {
+  rows.businessRows.push(...supplemented.businessRows);
+  rows.costRows.push(...supplemented.costRows);
+  rows.recurringCosts.push(...supplemented.recurringCosts);
+  return Array.from(
     new Set(
-      [...supplementedBusiness, ...supplementedCosts]
+      [...supplemented.businessRows, ...supplemented.costRows]
         .map((row) => row.matter_id)
         .filter((id) => !queriedMatterIds.has(id)),
     ),
   );
-  if (newMatterIds.length === 0) {
+};
+
+// 補完行の案件の表示タイトルを追加で取得して rows.labels に加える（無ければ問い合わせない）
+const appendMatterLabels = async (
+  rows: ReportSourceRows,
+  matterIds: number[],
+): Promise<void> => {
+  if (matterIds.length === 0) {
     return;
   }
   const labelResult = await fetchLabelsByTargetIds({
-    matterIds: newMatterIds,
+    matterIds,
     businessIds: [],
     costIds: [],
     recurringCostIds: [],
@@ -479,6 +548,30 @@ export const supplementAdjustmentTargets = async (
     return;
   }
   rows.labels.push(...(labelResult.data ?? []));
+};
+
+// 取得済みの rows に、補完取得（欠けている対象行と、その案件の表示タイトル）を順に行う。
+// 月次レポート本体は fetchReportSourceRows の supplement で表示タイトルの取得と並列に
+// 行うため、これは取得済みの rows に後から補完したい場合のためのもの
+export const supplementAdjustmentTargets = async (
+  month: string,
+  rows: ReportSourceRows,
+  options?: Omit<AdjustmentSupplementOptions, "month">,
+): Promise<void> => {
+  const missingIds = planAdjustmentSupplement(month, rows, options);
+  if (!missingIds) {
+    return;
+  }
+  const supplemented = await fetchAdjustmentTargetRows(missingIds);
+  if (!supplemented) {
+    return;
+  }
+  const newMatterIds = applyAdjustmentSupplement(
+    rows,
+    supplemented,
+    new Set(collectLabelTargetIds(rows).matterIds),
+  );
+  await appendMatterLabels(rows, newMatterIds);
 };
 
 // 確定後の差分（Issue #149）の追加・削除に付ける、他の月との移動の情報を取得する。

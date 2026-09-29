@@ -126,10 +126,13 @@ const UPDATE_FAILED_MESSAGE = "項目の更新に失敗しました。";
 // 場合は分かるメッセージを返す（UPDATE で名前を削除済みの行と同じにした場合・名前を
 // 入れ替えた場合も同様）。
 //
-// 追加は 1 行ずつ行い、仮 id と DB の id を 1 対 1 で対応付けて返す（一括 INSERT の
-// 戻り値の並び順は入力順と一致する保証が無く、行ごとに一意制約違反・再有効化を
-// 判断する必要もあるため）。画面は保存に成功した行を DB の id に置き換えるので、
-// 再取得（router.refresh）が届く前に続けて保存しても再び追加しない
+// 追加はまず 1 回の INSERT ... RETURNING でまとめて行う（20 行追加しても 1 往復）。
+// 一意制約違反（23505）で失敗した場合（一括 INSERT は全体が失敗し、何も追加されない）だけ、
+// 既存の行を value IN (...) で 1 回取得し、新規の行の INSERT（まとめて）と削除済みの行の
+// 再有効化（並行）に振り分ける。仮 id と DB の id は項目名（value）をキーに 1 対 1 で
+// 対応付けて返す（一括 INSERT の戻り値の並び順は入力順と一致する保証が無いため）。
+// 画面は保存に成功した行を DB の id に置き換えるので、再取得（router.refresh）が届く前に
+// 続けて保存しても再び追加しない
 export const bulkUpsertSelectOptions = async (
   typeName: string,
   options: SelectOptionToSave[]
@@ -248,55 +251,127 @@ export const bulkUpsertSelectOptions = async (
       };
     }
 
+    const toInsertRow = (option: SelectOptionToSave) => ({
+      type_id: typeData.id,
+      value: option.value,
+      display_order: option.display_order || fallbackOrder,
+      is_active: true,
+    });
+    const addFailed = (): BulkUpsertSelectOptionsResult => ({
+      insertedIds,
+      updatedIds,
+      error: "項目の追加に失敗しました。",
+    });
+    // 一括 INSERT した行の（value をキーにした）id を、追加した順に insertedIds へ入れる。
+    // 一括 INSERT が成功したときは項目名がすべて異なる（一意制約）ため value で 1 対 1 に対応する
+    const recordInserted = (
+      inserted: { id: number; value: string }[],
+      targets: SelectOptionToSave[]
+    ) => {
+      const idByValue = new Map(inserted.map((row) => [row.value, row.id]));
+      for (const option of targets) {
+        const id = idByValue.get(option.value);
+        if (id !== undefined) insertedIds.push({ tempId: option.id, id });
+      }
+    };
+
+    // まず 1 回の INSERT でまとめて追加する（1 往復）。一括 INSERT は全体が成功するか、
+    // 全体が失敗する（一部だけ追加されることはない）
+    const { data: bulkData, error: bulkError } = await supabase
+      .from("select_options")
+      .insert(newOptions.map(toInsertRow))
+      .select("id, value");
+
+    if (!bulkError && bulkData && bulkData.length === newOptions.length) {
+      recordInserted(bulkData, newOptions);
+      return { insertedIds, updatedIds };
+    }
+    if (bulkError?.code !== UNIQUE_VIOLATION) {
+      console.error("選択肢の追加に失敗しました", bulkError);
+      return addFailed();
+    }
+
+    // 一意制約違反（23505）: 同じ名前の行が既にある（削除済みの行を含む）。既存の行を
+    // 先にまとめて取得し、新規 INSERT・削除済みの行の再有効化・重複エラーに振り分ける
+    const { data: existingRows, error: existingError } = await supabase
+      .from("select_options")
+      .select("id, value, is_active")
+      .eq("type_id", typeData.id)
+      .in(
+        "value",
+        newOptions.map((option) => option.value)
+      );
+    if (existingError || !existingRows) {
+      console.error("既存の選択肢の取得に失敗しました", existingError);
+      return addFailed();
+    }
+
+    const existingByValue = new Map(existingRows.map((row) => [row.value, row]));
+    const toInsert: SelectOptionToSave[] = [];
+    const toReactivate: SelectOptionToSave[] = [];
+    const seenValues = new Set<string>();
     for (const option of newOptions) {
-      const displayOrder = option.display_order || fallbackOrder;
-      const { data, error } = await supabase
-        .from("select_options")
-        .insert({
-          type_id: typeData.id,
-          value: option.value,
-          display_order: displayOrder,
-          is_active: true,
-        })
-        .select("id")
-        .single();
-
-      if (data && !error) {
-        insertedIds.push({ tempId: option.id, id: data.id });
-        continue;
-      }
-
-      if (error?.code !== UNIQUE_VIOLATION) {
-        console.error("選択肢の追加に失敗しました", error);
-        return { insertedIds, updatedIds, error: "項目の追加に失敗しました。" };
-      }
-
-      // 同じ名前の行が既にある。削除済み（is_active が true 以外）なら再び有効にする
-      const { data: reactivated, error: reactivateError } = await supabase
-        .from("select_options")
-        .update({
-          display_order: displayOrder,
-          is_active: true,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("type_id", typeData.id)
-        .eq("value", option.value)
-        .not("is_active", "is", true)
-        .select("id");
-
-      if (reactivateError) {
-        console.error("削除済みの選択肢の再有効化に失敗しました", reactivateError);
-        return { insertedIds, updatedIds, error: "項目の追加に失敗しました。" };
-      }
-      if (!reactivated || reactivated.length !== 1) {
-        // 有効な行と同じ名前（同じ保存で同じ名前を 2 行追加した場合を含む）
+      const existing = existingByValue.get(option.value);
+      // 有効な行と同じ名前（同じ保存で同じ名前を 2 行追加した場合を含む）。何も書き込む前に
+      // 返すため、一部だけ追加されることはない
+      if (seenValues.has(option.value) || existing?.is_active === true) {
         return {
           insertedIds,
           updatedIds,
           error: DUPLICATE_VALUE_MESSAGE(option.value),
         };
       }
-      insertedIds.push({ tempId: option.id, id: reactivated[0].id });
+      seenValues.add(option.value);
+      // 削除済み（is_active が true 以外）の行は再び有効にする
+      (existing ? toReactivate : toInsert).push(option);
+    }
+
+    if (toInsert.length > 0) {
+      const { data: insertedRows, error: insertError } = await supabase
+        .from("select_options")
+        .insert(toInsert.map(toInsertRow))
+        .select("id, value");
+      if (insertError || !insertedRows) {
+        // 取得後に他の管理者が同じ名前を追加した場合の一意制約違反も含む（画面の再読み込み後に
+        // 保存し直すと、重複として案内される）
+        console.error("選択肢の追加に失敗しました", insertError);
+        return addFailed();
+      }
+      recordInserted(insertedRows, toInsert);
+    }
+
+    // 削除済みの行の再有効化（表示順は追加した行の位置にする）。行ごとに独立しているため
+    // 並行に行い、失敗した行があっても他の行の結果を待ってから、再有効化できた行を返す
+    const reactivateResults = await Promise.all(
+      toReactivate.map(async (option) => {
+        const { data, error } = await supabase
+          .from("select_options")
+          .update({
+            display_order: option.display_order || fallbackOrder,
+            is_active: true,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("type_id", typeData.id)
+          .eq("value", option.value)
+          .not("is_active", "is", true)
+          .select("id");
+        return { option, data, error };
+      })
+    );
+    let reactivateError: string | undefined;
+    for (const { option, data, error } of reactivateResults) {
+      if (error) {
+        console.error("削除済みの選択肢の再有効化に失敗しました", error);
+        reactivateError ??= "項目の追加に失敗しました。";
+      } else if (!data || data.length !== 1) {
+        // 取得後に他の管理者が有効にした（有効な行と同じ名前になった）
+        reactivateError ??= DUPLICATE_VALUE_MESSAGE(option.value);
+      } else {
+        insertedIds.push({ tempId: option.id, id: data[0].id });
+      }
+    }
+    if (reactivateError) {
+      return { insertedIds, updatedIds, error: reactivateError };
     }
   }
 

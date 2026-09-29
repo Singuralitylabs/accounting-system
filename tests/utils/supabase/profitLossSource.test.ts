@@ -701,3 +701,136 @@ describe("表示タイトルを絞って取得しても損益計算書の表示�
     ]);
   });
 });
+
+describe("fetchReportSourceRows の調整対象行の補完取得（supplement。Issue #193）", () => {
+  const period = { startMonth: "2026-08", endMonth: "2026-08" };
+  const supplement = { month: "2026-08" };
+
+  // 期間外（9 月）へ移動した売上 7（案件 30）を対象とする調整
+  const movedBusiness = (): FakeRow =>
+    ({
+      ...businessRow(7, 30),
+      matters: { ...matterOf(30), start_date: "2026-09-05" },
+    }) as unknown as FakeRow;
+
+  const tablesWithMovedBusiness = (): Record<string, FakeRow[]> => ({
+    business: [businessRow(1, 10) as unknown as FakeRow, movedBusiness()],
+    costs: [],
+    recurring_costs: [],
+    extra_entries: [],
+    profit_loss_adjustments: [adjustmentRow(1, { business_id: 7 })],
+    profit_loss_closings: [],
+    profit_loss_closing_lines: [],
+    profit_loss_closing_dismissals: [],
+    profit_loss_labels: [
+      labelRow(1, { matter_id: 10 }),
+      labelRow(2, { business_id: 7 }),
+      labelRow(3, { matter_id: 30 }),
+      labelRow(99, { matter_id: 99 }),
+    ],
+  });
+
+  const periodFilters = {
+    business: (row: FakeRow) =>
+      (row as unknown as BusinessRow).matters.start_date?.startsWith(
+        "2026-08",
+      ) ?? false,
+  };
+
+  it("補完行と、その案件の表示タイトルを取得して rows に加える（supplementAdjustmentTargets と同じ結果）", async () => {
+    const { labelInCalls } = fakeSupabase(
+      tablesWithMovedBusiness(),
+      periodFilters,
+    );
+    const rows = await fetchReportSourceRows(period, { supplement });
+
+    expect(rows?.businessRows.map((row) => row.id)).toEqual([1, 7]);
+    // 案件 30 の表示タイトルだけを追加で取得する（最初の取得は案件 10・売上 1・7）
+    expect(labelInCalls().at(-1)?.args).toEqual(["matter_id", [30]]);
+    expect(sorted(rows!.labels.map((label) => label.id))).toEqual([1, 2, 3]);
+
+    const sequential = fakeSupabase(tablesWithMovedBusiness(), periodFilters);
+    const base = await fetchReportSourceRows(period);
+    await supplementAdjustmentTargets("2026-08", base!);
+    expect(rows).toEqual(base);
+    expect(sequential.labelInCalls().length).toBeGreaterThan(0);
+  });
+
+  // ライブ行の表示タイトルの取得と補完行の取得は並列に行う（直列だと往復が 1 つ増える）。
+  // 表示タイトルの取得を「補完行の取得が始まるまで完了しない」ようにして確かめる
+  // （直列の実装なら補完行の取得が始まらないため、タイムアウトで失敗する）
+  it("表示タイトルの取得と補完行の取得を並列に行う", async () => {
+    const fake = fakeSupabase(tablesWithMovedBusiness(), periodFilters);
+    let markSupplementStarted!: () => void;
+    const supplementStarted = new Promise<void>((resolve) => {
+      markSupplementStarted = resolve;
+    });
+    fake.from.mockImplementation((table: string) => {
+      const query = fake.buildQuery(table);
+      if (table === "business") {
+        const original = query.in as (...args: unknown[]) => unknown;
+        query.in = (...args: unknown[]) => {
+          if (args[0] === "id" && (args[1] as number[]).includes(7)) {
+            markSupplementStarted();
+          }
+          return original(...args);
+        };
+      }
+      if (table === "profit_loss_labels") {
+        const original = query.limit as (...args: unknown[]) => Promise<unknown>;
+        query.limit = (...args: unknown[]) =>
+          supplementStarted.then(() => original(...args));
+      }
+      return query;
+    });
+
+    const timeout = new Promise<"timeout">((resolve) =>
+      setTimeout(() => resolve("timeout"), 1000),
+    );
+    const result = await Promise.race([
+      fetchReportSourceRows(period, { supplement }),
+      timeout,
+    ]);
+
+    expect(result).not.toBe("timeout");
+    expect((result as ReportSourceRows).businessRows.map((r) => r.id)).toEqual([
+      1, 7,
+    ]);
+  });
+
+  it("補完が不要なら補完行を取得しない（欠けている対象行が無い）", async () => {
+    const tables = tablesWithMovedBusiness();
+    tables.profit_loss_adjustments = [adjustmentRow(1, { business_id: 1 })];
+    const { calls } = fakeSupabase(tables, periodFilters);
+
+    const rows = await fetchReportSourceRows(period, { supplement });
+
+    expect(rows?.businessRows.map((row) => row.id)).toEqual([1]);
+    expect(
+      calls.filter(
+        (call) =>
+          call.table === "business" &&
+          call.method === "in" &&
+          call.args[0] === "id",
+      ),
+    ).toEqual([]);
+  });
+
+  it("teamleader（チーム別内訳なし）は補完行を取得しない", async () => {
+    const { calls } = fakeSupabase(tablesWithMovedBusiness(), periodFilters);
+
+    const rows = await fetchReportSourceRows(period, {
+      supplement: { ...supplement, includeTeamBreakdown: false },
+    });
+
+    expect(rows?.businessRows.map((row) => row.id)).toEqual([1]);
+    expect(
+      calls.filter(
+        (call) =>
+          call.table === "business" &&
+          call.method === "in" &&
+          call.args[0] === "id",
+      ),
+    ).toEqual([]);
+  });
+});
