@@ -117,6 +117,26 @@ describe("OptionsManager", () => {
     expect(screen.getByDisplayValue("チームの項目")).toBeVisible();
   });
 
+  it("?type= が後から変わったら、表示するカテゴリも追従する", () => {
+    const { rerender } = renderWithMantine(
+      <OptionsManager categories={categories()} />,
+    );
+    expect(screen.getByDisplayValue("チームの項目")).toBeVisible();
+
+    searchParams.type = "item";
+    rerender(<OptionsManager categories={categories()} />);
+
+    expect(screen.getByDisplayValue("品目の項目")).toBeVisible();
+  });
+
+  it("件数バッジは読み上げで「件」が付く", () => {
+    renderWithMantine(<OptionsManager categories={categories()} />);
+
+    expect(
+      within(nav()).getByRole("button", { name: /^品目\s*2\s*件$/ }),
+    ).toBeInTheDocument();
+  });
+
   it("URL のクエリを更新するとき、type 以外のクエリを残す", () => {
     searchParams.other = "foo=bar";
     const spy = vi

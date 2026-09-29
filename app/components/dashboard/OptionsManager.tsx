@@ -2,7 +2,7 @@
 
 import { Badge, Paper, Select, Text, UnstyledButton } from "@mantine/core";
 import { useSearchParams } from "next/navigation";
-import { ComponentProps, useCallback, useState } from "react";
+import { ComponentProps, useCallback, useEffect, useState } from "react";
 import {
   OPTION_CLASS_GROUPS,
   OPTION_CLASSES,
@@ -32,6 +32,10 @@ const OptionsManager = ({
   const [selected, setSelected] = useState<OptionClass>(
     isOptionClass(typeParam) ? typeParam : OPTION_CLASSES[0].optionClass,
   );
+  // Follow later ?type= changes (in-app links, our own replaceState); a missing or invalid value keeps the current category.
+  useEffect(() => {
+    if (isOptionClass(typeParam)) setSelected(typeParam);
+  }, [typeParam]);
   // Every list stays mounted (only hidden), so edits survive switching and each keeps reporting its unsaved state.
   const [statuses, setStatuses] = useState<
     Partial<Record<OptionClass, OptionListStatus>>
@@ -141,6 +145,7 @@ const OptionsManager = ({
                       ) : (
                         <Badge color="gray" variant="light" size="sm">
                           {status?.count ?? 0}
+                          <span className="sr-only">件</span>
                         </Badge>
                       )}
                     </span>
