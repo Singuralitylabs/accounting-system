@@ -340,41 +340,12 @@ describe("saveBudgetDeclaration", () => {
 describe("deleteBudgetDeclaration", () => {
   const CLOSED_MESSAGE =
     "この月の事前収支申告は確定済みのため、作成・編集・削除できません。";
-
-  // Chainable stub: each table gets its own terminal result.
-  const buildSupabase = (results: {
-    deleted: { data: unknown; error: unknown };
-    declaration?: { data: unknown };
-    closing?: { data: unknown };
-  }) => ({
-    from: (table: string) => {
-      if (table === "budget_declarations") {
-        return {
-          delete: () => ({
-            eq: () => ({
-              eq: () => ({ select: () => Promise.resolve(results.deleted) }),
-            }),
-          }),
-          select: () => ({
-            eq: () => ({
-              maybeSingle: () =>
-                Promise.resolve(results.declaration ?? { data: null }),
-            }),
-          }),
-        };
-      }
-      return {
-        select: () => ({
-          eq: () => ({
-            maybeSingle: () => Promise.resolve(results.closing ?? { data: null }),
-          }),
-        }),
-      };
-    },
-  });
+  const deleteRpc = vi.fn();
 
   beforeEach(() => {
+    deleteRpc.mockReset();
     createServerSupabase.mockReset();
+    createServerSupabase.mockReturnValue({ rpc: deleteRpc });
     getAuthorizedViewer.mockReset();
     getAuthorizedViewer.mockResolvedValue({
       profileInfo: { id: 1, class: "accounting", team: null },
@@ -382,28 +353,29 @@ describe("deleteBudgetDeclaration", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
-  it("確定済みの月は RLS で 0 行になるため、確定済みメッセージを返す", async () => {
-    createServerSupabase.mockReturnValue(
-      buildSupabase({
-        deleted: { data: [], error: null },
-        declaration: { data: { target_month: "2026-10-01" } },
-        closing: { data: { id: 1 } },
-      }),
-    );
+  it("delete_budget_declaration RPC に id と team を渡し、1 行削除できれば成功", async () => {
+    deleteRpc.mockResolvedValue({ data: [{ id: 1 }], error: null });
+
+    expect(await deleteBudgetDeclaration(1, "Aチーム")).toEqual({});
+    expect(deleteRpc).toHaveBeenCalledWith("delete_budget_declaration", {
+      p_declaration_id: 1,
+      p_team: "Aチーム",
+    });
+  });
+
+  it("確定済みの月（MONTH_CLOSED）は確定済みメッセージを返す", async () => {
+    deleteRpc.mockResolvedValue({
+      data: null,
+      error: { code: "42501", message: MONTH_CLOSED },
+    });
 
     expect(await deleteBudgetDeclaration(1, "Aチーム")).toEqual({
       error: { kind: "validationFailed", message: CLOSED_MESSAGE },
     });
   });
 
-  it("未確定で 0 行のときは従来どおり「削除対象が見つかりません」を返す", async () => {
-    createServerSupabase.mockReturnValue(
-      buildSupabase({
-        deleted: { data: [], error: null },
-        declaration: { data: { target_month: "2026-10-01" } },
-        closing: { data: null },
-      }),
-    );
+  it("0 行（既に削除済み / 権限なし）は「削除対象が見つかりません」を返す", async () => {
+    deleteRpc.mockResolvedValue({ data: [], error: null });
 
     const result = await deleteBudgetDeclaration(1, "Aチーム");
 
@@ -411,16 +383,16 @@ describe("deleteBudgetDeclaration", () => {
     expect(result.error?.message).toContain("削除対象が見つかりませんでした");
   });
 
-  it("トリガーの MONTH_CLOSED エラーも確定済みメッセージで返す", async () => {
-    createServerSupabase.mockReturnValue(
-      buildSupabase({
-        deleted: { data: null, error: { message: MONTH_CLOSED } },
-      }),
-    );
-
-    expect(await deleteBudgetDeclaration(1, "Aチーム")).toEqual({
-      error: { kind: "validationFailed", message: CLOSED_MESSAGE },
+  it("その他の DB エラーは fetchFailed を返す", async () => {
+    deleteRpc.mockResolvedValue({
+      data: null,
+      error: { code: "XX000", message: "boom" },
     });
+
+    const result = await deleteBudgetDeclaration(1, "Aチーム");
+
+    expect(result.error?.kind).toBe("fetchFailed");
+    expect(result.error?.message).toContain("削除に失敗しました");
   });
 
   it("チームリーダーは他チームの申告を削除できない（DB を呼ばず forbidden）", async () => {

@@ -7,7 +7,6 @@ import {
   buildBudgetDeclarationStatusList,
   budgetAmountColor,
   budgetEntryRowStyle,
-  canViewAllBudgetTeams,
   canWriteAllBudgetTeams,
   canWriteBudgetTeam,
   categoryOptionsFor,
@@ -18,7 +17,6 @@ import {
   previousItemsToFormRows,
   summarizeBudgetItems,
   totalBudgetSummary,
-  visibleBudgetTeams,
 } from "@/app/utils/budgetDeclaration";
 import { ROUTE_PERMISSIONS } from "@/app/utils/permissions";
 
@@ -91,42 +89,7 @@ describe("summarizeBudgetItems", () => {
   });
 });
 
-describe("visibleBudgetTeams", () => {
-  const teamList = ["Aチーム", "Bチーム", "Cチーム"];
-
-  it("経理・管理者は全チームを表示する", () => {
-    expect(visibleBudgetTeams("accounting", teamList)).toEqual(teamList);
-    expect(visibleBudgetTeams("admin", teamList)).toEqual(teamList);
-  });
-
-  it("チームリーダーも全チームを表示する（閲覧のみ）", () => {
-    expect(visibleBudgetTeams("teamleader", teamList)).toEqual(teamList);
-  });
-
-  it("public・ロール未設定は表示対象なし", () => {
-    expect(visibleBudgetTeams("public", teamList)).toEqual([]);
-    expect(visibleBudgetTeams(null, teamList)).toEqual([]);
-  });
-
-  it("返り値は引数のチーム配列と独立している（呼び出し元の変更が波及しない）", () => {
-    const result = visibleBudgetTeams("admin", teamList);
-    result.push("Dチーム");
-    expect(teamList).toEqual(["Aチーム", "Bチーム", "Cチーム"]);
-  });
-});
-
-describe("canViewAllBudgetTeams / canWriteAllBudgetTeams", () => {
-  it("経理・管理者・チームリーダーは全チームを閲覧できる", () => {
-    expect(canViewAllBudgetTeams("accounting")).toBe(true);
-    expect(canViewAllBudgetTeams("admin")).toBe(true);
-    expect(canViewAllBudgetTeams("teamleader")).toBe(true);
-  });
-
-  it("public・ロール未設定は閲覧できない", () => {
-    expect(canViewAllBudgetTeams("public")).toBe(false);
-    expect(canViewAllBudgetTeams(null)).toBe(false);
-  });
-
+describe("canWriteAllBudgetTeams", () => {
   it("全チームへ書き込めるのは経理・管理者のみ", () => {
     expect(canWriteAllBudgetTeams("accounting")).toBe(true);
     expect(canWriteAllBudgetTeams("admin")).toBe(true);

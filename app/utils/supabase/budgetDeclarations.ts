@@ -15,7 +15,6 @@ import {
   buildBudgetDeclarationStatusList,
   BUDGET_MONTH_CLOSED_MESSAGE,
   canWriteBudgetTeam,
-  visibleBudgetTeams,
 } from "../budgetDeclaration";
 import {
   DUPLICATE_DECLARATION_MESSAGE,
@@ -48,7 +47,7 @@ const DECLARATION_LIST_SELECT = `
 export const getBudgetDeclarationList = async (
   month: string,
 ): Promise<BudgetDeclarationListResult> => {
-  const { profileInfo, error: accessError } = await getAuthorizedViewer(
+  const { error: accessError } = await getAuthorizedViewer(
     BUDGET_DECLARATION_ALLOWED_CLASSES,
     SUBJECT,
   );
@@ -80,10 +79,7 @@ export const getBudgetDeclarationList = async (
     };
   }
 
-  const teams = visibleBudgetTeams(
-    profileInfo.class,
-    teamResult.options.map((option) => option.value),
-  );
+  const teams = teamResult.options.map((option) => option.value);
 
   return {
     rows: buildBudgetDeclarationStatusList(
@@ -385,14 +381,14 @@ export const deleteBudgetDeclaration = async (
 
   const supabase = createServerSupabase();
 
-  // Without .select() no deleted rows return, so RLS filtering to 0 rows would look like success
-  // (same as matters.ts). Also filtered by team so a mismatched id cannot delete another team's declaration.
-  const { data, error } = await supabase
-    .from("budget_declarations")
-    .delete()
-    .eq("id", declarationId)
-    .eq("team", team)
-    .select();
+  // Runs through delete_budget_declaration (migration 38): it takes the shared month lock and returns
+  // MONTH_CLOSED for a closed month. RLS-filtered rows come back as 0 rows (no error), which is
+  // checked below (same reason as matters.ts). The team filter keeps a mismatched id from deleting
+  // another team's declaration.
+  const { data, error } = await supabase.rpc("delete_budget_declaration", {
+    p_declaration_id: declarationId,
+    p_team: team,
+  });
 
   if (error) {
     console.error(`${SUBJECT}の削除に失敗しました:`, error);
@@ -407,12 +403,6 @@ export const deleteBudgetDeclaration = async (
   }
 
   if (!data || data.length !== 1) {
-    // A closed month is filtered out by RLS (0 rows), so tell it apart from "already deleted".
-    if (await isDeclarationInClosedMonth(supabase, declarationId)) {
-      return {
-        error: { kind: "validationFailed", message: BUDGET_MONTH_CLOSED_MESSAGE },
-      };
-    }
     console.error(`${SUBJECT}の削除対象が見つかりませんでした。`, {
       declarationId,
     });
@@ -425,24 +415,6 @@ export const deleteBudgetDeclaration = async (
   }
 
   return {};
-};
-
-const isDeclarationInClosedMonth = async (
-  supabase: ReturnType<typeof createServerSupabase>,
-  declarationId: number,
-): Promise<boolean> => {
-  const { data: declaration } = await supabase
-    .from("budget_declarations")
-    .select("target_month")
-    .eq("id", declarationId)
-    .maybeSingle();
-  if (!declaration) return false;
-  const { data: closing } = await supabase
-    .from("budget_declaration_closings")
-    .select("id")
-    .eq("target_month", declaration.target_month)
-    .maybeSingle();
-  return !!closing;
 };
 
 type DeclarationListRow = {

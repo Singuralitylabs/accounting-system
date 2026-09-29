@@ -981,6 +981,12 @@ export type Database = {
         }[]
       }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
+      delete_budget_declaration: {
+        Args: { p_declaration_id: number; p_team: string }
+        Returns: {
+          id: number
+        }[]
+      }
       dismiss_profit_loss_closing_diffs: {
         Args: {
           p_dismissals: Json

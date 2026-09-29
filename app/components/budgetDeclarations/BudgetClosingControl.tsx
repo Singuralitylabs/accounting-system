@@ -9,6 +9,7 @@ import { confirmAction } from "@/app/utils/confirmAction";
 import { formatDateTimeToJp, formatMonthLabel } from "@/app/utils/formatter";
 import { notifyError, notifySuccess, toErrorMessage } from "@/app/utils/notify";
 import { Badge, Group, Switch, Text } from "@mantine/core";
+import { useState } from "react";
 import { FaLock } from "react-icons/fa";
 
 type Props = {
@@ -29,10 +30,23 @@ const BudgetClosingControl = ({
 }: Props) => {
   const closeMutation = useCloseBudgetDeclarationMonth();
   const reopenMutation = useReopenBudgetDeclarationMonth();
-  const isPending = closeMutation.isPending || reopenMutation.isPending;
+  // Also covers the confirm dialog, which the mutation's isPending does not: without it the
+  // switch can be toggled again while the dialog is open and a second dialog stacks up.
+  const [isConfirming, setIsConfirming] = useState(false);
+  const isPending =
+    isConfirming || closeMutation.isPending || reopenMutation.isPending;
   const monthLabel = formatMonthLabel(month);
 
   const handleChange = async (checked: boolean) => {
+    setIsConfirming(true);
+    try {
+      await runChange(checked);
+    } finally {
+      setIsConfirming(false);
+    }
+  };
+
+  const runChange = async (checked: boolean) => {
     if (checked) {
       const confirmed = await confirmAction(
         `${monthLabel}の事前収支申告を確定しますか？\n全チームの申告が確定され、確定中は申告の作成・編集・削除ができなくなります。`,

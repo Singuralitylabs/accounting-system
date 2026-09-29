@@ -215,7 +215,12 @@ export const useBudgetClosings = (
       new Map((query.data ?? []).map((closing) => [closing.month, closing])),
     [query.data],
   );
-  return { ...query, closingByMonth };
+  // Not spread: returning the whole query result would opt out of tracked-props re-render
+  // optimization. isUnknown = the closing state could not be loaded at all (do not treat as "open").
+  return {
+    closingByMonth,
+    isUnknown: query.isError && query.data === undefined,
+  };
 };
 
 const useInvalidateAfterBudgetClosing = () => {

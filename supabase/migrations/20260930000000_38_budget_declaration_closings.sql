@@ -7,7 +7,8 @@
 --   3. Closed months reject INSERT / UPDATE / DELETE on declarations and items for every
 --      role (RLS condition + BEFORE trigger + save_budget_declaration check).
 --   4. Closing and declaration writes are serialized per month by an advisory lock.
--- Design: docs/database.md 3.9 / 3.10 / 5.8 / 5.9
+--   5. delete_budget_declaration: delete with the same lock / MONTH_CLOSED check as saving.
+-- Design: docs/database.md 3.9 / 3.10 / 3.10a / 5.8 / 5.9
 
 -- ===== 1. Closing table =====
 CREATE TABLE budget_declaration_closings (
@@ -326,6 +327,8 @@ BEGIN
     VALUES (p_target_month, p_team, v_declared_by, p_comment)
     RETURNING budget_declarations.id INTO v_declaration_id;
   ELSE
+    -- Also match team and target_month: the form fixes both on edit, so this only guards against
+    -- an id pointing at another team's / month's declaration (RLS enforces team access itself).
     UPDATE public.budget_declarations
     SET declared_by = v_declared_by, comment = p_comment
     WHERE budget_declarations.id = p_declaration_id
@@ -333,14 +336,18 @@ BEGIN
       AND budget_declarations.target_month = p_target_month
     RETURNING budget_declarations.id INTO v_declaration_id;
 
+    -- RLS hiding the row or a prior delete yields 0 rows, not an error, so raise explicitly.
+    -- Use SQLSTATE P0002 (no_data_found) so the app can branch on error.code, not message text.
     IF v_declaration_id IS NULL THEN
       RAISE EXCEPTION 'DECLARATION_NOT_FOUND' USING ERRCODE = 'P0002';
     END IF;
   END IF;
 
+  -- Replace lines: delete all, then insert the submitted ones (no-op delete for a new declaration).
   DELETE FROM public.budget_declaration_items
   WHERE declaration_id = v_declaration_id;
 
+  -- entry_type is under a CHECK, so trim surrounding whitespace before inserting.
   INSERT INTO public.budget_declaration_items
     (declaration_id, entry_type, category, description, amount, manager_id, display_order)
   SELECT
@@ -359,3 +366,43 @@ $$;
 
 COMMENT ON FUNCTION public.save_budget_declaration(date, text, jsonb, bigint, text) IS
   '事前収支申告の作成・編集（ヘッダ + 明細差し替え）を単一トランザクションで行う。p_declaration_id が null なら新規作成、それ以外なら既存ヘッダの更新（team・target_month も一致する場合のみ）。明細は既存を全削除してから p_items を全登録する。declared_by は auth.uid() から解決しクライアントからは受け取らない。対象月が確定済みなら MONTH_CLOSED（SQLSTATE 42501）で拒否する。書き込みの可否は呼び出し元ロールの RLS がそのまま適用される（SECURITY INVOKER）。詳細: docs/database.md';
+
+-- ===== 8. delete_budget_declaration =====
+-- The closed-month RLS condition hides rows from DELETE (0 rows, no error), so a plain DELETE cannot
+-- tell "closed month" from "already deleted". Same shared lock and MONTH_CLOSED check as saving.
+CREATE OR REPLACE FUNCTION public.delete_budget_declaration(
+  p_declaration_id bigint,
+  p_team text
+)
+RETURNS TABLE (id bigint)
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = ''
+AS $$
+DECLARE
+  v_month date;
+BEGIN
+  SELECT d.target_month INTO v_month
+  FROM public.budget_declarations d
+  WHERE d.id = p_declaration_id AND d.team = p_team;
+
+  IF v_month IS NOT NULL THEN
+    PERFORM private.lock_budget_month(v_month, false);
+    IF private.is_budget_month_closed(v_month) THEN
+      RAISE EXCEPTION 'MONTH_CLOSED' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  -- Lines go with the header (ON DELETE CASCADE). 0 rows = missing or not writable for the caller.
+  RETURN QUERY
+    DELETE FROM public.budget_declarations d
+    WHERE d.id = p_declaration_id AND d.team = p_team
+    RETURNING d.id;
+END;
+$$;
+
+COMMENT ON FUNCTION public.delete_budget_declaration(bigint, text) IS
+  '事前収支申告の削除（明細は CASCADE）。対象月が確定済みなら MONTH_CLOSED（SQLSTATE 42501）で拒否する。id と team が一致する行のみ削除し、削除した行の id を返す（0 行 = 対象なし or 権限なし）。書き込みの可否は呼び出し元ロールの RLS がそのまま適用される（SECURITY INVOKER）。詳細: docs/database.md 5.8';
+
+REVOKE EXECUTE ON FUNCTION public.delete_budget_declaration(bigint, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.delete_budget_declaration(bigint, text) TO authenticated;

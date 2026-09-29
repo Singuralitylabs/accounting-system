@@ -62,11 +62,6 @@ export const summarizeBudgetItems = (
   };
 };
 
-// Read access to all teams' declarations (SELECT policies, migration 38).
-export const canViewAllBudgetTeams = (
-  profileClass: string | null | undefined,
-): boolean => hasClassAccess(BUDGET_DECLARATION_ALLOWED_CLASSES, profileClass);
-
 // Write access to every team (accounting / admin); teamleaders write only their own team.
 export const canWriteAllBudgetTeams = (
   profileClass: string | null | undefined,
@@ -80,13 +75,6 @@ export const ownBudgetTeams = (
   hasClassAccess(BUDGET_OWN_TEAM_ONLY_CLASSES, profileClass) && profileTeam
     ? [profileTeam]
     : [];
-
-// Showing "not declared" needs teams without declarations, so the team master is used as-is for
-// every role that can view.
-export const visibleBudgetTeams = (
-  profileClass: string | null | undefined,
-  teamList: readonly string[],
-): string[] => (canViewAllBudgetTeams(profileClass) ? [...teamList] : []);
 
 // Mirrors DB `public.can_access_team_budget` (migration 19); change both together.
 export const canWriteBudgetTeam = (
