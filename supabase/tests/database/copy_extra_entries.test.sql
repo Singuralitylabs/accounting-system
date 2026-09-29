@@ -1,7 +1,7 @@
 -- copy_extra_entries（経理追加収支の前月コピー）の重複判定の pgTAP テスト（Issue #187）
 -- 実行: supabase test db（ローカル Supabase 起動中。docs/testing.md 3.8）
 BEGIN;
-SELECT plan(11);
+SELECT plan(16);
 
 INSERT INTO auth.users (id, email) VALUES
   ('11111111-1111-1111-1111-111111111111', 'acc1@example.com'),
@@ -113,6 +113,26 @@ SELECT results_eq(
   $$SELECT inserted_count, skipped_count FROM public.copy_extra_entries('2026-10-01', jsonb_build_array(
       public.tap_mk('income', NULL, NULL, NULL, 4242, NULL)))$$,
   $$VALUES (0, 1)$$, 'description・category が NULL 同士の行は一致とみなしてスキップされる');
+
+-- 入力の契約（docs/database.md 5.7）: 空配列は (0, 0)、配列でない・要素がオブジェクトでない・
+-- entry_date が対象月外または NULL のときは INVALID_INPUT（22023）で全体を拒否する
+SELECT results_eq(
+  $$SELECT inserted_count, skipped_count FROM public.copy_extra_entries('2026-10-01', '[]'::jsonb)$$,
+  $$VALUES (0, 0)$$, 'p_rows が空なら 0 / 0');
+SELECT throws_ok(
+  $$SELECT * FROM public.copy_extra_entries('2026-10-01', '{}'::jsonb)$$,
+  '22023', 'INVALID_INPUT', 'p_rows が配列でなければ INVALID_INPUT');
+SELECT throws_ok(
+  $$SELECT * FROM public.copy_extra_entries('2026-10-01', '[1]'::jsonb)$$,
+  '22023', 'INVALID_INPUT', '要素がオブジェクトでなければ INVALID_INPUT');
+SELECT throws_ok(
+  $$SELECT * FROM public.copy_extra_entries('2026-10-01', jsonb_build_array(
+      public.tap_mk('income', '協賛金', '月外', NULL, 1, NULL) || '{"entry_date":"2026-11-01"}'::jsonb))$$,
+  '22023', 'INVALID_INPUT', 'entry_date が対象月外なら INVALID_INPUT');
+SELECT throws_ok(
+  $$SELECT * FROM public.copy_extra_entries('2026-10-01', jsonb_build_array(
+      public.tap_mk('income', '協賛金', '日付なし', NULL, 1, NULL) || '{"entry_date":null}'::jsonb))$$,
+  '22023', 'INVALID_INPUT', 'entry_date が NULL なら INVALID_INPUT');
 
 -- 一般ユーザーは FORBIDDEN
 SELECT set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333","role":"authenticated"}', true);
