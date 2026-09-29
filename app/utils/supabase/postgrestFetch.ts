@@ -10,7 +10,7 @@
 export const JWT_ISSUED_AT_FUTURE_MESSAGE = "JWT issued at future";
 
 // The upstream issue is sporadic. Keep waits short (700ms total) so they fit within the middleware
-// outer timeout (AUTH_FETCH_TIMEOUT_MS = 5s) and do not block RSC rendering.
+// profiles outer timeout (AUTH_PROFILES_TIMEOUT_MS = 6s) and do not block RSC rendering.
 export const JWT_IAT_RETRY_DELAYS_MS = [200, 500] as const;
 
 export type PostgrestFetchDependencies = {

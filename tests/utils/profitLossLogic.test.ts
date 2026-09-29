@@ -1481,8 +1481,8 @@ describe("buildMonthReport: 損益調整（実績額修正）", () => {
   });
 
   it("対象行が当月に存在しない調整は orphanedAdjustments に含まれ、損益には反映されない（accounting / admin のみ）", () => {
-    // The adjustment's target row (business_id=99) left this month's aggregation (e.g. invoice date moved to the
-    // next month) but was not deleted, so CASCADE does not remove it; the adjustment remains without a target row.
+    // The adjustment's target row (business_id=99) left this month's aggregation (e.g. the matter's start date moved
+    // to another month, or it was sent back to draft) but was not deleted, so CASCADE does not remove it; the adjustment remains without a target row.
     const report = buildMonthReport(
       buildInput({
         includeTeamBreakdown: true,

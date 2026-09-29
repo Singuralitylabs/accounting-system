@@ -132,7 +132,9 @@ const BudgetRecurringItemList = ({
     try {
       await saveMutation.mutateAsync(rows);
       setIsDirty(false);
-    } catch {}
+    } catch {
+      // Notified in the mutation's onError.
+    }
   };
 
   const visibleRows = rows.filter((row) => !row.isRemoved);

@@ -348,7 +348,7 @@ jobs:
       - name: 本番DBの migration list を取得
         id: migration-list
         env:
-          # Connection string (without password) and password are separate Secrets (Issue #195).
+          # Connection string (without password) and password are separate Secrets.
           SUPABASE_READONLY_DB_URL: ${{ secrets.SUPABASE_READONLY_DB_URL }}
           SUPABASE_READONLY_DB_PASSWORD: ${{ secrets.SUPABASE_READONLY_DB_PASSWORD }}
         run: |
@@ -368,7 +368,7 @@ jobs:
             exit 0
           fi
 
-          # Pass the password via PGPASSWORD, not argv: a wrapper such as yarn would print the command line into OUTPUT and thus the PR body (Issue #195). So do not run if the URL contains a password (old-format Secret). Check: an @ after ://, and the user part before the first @ is non-empty and has no ":" (splitting at the first @ tolerates unencoded / or ? in the password). A ?password=... query (any case) is also invalid.
+          # Pass the password via PGPASSWORD, not argv: a wrapper such as yarn would print the command line into OUTPUT and thus the PR body. So do not run if the URL contains a password (old-format Secret). Check: an @ after ://, and the user part before the first @ is non-empty and has no ":" (splitting at the first @ tolerates unencoded / or ? in the password). A ?password=... query (any case) is also invalid.
           DB_URL_OK=false
           case "$SUPABASE_READONLY_DB_URL" in
             *://*@*)
@@ -451,7 +451,7 @@ jobs:
             MIGRATION_NOTICE=""
           fi
 
-          # The body template is a quoted <<'EOF' fixed string so backticks and $(...) are not executed (Issue #168). Values are expanded explicitly by listing variable names to envsubst (other $ forms stay literal). envsubst substitutes in one pass, so ${...} inside inserted values (e.g. the summary) is not re-expanded. It reads only environment variables, so export values built in this step.
+          # The body template is a quoted <<'EOF' fixed string so backticks and $(...) are not executed. Values are expanded explicitly by listing variable names to envsubst (other $ forms stay literal). envsubst substitutes in one pass, so ${...} inside inserted values (e.g. the summary) is not re-expanded. It reads only environment variables, so export values built in this step.
           if ! command -v envsubst >/dev/null 2>&1; then
             echo "::error::envsubst（gettext-base）が見つかりません。PR 本文を組み立てられないため中断します。"
             exit 1
@@ -515,7 +515,7 @@ jobs:
           fi
           BODY=$(printf '%s\n' "$TEMPLATE" | envsubst "$BODY_VARS")
 
-          # Fail without creating the PR if the body contains a URL with credentials (userinfo); PR bodies in a public repo persist in edit history (fail closed; Issue #195).
+          # Fail without creating the PR if the body contains a URL with credentials (userinfo); PR bodies in a public repo persist in edit history (fail closed).
           # - scheme://<userinfo>@ : also empty user (://:pw@) or token-only (https://ghp_xxx@)
           # - postgres(ql)://...@ : tolerates unencoded / etc. in the password
           # Do not log the match. Do not pipe: under pipefail, grep -q exiting early makes printf get SIGPIPE and a match evaluates false.

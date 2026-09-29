@@ -8,6 +8,17 @@ PostgreSQL（Supabase）/ スキーマ `public`（補助関数は `private`）�
 
 - セッションタイムゾーンは UTC（Supabase の既定）。マイグレーションは `ALTER DATABASE ... SET timezone` を含まない（hosted では失敗しうるため追加しない）。
 - `inserted_at` / `updated_at` の DEFAULT と `update_updated_at_column` は `now()`（`timestamptz`）。セッション TZ に依存せず正しい絶対時刻が入る（migration 18 で是正済み）。
+- **残課題**: migration 18 の判定で差が 0 時間だった 1 案件は、`matters.inserted_at` 自体が DEFAULT 由来（手動投入など）で +9h ずれている可能性がある。機械的に判別できないため補正対象から外している。次の SQL で洗い出して個別に判断すること（migration 18 のコメントがこの節を参照している）。
+
+  ```sql
+  WITH first_cost AS (
+    SELECT matter_id, min(inserted_at) AS first_inserted_at FROM costs GROUP BY matter_id
+  )
+  SELECT m.id, m.title, m.inserted_at, m.updated_at, f.first_inserted_at
+    FROM first_cost f JOIN matters m ON m.id = f.matter_id
+   WHERE f.first_inserted_at < m.inserted_at + interval '1 hour';
+  ```
+
 - アドホック SQL で日付境界を切るときは `timezone('Asia/Tokyo', ...)` / `AT TIME ZONE 'Asia/Tokyo'` を明示する。`now()::date` や素の `date_trunc` は UTC 日付になり、JST 0:00〜9:00 で日付がずれる。
 - Vitest は `TZ=Asia/Tokyo` 固定。アプリの日付表示は `app/utils/formatter.ts` などが実行環境のローカル TZ に従う。
 

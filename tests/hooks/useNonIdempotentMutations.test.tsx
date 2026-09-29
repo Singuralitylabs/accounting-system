@@ -46,7 +46,7 @@ describe("非冪等な一括保存のミューテーションは失敗しても�
     queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
-        // Same retry: 1 as QueryProvider; zero wait so a re-run shows up immediately.
+        // retry: 1 (unlike QueryProvider's default of 0) so a re-run would be visible; zero wait keeps it immediate.
         mutations: { retry: 1, retryDelay: 0 },
       },
     });
