@@ -1,5 +1,21 @@
-// profiles.class が取りうるロール（DB 上は string | null のため、判定側で文字列を受ける）
-export type Role = "public" | "teamleader" | "accounting" | "admin";
+// profiles.class が取りうるロールの単一の定義（DB 上は string | null のため、判定側で文字列を受ける）。
+// ロールを追加・改名するときは、ここと、update_profiles（migration 33）が受け付ける値
+// （tests/utils/permissions.test.ts が一致を確認する）、ROLE_DISPLAY_RANK を直す。
+// ユーザーリストの選択肢・入力チェック（userList.ts）と表示順（userListSort.ts）はここから導く
+export const ROLES = ["public", "teamleader", "accounting", "admin"] as const;
+export type Role = (typeof ROLES)[number];
+
+export const isRole = (value: string | null | undefined): value is Role =>
+  !!value && (ROLES as readonly string[]).includes(value);
+
+// ユーザーリストでの権限の表示順（小さいほど先）。Record<Role, number> にして、
+// ロールの追加時に順位の定義漏れを型検査で検出する
+export const ROLE_DISPLAY_RANK: Record<Role, number> = {
+  admin: 0,
+  accounting: 1,
+  teamleader: 2,
+  public: 3,
+};
 
 // ルートごとの閲覧許可ロール。
 // middleware のルート保護・ヘッダーのナビゲーション表示・Server Action の権限確認で
@@ -37,6 +53,14 @@ export const PL_LABEL_WRITE_CLASSES: Role[] = ["accounting", "admin"];
 // （Issue #149）を操作できるロール。profit_loss_closings / profit_loss_closing_lines の
 // RLS（INSERT/UPDATE/DELETE は accounting / admin のみ）と揃える
 export const PL_CLOSING_WRITE_CLASSES: Role[] = ["accounting", "admin"];
+
+// 管理画面のユーザーリストの一括保存（権限・チーム・Slack ID の変更。bulkUpdateProfiles）を
+// 実行できるロール。権限の付与は特権の昇格にあたるため、/dashboard を開けるロール
+// （ROUTE_PERMISSIONS["/dashboard"]）とは別に定義する（/dashboard の許可ロールを広げても、
+// 権限の変更まで許可されない）。profiles の UPDATE の RLS（他人の行の更新は admin のみ。
+// migration 13）と update_profiles（migration 33）と揃える。
+// 書き込めるロールは必ず画面を開ける（tests/utils/permissions.test.ts が確認する）
+export const PROFILE_WRITE_CLASSES: Role[] = ["admin"];
 
 export const hasClassAccess = (
   allowedClasses: readonly Role[],

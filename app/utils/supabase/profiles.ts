@@ -3,7 +3,7 @@
 import { User } from "@supabase/supabase-js";
 import { AccessFailure } from "../../types/types";
 import { isAllowedEmailDomain } from "../constants";
-import { hasClassAccess } from "../permissions";
+import { hasClassAccess, PROFILE_WRITE_CLASSES } from "../permissions";
 import {
   formatUserValidationErrors,
   ProfileUpdateInput,
@@ -207,7 +207,7 @@ export const bulkUpdateProfiles = async (
       },
     };
   }
-  if (!hasClassAccess(["admin"], profileInfo.class)) {
+  if (!hasClassAccess(PROFILE_WRITE_CLASSES, profileInfo.class)) {
     console.error(
       `ユーザー情報を保存する権限がありません（管理者のみ）。profiles.id: ${profileInfo.id}`,
     );

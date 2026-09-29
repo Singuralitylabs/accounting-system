@@ -1,6 +1,12 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   hasClassAccess,
+  isRole,
+  PROFILE_WRITE_CLASSES,
+  ROLE_DISPLAY_RANK,
+  ROLES,
   visibleNavItems,
   ROUTE_PERMISSIONS,
   AUTH_ONLY_ROUTES,
@@ -134,6 +140,70 @@ describe("visibleNavItems", () => {
     expect(items).toHaveLength(4);
     for (const item of items) {
       expect(item.description.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("ロール一覧（ROLES）の整合（Issue #192）", () => {
+  it("isRole は ROLES の値だけ true を返す", () => {
+    for (const role of ROLES) expect(isRole(role)).toBe(true);
+    expect(isRole("superuser")).toBe(false);
+    expect(isRole("")).toBe(false);
+    expect(isRole(null)).toBe(false);
+    expect(isRole(undefined)).toBe(false);
+  });
+
+  it("表示順（ROLE_DISPLAY_RANK）はすべてのロールを重複なく定義している", () => {
+    expect(Object.keys(ROLE_DISPLAY_RANK).sort()).toEqual([...ROLES].sort());
+    const ranks = Object.values(ROLE_DISPLAY_RANK);
+    expect(new Set(ranks).size).toBe(ROLES.length);
+  });
+
+  it("ROUTE_PERMISSIONS・PROFILE_WRITE_CLASSES はすべて ROLES の値だけを使う", () => {
+    const used = [
+      ...Object.values(ROUTE_PERMISSIONS).flat(),
+      ...PROFILE_WRITE_CLASSES,
+    ];
+    for (const role of used) expect(isRole(role)).toBe(true);
+  });
+
+  // update_profiles の許可値と ROLES がずれると、選択肢に出ない・保存時に INVALID_INPUT で
+  // 弾かれるといった不整合がエラーなしに起きる。後続のマイグレーションが update_profiles を
+  // 再定義しても古い定義を見続けないよう、最後に定義したマイグレーションを対象にする
+  it("update_profiles（最後に定義したマイグレーション）が受け付ける class の許可値と ROLES が一致する", () => {
+    const dir = resolve(__dirname, "../../supabase/migrations");
+    const definitions = readdirSync(dir)
+      .filter((name) => name.endsWith(".sql"))
+      .sort()
+      .map((name) => readFileSync(resolve(dir, name), "utf-8"))
+      .filter((sql) =>
+        /CREATE\s+(OR\s+REPLACE\s+)?FUNCTION\s+public\.update_profiles\s*\(/i.test(
+          sql,
+        ),
+      );
+    expect(definitions.length).toBeGreaterThan(0);
+    const sql = definitions[definitions.length - 1];
+    const match = sql.match(
+      /\(\s*e\.elem\s*->>\s*'class'\s*\)\s*NOT\s+IN\s*\(([^)]*)\)/i,
+    );
+    expect(
+      match,
+      "update_profiles の class の許可値を抽出できません（SQL の書式を変えた場合は、このテストの正規表現も更新してください）",
+    ).not.toBeNull();
+    const allowed = Array.from(match![1].matchAll(/'([^']+)'/g), (m) => m[1]);
+    expect(new Set(allowed).size).toBe(allowed.length);
+    expect([...allowed].sort()).toEqual([...ROLES].sort());
+  });
+});
+
+describe("PROFILE_WRITE_CLASSES（ユーザーリストの一括保存の権限。Issue #191）", () => {
+  it("権限の変更（特権の昇格）は admin のみ。profiles の RLS・update_profiles と揃える", () => {
+    expect(PROFILE_WRITE_CLASSES).toEqual(["admin"]);
+  });
+
+  it("書き込めるロールは、管理画面（/dashboard）を開けるロールに必ず含まれる", () => {
+    for (const role of PROFILE_WRITE_CLASSES) {
+      expect(hasClassAccess(ROUTE_PERMISSIONS["/dashboard"], role)).toBe(true);
     }
   });
 });
