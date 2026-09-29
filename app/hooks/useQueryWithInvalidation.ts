@@ -36,6 +36,9 @@ export const useIsQueryInvalidated = (queryKey: QueryKey): boolean => {
 //   （QueryProvider の既定は refetchOnMount: false。古い一覧のまま編集して二重登録
 //   するのを防ぐ。Issue #170）
 // - isInvalidated は staleTime の経過でも true になる isStale と区別できるよう別に返す
+// 注意: isInvalidated を編集ロックに使う画面（useSaveRefreshLock）では、無効化されたのに
+// 再取得も取得失敗もない状態（refetchType: "none" での無効化・クエリのキャンセルなど）が残ると、
+// 案内が出ないままロックだけがかかる。そのような無効化を追加するときは、取り直す経路も用意する
 export const useQueryWithInvalidation = <
   TQueryFnData,
   TError = Error,
