@@ -48,8 +48,8 @@ const { useMatterDetail, idleMutation } = vi.hoisted(() => {
   };
 });
 
-// 案件詳細モーダルの確定済みの月の注意表示（Issue #149）は TanStack Query を使うため、
-// QueryClientProvider を持たない本テストでは確定済みの月なしとしてスタブする
+// The closed-month notice in the detail modal uses TanStack Query; stub it as "no closed months"
+// (there is no QueryClientProvider here).
 vi.mock("@/app/hooks/useClosedMonths", () => ({
   useClosedMonths: () => ({ closedMonths: new Set<string>() }),
 }));

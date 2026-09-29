@@ -17,29 +17,21 @@ type EditableBusiness = AmountRow &
 type EditableCost = PriceRow &
   Pick<Partial<CostInCardType>, "isRemoved" | "is_completed" | "isNew">;
 
-/**
- * 案件作成時の合計請求額。`amount` が falsy（null / 0）の行は足さない。
- * `addMatterInfo` の既存 reduce と同一。
- */
+/** Skips rows whose `amount` is falsy (null / 0). */
 export const sumBusinessAmounts = (businessList: AmountRow[]) =>
   businessList.reduce((acc, business) => {
     return business.amount ? acc + business.amount : acc;
   }, 0);
 
-/**
- * 案件作成時の合計コスト。`price` が falsy の行は足さない。
- * `addMatterInfo` の既存 reduce と同一。
- */
+/** Skips rows whose `price` is falsy. */
 export const sumCostPrices = (costList: PriceRow[]) =>
   costList.reduce((acc, cost) => {
     return cost.price ? acc + cost.price : acc;
   }, 0);
 
 /**
- * 案件更新時の集計。`isRemoved` 行は件数・金額から除外する。
- * 未確認コストは「残っている行のうち、未完了または新規行」。
- * `editMatterInfo` の `updateMatter` と同一。
- * 金額は `sumBusinessAmounts` / `sumCostPrices` に集約する。
+ * Excludes `isRemoved` rows. Unconfirmed costs = remaining rows that are incomplete or new.
+ * Amounts go through `sumBusinessAmounts` / `sumCostPrices`.
  */
 export const calcMatterTotalsForEdit = (
   businessInfoList: EditableBusiness[],
@@ -58,7 +50,7 @@ export const calcMatterTotalsForEdit = (
   };
 };
 
-/** 案件作成時の合計。`isRemoved` の無い作成経路なので edit 集計の部分集合。 */
+/** Create path has no `isRemoved`, so this is a subset of the edit aggregation. */
 export const calcMatterTotalsForCreate = (
   businessList: AmountRow[],
   costList: PriceRow[],

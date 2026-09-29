@@ -23,6 +23,8 @@ import { notifyError, notifySuccess } from "@/app/utils/notify";
 import { confirmAction } from "@/app/utils/confirmAction";
 import { PAYMENT_CYCLE_OPTIONS } from "@/app/utils/paymentCycle";
 import { CustomMonthPicker } from "../CustomMonthPicker";
+import { SaveRefreshAlert } from "../SaveRefreshAlert";
+import { useSaveRefreshLock } from "@/app/hooks/useSaveRefreshLock";
 import { useClosedMonths } from "@/app/hooks/useClosedMonths";
 import { closedMonthsInRecurringRange } from "@/app/utils/profitLossClosing";
 import { formatMonthLabel } from "@/app/utils/formatter";
@@ -39,26 +41,38 @@ const toListRows = (
   recurringCosts.map((rc) => ({ ...rc, isNew: false, isRemoved: false }));
 
 const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
-  const { data: recurringCostList } = useRecurringCostList(initialData);
+  const {
+    data: recurringCostList,
+    isInvalidated,
+    isFetching,
+    isError,
+    isPaused,
+    refetch,
+  } = useRecurringCostList(initialData);
   const upsertMutation = useUpsertRecurringCost();
-  // 損益計算書で確定済みの月（Issue #148）。定期費用マスタは確定済みの月があっても
-  // 編集できるが、確定済みの月の損益計算書（確定値）には反映されないため注記する
+  // Closed months: the master stays editable, but closed-month statements (closing values) do not reflect it, so a note is shown.
   const { closedMonths } = useClosedMonths();
 
   const [rows, setRows] = useState<RecurringCostInListType[]>(
     toListRows(initialData),
   );
-  // 編集中フラグ。バックグラウンド再取得（再接続時など）で
-  // 保存前の編集内容が黙って破棄されるのを防ぐ
+  // Editing flag; prevents background refetch from silently discarding unsaved edits.
   const [isDirty, setIsDirty] = useState(false);
+  // Lock until the refetch after a save (including partial failures) or of an invalidated list succeeds: add/update/delete are sent in parallel, so a failure may be partially applied or lost after commit, and saving again could double register new rows. Also holds after leaving and returning, via the cached invalidation.
+  const {
+    locked: needsReload,
+    isStalled: reloadStalled,
+    outcome: saveOutcome,
+    markSaved,
+  } = useSaveRefreshLock({ isInvalidated, isFetching, isError, isPaused });
+  const formLocked = upsertMutation.isPending || needsReload;
 
-  // 保存後の再取得などでサーバ状態が変わったらローカル編集状態をリセットする
-  // （編集中は同期しない）
+  // Reset local edit state when server state changes (not while editing or awaiting refetch).
   useEffect(() => {
-    if (recurringCostList && !isDirty) {
+    if (recurringCostList && !isDirty && !needsReload) {
       setRows(toListRows(recurringCostList));
     }
-  }, [recurringCostList, isDirty]);
+  }, [recurringCostList, isDirty, needsReload]);
 
   const handleUpdateRow = (
     id: number,
@@ -126,12 +140,16 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
 
     try {
       await upsertMutation.mutateAsync(rows);
-      setIsDirty(false); // 保存成功後は再取得結果との同期を再開する
+      // Keep showing saved content and block editing until the refetch arrives; do not overwrite from the pre-save cache.
+      markSaved("saved");
+      setIsDirty(false);
       notifySuccess("定期費用情報を更新しました。");
     } catch (error) {
       console.error("定期費用情報の保存に失敗しました。", error);
+      markSaved("unknown");
+      setIsDirty(false);
       notifyError(
-        "定期費用情報の更新に失敗しました。一部のみ反映されている可能性があるため、画面を再読み込みして内容を確認してください。",
+        "定期費用情報の更新に失敗しました。一部のみ反映されている可能性があるため、最新の内容を取得して表示します。反映されていない変更は入力し直してください。",
       );
     }
   };
@@ -140,7 +158,18 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
 
   return (
     <div className="px-4 pb-8 max-w-6xl mx-auto relative">
-      <LoadingOverlay visible={upsertMutation.isPending} />
+      <LoadingOverlay
+        visible={upsertMutation.isPending || (needsReload && isFetching)}
+      />
+      {reloadStalled && (
+        <SaveRefreshAlert
+          subject="定期費用情報"
+          outcome={saveOutcome}
+          partialPossible
+          isPaused={isPaused}
+          onReload={() => refetch()}
+        />
+      )}
       <div className="flex justify-between items-center mb-4 gap-4">
         <p className="text-sm text-gray-600">
           定期的にかかる管理費を登録します。支払月（適用開始月を起点に支払サイクルごと）の損益計算書に支払額が全額算入されます。損益計算書で確定済みの月には変更が反映されません（反映するには損益計算書でその月の「確定済み」をオフにしてから再度オンにします）。
@@ -148,7 +177,7 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
         <Button
           type="button"
           className="shrink-0"
-          disabled={upsertMutation.isPending}
+          disabled={formLocked}
           onClick={handleSave}
         >
           保存
@@ -191,6 +220,7 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
                         "description",
                         "error",
                       ]}
+                      disabled={formLocked}
                       onChange={(event) =>
                         handleUpdateRow(row.id, { name: event.target.value })
                       }
@@ -201,6 +231,7 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
                       value={row.item || null}
                       placeholder="品目を選択"
                       data={itemList}
+                      disabled={formLocked}
                       onChange={(selected) =>
                         handleUpdateRow(row.id, { item: selected ?? "" })
                       }
@@ -214,6 +245,7 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
                       step={1000}
                       thousandSeparator=","
                       prefix="¥"
+                      disabled={formLocked}
                       onChange={(value) =>
                         handleUpdateRow(row.id, {
                           price: typeof value === "number" ? value : 0,
@@ -225,6 +257,7 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
                     <Select
                       value={row.payment_cycle}
                       data={PAYMENT_CYCLE_OPTIONS}
+                      disabled={formLocked}
                       onChange={(selected) =>
                         handleUpdateRow(row.id, {
                           payment_cycle: selected ?? "monthly",
@@ -237,6 +270,7 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
                     <Select
                       value={teamLabel(row.team)}
                       data={[ORG_WIDE_TEAM_LABEL, ...teamList]}
+                      disabled={formLocked}
                       onChange={(selected) =>
                         handleUpdateRow(row.id, {
                           team: teamFromLabel(selected),
@@ -248,6 +282,7 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
                   <Table.Td>
                     <CustomMonthPicker
                       placeholder="開始月"
+                      disabled={formLocked}
                       value={
                         row.start_month ? row.start_month.slice(0, 7) : null
                       }
@@ -261,6 +296,7 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
                   <Table.Td>
                     <CustomMonthPicker
                       placeholder="終了月（継続中は空欄）"
+                      disabled={formLocked}
                       value={row.end_month ? row.end_month.slice(0, 7) : null}
                       onChange={(month) =>
                         handleUpdateRow(row.id, {
@@ -274,6 +310,7 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
                     <TextInput
                       value={row.comment ?? ""}
                       placeholder="備考"
+                      disabled={formLocked}
                       onChange={(event) =>
                         handleUpdateRow(row.id, { comment: event.target.value })
                       }
@@ -283,7 +320,8 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
                     <button
                       type="button"
                       aria-label="削除"
-                      className="text-red-500 hover:text-red-700"
+                      className="text-red-500 hover:text-red-700 disabled:text-gray-300 disabled:cursor-not-allowed"
+                      disabled={formLocked}
                       onClick={() => handleRemoveRow(row.id)}
                     >
                       <RiDeleteBin6Line size="1.2rem" />
@@ -306,6 +344,7 @@ const RecurringCostList = ({ initialData, itemList, teamList }: Props) => {
           color="dark"
           variant="outline"
           rightSection={<CiSquarePlus />}
+          disabled={formLocked}
           onClick={handleAddRow}
         >
           定期費用追加

@@ -14,13 +14,11 @@ type Props = {
   opened: boolean;
   onClose: () => void;
   target: LabelTarget;
-  originalTitle: string; // 元データの名称（案件名・取引先名・コスト名・定期費用名）
-  currentTitle: string | null; // 現在の上書きタイトル（無ければ null）
+  originalTitle: string;
+  currentTitle: string | null;
 };
 
-// 損益計算書の「タイトルを変更」モーダル（Issue #150）。
-// 行単位で即時保存する（損益調整と同じ）。空欄で保存すると上書きを削除し、元の名称に戻す。
-// 元データ（案件画面・経理用一覧の名称）は変わらない。
+// Title override modal; saved per row. Saving blank deletes the override; source names are unchanged.
 const ProfitLossLabelModal = ({
   opened,
   onClose,
@@ -32,7 +30,6 @@ const ProfitLossLabelModal = ({
   const saveMutation = useSaveProfitLossLabel();
 
   const normalized = normalizeLabelInput(title);
-  // 変更が無い（上書きなしのまま / 同じタイトルのまま）場合は保存しない
   const hasNothingToSave = normalized === currentTitle;
   const isTooLong = normalized !== null && normalized.length > LABEL_MAX_LENGTH;
 

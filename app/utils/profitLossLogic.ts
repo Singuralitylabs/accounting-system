@@ -1,7 +1,5 @@
-// 損益計算書の集計ロジック（純粋関数）。
-// Supabase アクセス（"use server" が付く app/utils/supabase/profitLossReport.ts）から
-// 切り離しているのは、副作用なしでユニットテストできるようにするため
-// （docs/testing.md「2.6 テスト容易化リファクタリング方針」）。
+// Pure aggregation logic for the profit and loss statement, kept separate from the
+// "use server" Supabase access so it can be unit-tested without side effects.
 
 import {
   AdjustableAmount,
@@ -34,12 +32,11 @@ import { isIncomeExtraEntry } from "./extraEntry";
 import { addMonths, toFirstOfMonth } from "./formatter";
 import { hasClassAccess } from "./permissions";
 
-// 集計対象の行が属する案件の属性。
-// 計上月は案件開始日（start_date）の月で判定し（Issue #146）、下書きの案件は集計から除外する。
-// category は案件費用を売上分類（大分類）別の粗利へ振り分けるために使う
+// A matter's month is the month of start_date; draft matters are excluded from aggregation.
+// category routes matter costs to per-category gross profit.
 export type MatterOfRow = {
   id: number;
-  user_id: number; // 案件の作成者（確定明細のチームリーダー向け RLS に使う）
+  user_id: number;
   title: string;
   team: string;
   category: string;
@@ -48,10 +45,9 @@ export type MatterOfRow = {
   is_completed: boolean | null;
 };
 
-// 集計対象の行（RLS により権限に応じた行のみ取得される）
 export type BusinessRow = {
   id: number;
-  name: string; // 取引先名。同一案件に複数の business 行がある場合の識別に使う
+  name: string;
   amount: number | null;
   matter_id: number;
   matters: MatterOfRow;
@@ -59,38 +55,32 @@ export type BusinessRow = {
 
 export type CostRow = {
   id: number;
-  name: string; // コスト名。同一案件・同一品目に複数の costs 行がある場合の識別に使う
+  name: string;
   price: number;
   item: string;
   matter_id: number;
   matters: MatterOfRow;
 };
 
-// 日付文字列（YYYY-MM-DD）から月キー（YYYY-MM）を取り出す。
-// タイムゾーン変換による月ズレを避けるため Date オブジェクトは使わない。
+// Avoids Date objects so timezone conversion cannot shift the month.
 const toMonthKey = (dateStr: string | null): string | null =>
   dateStr ? dateStr.slice(0, 7) : null;
 
-// 下書き（経理申請前）の案件か。下書きは損益計算書のどこにも計上しない（Issue #146）。
-// is_fixed / is_completed は DB 上 NULL 許容のため NULL は false として扱う。
-// 取得側の絞り込み（matterPeriodFilter）と同じ定義。
+// NULL is_fixed / is_completed count as false. Same definition as the fetch-side matterPeriodFilter.
 export const isDraftMatter = (
   matter: Pick<MatterOfRow, "is_fixed" | "is_completed">,
 ): boolean => matter.is_fixed !== true && matter.is_completed !== true;
 
-// 案件の売上・費用を計上する月（案件開始日の月。未入力は null = 月未確定）
 export const matterMonthKey = (
   matter: Pick<MatterOfRow, "start_date">,
 ): string | null => toMonthKey(matter.start_date);
 
-// 支払サイクルごとの間隔（月数）
 const CYCLE_MONTHS: Record<string, number> = {
   monthly: 1,
   quarterly: 3,
   yearly: 12,
 };
 
-// 月キー（YYYY-MM）同士の月数差
 export const monthDiff = (fromMonth: string, toMonth: string): number => {
   const fromYear = parseInt(fromMonth.slice(0, 4), 10);
   const fromMonthNumber = parseInt(fromMonth.slice(5, 7), 10);
@@ -99,9 +89,8 @@ export const monthDiff = (fromMonth: string, toMonth: string): number => {
   return (toYear - fromYear) * 12 + (toMonthNumber - fromMonthNumber);
 };
 
-// 定期費用が指定月に計上されるか。
-// 適用期間内（end_month の月を含む）かつ、支払月（start_month を起点に
-// 支払サイクル間隔ごと）に一致する月にのみ全額を計上する。
+// Charged in full only when inside the applicable period (end_month inclusive) and on a payment
+// month (every cycle interval from start_month).
 export const isRecurringCostChargedInMonth = (
   recurringCost: RecurringCostType,
   month: string,
@@ -117,37 +106,29 @@ export const isRecurringCostChargedInMonth = (
   return monthDiff(start, month) % cycleMonths === 0;
 };
 
-// ロール（profiles.class）からレポートの挙動フラグを導出する。
 export const reportFlags = (profileClass: string | null | undefined) => ({
   isTeamLeader: profileClass === "teamleader",
   includeTeamBreakdown: hasClassAccess(["accounting", "admin"], profileClass),
 });
 
-// 対象行なし調整・確定後の変更の明細（orphanedAdjustments / closingDiffs）の
-// ラベル解決に必要な行を計算・取得するか。月次タブの単月表示で、チーム別内訳を
-// 持つロール（accounting / admin）の場合のみ true になる（Issue #142）。
-// buildMonthReport（表示側）と supplementAdjustmentTargets（取得側）で同じ判定を
-// 使うための単一の定義。どちらか片方だけを変えると、不要な取得が復活するか、
-// ラベルが未解決（「売上（ID: X）」）のまま残るため、条件変更時はここを変える。
+// Single definition shared by buildMonthReport (display) and planAdjustmentSupplement
+// (profitLossSource.ts, fetch): whether to compute/fetch the rows needed to resolve labels for
+// orphanedAdjustments / closingDiffs. Change only here; otherwise needless fetches return or
+// labels stay unresolved.
 export const needsMonthlyAdjustmentDetails = (flags: {
   includeTeamBreakdown: boolean;
   includeMonthlyDetails: boolean;
 }): boolean => flags.includeTeamBreakdown && flags.includeMonthlyDetails;
 
-// 損益レポートの取得期間（両端を含む月キー "YYYY-MM"）。
-// 月次は { startMonth: month, endMonth: month }、年間推移は年度12ヶ月の両端を渡す。
-// 月単位まで絞ると年間推移が12回クエリになるため、年度範囲で1回取得する。
+// Inclusive month-key range. The annual trend passes the whole fiscal year to avoid 12 queries.
 export type ReportPeriod = {
   startMonth: string;
   endMonth: string;
 };
 
-// formatter.ts からの再エクスポート。既存の呼び出し元（profitLossReport.ts /
-// profitLossClosings.ts / tests）はこのパスでの import を継続できる。
 export { isMonthKey } from "./formatter";
 
-// 月キーの一覧（昇順・重複なし）を、連続する月ごとの取得期間にまとめる
-// （例: 2026-07, 2026-08, 2027-01 → 2026-07〜08 と 2027-01）
+// Groups sorted, unique month keys into ranges of consecutive months.
 export const groupConsecutiveMonths = (months: string[]): ReportPeriod[] =>
   months.reduce<ReportPeriod[]>((periods, month) => {
     const last = periods[periods.length - 1];
@@ -160,28 +141,21 @@ export const groupConsecutiveMonths = (months: string[]): ReportPeriod[] =>
   }, []);
 
 export type ReportRangeBounds = {
-  // 期間開始月の月初日（"YYYY-MM-01"。以上条件に使う）
   startDate: string;
-  // 期間終了月の翌月月初日（"YYYY-MM-01"。未満条件に使う）
   endExclusive: string;
 };
 
-// 月キー（"YYYY-MM"）の翌月の月初日を返す。
-// extraEntries.ts の monthDateRange と同じく formatter.ts のヘルパーで組み立てる
-// （日付の月ズレを避けるため Date オブジェクトは使わない）。
 const firstDayOfNextMonth = (monthKey: string): string =>
   toFirstOfMonth(addMonths(monthKey, 1));
 
-// 取得期間から日付範囲（[startDate, endExclusive)）を求める。
-// SQL の WHERE 句とインメモリのフィルタで同じ境界を使うための単一の定義。
-// 呼び出し側は startMonth <= endMonth を満たすこと（逆転させると空範囲＋NULL 行のみの取得になる）。
+// Single definition of the [startDate, endExclusive) range used by both SQL WHERE and in-memory
+// filters. Callers must guarantee startMonth <= endMonth.
 export const reportRangeBounds = (period: ReportPeriod): ReportRangeBounds => ({
   startDate: `${period.startMonth}-01`,
   endExclusive: firstDayOfNextMonth(period.endMonth),
 });
 
-// 日付カラムが取得期間内または月未確定（NULL）か。
-// matters.start_date / entry_date の絞り込みで NULL 行を落とさないための条件。
+// Keeps NULL (month-undetermined) rows.
 export const isDateInRangeOrUndated = (
   dateStr: string | null,
   bounds: ReportRangeBounds,
@@ -189,17 +163,14 @@ export const isDateInRangeOrUndated = (
   dateStr === null ||
   (dateStr >= bounds.startDate && dateStr < bounds.endExclusive);
 
-// 案件の行（business / costs）が取得対象か（matterPeriodFilter のインメモリ版）。
-// 下書きでなく、案件開始日が取得期間内または未入力（月未確定）のもの。
+// In-memory version of matterPeriodFilter.
 export const isMatterInRangeOrUndated = (
   matter: Pick<MatterOfRow, "start_date" | "is_fixed" | "is_completed">,
   bounds: ReportRangeBounds,
 ): boolean =>
   !isDraftMatter(matter) && isDateInRangeOrUndated(matter.start_date, bounds);
 
-// 定期費用マスタの適用期間が取得期間と重なるか。
-// 支払サイクルによる計上月の判定は行わない（集計側 buildLiveMonthLines で行う）。
-// 適用期間が取得期間と重ならない行だけを除外するための条件。
+// Only excludes rows whose period does not overlap; payment-cycle checks happen in buildLiveMonthLines.
 export const doesRecurringCostOverlapRange = (
   recurringCost: Pick<RecurringCostType, "start_month" | "end_month">,
   bounds: ReportRangeBounds,
@@ -208,17 +179,15 @@ export const doesRecurringCostOverlapRange = (
   (recurringCost.end_month === null ||
     recurringCost.end_month >= bounds.startDate);
 
-// 調整の対象月が取得期間内か（target_month は NOT NULL のため NULL 扱いは不要）。
 export const isAdjustmentInRange = (
   targetMonth: string,
   bounds: ReportRangeBounds,
 ): boolean =>
   targetMonth >= bounds.startDate && targetMonth < bounds.endExclusive;
 
-// 調整の対象行のうち取得済み ID に無いもの（取得期間外へ移動した行）を集める。
-// orphanedAdjustments のラベル解決用。対象は月次の集計（buildMonthReport）と同じく
-// target_month が当月の調整のみ。追加取得した行は月振り分け（厳密な月一致・
-// undated は NULL のみ・定期費用は計上月判定）で集計から除外されるため集計値は不変。
+// Collects adjustment targets missing from the fetched rows (moved outside the period), for
+// orphanedAdjustments label resolution. Aggregates are unchanged because month bucketing still
+// excludes them.
 export const collectMissingAdjustmentTargetIds = (
   month: string,
   adjustments: Pick<
@@ -258,53 +227,44 @@ export const collectMissingAdjustmentTargetIds = (
   };
 };
 
-// Supabase（PostgREST）の or() に渡す日付絞り込み条件「期間内 OR 月未確定（NULL）」。
-// extra_entries.entry_date 用。SQL とテストで同じ文字列を使うための単一の定義。
-// column は union 型に絞り、任意文字列の混入を型で防ぐ。
+// or() filter "in period OR NULL" for extra_entries.entry_date, shared by SQL and tests.
+// `column` is a union type to keep arbitrary strings out.
 export const datedOrUndatedFilter = (
   column: "entry_date" | "start_date",
   bounds: ReportRangeBounds,
 ): string =>
   `and(${column}.gte.${bounds.startDate},${column}.lt.${bounds.endExclusive}),${column}.is.null`;
 
-// business / costs の取得で埋め込みリソース matters（!inner）に掛ける or() 条件。
-// 「案件開始日が期間内 OR 未入力（月未確定）」かつ「下書きでない」（isDraftMatter の否定）。
-// supabase-js の or() は referencedTable ごとに 1 つの or= パラメータになるため、
-// 2 つの条件を 1 つの論理式にまとめる（(下書きでない AND 期間内) OR (下書きでない AND NULL)）。
-// is.true を使うのは、NULL を false と同じく「下書き側」に倒すため（isDraftMatter と同じ）。
+// or() for the embedded matters (!inner): (not draft AND in period) OR (not draft AND NULL).
+// supabase-js emits one or= per referencedTable, so both conditions are merged into one expression.
+// is.true keeps NULL on the draft side, like isDraftMatter.
 export const matterPeriodFilter = (bounds: ReportRangeBounds): string => {
   const notDraft = "or(is_fixed.is.true,is_completed.is.true)";
   return `and(${notDraft},start_date.gte.${bounds.startDate},start_date.lt.${bounds.endExclusive}),and(${notDraft},start_date.is.null)`;
 };
 
-// 定期費用の適用終了側の or() 条件（`start_month < endExclusive` と AND で使う）。
-// 適用期間が取得期間と重ならない行だけを除外するための条件。
+// Used with `start_month < endExclusive` via AND.
 export const recurringOverlapEndFilter = (bounds: ReportRangeBounds): string =>
   `end_month.gte.${bounds.startDate},end_month.is.null`;
 
-// 月次の集計（buildMonthReport。app/utils/profitLossClosing.ts）の入力。
-// boolean フラグが複数あるため、呼び出し側での取り違えを防ぐ目的で
-// 位置引数ではなくオブジェクトで受ける。
+// Input of buildMonthReport (profitLossClosing.ts); an object avoids mixing up the boolean flags.
 export type MonthlyReportInput = {
-  month: string;
+  month: string; // "YYYY-MM"
   businessRows: BusinessRow[];
   costRows: CostRow[];
   recurringCosts: RecurringCostType[];
   extraEntries: ExtraEntryType[];
   adjustments: ProfitLossAdjustmentType[];
   isTeamLeader: boolean;
-  includeTeamBreakdown: boolean; // チーム別内訳を含めるか（accounting / admin）
-  // 月次タブの単月表示でだけ使う明細（対象行が当月に存在しない調整 orphanedAdjustments・
-  // 確定後の変更 closingDiffs）を計算するか。年間推移（12ヶ月分を一括計算）は表示に
-  // 使わないため false を渡し、12ヶ月分の無駄な計算を避ける（月次タブの単月表示でのみ true）
+  includeTeamBreakdown: boolean;
+  // Details only shown in the monthly tab's single-month view. The annual trend passes false to
+  // skip 12 months of wasted computation.
   includeMonthlyDetails: boolean;
-  // 損益計算書上の表示タイトル（Issue #150。RLS により閲覧できる行のみ）
   labels?: ProfitLossLabelType[];
 };
 
-// ===== 表示タイトル（Issue #150） =====
+// ===== Display titles =====
 
-// 上書きタイトルの索引（対象種別ごとに id → タイトル）
 export type LabelIndex = {
   matter: Map<number, string>;
   business: Map<number, string>;
@@ -338,7 +298,6 @@ export const buildLabelIndex = (
   return index;
 };
 
-// 表示タイトルの解決（上書きタイトル → 元の名称）
 export const resolveTitle = (
   originalTitle: string,
   customTitle: string | undefined,
@@ -347,21 +306,18 @@ export const resolveTitle = (
   isCustomTitle: customTitle !== undefined,
 });
 
-// タイトル入力の正規化。前後の空白を除去し、空になった場合は null
-// （= 上書きを削除して元の名称に戻す）を返す。DB 関数 save_profit_loss_label と同じ扱い
+// Trims; empty becomes null (removes the override). Matches the DB function save_profit_loss_label.
 export const normalizeLabelInput = (input: string): string | null => {
   const trimmed = input.trim();
   return trimmed === "" ? null : trimmed;
 };
 
-// 表示タイトルの最大文字数（DB の CHECK 制約 char_length(label) <= 200 と揃える）
+// Matches the DB CHECK char_length(label) <= 200.
 export const LABEL_MAX_LENGTH = 200;
 
 type AdjustmentKey = "business_id" | "cost_id" | "recurring_cost_id";
 
-// adjustments 配列から「対象列 + id + 対象月」で引ける索引を作る。
-// 明細行数 × 調整件数の総当たりだと調整が積み上がるほど遅くなるため、
-// 呼び出しごとに一度だけ Map 化して O(1) 参照にする
+// Builds a Map once per call for O(1) lookup instead of scanning adjustments per line.
 const buildAdjustmentIndex = (
   adjustments: ProfitLossAdjustmentType[],
   month: string,
@@ -386,9 +342,8 @@ const findAdjustment = (
   id: number,
 ): ProfitLossAdjustmentType | undefined => index.get(`${key}:${id}`);
 
-// 元データの金額と調整から「元データ / 調整 / 実績」の3値を組み立てる。
-// 実績額は常に「現在の元データ金額 + 調整の差分」で計算する（調整保存後に元データが
-// 変わっても、調整の差分自体は自動更新しない。sourceChanged で警告を出すのみ）
+// Actual is always current source + adjustment delta. The delta is not auto-updated when the
+// source changes later; sourceChanged only warns.
 const toAdjustable = (
   sourceAmount: number,
   adjustment: ProfitLossAdjustmentType | undefined,
@@ -411,7 +366,6 @@ const byNumber =
   (a: T, b: T) =>
     key(a) - key(b);
 
-// 経理追加収支の行を明細行へ変換する
 export const toExtraEntryLine = (entry: ExtraEntryType): ExtraEntryLine => ({
   extraEntryId: entry.id,
   entryType: entry.entry_type,
@@ -423,10 +377,10 @@ export const toExtraEntryLine = (entry: ExtraEntryType): ExtraEntryLine => ({
   expenseAmount: entry.expense_amount,
 });
 
-// 経理追加収支 1 件の算入額（Issue #164）。算入先の規則はこの関数の 1 か所だけに置き、
-// 損益計算書の行への振り分け（splitExtraEntries）・チーム別内訳・月未確定はすべてこれを使う。
-// 収入エントリ: 請求額 → 売上、経費（任意）→ 案件費用（いずれも売上総利益の内訳）。
-// 支出エントリ: 経費 → 管理費（売上総利益には算入しない）
+// Single place for the inclusion rules of one extra entry (used by splitExtraEntries, team
+// breakdown and undated totals).
+// Income entry: billed amount -> sales, expense (optional) -> matter cost (both in gross profit).
+// Expense entry: expense -> admin cost (excluded from gross profit).
 export const classifyExtraEntry = (
   entry: ExtraEntryLine,
 ): { isIncome: boolean; revenue: number; cost: number; adminCost: number } =>
@@ -444,16 +398,13 @@ export const classifyExtraEntry = (
         adminCost: entry.expenseAmount ?? 0,
       };
 
-// 売上・費用から 売上 / 費用 / 粗利 の組を作る
 const toTotals = (revenue: number, cost: number): ProfitTotals => ({
   revenue,
   cost,
   grossProfit: revenue - cost,
 });
 
-// 経理追加収支を収入（売上総利益の「経理追加収支」行）と支出（管理費の
-// 「経理追加収支（支出）」行）に振り分け、それぞれの合計と明細を作る（Issue #164）。
-// 算入額は classifyExtraEntry で求める。画面側では振り分け直さない
+// Amounts come from classifyExtraEntry; the UI must not re-split.
 export const splitExtraEntries = (
   entries: readonly ExtraEntryLine[],
 ): { extraIncome: ExtraIncomeSection; extraExpense: ExtraExpenseSection } => {
@@ -482,9 +433,8 @@ export const splitExtraEntries = (
   };
 };
 
-// 取得済みの行から、指定月に計上される明細行（ライブ集計）を組み立てる。
-// ロールによる算入 / 参考表示の振り分けは行わない（aggregateMonthLines 側で行う）。
-// 確定（Issue #148）のスナップショットもこの結果をそのまま保存する。
+// No role-based include/reference split here (done in aggregateMonthLines). Closing snapshots
+// store this result as-is.
 export const buildLiveMonthLines = ({
   month,
   businessRows,
@@ -501,12 +451,10 @@ export const buildLiveMonthLines = ({
   | "extraEntries"
   | "adjustments"
 >): PLMonthLines => {
-  // 対象月分の調整を1度だけ索引化する（明細行ごとに全件走査しない）
   const adjustmentIndex = buildAdjustmentIndex(adjustments, month);
 
-  // 案件の売上・費用は案件開始日の月に計上し、下書きの案件は除外する（Issue #146）。
-  // 取得側でも同じ条件で絞るが、orphanedAdjustments のラベル解決用の補完行
-  // （期間外・下書きを含みうる）が混ざるため、ここでも判定する
+  // Draft matters are excluded. Fetch filters the same way, but supplement rows for
+  // orphanedAdjustments labels may be out of period or draft, so check again here.
   const isCountedInMonth = (matter: MatterOfRow) =>
     !isDraftMatter(matter) && matterMonthKey(matter) === month;
 
@@ -560,7 +508,7 @@ export const buildLiveMonthLines = ({
     }))
     .sort(byNumber((line) => line.recurringCostId));
 
-  // 計上月は entry_date の属する月（NULL は月未確定として別枠集計）
+  // NULL entry_date is aggregated separately as month-undetermined.
   const extraEntryLines = extraEntries
     .filter((entry) => toMonthKey(entry.entry_date) === month)
     .map(toExtraEntryLine)
@@ -599,13 +547,10 @@ const titledRecurringCostLine = (
   ),
 });
 
-// 案件別収支（案件 → 案件内訳）を組み立てる（Issue #152 でチームの階層を廃止）。
-// 案件は ID の昇順、案件内訳は売上明細 → 費用明細（各 ID の昇順）。
-// 経理追加収支は案件ではないため含めない（損益計算書では「経理追加収支」行として別に表示する）。
-// 明細によって分類・チームが異なる場合に画面で示せるよう、明細の分類・チームの一覧
-// （categories / teams）を持つ（分類別・チーム別の集計は明細単位で行う）。
-// 取得順（ライブ / 確定明細）に依らず表示が揃うよう、明細を ID 順に並べてから組み立てる
-// （案件名も売上明細 → 費用明細の ID 順で最初の明細のものを使う）
+// Matters are sorted by ID; breakdowns are sales lines then cost lines (each by ID), sorted first so
+// output is stable regardless of fetch order (live/closed). Matter name = first line's. Extra
+// entries are not matters and are excluded. categories/teams list per-line values because
+// category/team aggregation is per line.
 export const buildMatterBreakdowns = (
   businesses: BusinessLine[],
   costs: CostLine[],
@@ -656,7 +601,6 @@ export const buildMatterBreakdowns = (
     .sort(byNumber((matter) => matter.matterId));
 };
 
-// 案件別収支の合計（案件の売上・費用のみ。経理追加収支は含まない）
 export const sumMatterBreakdowns = (
   matters: readonly MatterBreakdown[],
 ): MatterTotals => {
@@ -665,12 +609,9 @@ export const sumMatterBreakdowns = (
   return toTotals(revenue, cost);
 };
 
-// 分類別の粗利（案件の売上分類の大分類ごとに 売上 − 案件費用）。
-// 案件の売上・費用の明細を明細の分類（matters.category）へ振り分ける。明細はちょうど1つの
-// 分類に属するため、合計は案件の合計（sumMatterBreakdowns）と必ず一致する。
-// 経理追加収支は含めない（支出エントリの支出分類と売上分類が混在しないよう、
-// 損益計算書では「経理追加収支」行として別に表示する。Issue #164）。
-// 分類の値はマスタ（select_options）に追従するため、特定の分類名には依存しない。
+// Per-category gross profit. Each line belongs to exactly one category, so totals always equal
+// sumMatterBreakdowns. Extra entries are excluded so expense categories do not mix with sales
+// categories. Independent of specific category names (they follow select_options).
 export const buildCategoryBreakdown = (
   businesses: BusinessLine[],
   costs: CostLine[],
@@ -694,18 +635,15 @@ export const buildCategoryBreakdown = (
     .sort((a, b) => b.grossProfit - a.grossProfit);
 };
 
-// aggregateMonthLines の入力
 export type AggregateInput = {
-  month: string;
+  month: string; // "YYYY-MM"
   lines: PLMonthLines;
   isTeamLeader: boolean;
   includeTeamBreakdown: boolean;
   labels?: ProfitLossLabelType[];
 };
 
-// 明細行（ライブ集計・確定スナップショット共通）から損益計算書を集計する。
-// 月未確定（undated）・対象行が当月に存在しない調整（orphanedAdjustments）は
-// 取得した行から別途計算するため、ここでは空で返す（呼び出し側で上書きする）。
+// Undated and orphanedAdjustments are computed separately from fetched rows, so return empty here.
 export const aggregateMonthLines = ({
   month,
   lines,
@@ -714,8 +652,8 @@ export const aggregateMonthLines = ({
   labels = [],
 }: AggregateInput): PLReportType => {
   const labelIndex = buildLabelIndex(labels);
-  // teamleader の場合、全体共通（team IS NULL）の経理追加収支・管理費は損益に算入せず
-  // 参考表示に分離する（案件は matters.team が NOT NULL のため常に算入）
+  // teamleader: team IS NULL extra entries / admin costs are reference-only, not counted
+  // (matters.team is NOT NULL, so matters always count).
   const countedExtraEntries = isTeamLeader
     ? lines.extraEntries.filter((entry) => entry.team !== null)
     : lines.extraEntries;
@@ -732,7 +670,7 @@ export const aggregateMonthLines = ({
     ? titledRecurringCosts.filter((line) => line.team === null)
     : undefined;
 
-  // ===== 売上総利益 = 案件（分類別の粗利）+ 経理追加収支（収入）（Issue #164） =====
+  // ===== Gross profit = matters (per category) + extra entries (income) =====
   const matterBreakdowns = buildMatterBreakdowns(
     lines.businesses,
     lines.costs,
@@ -744,12 +682,11 @@ export const aggregateMonthLines = ({
   );
   const matterTotals = sumMatterBreakdowns(matterBreakdowns);
   const { extraIncome, extraExpense } = splitExtraEntries(countedExtraEntries);
-  // 売上合計・案件費用合計は、案件の売上・費用に経理追加収支（収入）の請求額・経費を加えたもの
   const revenueTotal = matterTotals.revenue + extraIncome.revenue;
   const matterCostTotal = matterTotals.cost + extraIncome.cost;
   const grossProfitTotal = revenueTotal - matterCostTotal;
 
-  // ===== 管理費（定期費用。費目別。明細は展開表示に使う） =====
+  // ===== Admin costs (recurring costs by item) =====
   const recurringItemMap = new Map<string, TitledRecurringCostLine[]>();
   countedRecurringCosts.forEach((line) => {
     if (!recurringItemMap.has(line.item)) {
@@ -770,10 +707,10 @@ export const aggregateMonthLines = ({
     (sum, item) => sum + item.amount,
     0,
   );
-  // 経理追加収支（支出）の経費は管理費へ算入する（Issue #164）
+  // Extra entry (expense) costs count as admin costs.
   const adminCostTotal = recurringCostTotal + extraExpense.total;
 
-  // ===== チーム別内訳（accounting / admin のみ） =====
+  // ===== Team breakdown (accounting / admin only) =====
   let byTeam: TeamBreakdown[] | undefined;
   if (includeTeamBreakdown) {
     const teamMap = new Map<string, TeamBreakdown>();
@@ -791,9 +728,8 @@ export const aggregateMonthLines = ({
       }
       return teamMap.get(label)!;
     };
-    // 売上合計と同じ明細・実績額を使う（本表とチーム別内訳がズレないようにする）。
-    // チームは明細ごとの値を使う（確定済みの月で一部の明細だけ反映した場合など、
-    // 同じ案件でも明細によってチームが異なることがあるため、案件単位では集計しない）
+    // Same lines/actuals as the totals so the table and team breakdown match. Team is per line
+    // (a closed month may reflect only some lines), so not aggregated per matter.
     lines.businesses.forEach((line) => {
       getTeamEntry(line.team).revenue += line.actualAmount;
     });
@@ -838,16 +774,14 @@ export const aggregateMonthLines = ({
     byTeam,
     undated: { revenue: 0, matterCost: 0, adminCost: 0 },
     orphanedAdjustments: undefined,
-    // ライブ集計（未確定）。確定済みの月は buildMonthReport（profitLossClosing.ts）が上書きする
+    // Live (unclosed). Closed months are overwritten by buildMonthReport (profitLossClosing.ts).
     closing: null,
   };
 };
 
-// 月未確定（案件開始日・日付未入力）の売上・費用。下書きの案件は除く。
-// 経理追加収支（支出）の経費は案件費用ではなく管理費（adminCost）に数える（Issue #164）。
-// teamleader は月次の集計（aggregateMonthLines）と同じく、全体共通（team IS NULL）の
-// 経理追加収支を数えない（RLS では全体共通の行も読めるため、ここでも除外する）。
-// 確定済みの月でも常にライブの値を表示する（Issue #148）
+// Month-undetermined sales/costs, excluding drafts. Extra-entry expense counts as admin cost.
+// teamleader excludes team IS NULL extra entries like aggregateMonthLines (RLS still returns them).
+// Always live values, even for closed months.
 export const computeUndated = (
   businessRows: BusinessRow[],
   costRows: CostRow[],
@@ -856,7 +790,6 @@ export const computeUndated = (
 ): PLReportType["undated"] => {
   const isUndatedMatter = (matter: MatterOfRow) =>
     !isDraftMatter(matter) && matter.start_date === null;
-  // 経理追加収支は月次と同じ振り分け（splitExtraEntries → classifyExtraEntry）で数える
   const { extraIncome, extraExpense } = splitExtraEntries(
     extraEntries
       .filter((entry) => entry.entry_date === null)
@@ -876,10 +809,9 @@ export const computeUndated = (
   };
 };
 
-// 対象行が当月に存在しない調整（案件開始日の変更等で対象行が別の月に移動した・
-// 案件が下書きに戻された）。CASCADE により対象行そのものが削除された調整は存在しなく
-// なるため、ここに現れるのは「対象行は存在するが、当月の集計対象からは外れた」ケースのみ。
-// lines は当月のライブの明細行（buildLiveMonthLines の結果）。
+// Adjustments whose target row exists but left this month's aggregation (start date changed,
+// matter back to draft). Adjustments whose target was deleted (CASCADE) no longer exist.
+// `lines` are the live month lines (buildLiveMonthLines).
 export const computeOrphanedAdjustments = (
   month: string,
   lines: PLMonthLines,
@@ -897,8 +829,7 @@ export const computeOrphanedAdjustments = (
     lines.recurringCosts.map((line) => line.recurringCostId),
   );
 
-  // 対象行を特定できるラベルを組み立てる。対象行自体は月に関わらず全件
-  // （businessRows / costRows / recurringCosts。month でフィルタする前）から探す
+  // Search all rows (before month filtering) to identify the target.
   const businessById = new Map(businessRows.map((row) => [row.id, row]));
   const costById = new Map(costRows.map((row) => [row.id, row]));
   const recurringCostById = new Map(recurringCosts.map((rc) => [rc.id, rc]));
@@ -948,10 +879,10 @@ export const computeOrphanedAdjustments = (
     });
 };
 
-// 年度（7月〜翌6月）の月キー一覧を生成する
+// Fiscal year (July - June) month keys.
 export const fiscalYearMonths = (fiscalYear: number): string[] =>
   Array.from({ length: 12 }, (_, i) => {
-    const monthNumber = ((6 + i) % 12) + 1; // 7, 8, ..., 12, 1, ..., 6
+    const monthNumber = ((6 + i) % 12) + 1;
     const year = monthNumber >= 7 ? fiscalYear : fiscalYear + 1;
     return `${year}-${String(monthNumber).padStart(2, "0")}`;
   });

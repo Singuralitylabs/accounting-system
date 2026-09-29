@@ -42,7 +42,7 @@ describe("defaultTargetMonth", () => {
   });
 
   it("UTC では前年でも JST で年が変わっていれば翌月が繰り上がる", () => {
-    // 2026-12-31T15:00:00Z = 2027-01-01 JST → 翌月は 2027-02
+    // 2026-12-31T15:00:00Z = 2027-01-01 JST, so the next month is 2027-02
     expect(defaultTargetMonth(new Date("2026-12-31T15:00:00Z"))).toBe(
       "2027-02",
     );
@@ -112,7 +112,7 @@ describe("visibleBudgetTeams", () => {
   });
 
   it("マスタに無いチームを持つチームリーダーでも自チームを表示する", () => {
-    // チームマスタから無効化された後も、自チームの申告状況は確認できる必要がある
+    // Own team's declaration status must remain checkable after the team is deactivated in the master.
     expect(visibleBudgetTeams("teamleader", "旧チーム", teamList)).toEqual([
       "旧チーム",
     ]);
@@ -239,7 +239,6 @@ describe("buildBudgetDeclarationStatusList", () => {
     );
 
     expect(rows[0].declaredByName).toBeNull();
-    // 名前が読めなくても申告済みの判定・集計は行う
     expect(rows[0].isDeclared).toBe(true);
   });
 });
@@ -288,7 +287,7 @@ describe("閲覧ロールの定義", () => {
   });
 
   it("全チーム閲覧ロールは、閲覧可ロールから自チーム限定ロールを除いたもの", () => {
-    // ROUTE_PERMISSIONS にロールを足したときに一覧の表示範囲が追随することの回帰
+    // Regression: the list's visible scope follows when a role is added to ROUTE_PERMISSIONS.
     expect(BUDGET_ALL_TEAMS_CLASSES).toEqual(
       BUDGET_DECLARATION_ALLOWED_CLASSES.filter(
         (role) => role !== "teamleader",
@@ -323,15 +322,13 @@ describe("BudgetDeclarationError / isForbiddenError", () => {
   it("無関係なエラーは権限不足と判定しない", () => {
     expect(isForbiddenError(new Error("network"))).toBe(false);
     expect(isForbiddenError(null)).toBe(false);
-    // Error でないただのオブジェクトも対象外
     expect(isForbiddenError({ kind: "forbidden" })).toBe(false);
   });
 });
 
 describe("isPartialWriteFailureError", () => {
-  // budget_declarations の保存（saveBudgetDeclaration）は save_budget_declaration
-  // （migration 24）内の単一トランザクションで行われるため partialWriteFailed を
-  // 返さない。現在この kind を返しうるのは budgetRecurringItems.ts の一括更新のみ
+  // saveBudgetDeclaration runs in a single transaction inside save_budget_declaration (migration 24), so it
+  // never returns partialWriteFailed. Currently only the bulk update in budgetRecurringItems.ts can return this kind.
   it("複数行の一括更新が途中で失敗した場合（partialWriteFailed）は一部反映の可能性があると判定する", () => {
     expect(
       isPartialWriteFailureError(
@@ -344,8 +341,8 @@ describe("isPartialWriteFailureError", () => {
   });
 
   it("何も書き込まれていない失敗（fetchFailed・forbidden・validationFailed・duplicate）は対象外", () => {
-    // fetchFailed はヘッダ保存自体の失敗・対象行なしにも使われ、
-    // その場合は何も書き込まれていないため対象外にする
+    // fetchFailed is also used for a failed header save / no target rows; nothing was written in those
+    // cases, so exclude them.
     expect(
       isPartialWriteFailureError(
         new BudgetDeclarationError({ kind: "fetchFailed", message: "" }),
@@ -375,8 +372,8 @@ describe("isPartialWriteFailureError", () => {
 });
 
 describe("previousItemsToFormRows", () => {
-  // 並び順は取得側（getPreviousBudgetDeclarationItems）が display_order 順に
-  // 揃えて渡す前提のため、ここでは渡された順のまま変換されることだけ確認する
+  // The fetch side (getPreviousBudgetDeclarationItems) hands rows over already sorted by display_order,
+  // so only check that they are converted in the given order.
   it("id・display_order を持たない新規行に変換する（担当者も引き継ぐ）", () => {
     expect(
       previousItemsToFormRows([
@@ -486,7 +483,6 @@ describe("categoryOptionsFor", () => {
       label: "旧分類（マスタ未登録）",
       disabled: true,
     });
-    // 空の分類（新規行）では注入されない＝ドロップダウンから無効値を選べない
     expect(categoryOptionsFor("income", "", categoryList, itemList)).toEqual(
       categoryList,
     );
@@ -527,7 +523,6 @@ describe("isCategoryUnregistered", () => {
   });
 
   it("種別違いのマスタ混同は未登録と判定する", () => {
-    // 収入マスタの値を支出行で使う・その逆は未登録扱い
     expect(
       isCategoryUnregistered("expense", "セミナー", categoryList, itemList),
     ).toBe(true);

@@ -1,19 +1,15 @@
-// 事前収支申告フォーム（作成・編集）のバリデーション純粋関数。
-// DB アクセス（"use server" が付く app/utils/supabase/budgetDeclarations.ts）から
-// 切り離しているのは、副作用なしでユニットテストできるようにするため
-// （docs/testing.md「2.6 テスト容易化リファクタリング方針」）。
+// Pure validation for the budget declaration form, separate from the "use server" DB access so it
+// can be unit-tested.
 
 import { BudgetDeclarationItemInput } from "../types/types";
 import { UNIQUE_VIOLATION } from "./supabase/errorCodes";
 import { isCategoryUnregistered } from "./budgetDeclaration";
 
 export type BudgetDeclarationHeaderInput = {
-  targetMonth: string;
+  targetMonth: string; // "YYYY-MM"
   team: string;
 };
 
-// 分類マスタ（収入 = category、支出 = item）。クライアントの optionsAtom、
-// サーバの getActiveSelectOptionsByType のいずれからでも渡せる
 export type BudgetDeclarationCategoryMaster = {
   categoryList: readonly string[];
   itemList: readonly string[];
@@ -31,19 +27,13 @@ export type BudgetDeclarationValidationResult =
   | { ok: true }
   | { ok: false; reason: BudgetDeclarationValidationReason };
 
-// budget_declaration_items.entry_type の CHECK 制約（income/expense）と同じ値域。
-// フォームの Select は必ずこの 2 値しか出さないが、万一これ以外の値が渡ると
-// save_budget_declaration（migration 24）内の INSERT が CHECK 違反で失敗する。
-// 保存はアトミック（単一トランザクション）なので失敗しても既存データが失われる
-// ことはないが、分かりにくい DB エラーになるのを避けるため保存前にここで弾く
+// Same domain as the entry_type CHECK. Rejecting early avoids an obscure DB error from the
+// INSERT in save_budget_declaration (migration 24); saving is atomic, so no data is lost.
 const VALID_ENTRY_TYPES = new Set(["income", "expense"]);
 
-// budget_declaration_items.amount は numeric(15,2)（13 桁 + 小数点以下 2 桁）。
-// これを超える金額は DB の INSERT が 22003（numeric field overflow）で失敗する。
-// 保存は save_budget_declaration（migration 24）内の単一トランザクションのため
-// 失敗しても既存データが失われることはないが、分かりにくい DB エラーになるのを
-// 避けるため保存前にここで弾く
-export const MAX_ITEM_AMOUNT = 10 ** 13 - 1; // 9,999,999,999,999
+// budget_declaration_items.amount is numeric(15,2); larger values fail with 22003 in the DB.
+// Reject early to avoid an obscure error (the save is one transaction, so no data is lost).
+export const MAX_ITEM_AMOUNT = 10 ** 13 - 1;
 
 export const BUDGET_DECLARATION_VALIDATION_MESSAGES: Record<
   BudgetDeclarationValidationReason,
@@ -61,45 +51,37 @@ export const hasBudgetDeclarationRequiredHeader = (
   header: BudgetDeclarationHeaderInput,
 ): boolean => !!(header.targetMonth && header.team);
 
-// 明細 1 行の妥当性。"ok" 以外は理由を返し、呼び出し側でメッセージを出し分ける
+// Returns a reason other than "ok" so callers can vary the message.
 export const validateBudgetDeclarationItem = (
   item: BudgetDeclarationItemInput,
   masters?: BudgetDeclarationCategoryMaster,
 ): "ok" | "required" | "amount" | "overflow" | "manager_id" | "category" => {
-  // trim() で空白のみの入力（例: 内容に半角スペースのみ）も未入力扱いにする
+  // Whitespace-only input counts as empty.
   const entryType = item.entry_type.trim();
   if (!entryType || !item.category.trim() || !item.description.trim()) {
     return "required";
   }
-  // income/expense 以外（想定外の値）も未入力と同じ扱いにする
   if (!VALID_ENTRY_TYPES.has(entryType)) {
     return "required";
   }
-  // DB の CHECK (amount > 0) と同じ基準。NaN も弾く
+  // Matches the DB CHECK (amount > 0); also rejects NaN.
   if (!(item.amount > 0)) {
     return "amount";
   }
-  // DB の numeric(15,2) 上限と同じ基準
   if (item.amount > MAX_ITEM_AMOUNT) {
     return "overflow";
   }
-  // manager_id は任意項目（null 許容）だが、null でなければ profiles.id と同じ
-  // bigint の値域（正の整数）でなければならない。フォームの Select は常に
-  // memberList の id（数値）のみを渡すが、Server Action は認可済みユーザーから
-  // 任意のペイロードを受け取れるため、ここで型を保証しないと不正な値
-  // （小数・負数・NaN 等）のまま INSERT され、明細差し替えは非トランザクション
-  // のため INSERT 失敗時に既存明細が消失する
-  // （app/utils/supabase/budgetDeclarations.ts の saveBudgetDeclaration 参照）。
+  // manager_id is nullable but otherwise must be a positive integer (profiles.id bigint). The
+  // Server Action accepts arbitrary payloads from authorized users; reject a bad value here so it
+  // does not surface as an obscure DB error (the save itself is atomic, see saveBudgetDeclaration).
   if (item.manager_id !== null && !Number.isSafeInteger(item.manager_id)) {
     return "manager_id";
   }
   if (item.manager_id !== null && item.manager_id <= 0) {
     return "manager_id";
   }
-  // 分類がマスタ（収入 = category、支出 = item）に無い場合は保存させない。
-  // 管理者が無効化・改名した値を、前月コピーや直接の選び直しで使い続けられる
-  // 穴（Issue #116）を塞ぐ。masters 未指定時は従来どおり照合しない
-  // （既存呼び出しの互換維持・サーバ側は DB マスタで照合するため）
+  // Rejects categories missing from the master so disabled/renamed values cannot keep being used
+  // via previous-month copy or reselection. Skipped when masters is omitted (the server checks the DB master).
   if (
     masters &&
     isCategoryUnregistered(
@@ -114,8 +96,7 @@ export const validateBudgetDeclarationItem = (
   return "ok";
 };
 
-// ヘッダ必須項目と明細（種別・分類・内容の必須、金額 > 0・上限以下）をまとめて検証する。
-// 明細 0 件（コメントのみの申告）は許容する（DB 側も明細 0 件のヘッダを許容するため）
+// Zero lines (comment-only declaration) is allowed, as the DB allows it.
 export const validateBudgetDeclarationPayload = (
   header: BudgetDeclarationHeaderInput,
   items: readonly BudgetDeclarationItemInput[],
@@ -151,9 +132,8 @@ export const getBudgetDeclarationValidationMessage = (
   reason: BudgetDeclarationValidationReason,
 ): string => BUDGET_DECLARATION_VALIDATION_MESSAGES[reason];
 
-// (target_month, team) の一意制約違反（Postgres 23505）かどうかを判定する。
-// upsert ではなく素朴な INSERT にしているのは、既に他の担当者が作成した申告を
-// 気付かず上書きするのを防ぎ、「既に申告済み」であることを利用者に明示するため。
+// Plain INSERT rather than upsert so another person's existing declaration is not silently
+// overwritten and the user is told it is already declared.
 export const isDuplicateDeclarationError = (
   error: { code?: string } | null | undefined,
 ): boolean => error?.code === UNIQUE_VIOLATION;

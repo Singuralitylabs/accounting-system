@@ -9,6 +9,7 @@ import {
   useUpsertExtraEntry,
 } from "@/app/hooks/useExtraEntryData";
 import { useClosedMonths } from "@/app/hooks/useClosedMonths";
+import { useSaveRefreshLock } from "@/app/hooks/useSaveRefreshLock";
 import {
   CLOSED_MONTH_LOCK_MESSAGE,
   findExtraEntryLockViolations,
@@ -41,16 +42,16 @@ import { CiSquarePlus } from "react-icons/ci";
 import { RiDeleteBin6Line } from "react-icons/ri";
 import { CustomDatePicker } from "../CustomDatePicker";
 import { CustomMonthPicker } from "../CustomMonthPicker";
+import { SaveRefreshAlert } from "../SaveRefreshAlert";
 
 type Props = {
   initialMonth: string; // "YYYY-MM"
   initialData: ExtraEntryType[];
-  initialDataUpdatedAt: number; // サーバで initialData を取得した時刻（epoch ms）
+  initialDataUpdatedAt: number;
   incomeCategoryList: string[];
   expenseCategoryList: string[];
   paymentMethodList: string[];
   teamList: string[];
-  // 内容・請求先のサジェスト用の過去の入力値（直近12ヶ月＋月未確定分）
   initialSuggestions: ExtraEntrySuggestion[];
   memberList: { value: string; label: string }[];
 };
@@ -61,7 +62,6 @@ const toListRows = (extraEntries: ExtraEntryType[]): ExtraEntryInListType[] =>
 const toRowMap = (extraEntries: ExtraEntryType[]) =>
   new Map(extraEntries.map((entry) => [entry.id, entry]));
 
-// 入力済みの値から重複なしのサジェスト候補を作る（内容・請求先の入力補助用）
 const toSuggestions = (values: (string | null)[]): string[] =>
   Array.from(new Set(values.filter((value): value is string => !!value)));
 
@@ -76,8 +76,7 @@ const ExtraEntryList = ({
   initialSuggestions,
   memberList,
 }: Props) => {
-  // 対象月（`?month=` で引き継いだ月または当月）。一覧には対象月のエントリと
-  // 月未確定（entry_date が NULL）のエントリだけを表示する
+  // Target month (from `?month=` or current); the list shows that month's entries plus undated (entry_date NULL) ones.
   const [month, setMonth] = useState<string>(initialMonth);
   const {
     data: extraEntryList,
@@ -85,33 +84,45 @@ const ExtraEntryList = ({
     isPlaceholderData,
     isFetching,
     isStale,
+    isPaused,
+    isInvalidated,
+    refetch,
   } = useExtraEntryList(
     month,
     month === initialMonth ? initialData : undefined,
     month === initialMonth ? initialDataUpdatedAt : undefined,
   );
   const upsertMutation = useUpsertExtraEntry();
-  // 確定済みの月（損益計算書の月次収支確定。Issue #148）のエントリは編集・削除できず、
-  // 確定済みの月の日付も選べない（DB の RLS でも拒否される）
+  // Entries of closed months cannot be edited/deleted, nor can their dates be chosen (RLS also rejects).
   const {
     closedMonths,
     isLoading: isClosedLoading,
     isError: isClosedError,
   } = useClosedMonths();
-  // 月切替中（新しい月の取得中）は前月の行を残したまま、編集・保存できないようにする。
-  // キャッシュ済みの stale な月への切替では placeholder を経由しないため、
-  // 再取得が終わるまで（isFetching && isStale）もロックする
+  // While switching months keep the previous rows but block editing. A switch to a cached stale month skips the placeholder, so also lock while isFetching && isStale.
   const isSwitchingMonth = isPlaceholderData || (isFetching && isStale);
+  // Lock until an invalidated list (after a save, including unknown outcomes, or a stale list from switching back/reopening) is refetched; avoids overwriting with the stale list and double registration.
+  const {
+    locked: isRefreshLocked,
+    isStalled,
+    outcome: saveOutcome,
+    markSaved,
+    reset: resetSaveLock,
+  } = useSaveRefreshLock({
+    isInvalidated,
+    isFetching,
+    isError,
+    isPaused,
+    scope: month,
+  });
   const isMonthClosed = isClosedMonth(closedMonths, month);
-  // 確定済みの月の情報がまだ無い（取得中・取得失敗）間は、確定済みか判定できない
-  // ため追加ボタンを無効にする（保存はロック判定・RLS で拒否されるが、仕様どおり
-  // 確定済みの月では押せないようにする）
+  // Disable add while closed-month info is unavailable (loading/failed); saves are rejected by lock/RLS anyway.
   const isClosedUnknown = isClosedLoading || isClosedError;
-  // 切替中・保存中はすべての入力を無効化する
-  const formLocked = isSwitchingMonth || upsertMutation.isPending;
-  // 追加は対象月が確定済みでなく、確定済みかが判明し、ロックされていないときだけ
+  // Disable all inputs while switching, saving, or awaiting refetch (rows then include saved rows still marked isNew; saving again would double register).
+  const formLocked =
+    isSwitchingMonth || upsertMutation.isPending || isRefreshLocked;
   const canAddRow = !isMonthClosed && !isClosedUnknown && !formLocked;
-  // 最新の保存済みの行（編集ロックは変更前の日付で判定する）
+  // Latest saved rows (the edit lock uses the pre-edit date).
   const originals = useMemo(
     () => toRowMap(extraEntryList ?? initialData),
     [extraEntryList, initialData],
@@ -123,28 +134,23 @@ const ExtraEntryList = ({
   const [rows, setRows] = useState<ExtraEntryInListType[]>(
     toListRows(initialData),
   );
-  // 編集を始めた時点（画面に読み込んだ時点）の保存済みの行。保存時は、これと比べて
-  // 追加・削除・編集した行だけを送る（編集していない行を読み込み時点の値で上書きしない）
+  // Saved rows when editing began; on save only added/deleted/edited rows are sent (untouched rows are not overwritten with load-time values).
   const [baseline, setBaseline] = useState(() => toRowMap(initialData));
-  // 編集中フラグ。バックグラウンド再取得（再接続時など）で
-  // 保存前の編集内容が黙って破棄されるのを防ぐ
+  // Editing flag; prevents background refetch from silently discarding unsaved edits.
   const [isDirty, setIsDirty] = useState(false);
 
-  // 保存後の再取得などでサーバ状態が変わったらローカル編集状態をリセットする
-  // （編集中・月切替中は同期しない）
+  // Reset local edit state when server state changes (not while editing, switching months, or awaiting refetch).
   useEffect(() => {
-    if (extraEntryList && !isDirty && !isSwitchingMonth) {
+    if (extraEntryList && !isDirty && !isSwitchingMonth && !isRefreshLocked) {
       setRows(toListRows(extraEntryList));
       setBaseline(toRowMap(extraEntryList));
     }
-  }, [extraEntryList, isDirty, isSwitchingMonth]);
+  }, [extraEntryList, isDirty, isSwitchingMonth, isRefreshLocked]);
 
   const visibleRows = rows.filter((row) => !row.isRemoved);
   const incomeRows = visibleRows.filter((row) => row.entry_type === "income");
   const expenseRows = visibleRows.filter((row) => row.entry_type === "expense");
 
-  // 内容・請求先のサジェスト候補（直近12ヶ月＋月未確定分の過去の入力値と、
-  // 編集中の行も含めた表示中の行の入力値）
   const { data: suggestionEntries } =
     useExtraEntrySuggestions(initialSuggestions);
   const descriptionSuggestions = useMemo(
@@ -164,8 +170,7 @@ const ExtraEntryList = ({
     [suggestionEntries, visibleRows],
   );
 
-  // 未保存の編集がある状態で月を変えようとしたら確認し、破棄して切り替える。
-  // キャンセルなら月を変えない
+  // Confirm before switching months with unsaved edits, then discard; cancel keeps the month.
   const handleChangeMonth = async (selected: string | null) => {
     if (!selected || selected === month) return;
     if (upsertMutation.isPending) return;
@@ -176,6 +181,8 @@ const ExtraEntryList = ({
       if (!confirmed) return;
       setIsDirty(false);
     }
+    // Leaving the month ends the wait (the rows are replaced by the new month's list; if only a stale list remains on return, isStalled blocks editing).
+    resetSaveLock();
     setMonth(selected);
   };
 
@@ -223,8 +230,7 @@ const ExtraEntryList = ({
   };
 
   const handleSave = async () => {
-    // 送るのは追加・削除・編集した行だけ。必須・金額のチェックも送る行（削除以外）に限る
-    // （編集していない行・確定済みの月でロックされた行の既存の値で保存が止まらないように）
+    // Send and validate only added/deleted/edited rows, so untouched or closed-month-locked rows with existing values do not block saving.
     const changedRows = selectChangedExtraEntries(rows, baseline);
     if (changedRows.length === 0) {
       setIsDirty(false);
@@ -290,24 +296,24 @@ const ExtraEntryList = ({
 
     try {
       await upsertMutation.mutateAsync(changedRows);
-      setIsDirty(false); // 保存成功後は再取得結果との同期を再開する
+      // Wait for the refetch: the hook's onSuccess invalidated the list; do not sync from the pre-save cache until the invalidation clears (isRefreshLocked). Invalidation cancels any in-flight refetch, so only a list fetched after the save clears it.
+      markSaved("saved");
+      setIsDirty(false);
       notifySuccess("経理追加収支情報を更新しました。");
     } catch (error) {
       console.error("経理追加収支情報の保存に失敗しました。", error);
       if (error instanceof ExtraEntryValidationError) {
-        // サーバが拒否・失敗を返した（何も書き込まれていない）
         notifyError(error.message);
         return;
       }
-      // 通信の失敗などで保存できたかどうか分からない（保存は 1 トランザクションのため、
-      // 保存されていればすべて、されていなければ何も反映されていない）
+      // Outcome unknown (single transaction: all or nothing). The response may have been lost after commit, so saving again could double register new rows. Block editing until the refetch (invalidated in the hook's onError) and sync to the actual result.
+      markSaved("unknown");
+      setIsDirty(false);
       notifyError(
-        "経理追加収支情報の更新結果を確認できませんでした。画面を再読み込みして内容を確認してください。",
+        "経理追加収支情報の更新結果を確認できませんでした。最新の内容を取得して表示します。保存されていなかった場合は入力し直してください。",
       );
     }
   };
-
-  // ===== 共通セル =====
 
   const renderCategorySelect = (
     row: ExtraEntryInListType,
@@ -408,7 +414,7 @@ const ExtraEntryList = ({
       prefix="¥"
       placeholder={placeholder}
       disabled={isRowLocked(row) || formLocked}
-      // マイナス金額（減額調整）を許容するため min は設定しない
+      // No min: negative amounts (reductions) are allowed.
       onChange={(value) =>
         handleUpdateRow(row.id, {
           expense_amount: typeof value === "number" ? value : null,
@@ -442,8 +448,7 @@ const ExtraEntryList = ({
     </div>
   );
 
-  // 一覧がまだ無い（初回・月切替の取得失敗／読み込み中）は、月ピッカーと
-  // Alert／読み込み中表示だけを返す
+  // No list yet (initial load / month switch failed or loading): show only the month picker and Alert/loading.
   if (!extraEntryList) {
     return (
       <div className="px-4 pb-8 relative">
@@ -461,16 +466,32 @@ const ExtraEntryList = ({
 
   return (
     <div className="px-4 pb-8 relative">
-      <LoadingOverlay visible={upsertMutation.isPending || isSwitchingMonth} />
+      <LoadingOverlay
+        visible={
+          upsertMutation.isPending ||
+          isSwitchingMonth ||
+          (isRefreshLocked && isFetching)
+        }
+      />
       {monthPicker}
-      {isError && (
-        <Alert
-          color="red"
-          title="最新の経理追加収支情報の取得に失敗しました"
-          className="mb-4"
-        >
-          表示中の内容は取得済みのものです。時間をおいてページを再読み込みしてください。
-        </Alert>
+      {isStalled ? (
+        <SaveRefreshAlert
+          subject="経理追加収支情報"
+          outcome={saveOutcome}
+          isPaused={isPaused}
+          onReload={() => refetch()}
+        />
+      ) : (
+        isError &&
+        !isFetching && (
+          <Alert
+            color="red"
+            title="最新の経理追加収支情報の取得に失敗しました"
+            className="mb-4"
+          >
+            表示中の内容は取得済みのものです。時間をおいてページを再読み込みしてください。
+          </Alert>
+        )
       )}
       <div className="flex justify-between items-center mb-4 gap-4">
         <p className="text-sm text-gray-600">
@@ -481,14 +502,13 @@ const ExtraEntryList = ({
         <Button
           type="button"
           className="shrink-0"
-          disabled={upsertMutation.isPending || isSwitchingMonth}
+          disabled={formLocked}
           onClick={handleSave}
         >
           保存
         </Button>
       </div>
 
-      {/* ===== 収入 ===== */}
       <Title order={3} className="mb-2">
         収入
       </Title>
@@ -550,7 +570,7 @@ const ExtraEntryList = ({
                     thousandSeparator=","
                     prefix="¥"
                     disabled={isRowLocked(row) || formLocked}
-                    // マイナス金額（減額調整）を許容するため min は設定しない
+                    // No min: negative amounts (reductions) are allowed.
                     onChange={(value) =>
                       handleUpdateRow(row.id, {
                         billing_amount:
@@ -589,7 +609,6 @@ const ExtraEntryList = ({
         )}
       </div>
 
-      {/* ===== 支出 ===== */}
       <Title order={3} className="mb-2">
         支出
       </Title>

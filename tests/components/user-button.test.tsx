@@ -1,10 +1,6 @@
 // @vitest-environment jsdom
 
-import {
-  fireEvent,
-  screen,
-  waitForElementToBeRemoved,
-} from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { User } from "@supabase/supabase-js";
 import UserButton from "@/app/components/buttons/user-button";
@@ -82,9 +78,10 @@ describe("UserButton", () => {
 
     fireEvent.click(trigger);
 
-    await waitForElementToBeRemoved(() =>
+    // Assert synchronously: if the transition disable (docs/testing.md) regresses, closing becomes async and this fails.
+    expect(
       screen.queryByRole("menuitem", { name: "ログアウト" }),
-    );
+    ).not.toBeInTheDocument();
   });
 
   it("ログアウト項目のクリックで onSignOut が呼ばれる", async () => {
@@ -172,9 +169,8 @@ describe("UserButton", () => {
   });
 
   it("SSR ハイドレート前に既に読み込み失敗していた画像もイニシャルにフォールバックする（ハイドレーション競合の回帰）", () => {
-    // jsdom は実際の画像読み込みを行わないため、ハイドレート時点で
-    // 既に読み込み失敗済みの img（complete: true / naturalWidth: 0）を
-    // HTMLImageElement.prototype 経由で再現する。
+    // jsdom does not load images; reproduce an img that already failed at hydration
+    // (complete: true / naturalWidth: 0) via HTMLImageElement.prototype.
     vi.spyOn(
       window.HTMLImageElement.prototype,
       "complete",

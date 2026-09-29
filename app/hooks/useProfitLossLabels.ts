@@ -2,7 +2,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { saveProfitLossLabel } from "../utils/supabase/profitLossLabels";
 import { LabelTarget } from "../types/types";
 
-// 損益計算書の表示タイトルの保存（1件ずつ即時保存。空欄は削除）
 export const useSaveProfitLossLabel = () => {
   const queryClient = useQueryClient();
 
@@ -20,10 +19,9 @@ export const useSaveProfitLossLabel = () => {
       }
       return { deleted: result.deleted };
     },
-    // 保存の再試行で意図しない二重書き込みをしないよう、失敗時は利用者に再操作を促す
+    // No retry, to avoid unintended double writes.
     retry: 0,
     onSuccess: () => {
-      // タイトルは損益レポート（月次・年間推移・差分一覧）にのみ影響する
       queryClient.invalidateQueries({ queryKey: ["profitLoss"] });
     },
     onError: (error) => {

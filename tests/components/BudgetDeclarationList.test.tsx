@@ -38,24 +38,20 @@ vi.mock("@/app/hooks/useBudgetDeclarationData", () => ({
   useDeleteBudgetDeclaration: () => deleteMutation,
 }));
 
-// BudgetDeclarationForm が定期明細の自動投入に使う Server Action。
-// "use server" 経由で profiles.ts の requestCache（React cache()）まで
-// 芋づる式に読み込まれ、テスト環境では初期化に失敗するためモックする
-// （budgetDeclarationReminderSettings と同じ理由）
+// Server Action used by BudgetDeclarationForm to auto-insert recurring items. Via "use server" it pulls in
+// profiles.ts requestCache (React cache()) and fails to initialize in tests, so mock it
+// (same reason as budgetDeclarationReminderSettings).
 vi.mock("@/app/hooks/useBudgetRecurringItemData", () => ({
   useActiveBudgetRecurringItems: () => ({ data: [], isFetching: false }),
 }));
 
-// BudgetDeclarationReminderSettings が直接 import する Server Action。
-// "use server" 経由で profiles.ts の requestCache（React cache()）まで
-// 芋づる式に読み込まれ、テスト環境では初期化に失敗するためモックする
-// （このテストでは canManageReminderSettings を渡さないため呼ばれない）
+// Server Action imported directly by BudgetDeclarationReminderSettings. Mocked for the same reason
+// (requestCache / React cache()); never called since this test does not save.
 vi.mock("@/app/utils/supabase/budgetDeclarationReminderSettings", () => ({
   updateBudgetDeclarationReminderTargetDays: vi.fn(),
 }));
 
-// 一覧の月ピッカーは Mantine のカレンダー UI で操作が煩雑なため、テストでは
-// 「クリックすると月が変わる」だけの単純なスタブに差し替える
+// The month picker is a Mantine calendar (cumbersome to drive); stub it so a click changes the month.
 vi.mock("@/app/components/CustomMonthPicker", () => ({
   CustomMonthPicker: ({
     onChange,
@@ -80,8 +76,6 @@ const row = (
   ...overrides,
 });
 
-// 一覧データのモックと描画をまとめたヘルパ。isPlaceholderData や
-// canManageReminderSettings 等、テストごとに変わる値だけ渡す
 const renderList = (
   rows: BudgetDeclarationStatusType[],
   {
@@ -136,8 +130,8 @@ describe("BudgetDeclarationList", () => {
     fireEvent.click(screen.getByRole("button", { name: "編集する" }));
     expect(screen.getByDisplayValue("2026年10月")).toBeInTheDocument();
 
-    // モーダル表示中は Mantine が背面を aria-hidden にするため hidden: true で取得する。
-    // （実際のブラウザ操作では背面はクリックできないが、ロジック自体の回帰を検証する）
+    // Mantine sets aria-hidden on the background while the modal is open, so query with hidden: true
+    // (real browsers cannot click the background; this only checks the logic).
     fireEvent.click(
       screen.getByRole("button", { name: "月を変更", hidden: true }),
     );
@@ -146,10 +140,13 @@ describe("BudgetDeclarationList", () => {
     expect(screen.queryByDisplayValue("2026年11月")).not.toBeInTheDocument();
   });
 
-  it("canManageReminderSettings が false のときはリマインド設定セクションを表示しない", () => {
-    renderList([row()]);
+  it("canManageReminderSettings が false のときはリマインド設定ボタンを表示しない", () => {
+    renderList([row()], { props: { initialReminderTargetDays: [] } });
 
-    expect(screen.queryByText("リマインド設定")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "リマインド設定" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("リマインド無効")).not.toBeInTheDocument();
   });
 
   it("申告済みチームが0件のときは「すべて開く」を無効化する", () => {
@@ -185,7 +182,6 @@ describe("BudgetDeclarationList", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "すべて開く" }));
     expect(screen.getAllByText("申告が見つかりません")).toHaveLength(2);
-    // 未申告チームは対象外のまま（明細が無いため「明細を表示」から変わらない）
     expect(
       screen.getByRole("button", { name: "明細を表示" }),
     ).toBeInTheDocument();
@@ -226,8 +222,8 @@ describe("BudgetDeclarationList", () => {
   });
 
   it("申告を削除して同じチームを再申告しても、別 ID の明細パネルが勝手に開かない", () => {
-    // 「開発チーム」の明細を開いた状態から、申告が削除され（declarationId: null）、
-    // 続けて別 ID（99）で再申告された場合の一覧再取得をシミュレートする
+    // Simulate a refetch after the "開発チーム" declaration was deleted (declarationId: null) and
+    // re-filed under another id (99).
     const { rerender } = renderList([
       row({ team: "開発チーム", declarationId: 1 }),
     ]);
@@ -263,7 +259,6 @@ describe("BudgetDeclarationList", () => {
 
     expect(screen.queryByText("申告が見つかりません")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "明細を表示" })).toBeDisabled();
-    // 開いていたパネルは無くなったので「すべて閉じる」は無効に戻る
     expect(screen.getByRole("button", { name: "すべて閉じる" })).toBeDisabled();
 
     useBudgetDeclarationList.mockReturnValue({
@@ -283,14 +278,13 @@ describe("BudgetDeclarationList", () => {
       />,
     );
 
-    // 新しい declarationId（99）の申告は、クリックするまで自動では開かない
     expect(screen.queryByText("申告が見つかりません")).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "明細を表示" }),
     ).toBeInTheDocument();
   });
 
-  it("canManageReminderSettings が true のときはリマインド設定セクションを表示する", () => {
+  it("canManageReminderSettings が true のときは「定期明細を管理」と同じ行にリマインド設定ボタンを表示し、設定は常時展開しない", async () => {
     renderList([row()], {
       props: {
         canManageReminderSettings: true,
@@ -298,7 +292,36 @@ describe("BudgetDeclarationList", () => {
       },
     });
 
-    expect(screen.getByText("リマインド設定")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "15" })).toBeChecked();
+    const reminderButton = screen.getByRole("button", {
+      name: "リマインド設定",
+    });
+    const recurringButton = screen.getByRole("link", {
+      name: "定期明細を管理",
+    });
+    expect(
+      recurringButton.parentElement?.contains(reminderButton),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("checkbox", { name: "15" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("リマインド無効")).not.toBeInTheDocument();
+
+    fireEvent.click(reminderButton);
+
+    expect(await screen.findByRole("checkbox", { name: "15" })).toBeChecked();
+  });
+
+  it("canManageReminderSettings が true で保存済みの対象日が0件のときは「リマインド無効」バッジを表示する", () => {
+    renderList([row()], {
+      props: {
+        canManageReminderSettings: true,
+        initialReminderTargetDays: [],
+      },
+    });
+
+    expect(
+      screen.getByRole("button", { name: "リマインド設定" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("リマインド無効")).toBeInTheDocument();
   });
 });

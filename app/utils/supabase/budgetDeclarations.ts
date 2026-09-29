@@ -34,11 +34,9 @@ import { getAuthorizedViewer } from "./viewerAccess";
 
 const SUBJECT = "事前収支申告";
 
-// 一覧は集計に必要な列だけを取る（コメントと明細の全項目は行を開いたときに詳細側で取得する）。
-//
-// declared_by の profiles は inner join にしない。profiles の SELECT ポリシー
-// （migration 12）で申告者の行が読めない場合に、申告そのものが一覧から消えてしまう
-// （エラーも出ない）ため。読めないときは名前だけ null になる。
+// The list fetches only columns needed for aggregation. Do not inner join declared_by's profiles:
+// if the profiles SELECT policy (migration 12) hides the declarer, the declaration would vanish
+// silently. The name becomes null instead.
 const DECLARATION_LIST_SELECT = `
   id,
   team,
@@ -47,9 +45,7 @@ const DECLARATION_LIST_SELECT = `
   budget_declaration_items (entry_type, amount)
 `;
 
-// 対象月（month: "YYYY-MM"）のチーム別申告状況を取得する。
-// 行の可視範囲は RLS が担保する（チームリーダーは自チームのみ）が、
-// 「未申告」を表示するにはチームマスタ側も同じ基準で絞る必要がある。
+// RLS bounds visible rows, but showing "not declared" needs the team master filtered the same way.
 export const getBudgetDeclarationList = async (
   month: string,
 ): Promise<BudgetDeclarationListResult> => {
@@ -64,13 +60,12 @@ export const getBudgetDeclarationList = async (
   const supabase = createServerSupabase();
   const targetMonth = toFirstOfMonth(month);
 
-  // 全チームを見られるロールだけがチームマスタを必要とする。
-  // チームリーダーは自チーム 1 行だけなので、マスタ取得も全チーム分の
-  // RLS 評価（can_access_team_budget は行ごとに profiles を引く）も避ける。
+  // Only all-team roles need the master; a teamleader has one team, so skip the fetch and the
+  // per-row profiles lookup in can_access_team_budget.
   if (!canViewAllBudgetTeams(profileInfo.class)) {
     const teams = ownBudgetTeams(profileInfo.class, profileInfo.team);
     if (teams.length === 0) {
-      // チーム未設定のチームリーダー。問い合わせても 0 行なので DB に行かない
+      // Teamleader without a team: a query would return 0 rows anyway.
       return { rows: [] };
     }
 
@@ -90,8 +85,8 @@ export const getBudgetDeclarationList = async (
     return { rows: buildBudgetDeclarationStatusList(teams, toDeclarations(data)) };
   }
 
-  // 全チーム閲覧ロールでは team で絞らない。チームマスタから外れたチームの
-  // 申告（buildBudgetDeclarationStatusList が末尾に残す行）を落とさないため。
+  // No team filter for all-team roles, so declarations of teams removed from the master (kept by
+  // buildBudgetDeclarationStatusList) are not dropped.
   const [teamResult, declarationResult] = await Promise.all([
     getSelectOptions("team"),
     supabase
@@ -125,9 +120,7 @@ export const getBudgetDeclarationList = async (
   };
 };
 
-// 申告 ID（一覧行が保持している）で明細とコメントを取得する。
-// 対象月 × チームでの再検索は不要なので、DB 往復は 1 回で済む。
-// 明細の可視範囲は親ヘッダ経由の RLS（migration 19）が担保する。
+// Fetched by declaration ID (one round trip). Line visibility is via parent-header RLS (migration 19).
 export const getBudgetDeclarationDetail = async (
   declarationId: number,
 ): Promise<BudgetDeclarationDetailResult> => {
@@ -141,17 +134,14 @@ export const getBudgetDeclarationDetail = async (
 
   const supabase = createServerSupabase();
 
-  // manager_id の profiles も declared_by と同じく inner join にしない。
-  // 担当者の profiles が RLS で読めない場合に明細行ごと消えてしまうのを避けるため
-  // （読めないときは managerName だけ null になる）
+  // No inner join on manager_id's profiles either: an unreadable profile would drop the line (managerName becomes null).
   const { data, error } = await supabase
     .from("budget_declarations")
     .select(
       "comment, budget_declaration_items (*, profiles!budget_declaration_items_manager_id_fkey (name))",
     )
     .eq("id", declarationId)
-    // 主キー検索なので最大 1 行。0 行（RLS で見えない場合を含む）を
-    // error にしないため single() ではなく maybeSingle() を使う
+    // maybeSingle so 0 rows (including RLS-hidden) is not an error.
     .maybeSingle();
 
   if (error) {
@@ -168,7 +158,7 @@ export const getBudgetDeclarationDetail = async (
   return {
     detail: {
       comment: data.comment,
-      // display_order → id の順で安定させる（DB 側の並びに依存しない）
+      // Stable order independent of the DB.
       items: [...(data.budget_declaration_items ?? [])]
         .sort((a, b) => a.display_order - b.display_order || a.id - b.id)
         .map(({ profiles, ...item }) => ({
@@ -179,11 +169,9 @@ export const getBudgetDeclarationDetail = async (
   };
 };
 
-// 対象月の前月・同チームの申告明細を取得する（フォームの「前月の明細をコピー」用）。
-// 前月に申告そのものが無い場合は items: null を返す（コピーボタンの活性判定に使う。
-// 申告はあるが明細が 0 件の場合と区別するため、明細取得失敗時とは別に null にする）。
-// チームリーダーは自チームの前月申告しか読めない（他チームは RLS で 0 行になり、
-// null 扱いになる。「他チームの申告はコピーできない」という完了条件はこれで満たす）
+// For "copy previous month's lines". items: null when there is no previous declaration at all
+// (distinct from a declaration with 0 lines, and from a fetch failure) to drive the copy button.
+// A teamleader reads only their own team's rows (other teams yield 0 rows via RLS -> null).
 export const getPreviousBudgetDeclarationItems = async (
   targetMonth: string,
   team: string,
@@ -206,8 +194,7 @@ export const getPreviousBudgetDeclarationItems = async (
     )
     .eq("target_month", previousMonth)
     .eq("team", team)
-    // 主キー検索ではないが (target_month, team) は UNIQUE 制約対象。
-    // 0 行（前月未申告 / RLS で見えない）を error にしないため maybeSingle()
+    // (target_month, team) is UNIQUE; maybeSingle so 0 rows (not declared / RLS-hidden) is not an error.
     .maybeSingle();
 
   if (error) {
@@ -225,21 +212,15 @@ export const getPreviousBudgetDeclarationItems = async (
   }
 
   return {
-    // display_order → id の順で安定させる。getBudgetDeclarationDetail と
-    // 同じ並び順にする（並べ替えはここで一度だけ行い、
-    // previousItemsToFormRows 側では再ソートしない）
+    // Sorted here once, same as getBudgetDeclarationDetail; previousItemsToFormRows does not re-sort.
     items: [...(data.budget_declaration_items ?? [])].sort(
       (a, b) => a.display_order - b.display_order || a.id - b.id,
     ),
   };
 };
 
-// 申告の作成・編集（ヘッダ + 明細差し替え）。
-// declarationId が null なら新規作成、それ以外なら既存ヘッダの更新。
-// 明細は「差し替え」方式（既存を全削除→入力内容を全 INSERT）にしている。
-// costs.ts のような isNew/isRemoved diff にしないのは、申告の明細は保存のたびに
-// フォーム側の配列が最終形そのものであり、差分を追跡する状態を別途持つ必要が
-// ないため（複雑さに見合わない）。
+// Create (declarationId null) or update the header and replace lines (delete all, INSERT all): the
+// form array is the final state, so isNew/isRemoved diffing like costs.ts would add complexity for nothing.
 export const saveBudgetDeclaration = async (
   input: BudgetDeclarationSaveInput,
 ): Promise<BudgetDeclarationSaveResult> => {
@@ -251,7 +232,7 @@ export const saveBudgetDeclaration = async (
     return { error: accessError };
   }
 
-  // RLS が最終防御だが、事前にわかりやすいエラーメッセージを返す
+  // RLS is the last defense; this returns a clearer message first.
   if (!canWriteBudgetTeam(profileInfo.class, profileInfo.team, input.team)) {
     return {
       error: {
@@ -277,18 +258,11 @@ export const saveBudgetDeclaration = async (
   const supabase = createServerSupabase();
   const targetMonth = toFirstOfMonth(input.targetMonth);
 
-  // manager_id は保存前の型チェック（validateBudgetDeclarationPayload）だけでは
-  // 「実在する profiles.id か」までは検証できない。フォームを開いた後にそのメンバーの
-  // profiles が削除された場合、型は正しいまま存在しない id が送られてきうる。
-  // save_budget_declaration はアトミック（後述）なので存在しない manager_id を
-  // 渡してもデータが失われることは無くなったが、DB の FK 違反（23503）という分かりにくい
-  // エラーで保存全体が失敗するのを避けるため、保存前にここで確認してわかりやすい
-  // エラーメッセージを返す。profiles への直接 SELECT は RLS で teamleader が自チーム
-  // に絞られ、他チームの担当者を誤って「存在しない」と判定してしまうため、
-  // assertManagerIdsExist() 経由（内部で validateMemberIds() = migration 21 の
-  // validate_member_ids を呼ぶ）で確認する。get_member_options() で全メンバーを
-  // 取得して照合することもできるが、保存のたびに全メンバー分の行を転送するのは
-  // 無駄なため、渡された id 集合だけを DB 側で照合する
+  // Type checks cannot verify manager_id exists in profiles (a member may be deleted after the form
+  // opens). Check before saving to avoid an obscure FK violation (23503). Use assertManagerIdsExist()
+  // (validateMemberIds() = validate_member_ids, migration 21), not a direct profiles SELECT: RLS
+  // limits a teamleader to their team and would misjudge other teams' members as missing. Only the
+  // given ID set is checked instead of fetching all members with get_member_options().
   const managerIds = Array.from(
     new Set(
       input.items
@@ -305,13 +279,10 @@ export const saveBudgetDeclaration = async (
     return { error: managerIdError };
   }
 
-  // 分類がマスタ（収入 = category、支出 = item）に存在するか保存前に照合する。
-  // クライアントの Select は編集可能なため、注入表示（categoryOptionsFor）の
-  // 「（マスタ未登録）」ラベルだけでは選び直し保存を防げない。前月コピーで
-  // 無効化された分類が翌月以降も引き継がれ続ける経路（Issue #116）を塞ぐため、
-  // manager_id の validateMemberIds と同じ方式で DB マスタと照合する。
-  // クライアントの categoryList / itemList は渡さず、サーバ側で最新の有効値
-  // （getActiveSelectOptionsByType）を引き直す（フォームを開いた後のマスタ変更を反映するため）
+  // Check categories against the DB master before saving: the client Select is editable, so the
+  // 「（マスタ未登録）」 label alone cannot prevent reselection, and disabled categories would
+  // otherwise carry over via previous-month copy. The server re-fetches the latest active values
+  // (getActiveSelectOptionsByType), not the client's lists, to reflect master changes after the form opened.
   const { optionsByType: categoryOptionsByType, error: categoryMasterError } =
     await getActiveSelectOptionsByType(["category", "item"]);
   if (categoryMasterError) {
@@ -336,8 +307,7 @@ export const saveBudgetDeclaration = async (
     },
   );
   if (!categoryValidation.ok && categoryValidation.reason === "item_category") {
-    // optionsAtom はフルページロード時にしかハイドレートされないため、
-    // モーダルの開き直しでは古いマスタのまま変わらない。画面全体の再読み込みを案内する
+    // optionsAtom hydrates only on full page load, so reopening the modal keeps a stale master; ask for a full reload.
     return {
       error: {
         kind: "validationFailed",
@@ -347,26 +317,20 @@ export const saveBudgetDeclaration = async (
     };
   }
 
-  // ヘッダの作成/更新・明細の全削除・全登録を DB 関数（public.save_budget_declaration、
-  // migration 24）内の単一トランザクションで原子的に行う。以前は各ステップを
-  // 独立した PostgREST 呼び出し（ヘッダ UPDATE → 明細 DELETE → 明細 INSERT）にして
-  // いたため、既存明細を全削除した後の INSERT が失敗すると明細が 1 件も無い状態で
-  // コミット済みのまま確定し、利用者の入力内容が失われる不具合があった（Issue #103）。
-  // declared_by は関数内で auth.uid() から解決され、クライアントからは渡さない
-  // （PostgREST 経由でなりすまされることを防ぐ）
+  // Header upsert, line delete-all and insert-all run atomically in one DB function transaction
+  // (public.save_budget_declaration, migration 24); separate calls could commit with no lines
+  // when the INSERT failed after the delete. declared_by is resolved from auth.uid() in the function
+  // and never sent by the client (prevents spoofing via PostgREST).
   const { data, error: rpcError } = await supabase
     .rpc("save_budget_declaration", {
-      // p_declaration_id / p_comment は SQL 側で DEFAULT NULL のため、生成される
-      // Args 型は `?: T`（`| null` は付かない）。null ではなく undefined
-      // （キー省略）を渡すことで、そのまま DEFAULT NULL が適用される
-      // （database.types.ts 参照）
+      // p_declaration_id / p_comment are DEFAULT NULL, so generated Args are `?: T`: pass undefined
+      // (omit the key), not null.
       p_declaration_id: input.declarationId ?? undefined,
       p_target_month: targetMonth,
       p_team: input.team,
       p_comment: input.comment ?? undefined,
       p_items: input.items.map((item) => ({
-        // entry_type は DB の CHECK（income/expense）対象のため特に重要
-        // （前後空白付きの値のまま INSERT すると CHECK 違反で失敗する）
+        // entry_type is under the DB CHECK, so a value with surrounding whitespace would fail it.
         entry_type: item.entry_type.trim(),
         category: item.category.trim(),
         description: item.description.trim(),
@@ -383,10 +347,8 @@ export const saveBudgetDeclaration = async (
         error: { kind: "duplicate", message: DUPLICATE_DECLARATION_MESSAGE },
       };
     }
-    // DB 関数内の RAISE EXCEPTION 'DECLARATION_NOT_FOUND' USING ERRCODE = 'P0002'
-    // （更新対象の id・team・target_month が一致する行が無い場合）を判別できる
-    // ようにする。isDuplicateDeclarationError と同じく error.code（SQLSTATE）で
-    // 判定し、メッセージ文字列には依存しない
+    // Detects the function's RAISE EXCEPTION 'DECLARATION_NOT_FOUND' (ERRCODE P0002) by error.code
+    // (SQLSTATE), not by message text.
     if (rpcError.code === NO_DATA_FOUND) {
       return {
         error: {
@@ -395,10 +357,8 @@ export const saveBudgetDeclaration = async (
         },
       };
     }
-    // assertManagerIdsExist の確認後〜保存実行までの間（TOCTOU）に担当者の
-    // profiles が削除された場合、明細 INSERT が FK 違反（23503）になる。
-    // 通常は事前確認で弾かれるためここに到達しないが、到達した場合も
-    // assertManagerIdsExist と同じ案内文を返す
+    // TOCTOU: a manager deleted between assertManagerIdsExist and the save causes an FK violation
+    // (23503); return the same message as assertManagerIdsExist.
     if (rpcError.code === FOREIGN_KEY_VIOLATION) {
       return {
         error: {
@@ -422,7 +382,7 @@ export const saveBudgetDeclaration = async (
   return { id: data.id };
 };
 
-// 申告の削除（明細は ON DELETE CASCADE で同時に削除される）
+// Lines are removed by ON DELETE CASCADE.
 export const deleteBudgetDeclaration = async (
   declarationId: number,
   team: string,
@@ -446,10 +406,8 @@ export const deleteBudgetDeclaration = async (
 
   const supabase = createServerSupabase();
 
-  // .select() を付けないと削除行が返らず、RLS で 0 行になっても error は null に
-  // なるため、削除できていないのに成功として扱われてしまう（matters.ts と同方針）。
-  // team でも絞るのは update 同様の整合性チェック（渡された id が別チームの
-  // 申告を指していた場合に誤って削除しないため）
+  // Without .select() no deleted rows return, so RLS filtering to 0 rows would look like success
+  // (same as matters.ts). Also filtered by team so a mismatched id cannot delete another team's declaration.
   const { data, error } = await supabase
     .from("budget_declarations")
     .delete()
@@ -479,7 +437,6 @@ export const deleteBudgetDeclaration = async (
   return {};
 };
 
-// 一覧クエリの行を集計用の形に変換する
 type DeclarationListRow = {
   id: number;
   team: string;

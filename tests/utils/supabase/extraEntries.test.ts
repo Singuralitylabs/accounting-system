@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtraEntryInListType, ExtraEntryType } from "@/app/types/types";
 
 const { createServerSupabase } = vi.hoisted(() => ({
@@ -41,7 +41,7 @@ const row = (
   ...flags,
 });
 
-// supabase のモック。from（保存前確認の select）と rpc（save_extra_entries）を記録する
+// Supabase mock that records from (pre-save check select) and rpc (save_extra_entries).
 type RpcArgs = {
   p_inserts: Record<string, unknown>[];
   p_updates: Record<string, unknown>[];
@@ -65,7 +65,6 @@ const setup = (
         }),
       };
     }
-    // extra_entries の保存前確認（id 指定・ページング）
     const query = {
       select: () => query,
       in: () => query,
@@ -94,7 +93,6 @@ describe("bulkUpsertExtraEntry（確定済みの月の編集ロック・1 トラ
     const september = saved(2, "2026-09-10");
     const october = saved(4, "2026-10-10");
     const calls = setup(["2026-08"], [august, september, october]);
-    // 画面は追加・削除・編集した行だけを送る（selectChangedExtraEntries）
     const result = await bulkUpsertExtraEntry([
       row({ ...september, billing_amount: 20000 }),
       row(saved(3, "2026-09-01"), { isNew: true }),
@@ -114,7 +112,6 @@ describe("bulkUpsertExtraEntry（確定済みの月の編集ロック・1 トラ
 
   it("編集した行が読み込み後に他の利用者に削除されていたら、何も書き込まずに再読み込みを促す", async () => {
     const september = saved(2, "2026-09-10");
-    // DB には id 2 が無い
     const calls = setup([], []);
     const result = await bulkUpsertExtraEntry([
       row(saved(10, "2026-09-01"), { isNew: true }),
@@ -123,19 +120,18 @@ describe("bulkUpsertExtraEntry（確定済みの月の編集ロック・1 トラ
     expect(result.error?.kind).toBe("validationFailed");
     expect(result.error?.message).toContain("他の利用者に削除された行");
     expect(result.error?.message).toContain("経理追加2");
-    expect(calls).toEqual([]); // 追加も含めて何も書き込まない
+    expect(calls).toEqual([]);
   });
 
   it("削除した行が既に削除されていた場合は、その削除だけを省いて他の行を保存する", async () => {
     const september = saved(2, "2026-09-10");
     const calls = setup([], [september]);
     const result = await bulkUpsertExtraEntry([
-      row(saved(3, "2026-09-10"), { isRemoved: true }), // DB に無い
+      row(saved(3, "2026-09-10"), { isRemoved: true }),
       row(september, { isRemoved: true }),
     ]);
     expect(result).toEqual({});
     expect(calls[0].p_delete_ids).toEqual([2]);
-    // すべて既に削除済みなら RPC を呼ばない
     const none = setup([], []);
     expect(
       await bulkUpsertExtraEntry([row(september, { isRemoved: true })]),
@@ -143,7 +139,7 @@ describe("bulkUpsertExtraEntry（確定済みの月の編集ロック・1 トラ
     expect(none).toEqual([]);
   });
 
-  it("保存前の確認の後に月が確定された（RPC が NOT_APPLIED / RLS 違反）場合は、何も保存されていないことを伝える", async () => {
+  it("保存前の確認の後に月が確定された（RPC が NOT_APPLIED / RLS 違反 / 確定との直列化で MONTH_CLOSED）場合は、何も保存されていないことを伝える", async () => {
     const september = saved(2, "2026-09-10");
     for (const rpcError of [
       { message: "NOT_APPLIED" },
@@ -151,6 +147,7 @@ describe("bulkUpsertExtraEntry（確定済みの月の編集ロック・1 トラ
         message: 'new row violates row-level security policy for table "extra_entries"',
         code: "42501",
       },
+      { message: "MONTH_CLOSED", code: "42501" },
     ]) {
       setup([], [september], rpcError);
       const result = await bulkUpsertExtraEntry([
@@ -159,7 +156,6 @@ describe("bulkUpsertExtraEntry（確定済みの月の編集ロック・1 トラ
       expect(result.error?.kind).toBe("validationFailed");
       expect(result.error?.message).toContain("何も保存しませんでした");
     }
-    // それ以外の失敗も例外にせず、何も保存されていないことを返す
     setup([], [september], { message: "boom" });
     const failed = await bulkUpsertExtraEntry([
       row({ ...september, billing_amount: 1 }),
@@ -208,12 +204,156 @@ describe("copyExtraEntriesFromPreviousMonth の対象月検証（Issue #140）",
   });
 });
 
+describe("copyExtraEntriesFromPreviousMonth の書き込み（copy_extra_entries）", () => {
+  beforeEach(() => {
+    createServerSupabase.mockReset();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  type CopyArgs = { p_target_month: string; p_rows: Record<string, unknown>[] };
+  type CopyResponse = {
+    data: unknown;
+    error: { message: string; code?: string } | null;
+  };
+
+  // Mocks the closed-months fetch, the source (previous month) fetch and copy_extra_entries. The existing-row
+  // check and INSERT happen inside copy_extra_entries, so fail on any direct INSERT into extra_entries.
+  const setupCopy = (
+    closedMonths: string[],
+    sources: ExtraEntryType[],
+    response: CopyResponse,
+  ) => {
+    const calls: CopyArgs[] = [];
+    const from = vi.fn((table: string) => {
+      if (table === "profit_loss_closings") {
+        return {
+          select: () => ({
+            order: () =>
+              Promise.resolve({
+                data: closedMonths.map((m) => ({ target_month: `${m}-01` })),
+                error: null,
+              }),
+          }),
+        };
+      }
+      const query = {
+        select: () => query,
+        in: () => query,
+        gte: () => query,
+        lt: () => Promise.resolve({ data: sources, error: null }),
+        insert: () => {
+          throw new Error("extra_entries へ直接 INSERT してはならない");
+        },
+      };
+      return query;
+    });
+    const rpc = vi.fn((name: string, args: CopyArgs) => {
+      expect(name).toBe("copy_extra_entries");
+      calls.push(args);
+      return Promise.resolve(response);
+    });
+    createServerSupabase.mockReturnValue({ from, rpc });
+    return calls;
+  };
+  const counts = (inserted_count: number, skipped_count: number) => ({
+    data: [{ inserted_count, skipped_count }],
+    error: null,
+  });
+
+  it("複製した行と対象月（月初日）を copy_extra_entries に渡し、件数をそのまま返す", async () => {
+    const calls = setupCopy(
+      [],
+      [
+        saved(1, "2026-08-10"),
+        saved(2, "2026-08-31", {
+          entry_type: "expense",
+          category: "交通費",
+          invoice_number: "INV-1",
+          billing_amount: null,
+          expense_amount: 500,
+          payment_method: "現金",
+        }),
+      ],
+      counts(1, 1),
+    );
+    const result = await copyExtraEntriesFromPreviousMonth([1, 2], "2026-09");
+
+    expect(result).toEqual({ insertedCount: 1, skippedCount: 1, error: null });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].p_target_month).toBe("2026-09-01");
+    expect(calls[0].p_rows).toEqual([
+      expect.objectContaining({ entry_date: "2026-09-10", description: "経理追加1" }),
+      expect.objectContaining({
+        entry_date: "2026-09-30",
+        invoice_number: null,
+        expense_amount: 500,
+      }),
+    ]);
+    expect(calls[0].p_rows[0]).not.toHaveProperty("id");
+  });
+
+  it("同時に走った他のコピーが先に登録していた（全件スキップ）場合は、登録 0 件・スキップ件数を返す", async () => {
+    setupCopy([], [saved(1, "2026-08-10"), saved(2, "2026-08-11")], counts(0, 2));
+    const result = await copyExtraEntriesFromPreviousMonth([1, 2], "2026-09");
+    expect(result).toEqual({ insertedCount: 0, skippedCount: 2, error: null });
+  });
+
+  it("複製元が無い（確認の後に削除された）場合は copy_extra_entries を呼ばない", async () => {
+    const calls = setupCopy([], [], counts(0, 0));
+    const result = await copyExtraEntriesFromPreviousMonth([1], "2026-09");
+    expect(result).toEqual({ insertedCount: 0, skippedCount: 0, error: null });
+    expect(calls).toEqual([]);
+  });
+
+  it("確定済みの月へのコピーは書き込まずに確定済みのエラーを返す", async () => {
+    const calls = setupCopy(["2026-09"], [saved(1, "2026-08-10")], counts(1, 0));
+    const result = await copyExtraEntriesFromPreviousMonth([1], "2026-09");
+    expect(result.closedMonthError).toContain("確定済みの月です");
+    expect(calls).toEqual([]);
+  });
+
+  it("確認の後に対象月が確定された（MONTH_CLOSED）場合も、確定済みのエラーを返す", async () => {
+    const calls = setupCopy([], [saved(1, "2026-08-10")], {
+      data: null,
+      error: { message: "MONTH_CLOSED", code: "42501" },
+    });
+    const result = await copyExtraEntriesFromPreviousMonth([1], "2026-09");
+    expect(calls).toHaveLength(1);
+    expect(result).toEqual({
+      insertedCount: 0,
+      skippedCount: 0,
+      error: null,
+      closedMonthError: expect.stringContaining("確定済みの月です"),
+    });
+  });
+
+  it("それ以外の失敗はエラーとして返す", async () => {
+    const rpcError = { message: "boom" };
+    setupCopy([], [saved(1, "2026-08-10")], { data: null, error: rpcError });
+    const result = await copyExtraEntriesFromPreviousMonth([1], "2026-09");
+    expect(result.error).toBe(rpcError);
+    expect(result.closedMonthError).toBeUndefined();
+  });
+
+  it("件数を読めない応答は失敗として扱う（件数を 0 件と誤表示しない）", async () => {
+    for (const data of [null, [], [{ inserted_count: "1", skipped_count: 0 }]]) {
+      setupCopy([], [saved(1, "2026-08-10")], { data, error: null });
+      const result = await copyExtraEntriesFromPreviousMonth([1], "2026-09");
+      expect(result.error).toBeTruthy();
+      expect(result.insertedCount).toBe(0);
+    }
+  });
+});
+
 describe("getExtraEntryList の月条件（Issue #157）", () => {
   beforeEach(() => {
     createServerSupabase.mockReset();
   });
 
-  // 対象月の範囲内 OR 月未確定（NULL）の絞り込み条件が付くことを検証する
   const setupList = () => {
     let orCondition = "";
     const terminal = Promise.resolve({ data: [], error: null });

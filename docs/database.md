@@ -1,46 +1,14 @@
 # データベース設計書
 
+PostgreSQL（Supabase）/ スキーマ `public`（補助関数は `private`）。カラム定義・制約・インデックス・ポリシーの SQL 全文は正本である `supabase/migrations/` と `app/lib/database.types.ts` を参照する。本書には、それらから読み取りにくい役割・意図・落とし穴だけを記す。
+
 ## 1. 概要
-
-本設計書は、未来技術推進協会のための経理システムで使用するデータベース設計について記述しています。
-
-### 1.1 使用データベース
-
-- PostgreSQL (Supabase)
-
-### 1.2 スキーマ
-
-- public
 
 ### 1.3 タイムゾーン方針
 
-- **セッションタイムゾーンは UTC**（PostgreSQL / Supabase の既定）。`supabase/migrations/` は `ALTER DATABASE ... SET timezone` を含まない。旧ローカル手適用 SQL にあった当該設定は、正であるマイグレーション経路では一度も適用されていなかった。hosted Supabase では `ALTER DATABASE` が失敗しうるため、Phase 0 でも追加しない。
-- **`inserted_at` / `updated_at` のカラム DEFAULT と `update_updated_at_column` トリガーは `now()`**（`timestamptz`）である。セッション TZ に依存せず、常に正しい絶対時刻を保存する。`20260830040000_18_fix_timestamp_defaults_to_now.sql` で変更した。
-- **変更前は `timezone('Asia/Tokyo'::text, now())`（選択肢マスタは `timezone('utc'::text, now())`）だった。** `timezone(zone, timestamptz)` の戻りは **TZ なし `timestamp`**（そのゾーンの壁時計）であり、これを `timestamptz` 列へ入れると **セッション `TimeZone` のローカル時刻として解釈**される。セッション TZ が UTC のため、`Asia/Tokyo` 指定の列には実際より **約 9 時間後** の絶対時刻が保存されていた（`utc` 指定の列はセッションが UTC のため結果的に正しい値）。
-- **既存行のずれはマイグレーション 18 で補正した。** 調査の結果、[#80](https://github.com/Singuralitylabs/accounting-system/issues/80) のカットオーバーで旧 Supabase から移送された行も含め、DEFAULT / トリガー由来の値は一様に +9h ずれていた（旧 DB のセッション TZ も UTC だった）。
-
-  判定は `matters.inserted_at`（アプリが `new Date().toISOString()` で設定＝常に正しい）と `costs.inserted_at`（DEFAULT 由来）の差で行った。案件登録時に両者は同時に書かれるため、その差がずれの大きさになる。実データでは 20 案件中 19 案件が 9 時間差だった。
-
-  ```sql
-  WITH first_cost AS (
-    SELECT matter_id, min(inserted_at) AS first_inserted_at FROM costs GROUP BY matter_id
-  )
-  SELECT round(EXTRACT(EPOCH FROM (f.first_inserted_at - m.inserted_at)) / 3600) AS 差_時間,
-         count(*) AS 案件数
-    FROM first_cost f JOIN matters m ON m.id = f.matter_id
-   GROUP BY 1 ORDER BY 1;
-  ```
-
-  | 列                                                                                         | 対応                                                                                                                                                                                                                                                                |
-  | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-  | `costs` / `business` / `recurring_costs` / `extra_entries` の `inserted_at` / `updated_at` | アプリ側に書き込み経路がなく全行が DEFAULT / トリガー由来のため、**全行を `- interval '9 hours'` で補正**                                                                                                                                                           |
-  | `matters.updated_at` / `profiles.updated_at`                                               | アプリは INSERT 時に `inserted_at` と `updated_at` を同じ値で設定するため、両者がほぼ一致する行は未更新（正しい値）。UPDATE を経た行はトリガー由来で `inserted_at` との差が必ず 9 時間以上になる。**`updated_at > inserted_at + interval '1 second'` の行のみ補正** |
-  | `matters.inserted_at` / `profiles.inserted_at`                                             | アプリが明示指定するためずれていない。**補正しない**                                                                                                                                                                                                                |
-  | `select_option_types` / `select_options` の `created_at` / `updated_at`                    | 旧 DEFAULT が `timezone('utc', ...)` でセッションが UTC のためずれていない。**補正しない**                                                                                                                                                                          |
-
-  補正の `UPDATE` は `BEFORE UPDATE` トリガーを一時的に無効化して実行している。`update_*_updated_at` は `NEW.updated_at` を `now()` で無条件に上書きするため補正値が現在時刻で潰れ、`matters` では `detect_matter_updates` が `has_updates` を立ててしまうためである。
-
-  **残課題**: 上記の判定で差が 0 時間だった 1 案件は、`matters.inserted_at` 自体が DEFAULT 由来（手動投入など）で +9h ずれている可能性がある。機械的に判別できないため補正対象から外している。次の SQL で洗い出して個別に判断すること。
+- セッションタイムゾーンは UTC（Supabase の既定）。マイグレーションは `ALTER DATABASE ... SET timezone` を含まない（hosted では失敗しうるため追加しない）。
+- `inserted_at` / `updated_at` の DEFAULT と `update_updated_at_column` は `now()`（`timestamptz`）。セッション TZ に依存せず正しい絶対時刻が入る（migration 18 で是正済み）。
+- **残課題**: migration 18 の判定で差が 0 時間だった 1 案件は、`matters.inserted_at` 自体が DEFAULT 由来（手動投入など）で +9h ずれている可能性がある。機械的に判別できないため補正対象から外している。次の SQL で洗い出して個別に判断すること（migration 18 のコメントがこの節を参照している）。
 
   ```sql
   WITH first_cost AS (
@@ -51,2234 +19,375 @@
    WHERE f.first_inserted_at < m.inserted_at + interval '1 hour';
   ```
 
-- **アドホック SQL で日付境界を切る場合**はセッション TZ に頼らず、`timezone('Asia/Tokyo', ...)` または `AT TIME ZONE 'Asia/Tokyo'` を明示すること。`now()::date` や素の `date_trunc` は UTC 日付になり、JST 0:00〜9:00 で日付がずれる。
-- **Vitest** は `vitest.config.ts` で `TZ=Asia/Tokyo` を固定する。Next.js アプリのプロセス TZ は実行環境依存であり、日付表示は `app/utils/formatter.ts` などが `new Date()` のローカル TZ に従う。
+- アドホック SQL で日付境界を切るときは `timezone('Asia/Tokyo', ...)` / `AT TIME ZONE 'Asia/Tokyo'` を明示する。`now()::date` や素の `date_trunc` は UTC 日付になり、JST 0:00〜9:00 で日付がずれる。
+- Vitest は `TZ=Asia/Tokyo` 固定。アプリの日付表示は、`formatTimeToJp` / `formatDateTimeToJp` が `timeZone: "Asia/Tokyo"` を明示する（SSR とブラウザの hydration ずれを防ぐため）。`toMonthString` などの一部はローカル TZ に従う。
 
 ## 2. テーブル一覧
 
-| テーブル名                           | 説明                                                                           |
-| ------------------------------------ | ------------------------------------------------------------------------------ |
-| profiles                             | ユーザー情報を管理するテーブル                                                 |
-| matters                              | 案件情報を管理するテーブル                                                     |
-| costs                                | コスト情報を管理するテーブル                                                   |
-| business                             | 取引先情報を管理するテーブル                                                   |
-| select_option_types                  | 選択肢の種類を管理するテーブル                                                 |
-| select_options                       | 選択肢の値を管理するテーブル                                                   |
-| recurring_costs                      | 定期費用（管理費）を管理するテーブル                                           |
-| extra_entries                        | 経理追加収支（案件に紐づかない収入・支出）を管理するテーブル                   |
-| budget_declarations                  | 事前収支申告（チーム×対象月の見込み収支）のヘッダを管理するテーブル            |
-| budget_declaration_items             | 事前収支申告の明細（見込み収入・支出の内訳）を管理するテーブル                 |
-| budget_declaration_reminder_settings | 事前収支申告の未申告 Slack リマインド対象日を管理する設定テーブル（1 行のみ）  |
-| budget_recurring_items               | 事前収支申告の定期明細（毎月固定の収入・支出）マスタを管理するテーブル         |
-| profit_loss_adjustments              | 損益調整（案件・定期費用の実績額修正）を管理するテーブル                       |
-| profit_loss_labels                   | 損益計算書上の表示タイトル（案件・明細の名称の上書き）を管理するテーブル       |
-| profit_loss_closings                 | 損益計算書の月次収支確定のヘッダ（確定済みの月）を管理するテーブル             |
-| profit_loss_closing_lines            | 損益計算書の月次収支確定の明細（確定時点のスナップショット）を管理するテーブル |
-| profit_loss_closing_dismissals       | 損益計算書の確定後の変更の見送り記録を管理するテーブル                         |
+| テーブル名                           | 役割                                                                   |
+| ------------------------------------ | ---------------------------------------------------------------------- |
+| profiles                             | ユーザー。`class`（public / teamleader / accounting / admin）と `team` |
+| matters                              | 案件（ライフサイクル・集計値・差し戻し検知フラグを持つ）               |
+| costs                                | 案件の費用                                                             |
+| business                             | 案件の売上（取引先ごと）                                               |
+| select_option_types                  | 選択肢の種類（team / category / item / certificate など）              |
+| select_options                       | 選択肢の値                                                             |
+| recurring_costs                      | 定期費用（管理費）マスタ                                               |
+| extra_entries                        | 経理追加収支（案件に紐づかない収入・支出）                             |
+| budget_declarations                  | 事前収支申告のヘッダ（チーム × 対象月）                                |
+| budget_declaration_items             | 事前収支申告の明細（見込み収入・支出）                                 |
+| budget_declaration_reminder_settings | 未申告 Slack リマインド対象日の設定（1 行のみ）                        |
+| budget_recurring_items               | 事前収支申告の定期明細マスタ（新規申告作成時に明細へ展開）             |
+| profit_loss_adjustments              | 損益調整（案件・定期費用の実績額修正の差分）                           |
+| profit_loss_labels                   | 損益計算書上の表示タイトル（案件・明細名の上書き）                     |
+| profit_loss_closings                 | 月次収支確定のヘッダ（行があれば確定済みの月）                         |
+| profit_loss_closing_lines            | 月次収支確定の明細（確定時点のスナップショット）                       |
+| profit_loss_closing_dismissals       | 確定後の案件変更の見送り記録                                           |
+
+列挙型は `information_category`（basic_info / business_info / cost_info。`select_option_types.category`）のみ。
 
 ## 3. テーブル詳細
 
+共通事項:
+
+- `target_month` / `start_month` / `end_month` は月初日で格納し、CHECK（`= date_trunc('month', ...)::date`）で正規化を強制する（無いと同月の別日付が別行になり UNIQUE が効かない）。
+- `profiles.id` を参照する `declared_by` / `manager_id` / `adjusted_by` / `updated_by` / `closed_by` などは ON DELETE NO ACTION。担当者の退会で業務データが消えないための意図的な設計で、該当する profiles を削除するときは先に別メンバーへ付け替える（または NULL 可の列は解除する）。
+- `team` は select_options の team と同じ値域の自由テキストで DB 側に値域制約は無い。チーム名を変更するときは select_options だけでなく `profiles.team` と各テーブルの `team`（budget_declarations / budget_recurring_items など）の既存行も更新する（RLS の判定キー・UNIQUE の一部のため、表記ゆれが重複ヘッダや過去分の非表示に直結する）。
+- FK 列には索引を張る方針。`start_date` など集計用の列は案件数の規模的に索引を張っていない（必要になったら追加する。`matters.start_date` は 3.2 参照）。
+
 ### 3.1 profiles テーブル
 
-ユーザー情報を保持するテーブル
-
-| カラム名    | データ型                 | 制約                                                         | 説明                                              |
-| ----------- | ------------------------ | ------------------------------------------------------------ | ------------------------------------------------- |
-| id          | bigint                   | PRIMARY KEY, GENERATED BY DEFAULT AS IDENTITY                | 主キー                                            |
-| user_id     | uuid                     | NOT NULL, UNIQUE, FOREIGN KEY (auth.users) ON DELETE CASCADE | Supabase Auth のユーザー ID                       |
-| email       | text                     | NOT NULL                                                     | メールアドレス                                    |
-| name        | text                     | NOT NULL                                                     | ユーザー名                                        |
-| slack_id    | text                     | NULL                                                         | Slack ID (通知用)                                 |
-| class       | text                     | DEFAULT 'public'                                             | ユーザー権限 (public/accounting/admin/teamleader) |
-| team        | text                     | NULL                                                         | 所属チーム（teamleader権限時に必要）              |
-| inserted_at | timestamp with time zone | NOT NULL, DEFAULT now()                                      | 作成日時                                          |
-| updated_at  | timestamp with time zone | NOT NULL, DEFAULT now()                                      | 更新日時                                          |
-
-インデックス:
-
-- user_id
+ユーザー情報。`user_id` は auth.users への UNIQUE FK（削除時 CASCADE）。`class` が権限、`team` は teamleader で必須（アプリ側で検証）。`slack_id` は通知用。
 
 ### 3.2 matters テーブル
 
-案件情報を保持するテーブル
+案件。`is_fixed`（経理申請済み）/ `is_completed`（経理確認完了）/ `has_updates`（申請後更新。6.2 のトリガーが立てる）でライフサイクルと差し戻し検知を表し、`total_cost` / `cost_count` / `total_amount` / `business_count` / `unchecked_cost_count` は costs / business から集計した非正規化値（アプリが更新する）。`parent_matter_id` は自己参照（削除時 SET NULL）。
 
-| カラム名             | データ型                 | 制約                                                  | 説明               |
-| -------------------- | ------------------------ | ----------------------------------------------------- | ------------------ |
-| id                   | bigint                   | PRIMARY KEY, GENERATED BY DEFAULT AS IDENTITY         | 主キー             |
-| title                | text                     | NOT NULL                                              | 案件名             |
-| category             | text                     | NOT NULL                                              | 分類               |
-| team                 | text                     | NOT NULL                                              | チーム             |
-| description          | text                     | NULL                                                  | 説明               |
-| start_date           | date                     | NULL                                                  | 案件開始日         |
-| is_fixed             | boolean                  | DEFAULT false                                         | 経理申請済みフラグ |
-| is_completed         | boolean                  | DEFAULT false                                         | 経理確認完了フラグ |
-| has_updates          | boolean                  | DEFAULT false                                         | 申請後更新フラグ   |
-| total_cost           | numeric(15,2)            | DEFAULT 0                                             | 合計コスト         |
-| cost_count           | integer                  | DEFAULT 0                                             | コスト数           |
-| total_amount         | numeric(15,2)            | DEFAULT 0                                             | 合計請求額         |
-| business_count       | integer                  | DEFAULT 0                                             | 取引先数           |
-| accounting_memo      | text                     | NULL                                                  | 経理メモ           |
-| unchecked_cost_count | integer                  | NOT NULL, DEFAULT 0                                   | 未払いコスト数     |
-| user_id              | bigint                   | NOT NULL, FOREIGN KEY (profiles.id) ON DELETE CASCADE | ユーザー ID        |
-| parent_matter_id     | bigint                   | NULL, FOREIGN KEY (matters.id) ON DELETE SET NULL     | 親案件 ID          |
-| inserted_at          | timestamp with time zone | NOT NULL, DEFAULT now()                               | 作成日時           |
-| updated_at           | timestamp with time zone | NOT NULL, DEFAULT now()                               | 更新日時           |
+`matters.start_date` に索引を張らない理由: 損益計算書は案件開始日の範囲で取得するが、件数規模的に不要と判断している（必要になったら追加する。migration 25 のコメントがこの節を参照している）。
 
-インデックス:
-
-- user_id
-- parent_matter_id
-- start_date の索引は張らない。損益計算書は案件の売上・費用を案件開始日の範囲（`matters!inner` 側の絞り込み）で取得するが（Issue #146）、案件数の規模的に不要なため（必要になったら追加する）
-
-損益計算書との関係: 案件の売上（business）・案件費用（costs）は、請求日・支払い期限ではなく案件の `start_date` の月に計上する。下書き（`is_fixed` / `is_completed` がともに false / NULL）の案件は損益計算書に計上しない（docs/specification.md 4.16.2）。
+損益計算書では、案件の売上（business）・費用（costs）を請求日・支払い期限ではなく案件の `start_date` の月に計上する。下書き（`is_fixed` / `is_completed` がともに false / NULL）の案件は計上しない（`docs/specification.md` 4.16.2）。
 
 ### 3.3 costs テーブル
 
-コスト情報を保持するテーブル
-
-| カラム名       | データ型                 | 制約                                                 | 説明             |
-| -------------- | ------------------------ | ---------------------------------------------------- | ---------------- |
-| id             | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY            | 主キー           |
-| name           | text                     | NOT NULL                                             | コスト名         |
-| item           | text                     | NOT NULL                                             | 品目             |
-| payment_target | text                     | NOT NULL                                             | 支払い先         |
-| price          | numeric(15,2)            | NOT NULL                                             | 金額             |
-| period         | date                     | NULL                                                 | 支払い期限       |
-| certificate    | text                     | NOT NULL                                             | 通知方法         |
-| withholding    | boolean                  | NOT NULL, DEFAULT false                              | 源泉徴収フラグ   |
-| is_completed   | boolean                  | NOT NULL, DEFAULT false                              | 支払い完了フラグ |
-| comment        | text                     | NULL                                                 | コメント         |
-| matter_id      | bigint                   | NOT NULL, FOREIGN KEY (matters.id) ON DELETE CASCADE | 案件 ID          |
-| inserted_at    | timestamp with time zone | NOT NULL, DEFAULT now()                              | 作成日時         |
-| updated_at     | timestamp with time zone | NOT NULL, DEFAULT now()                              | 更新日時         |
-
-インデックス:
-
-- matter_id
+案件の費用（matter_id への FK、削除時 CASCADE）。`period` は支払い期限、`is_completed` は支払い完了。
 
 ### 3.4 business テーブル
 
-取引先情報を保持するテーブル
-
-| カラム名     | データ型                 | 制約                                                 | 説明           |
-| ------------ | ------------------------ | ---------------------------------------------------- | -------------- |
-| id           | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY            | 主キー         |
-| name         | text                     | NOT NULL                                             | 取引先名       |
-| invoice_date | date                     | NULL                                                 | 請求日         |
-| period_date  | date                     | NULL                                                 | 振込期限       |
-| amount       | numeric(15,2)            | NULL                                                 | 報酬額         |
-| is_completed | boolean                  | NOT NULL, DEFAULT false                              | 確認完了フラグ |
-| matter_id    | bigint                   | NOT NULL, FOREIGN KEY (matters.id) ON DELETE CASCADE | 案件 ID        |
-| inserted_at  | timestamp with time zone | NOT NULL, DEFAULT now()                              | 作成日時       |
-| updated_at   | timestamp with time zone | NOT NULL, DEFAULT now()                              | 更新日時       |
-
-インデックス:
-
-- matter_id
+案件の売上（取引先・請求日・振込期限・報酬額。matter_id への FK、削除時 CASCADE）。
 
 ### 3.5 select_option_types テーブル
 
-選択肢の種類を管理するテーブル
-
-| カラム名      | データ型                 | 制約                                   | 説明                                    |
-| ------------- | ------------------------ | -------------------------------------- | --------------------------------------- |
-| id            | uuid                     | PRIMARY KEY, DEFAULT gen_random_uuid() | 主キー                                  |
-| name          | varchar                  | NOT NULL, UNIQUE                       | 種類名 (team/category/item/certificate) |
-| display_name  | varchar                  | NOT NULL                               | 表示名                                  |
-| category      | information_category     | NOT NULL                               | カテゴリ (Enum 型)                      |
-| description   | text                     | NULL                                   | 説明                                    |
-| display_order | integer                  | DEFAULT 0                              | 表示順                                  |
-| created_at    | timestamp with time zone | NOT NULL, DEFAULT now()                | 作成日時                                |
-| updated_at    | timestamp with time zone | NOT NULL, DEFAULT now()                | 更新日時                                |
+選択肢の種類（`name`: team / category / item / certificate / extra_income_category / extra_expense_category / payment_method）。
 
 ### 3.6 select_options テーブル
 
-選択肢の値を管理するテーブル
-
-| カラム名      | データ型                 | 制約                                                   | 説明          |
-| ------------- | ------------------------ | ------------------------------------------------------ | ------------- |
-| id            | serial                   | PRIMARY KEY                                            | 主キー        |
-| type_id       | uuid                     | FOREIGN KEY (select_option_types.id) ON DELETE CASCADE | 選択肢種類 ID |
-| value         | varchar                  | NOT NULL                                               | 値            |
-| display_order | integer                  | DEFAULT 0                                              | 表示順        |
-| is_active     | boolean                  | DEFAULT true                                           | 有効フラグ    |
-| created_at    | timestamp with time zone | NOT NULL, DEFAULT now()                                | 作成日時      |
-| updated_at    | timestamp with time zone | NOT NULL, DEFAULT now()                                | 更新日時      |
-
-ユニーク制約:
-
-- (type_id, value)
+選択肢の値。`(type_id, value)` が UNIQUE。`is_active` で無効化する。
 
 ### 3.7 recurring_costs テーブル
 
-定期費用（管理費）を保持するテーブル。定期的にかかる費用を登録し、損益計算書の集計時に支払月（適用開始月を起点に支払サイクル間隔ごと）へ全額算入する（実レコードは月ごとに生成しない）。
-
-| カラム名      | データ型                 | 制約                                                          | 説明                                                     |
-| ------------- | ------------------------ | ------------------------------------------------------------- | -------------------------------------------------------- |
-| id            | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                     | 主キー                                                   |
-| name          | text                     | NOT NULL                                                      | 名称（例: オフィス家賃）                                 |
-| item          | text                     | NOT NULL                                                      | 品目（select_options の item と同じ値域）                |
-| price         | numeric(15,2)            | NOT NULL                                                      | 支払額（支払サイクル1回あたり）                          |
-| team          | text                     | NULL                                                          | 対象チーム（NULL = 全体共通）                            |
-| payment_cycle | text                     | NOT NULL, DEFAULT 'monthly', CHECK (monthly/quarterly/yearly) | 支払サイクル（月払い / 四半期払い / 年払い）             |
-| start_month   | date                     | NOT NULL                                                      | 適用開始月 = 最初の支払月（月初日で格納: 例 2026-07-01） |
-| end_month     | date                     | NULL                                                          | 適用終了月（月初日で格納。NULL = 継続中。当月を含む）    |
-| comment       | text                     | NULL                                                          | コメント                                                 |
-| inserted_at   | timestamp with time zone | NOT NULL, DEFAULT now()                                       | 作成日時                                                 |
-| updated_at    | timestamp with time zone | NOT NULL, DEFAULT now()                                       | 更新日時                                                 |
-
-インデックス:
-
-- team
-- start_month
+定期費用（管理費）。実レコードは月ごとに生成せず、損益計算書の集計時に、適用開始月（`start_month`）を起点に支払サイクル（`payment_cycle`: monthly / quarterly / yearly）ごとの支払月へ `price` を全額算入する。`end_month` は NULL = 継続中（当月を含む）。`team` が NULL は全体共通。金額改定は既存行の `end_month` で打ち切り、新しい行を追加する。
 
 ### 3.8 extra_entries テーブル
 
-経理追加収支（案件に紐づかない収入・支出）を保持するテーブル。損益計算書の集計時に entry_date（日付）の属する月へ算入する（収入エントリの請求額 → 売上合計、経費 → 案件費用合計。支出エントリの経費 → 管理費合計（Issue #164）。日付未入力は月未確定）。金額はマイナスを許容し、損益計算書上での減額調整に使う。
+経理追加収支。損益計算書の集計時に `entry_date` の属する月へ算入する（収入の請求額 → 売上、収入の経費 → 案件費用、支出の経費 → 管理費。日付未入力は月未確定）。金額はマイナス可・0 不可（損益計算書上の減額調整に使う）。`team` が NULL は全体共通。
 
-| カラム名       | データ型                 | 制約                                                                      | 説明                                                                                 |
-| -------------- | ------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| id             | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                                 | 主キー                                                                               |
-| entry_type     | text                     | NOT NULL, CHECK (entry_type IN ('income', 'expense'))                     | 種別（income = 収入 / expense = 支出）                                               |
-| category       | text                     | NOT NULL                                                                  | 分類（収入時は extra_income_category、支出時は extra_expense_category マスタの値域） |
-| entry_date     | date                     | NULL                                                                      | 日付（損益計算書の計上月の判定に使用。NULL = 月未確定）                              |
-| invoice_number | text                     | NULL                                                                      | 請求書番号（収入時のみ）                                                             |
-| description    | text                     | NOT NULL                                                                  | 内容                                                                                 |
-| billing_target | text                     | NULL                                                                      | 請求先（収入時のみ）                                                                 |
-| manager_id     | bigint                   | NOT NULL, FOREIGN KEY (profiles.id)（参照アクション指定なし = NO ACTION） | 責任者（メンバー）                                                                   |
-| team           | text                     | NULL                                                                      | 対象チーム（NULL = 全体共通）                                                        |
-| billing_amount | numeric(15,2)            | NULL, CHECK (billing_amount <> 0)                                         | 請求額（円・税別。マイナス可・0 不可。収入時のみ）                                   |
-| expense_amount | numeric(15,2)            | NULL, CHECK (expense_amount <> 0)                                         | 経費（円・税別。マイナス可・0 不可。収入時は任意、支出時は必須）                     |
-| payment_method | text                     | NULL                                                                      | 決済方法（payment_method マスタの値域。支出時のみ）                                  |
-| inserted_at    | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 作成日時                                                                             |
-| updated_at     | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 更新日時                                                                             |
-
-CHECK 制約（種別ごとの項目の整合性）:
-
-```sql
--- 収入: 請求額必須・決済方法なし / 支出: 経費・決済方法必須、収入専用項目（請求書番号・請求先・請求額）なし
-CHECK (
-    (entry_type = 'income' AND billing_amount IS NOT NULL AND payment_method IS NULL) OR
-    (entry_type = 'expense' AND expense_amount IS NOT NULL AND payment_method IS NOT NULL
-        AND billing_amount IS NULL AND invoice_number IS NULL AND billing_target IS NULL)
-)
-```
-
-インデックス:
-
-- team
-- entry_date
-- manager_id
+`entry_type` ごとの項目整合を CHECK（`extra_entries_type_fields_check`）で担保する。収入は請求額必須・決済方法なし、支出は経費・決済方法必須で請求書番号・請求先・請求額なし。
 
 ### 3.9 budget_declarations テーブル
 
-事前収支申告のヘッダ。各チームのチームリーダーが翌月のチーム収支（見込み収入・見込み支出）を申告するために使う。1 チーム × 1 対象月につき 1 行。
-
-合計金額はヘッダに非正規化せず、`budget_declaration_items` から集計する（案件の `total_cost` と異なり明細数が小さいため）。
-
-| カラム名     | データ型                 | 制約                                                                      | 説明                                                                                                                                                                                                                                                        |
-| ------------ | ------------------------ | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| id           | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                                 | 主キー                                                                                                                                                                                                                                                      |
-| target_month | date                     | NOT NULL, CHECK (月初日であること)                                        | 対象月（月初日で格納: 例 2026-10-01。recurring_costs と同方式）                                                                                                                                                                                             |
-| team         | text                     | NOT NULL                                                                  | 対象チーム（select_options の team と同じ値域）                                                                                                                                                                                                             |
-| declared_by  | bigint                   | NOT NULL, FOREIGN KEY (profiles.id)（参照アクション指定なし = NO ACTION） | 申告者（最終更新したチームリーダー等）。extra_entries.manager_id と同じく CASCADE にしない（リーダーの退会でチームの申告ごと消えるのを避ける）。申告のある profiles を削除するとこの FK でエラーになるため、先に declared_by を別のメンバーに付け替えること |
-| comment      | text                     | NULL                                                                      | 補足コメント                                                                                                                                                                                                                                                |
-| inserted_at  | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 作成日時                                                                                                                                                                                                                                                    |
-| updated_at   | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 更新日時                                                                                                                                                                                                                                                    |
-
-CHECK 制約（対象月の正規化）:
-
-```sql
--- 月初日以外を弾く。これが無いと 2026-10-01 と 2026-10-05 が別行として登録でき、
--- 下の UNIQUE (target_month, team) が「1 チーム × 1 対象月」を担保できない
-CHECK (target_month = date_trunc('month', target_month)::date)
-```
-
-UNIQUE 制約:
-
-- `(target_month, team)`（`budget_declarations_target_month_team_key`）
-
-インデックス:
-
-- team
-- declared_by（FK 側の索引。extra_entries.manager_id と同じ方針）
-- （target_month 単独のインデックスは張らない。UNIQUE 制約のインデックスが `(target_month, team)` で target_month を先頭列に持つため、対象月での絞り込みはそちらが使える）
-
-`team` の運用上の注意:
-
-`team` は既存テーブルと同じく自由テキストで、DB 側の値域制約は無い。ただしこのテーブルでは `team` が UNIQUE 制約の一部であり、かつ RLS の判定キーでもあるため、表記ゆれやチーム名の変更が「同一対象月に実質重複したヘッダができる」「過去の申告がそのチームのリーダーから見えなくなる」に直結する。`target_month` は CHECK で正規化を強制しているが `team` は非対称に無防備なので、**チーム名を変更する際は select_options だけでなく本テーブル（と profiles.team）の既存行もあわせて更新すること。**
+事前収支申告のヘッダ。チームリーダーが翌月のチーム収支を申告する。`(target_month, team)` が UNIQUE（1 チーム × 1 対象月 = 1 行）。合計金額は非正規化せず明細から集計する。`declared_by` は最終更新者（表示・監査補助用。5.8 参照）。
 
 ### 3.10 budget_declaration_items テーブル
 
-事前収支申告の明細。1 ヘッダに対して収入・支出の内訳を複数行持つ。
-
-| カラム名       | データ型                 | 制約                                                                  | 説明                                                                                                                                                                                                                                                                                                                                                                  |
-| -------------- | ------------------------ | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| id             | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                             | 主キー                                                                                                                                                                                                                                                                                                                                                                |
-| declaration_id | bigint                   | NOT NULL, FOREIGN KEY (budget_declarations.id) ON DELETE CASCADE      | 申告ヘッダ ID（ヘッダ削除時に明細も削除される）                                                                                                                                                                                                                                                                                                                       |
-| entry_type     | text                     | NOT NULL, CHECK (entry_type IN ('income', 'expense'))                 | 種別（income = 収入 / expense = 支出。extra_entries と同じ値域）                                                                                                                                                                                                                                                                                                      |
-| category       | text                     | NOT NULL                                                              | 分類（収入時は案件分類 category、支出時は品目 item マスタの値域を想定）                                                                                                                                                                                                                                                                                               |
-| description    | text                     | NOT NULL                                                              | 内容（例: ○○受託案件、外注費）                                                                                                                                                                                                                                                                                                                                        |
-| amount         | numeric(15,2)            | NOT NULL, CHECK (amount > 0)                                          | 見込み金額（円・税別。正の値のみ）                                                                                                                                                                                                                                                                                                                                    |
-| manager_id     | bigint                   | NULL, FOREIGN KEY (profiles.id)（参照アクション指定なし = NO ACTION） | 明細（収入・支出）ごとの担当者。メンバー（profiles）から任意選択、NULL 許容（既存明細はバックフィルせず NULL のまま）。declared_by / extra_entries.manager_id と同じく CASCADE にしない（担当者の退会で明細が消えるのを避ける）。担当者に設定された profiles を削除するとこの FK でエラーになるため、先に manager_id を別のメンバーに付け替えるか NULL に解除すること |
-| display_order  | integer                  | NOT NULL, DEFAULT 0                                                   | 表示順                                                                                                                                                                                                                                                                                                                                                                |
-| inserted_at    | timestamp with time zone | NOT NULL, DEFAULT now()                                               | 作成日時                                                                                                                                                                                                                                                                                                                                                              |
-| updated_at     | timestamp with time zone | NOT NULL, DEFAULT now()                                               | 更新日時                                                                                                                                                                                                                                                                                                                                                              |
-
-インデックス:
-
-- declaration_id
-- manager_id（FK 側の索引。extra_entries.manager_id / budget_declarations.declared_by と同じ方針）
+事前収支申告の明細（declaration_id への FK、ヘッダ削除時 CASCADE）。`amount` は正の値のみ、`manager_id` は任意（NULL 可）。
 
 ### 3.11 budget_declaration_reminder_settings テーブル
 
-事前収支申告の未申告 Slack リマインド（`app/api/cron/budget-declaration-reminder/route.ts`）の対象日を保持する設定テーブル。1 行のみを持つシングルトンで、`id` は `1` に固定する（CHECK 制約）。対象日リストをデプロイなしで編集できるようにする（Issue #94）。
+未申告 Slack リマインド（`app/api/cron/budget-declaration-reminder/route.ts`）の対象日（`target_days`、JST の日、各要素 1〜31）を持つシングルトン（`id = 1` を CHECK で固定）。**空配列にするとリマインド停止。** Supabase ダッシュボード直編集（RLS バイパス）でも typo を防ぐため範囲を CHECK で検証している。
 
-| カラム名    | データ型                 | 制約                                                   | 説明                                                                                                                                                                                    |
-| ----------- | ------------------------ | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| id          | smallint                 | PRIMARY KEY, DEFAULT 1, CHECK (id = 1)                 | シングルトン強制用の固定 ID                                                                                                                                                             |
-| target_days | smallint[]               | NOT NULL, DEFAULT '{15,18,20}', CHECK (各要素が 1〜31) | リマインド対象日（JST の日）。**空配列にするとリマインド停止**（`isBudgetDeclarationReminderTargetDay` が常に false を返す）。移行時点の初期値は従来のハードコード値と同じ `{15,18,20}` |
-| updated_at  | timestamp with time zone | NOT NULL, DEFAULT now()                                | 更新日時                                                                                                                                                                                |
-
-CHECK 制約（対象日の範囲検証）:
-
-```sql
--- 編集手段が RLS をバイパスする Supabase ダッシュボード直編集のため、
--- typo（0 や 32 等）による無言のリマインド停止を防ぐ DB 層での検証
-CHECK (1 <= ALL(target_days) AND 31 >= ALL(target_days))
-```
-
-読み取り: cron ルートは `app/utils/supabase/budgetDeclarationReminderData.ts` の `getBudgetDeclarationReminderTargetDays()` で取得する。**取得失敗（DB エラー・行が存在しない・`createServiceRoleSupabase()` が投げる例外を含む）の場合は `app/utils/budgetDeclarationReminder.ts` の `DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS`（`[15, 18, 20]`）にフォールバックし、リマインドが無応答で止まらないようにする。** このフォールバックは「対象日を空にして意図的に停止した」状態でも取得が一時的に失敗すればデフォルト値に戻ってしまう trade-off を内包するが、cron を無応答で止めないことを優先している（fail-open）。
-
-編集: `/budget-declarations`（事前収支申告画面）の「リマインド設定」セクションから admin / accounting が編集できる（Issue #97）。`app/utils/supabase/budgetDeclarationReminderSettings.ts` の `getBudgetDeclarationReminderSettings()` / `updateBudgetDeclarationReminderTargetDays()`（いずれも Server Action）を使い、`createServerSupabase()`（anon キー + RLS）経由で `getAuthorizedViewer(["admin", "accounting"], ...)` による多層防御を行う（service role クライアントは使わない）。保存対象は `id = 1` の既存行への UPDATE のみ（RLS 上 INSERT / DELETE は不可）。保存前に `app/utils/budgetDeclarationReminder.ts` の `normalizeBudgetDeclarationReminderTargetDays`（範囲チェック / 重複排除 / 昇順ソート）で正規化する。teamleader / public にはセクション自体を描画せず、Server Action 側でも `getAuthorizedViewer` により拒否する。
+- cron は service role で読む。取得失敗（DB エラー・行なし・例外）は `DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS`（`[15, 18, 20]`）にフォールバックする（fail-open）。空配列で意図的に止めていても、取得が一時的に失敗すればデフォルト日に戻る点は許容している。
+- 編集は `/budget-declarations` の「リマインド設定」モーダルから admin / accounting が行う（`id = 1` の UPDATE のみ。保存前に `normalizeBudgetDeclarationReminderTargetDays` で正規化。Server Action 側でも `getAuthorizedViewer` で拒否）。
 
 ### 3.12 budget_recurring_items テーブル
 
-事前収支申告の定期明細マスタ。毎月固定で発生する収入・支出（例: 保守契約の月額収入、固定の外注費・ツール利用料）を登録し、対象月が適用期間内であれば新規の事前収支申告を作成したときに `budget_declaration_items` として展開する（Issue #109）。`recurring_costs`（損益計算書の集計時に計算で算入する）と異なり、本テーブル自体は集計に使わない。展開後の行は通常の申告明細と同じく個別に編集・削除でき、本テーブルの内容は変更されない。
-
-| カラム名      | データ型                 | 制約                                                                  | 説明                                                                                                                                                                                                                                                                    |
-| ------------- | ------------------------ | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| id            | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                             | 主キー                                                                                                                                                                                                                                                                  |
-| team          | text                     | NOT NULL                                                              | 対象チーム（select_options の team と同じ値域。budget_declarations と同じ運用上の注意が当てはまる）                                                                                                                                                                     |
-| entry_type    | text                     | NOT NULL, CHECK (entry_type IN ('income', 'expense'))                 | 種別（income = 収入 / expense = 支出。budget_declaration_items と同じ値域）                                                                                                                                                                                             |
-| category      | text                     | NOT NULL                                                              | 分類（収入時は案件分類 category、支出時は品目 item マスタの値域を想定。budget_declaration_items と同じ）                                                                                                                                                                |
-| description   | text                     | NOT NULL                                                              | 内容（例: ○○保守契約、外注費）                                                                                                                                                                                                                                          |
-| amount        | numeric(15,2)            | NOT NULL, CHECK (amount > 0)                                          | 毎月の金額（円・税別。正の値のみ）                                                                                                                                                                                                                                      |
-| manager_id    | bigint                   | NULL, FOREIGN KEY (profiles.id)（参照アクション指定なし = NO ACTION） | 明細の担当者。budget_declaration_items.manager_id と同じ方針（任意選択・NULL 許容。担当者に設定された profiles を削除するとこの FK でエラーになるため、先に manager_id を別のメンバーに付け替えるか NULL に解除すること）                                               |
-| start_month   | date                     | NOT NULL, CHECK (月初日であること)                                    | 適用開始月（月初日で格納。recurring_costs.start_month / budget_declarations.target_month と同方式）                                                                                                                                                                     |
-| end_month     | date                     | NULL, CHECK (月初日であること), CHECK (start_month 以降であること)    | 適用終了月（その月を含む。NULL = 継続中。recurring_costs.end_month と同方式）                                                                                                                                                                                           |
-| display_order | integer                  | NOT NULL, DEFAULT 0                                                   | 表示順（チーム内で 0 から採番。新規申告への展開時、この順で `budget_declaration_items.display_order` に引き継がれる。保存処理もチームごとに採番し直すため、他チームの行は UPDATE 対象にならない。旧方式の全チーム通し採番で残っていた行は migration 32 で振り直し済み） |
-| inserted_at   | timestamp with time zone | NOT NULL, DEFAULT now()                                               | 作成日時                                                                                                                                                                                                                                                                |
-| updated_at    | timestamp with time zone | NOT NULL, DEFAULT now()                                               | 更新日時                                                                                                                                                                                                                                                                |
-
-CHECK 制約（適用期間の正規化・整合性）:
-
-```sql
--- start_month / end_month とも月初日以外を弾く（budget_declarations.target_month と同じ理由）
-CHECK (start_month = date_trunc('month', start_month)::date)
-CHECK (end_month IS NULL OR end_month = date_trunc('month', end_month)::date)
--- 適用終了月が適用開始月より前という矛盾した期間を作れないようにする
-CHECK (end_month IS NULL OR end_month >= start_month)
-```
-
-インデックス:
-
-- (team, start_month, end_month)（新規申告作成時に「対象月を適用期間に含む」行を team で絞って探すクエリを支える複合インデックス。team 単体の絞り込みもこの索引が先頭列として使えるため、team 単独の索引は別途張らない）
-- manager_id（FK 側の索引。budget_declaration_items.manager_id と同じ方針）
-
-金額改定の運用は recurring_costs と同じ（既存行の end_month を設定して打ち切り、新しい行を追加する。過去に展開済みの budget_declaration_items は遡って変わらない）。
+毎月固定の見込み収入・支出のマスタ。対象月が適用期間（`start_month`〜`end_month`）内なら、新規の事前収支申告作成時に `budget_declaration_items` として展開する。展開後の明細は通常の明細と同じく個別に編集でき、本テーブルは変わらない（集計には使わない。recurring_costs との違い）。`display_order` はチーム内で 0 から採番し、展開時にその順で明細へ引き継ぐ。金額改定は recurring_costs と同様（`end_month` で打ち切り → 新規行）で、展開済みの明細は遡って変わらない。
 
 ### 3.13 profit_loss_adjustments テーブル
 
-損益調整。損益計算書（/profit-loss）の売上・案件費用・管理費が実際の入金・支払額と一致しない場合に、経理担当者・管理者が対象月ごとの実績額へ修正できるようにするテーブル（Issue #108）。元データ（business / costs / recurring_costs）は書き換えず、対象行 × 対象月ごとの差分（`adjustment_amount`）だけを保持し、損益計算書では「元データ + 調整 = 実績」として表示・集計する。business / costs は案件ライフサイクル・差し戻し検知の対象であり経理が直接書き換えると担当者の見ている案件が変わってしまう、recurring_costs は適用期間で全月に反映されるため金額欄を直すと全月が変わってしまう、という理由から元データを直接編集する方式は採らない。
+損益調整。損益計算書の売上・案件費用・管理費が実際の入金・支払額と異なるとき、経理・管理者が対象月ごとの実績額へ修正する。元データ（business / costs / recurring_costs）は書き換えず、対象行 × 対象月ごとの差分（`adjustment_amount` = 実績額 − 保存時点の元データ金額）だけを持ち、表示では「元データ + 調整 = 実績」とする（案件は申請・差し戻し検知の対象で、recurring_costs は全月に反映されるため、直接編集しない）。
 
-| カラム名               | データ型                 | 制約                                                                      | 説明                                                                                                                                                                                                    |
-| ---------------------- | ------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| id                     | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                                 | 主キー                                                                                                                                                                                                  |
-| target_month           | date                     | NOT NULL, CHECK (月初日であること)                                        | 調整を効かせる対象月（月初日で格納。budget_declarations.target_month と同方式）                                                                                                                         |
-| business_id            | bigint                   | NULL, FOREIGN KEY (business.id) ON DELETE CASCADE                         | 調整対象（案件の売上）。business_id / cost_id / recurring_cost_id のうちちょうど1つが NOT NULL                                                                                                          |
-| cost_id                | bigint                   | NULL, FOREIGN KEY (costs.id) ON DELETE CASCADE                            | 調整対象（案件費用）                                                                                                                                                                                    |
-| recurring_cost_id      | bigint                   | NULL, FOREIGN KEY (recurring_costs.id) ON DELETE CASCADE                  | 調整対象（管理費）                                                                                                                                                                                      |
-| adjustment_amount      | numeric(15,2)            | NOT NULL, CHECK (adjustment_amount <> 0)                                  | 実績額と元データ金額の差分（実績額 − 保存時点の元データ金額）。マイナス可。0 は許可しない（実績額が元データと同額になった場合はレコード自体を削除する）                                                 |
-| source_amount_snapshot | numeric(15,2)            | NOT NULL                                                                  | 保存時点の元データ金額。元データ変更検知用（現在の元データ金額との比較にのみ使う。実績額の計算には現在の元データ金額 + adjustment_amount を使う）                                                       |
-| reason                 | text                     | NOT NULL, CHECK (空白のみを除いて空でないこと)                            | 調整理由                                                                                                                                                                                                |
-| adjusted_by            | bigint                   | NOT NULL, FOREIGN KEY (profiles.id)（参照アクション指定なし = NO ACTION） | 調整した経理担当者・管理者。budget_declarations.declared_by 等と同じ方針（担当者に設定された profiles を削除しようとするとこの FK でエラーになるため、先に adjusted_by を別のメンバーに付け替えること） |
-| inserted_at            | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 作成日時                                                                                                                                                                                                |
-| updated_at             | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 更新日時                                                                                                                                                                                                |
-
-CHECK 制約:
-
-```sql
--- target_month は月初日以外を弾く（budget_declarations.target_month と同じ理由）
-CHECK (target_month = date_trunc('month', target_month)::date)
--- 0 の調整は保存しない（実績額が元データと同額なら削除する運用のため）
-CHECK (adjustment_amount <> 0)
--- ポリモーフィック参照にせず実 FK を3本張るため、対象は必ずちょうど1つに限定する
--- （0個だと調整対象が無い、2個以上だと元データ変更検知がどの行を指すか決まらない）
-CHECK (num_nonnulls(business_id, cost_id, recurring_cost_id) = 1)
--- 空文字の理由を保存させない（アプリ側でも必須入力にしているが、DB 側でも担保する）
-CHECK (btrim(reason) <> '')
-```
-
-UNIQUE 制約（部分インデックス。対象行 × 対象月は1件に限定する）:
-
-```sql
--- 各インデックスの先頭列を FK 列にしているため、対象行削除時の CASCADE 検索・
--- Supabase の unindexed_foreign_keys リンタの両方をこれで満たす（下記インデックス欄参照）
-CREATE UNIQUE INDEX ... ON profit_loss_adjustments (business_id, target_month) WHERE business_id IS NOT NULL;
-CREATE UNIQUE INDEX ... ON profit_loss_adjustments (cost_id, target_month) WHERE cost_id IS NOT NULL;
-CREATE UNIQUE INDEX ... ON profit_loss_adjustments (recurring_cost_id, target_month) WHERE recurring_cost_id IS NOT NULL;
-```
-
-インデックス:
-
-- (business_id, target_month) / (cost_id, target_month) / (recurring_cost_id, target_month)（上記の部分 UNIQUE インデックス。FK 列が先頭列のため、対象行削除時の CASCADE 検索・FK 側の索引を兼ねる）
-- adjusted_by（FK 側の索引。extra_entries.manager_id と同じ方針）
-- target_month 単独の索引は張らない（budget_declarations と同じ理由。損益計算書は業務データを全件取得し、月ごとの振り分けをアプリ側のメモリ上で行うため、target_month 単体の絞り込みクエリは発生しない）
-
-運用上の注意:
-
-- 実績額の入力は損益計算書（/profit-loss）の各明細行の「実績額を修正」操作から行う。入力は実績額のみで、保存は DB 関数 `public.save_profit_loss_adjustment`（[5.12](#512-profit_loss_adjustments-テーブル)）を1回呼ぶだけで完結する。対象行を `FOR UPDATE` でロックしたうえで `adjustment_amount = 実績額 − 元データ金額` を計算し、`source_amount_snapshot` に同じ元データ金額を保存する（`app/utils/supabase/profitLossAdjustments.ts`）。取得から書き込みまでを単一トランザクションで行うため、保存の途中で元データが変わる・複数人が同時に同じ対象へ保存するといった競合が起きない
-- 元データ変更の検知: 表示時に現在の元データ金額と `source_amount_snapshot` が異なる場合、画面に警告を表示する。本テーブルの値は自動では追従しない（経理が再確認して実績額を更新するか、調整自体を削除する）
-- 対象行が別の月に移動した場合（案件開始日の変更等）・対象行の案件が下書きに戻された場合: 調整は `target_month` に留まるため、その月の集計対象に対象行が無ければ「対象行が当月に存在しません」として損益には反映せず、削除を促す警告を表示する（`app/utils/profitLossLogic.ts` の `orphanedAdjustments`）
-- 計上基準の変更に伴う移行（migration 25、Issue #146）: 案件の売上・費用の計上月を「請求日 / 支払い期限の月」から「案件開始日の月」に変えたため、`business_id` / `cost_id` を対象とする調整のうち `target_month` が旧計上月（`invoice_date` / `period` の月）と一致するものを、案件開始日の月へ付け替えた。付け替え先に同じ対象行の調整が既にある場合（部分 UNIQUE の衝突）、案件開始日が NULL の場合、旧計上月の日付が NULL の場合、`target_month` が旧計上月と一致しない場合（旧基準でも既に対象行が当月に存在しなかったもの）は据え置き、従来どおり「対象行が当月に存在しません」の警告で経理が手動対応する。下書き案件の明細に付いた調整は、集計対象外のため経理申請されるまで同警告に出る。元データ・調整額は変えないため、付け替え後も実績額は移行前と一致する
-- 対象行そのものが削除された場合は ON DELETE CASCADE により調整も自動的に削除される
+- 対象は `business_id` / `cost_id` / `recurring_cost_id` のちょうど 1 つ（CHECK `num_nonnulls = 1`）。対象行 × 対象月は各 FK 列先頭の部分 UNIQUE インデックスで 1 件に限定する（PostgREST の upsert では推論できないため保存は関数 `save_profit_loss_adjustment` 経由）。
+- `adjustment_amount` は 0 不可。実績額が元データと同額になったら行を削除する。`reason` は必須（空白のみ不可）。
+- `source_amount_snapshot` は元データ変更検知にだけ使う。現在の元データ金額と異なると画面に警告し、自動追従はしない（経理が再確認して更新するか調整を削除する）。
+- 対象行が別月へ移動した・下書きに戻された場合、調整は `target_month` に留まり、その月に対象行が無ければ「対象行が当月に存在しません」と警告する（`orphanedAdjustments`）。対象行が削除されると CASCADE で調整も消える。
+- 案件の計上基準を案件開始日の月へ変更した際（migration 25）、旧計上月の調整を案件開始日の月へ付け替えた。付け替えできなかったものは据え置きで、上記の警告により経理が手動対応する。
 
 ### 3.14 profit_loss_labels テーブル
 
-損益計算書上の表示タイトル（Issue #150）。案件名（matters.title）・取引先名（business.name）・コスト名（costs.name）・定期費用名（recurring_costs.name）の元データは書き換えず、損益計算書（/profit-loss）でのみ使う名称を対象行ごとに保持する。元データを経理が直接書き換えると担当者の案件画面が変わり差し戻し検知（has_updates）も誤発火するため、損益調整（3.13）と同じく別テーブルで持つ。タイトルは対象行単位で全月共通（月ごとのタイトルは持たない）。金額・集計に影響しないため、月次収支確定の編集ロック・変更検知の対象外。
+損益計算書上の表示タイトル。案件名・取引先名・コスト名・定期費用名の元データを書き換えず（案件画面と差し戻し検知への影響を避ける）、`/profit-loss` でのみ使う名称を対象行（`matter_id` / `business_id` / `cost_id` / `recurring_cost_id` のちょうど 1 つ）ごとに全月共通で持つ。金額・集計に影響しないため、月次確定の編集ロック・変更検知の対象外。
 
-| カラム名          | データ型                 | 制約                                                                      | 説明                                                                                               |
-| ----------------- | ------------------------ | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| id                | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                                 | 主キー                                                                                             |
-| matter_id         | bigint                   | NULL, FOREIGN KEY (matters.id) ON DELETE CASCADE                          | 対象（案件行）。matter_id / business_id / cost_id / recurring_cost_id のうちちょうど1つが NOT NULL |
-| business_id       | bigint                   | NULL, FOREIGN KEY (business.id) ON DELETE CASCADE                         | 対象（売上明細）                                                                                   |
-| cost_id           | bigint                   | NULL, FOREIGN KEY (costs.id) ON DELETE CASCADE                            | 対象（費用明細）                                                                                   |
-| recurring_cost_id | bigint                   | NULL, FOREIGN KEY (recurring_costs.id) ON DELETE CASCADE                  | 対象（管理費の明細）                                                                               |
-| label             | text                     | NOT NULL, CHECK (空でない・前後に空白が無い・200 文字以内)                | 損益計算書に表示するタイトル                                                                       |
-| updated_by        | bigint                   | NOT NULL, FOREIGN KEY (profiles.id)（参照アクション指定なし = NO ACTION） | 最後に保存した経理担当者・管理者（adjusted_by と同じ方針）                                         |
-| inserted_at       | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 作成日時                                                                                           |
-| updated_at        | timestamp with time zone | NOT NULL, DEFAULT now()                                                   | 更新日時                                                                                           |
-
-CHECK 制約:
-
-```sql
-CHECK (num_nonnulls(matter_id, business_id, cost_id, recurring_cost_id) = 1)
-CHECK (btrim(label) <> '' AND label = btrim(label) AND char_length(label) <= 200)
-```
-
-インデックス:
-
-- (matter_id) / (business_id) / (cost_id) / (recurring_cost_id) の部分 UNIQUE インデックス（`WHERE 列 IS NOT NULL`。対象行 1 件につきタイトルは 1 件。FK 側の索引を兼ねる）
-- updated_by（FK 側の索引）
-
-運用上の注意:
-
-- 入力は損益計算書の各行（案件行・売上明細・費用明細・管理費の明細）の編集アイコンから行い、保存は DB 関数 `public.save_profit_loss_label`（5.13）を1回呼ぶだけで完結する（`app/utils/supabase/profitLossLabels.ts`）。空欄で保存すると行ごと削除し、元の名称に戻る
-- チーム・分類・品目・費目の見出しと経理追加収支（/extra-entries で内容を直接編集できる）は対象外
-- 対象行が削除されると CASCADE で削除される（確定済みの月は確定明細に保存した名称で表示される）
+- 保存は `save_profit_loss_label` のみ。空欄で保存すると行を削除して元の名称に戻る。`label` は前後空白なし・200 文字以内。
+- チーム・分類・品目・費目の見出しと経理追加収支は対象外。対象行の削除で CASCADE 削除される（確定済みの月は確定明細に保存した名称で表示される）。
 
 ### 3.15 profit_loss_closings テーブル
 
-損益計算書の月次収支確定のヘッダ（Issue #148）。1 ヶ月 1 行で、行があればその月は確定済み。確定済みの月の損益計算書は profit_loss_closing_lines（3.16）のスナップショットから表示する。確定解除は行の削除（明細・見送り記録は CASCADE）。金額は持たない。
+月次収支確定のヘッダ。1 ヶ月 1 行（`target_month` UNIQUE）で、行があればその月は確定済み。確定済みの月の損益計算書は 3.16 のスナップショットから表示する。確定解除は行の削除（明細・見送り記録は CASCADE）。金額は持たない。
 
-| カラム名          | データ型                 | 制約                                       | 説明                                                                                                 |
-| ----------------- | ------------------------ | ------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| id                | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY  | 主キー                                                                                               |
-| target_month      | date                     | NOT NULL, UNIQUE, CHECK (月初日であること) | 確定した月（月初日で格納。profit_loss_adjustments.target_month と同方式）                            |
-| closed_by         | bigint                   | NOT NULL, FOREIGN KEY (profiles.id)        | 確定した経理担当者・管理者（再確定で更新）                                                           |
-| closed_by_name    | text                     | NOT NULL                                   | 確定者の氏名（確定時点。profiles の RLS ではチームリーダーが経理担当者の氏名を読めないため保持する） |
-| closed_at         | timestamp with time zone | NOT NULL, DEFAULT now()                    | 確定日時（再確定で更新）                                                                             |
-| refreshed_by      | bigint                   | NULL, FOREIGN KEY (profiles.id)            | 確定後の変更を最後に反映した経理担当者・管理者（Issue #149。再確定でクリア）                         |
-| refreshed_by_name | text                     | NULL                                       | 最終反映者の氏名（反映時点）                                                                         |
-| refreshed_at      | timestamp with time zone | NULL                                       | 最終反映日時                                                                                         |
-| inserted_at       | timestamp with time zone | NOT NULL, DEFAULT now()                    | 作成日時                                                                                             |
-| updated_at        | timestamp with time zone | NOT NULL, DEFAULT now()                    | 更新日時                                                                                             |
-
-CHECK 制約: `target_month = date_trunc('month', target_month)::date`、`num_nulls(refreshed_by, refreshed_by_name, refreshed_at) IN (0, 3)`
-
-インデックス: target_month（UNIQUE）、closed_by / refreshed_by（FK 側の索引）
+`closed_by_name` / `refreshed_by_name` は氏名を保持する（profiles の RLS でチームリーダーが経理担当者の氏名を読めないため）。`refreshed_*` は確定後の変更を最後に反映した人・日時（3 列は全部 NULL か全部非 NULL。再確定でクリア）。
 
 ### 3.16 profit_loss_closing_lines テーブル
 
-損益計算書の月次収支確定の明細（Issue #148）。確定時点の案件の売上・費用、管理費（定期費用）、経理追加収支を 1 行ずつ保持する（実績額・調整額・調整理由を含む）。
+確定時点の案件の売上・費用、管理費、経理追加収支を 1 行ずつ保持するスナップショット（実績額・調整額・調整理由を含む）。`(closing_id, source_type, source_id)` が UNIQUE。`source_type` は business / cost / recurring_cost / extra_entry。CHECK で種別ごとに必要な列が揃っていることを担保する。
 
-| カラム名          | データ型      | 制約                                                                     | 説明                                                                               |
-| ----------------- | ------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
-| id                | bigint        | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                                | 主キー                                                                             |
-| closing_id        | bigint        | NOT NULL, FOREIGN KEY (profit_loss_closings.id) ON DELETE CASCADE        | 確定ヘッダ                                                                         |
-| source_type       | text          | NOT NULL, CHECK (`business` / `cost` / `recurring_cost` / `extra_entry`) | 元の行の種別                                                                       |
-| source_id         | bigint        | NOT NULL（FK なし）                                                      | 元の行の id                                                                        |
-| matter_id         | bigint        | NULL（FK なし）                                                          | 案件 ID（business / cost）                                                         |
-| matter_user_id    | bigint        | NULL（FK なし）                                                          | 案件の作成者（matters.user_id。business / cost）。チームリーダー向け RLS に使う    |
-| matter_title      | text          | NULL                                                                     | 案件名（確定時点）                                                                 |
-| name              | text          | NOT NULL                                                                 | 取引先名 / コスト名 / 定期費用名 / 経理追加収支の内容（確定時点）                  |
-| category          | text          | NULL                                                                     | 案件の分類 / 経理追加収支の分類                                                    |
-| item              | text          | NULL                                                                     | 品目（cost）/ 費目（recurring_cost）                                               |
-| team              | text          | NULL                                                                     | 案件のチーム / 定期費用・経理追加収支のチーム（NULL = 全体共通）。RLS の判定に使う |
-| entry_type        | text          | NULL                                                                     | 経理追加収支の種別（income / expense）                                             |
-| entry_date        | date          | NULL                                                                     | 経理追加収支の日付                                                                 |
-| payment_cycle     | text          | NULL                                                                     | 定期費用の支払サイクル                                                             |
-| source_amount     | numeric(15,2) | NULL                                                                     | 元データ金額（business / cost / recurring_cost）                                   |
-| adjustment_amount | numeric(15,2) | NULL                                                                     | 損益調整の差分                                                                     |
-| actual_amount     | numeric(15,2) | NULL                                                                     | 実績額（= 元データ + 調整）                                                        |
-| adjustment_reason | text          | NULL                                                                     | 調整理由（調整なしは NULL）                                                        |
-| billing_amount    | numeric(15,2) | NULL                                                                     | 経理追加収支の請求額                                                               |
-| expense_amount    | numeric(15,2) | NULL                                                                     | 経理追加収支の経費                                                                 |
-
-制約:
-
-- UNIQUE (closing_id, source_type, source_id)（closing_id の索引を兼ねる）
-- CHECK（種別ごとに集計・表示に必要な列が揃っていること）: business / cost は matter_id・matter_user_id・matter_title・category・team・source_amount・adjustment_amount・actual_amount（cost は item も）が NOT NULL、recurring_cost は item・payment_cycle・金額 3 列が NOT NULL、extra_entry は entry_type（income / expense）・category が NOT NULL
-
-設計上の注意:
-
-- `source_id` / `matter_id` には FK を張らない（元の行や案件が削除されても確定値を残すため。確定後に明細が削除されて損益調整が CASCADE 削除されても確定値は変わらない）
-- JSON 1 カラムにまとめず正規化している理由: チームリーダー向けの行単位 RLS（自チーム＋全体共通のみ）と、確定後の変更検知（Issue #149）の明細単位の突き合わせ・反映のため
-- 明細の算出（集計）は TypeScript（`app/utils/profitLossLogic.ts` の `buildLiveMonthLines`）で行い、`save_profit_loss_closing`（5.14）で保存する。SQL 側に集計ロジックを二重実装しない
-- 名称（matter_title / name）は確定時点の値だが、表示では元の行が存在する限り最新の名称（と上書きタイトル）を使う（名称は金額・集計に影響しないため）。元の行が削除された場合のフォールバックにのみ使う
+- `source_id` / `matter_id` / `matter_user_id` には FK を張らない（元の行や案件が消えても確定値を残すため）。
+- JSON 1 カラムにせず正規化しているのは、チームリーダー向けの行単位 RLS（`team` / `matter_user_id`）と、確定後の変更検知（3.17）の明細単位の突き合わせ・反映のため。
+- 明細の算出は TypeScript（`app/utils/profitLossLogic.ts` の `buildLiveMonthLines`）で行い、`save_profit_loss_closing`（5.14）で保存する。SQL に集計ロジックを二重実装しない。
+- 名称（`matter_title` / `name`）は確定時点の値だが、表示では元の行が存在する限り最新の名称を使い、元の行が削除された場合のフォールバックにのみ使う。
 
 ### 3.17 profit_loss_closing_dismissals テーブル
 
-確定後の案件の変更（確定明細とライブ集計の差分）のうち、経理が「見送る」とした明細ごとの見送り記録（Issue #149）。見送った時点のライブの状態を保持し、現在のライブの状態と一致する間は「見送り済み」としてアラート・件数から外す（一致しなくなれば未処理の差分に戻す）。差分の算出自体はアプリ側の純粋関数（`app/utils/profitLossDiff.ts`）で行い、DB には見送り記録だけを持つ。
+確定後の案件変更（確定明細とライブ集計の差分）のうち、経理が「見送る」とした明細ごとの記録。見送った時点のライブの状態（`live_*`）を保持し、現在のライブと一致する間だけ「見送り済み」としてアラート・件数から外す。差分の算出は `app/utils/profitLossDiff.ts`（純粋関数）で行う。`source_type` は business / cost のみ。`(closing_id, source_type, source_id)` が UNIQUE（再見送りは upsert）。
 
-| カラム名           | データ型                 | 制約                                                              | 説明                                                                   |
-| ------------------ | ------------------------ | ----------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| id                 | bigint                   | PRIMARY KEY, GENERATED ALWAYS AS IDENTITY                         | 主キー                                                                 |
-| closing_id         | bigint                   | NOT NULL, FOREIGN KEY (profit_loss_closings.id) ON DELETE CASCADE | 確定ヘッダ（確定解除で CASCADE 削除）                                  |
-| source_type        | text                     | NOT NULL, CHECK (`business` / `cost`)                             | 明細の種別（変更検知の対象は案件の売上・費用のみ）                     |
-| source_id          | bigint                   | NOT NULL（FK なし）                                               | 明細の id                                                              |
-| live_present       | boolean                  | NOT NULL                                                          | 見送った時点でライブに存在したか                                       |
-| live_actual_amount | numeric(15,2)            | NULL                                                              | 見送った時点の実績額（存在しない場合は NULL）                          |
-| live_team          | text                     | NULL                                                              | 見送った時点のチーム                                                   |
-| live_category      | text                     | NULL                                                              | 見送った時点の分類                                                     |
-| dismissed_by       | bigint                   | NOT NULL, FOREIGN KEY (profiles.id)                               | 見送った経理担当者・管理者                                             |
-| dismissed_by_name  | text                     | NOT NULL                                                          | 見送った人の氏名（見送り時点。確定ヘッダの closed_by_name と同じ理由） |
-| dismissed_at       | timestamp with time zone | NOT NULL, DEFAULT now()                                           | 見送った日時                                                           |
-
-制約: UNIQUE (closing_id, source_type, source_id)（再見送りは upsert）、CHECK（live_present が true なら実績額・チーム・分類が NOT NULL、false なら 3 列とも NULL）
-
-インデックス: dismissed_by（FK 側の索引）。closing_id は UNIQUE の先頭列で兼ねる
-
-運用上の注意:
-
-- 見送り記録は、その明細を反映したとき（`apply_profit_loss_closing_diffs`）・確定解除（CASCADE）・確定直後の取り直し（`save_profit_loss_closing`）で削除される
-- 差分が解消した（元データが確定値と同じに戻った）明細の見送り記録は残るが、差分でなくなるため表示には使われない
+見送り記録は、反映（`apply_profit_loss_closing_diffs`）・確定解除（CASCADE）・確定の取り直し（`save_profit_loss_closing`）で削除される。差分が解消した明細の記録は残るが表示には使われない。
 
 ## 4. 列挙型
 
-### 4.1 information_category
-
-情報カテゴリの列挙型
-
-| 値            | 説明       |
-| ------------- | ---------- |
-| basic_info    | 基本情報   |
-| business_info | 取引先情報 |
-| cost_info     | コスト情報 |
+`information_category`（3.5 で使用）のみ。値は `supabase/migrations/20260523053648_01_enums.sql` を参照。
 
 ## 5. Row Level Security (RLS)
 
+共通の前提:
+
+- 判定には `(select auth.uid())` でラップした形を使う（`auth_rls_initplan` リンタ対応）。
+- 閲覧者自身の `class` / `team` は、profiles への再帰参照を避けるため `SECURITY DEFINER` のヘルパ `public.auth_user_class()` / `public.auth_user_team()`（自分の 1 行のみ読む）で取得する。`authenticated` のみ EXECUTE 可。
+- RPC（DB 関数）は `REVOKE ... FROM PUBLIC, anon` のうえ `authenticated` にだけ EXECUTE を付ける（Supabase の既定で anon にも EXECUTE が付くため）。SECURITY INVOKER の関数は RLS がそのまま適用される。
+- RLS で弾かれた UPDATE / DELETE はエラーにならず 0 行になるだけ。書き込みの保存処理は更新件数を確認して失敗を返す（RPC は `NOT_APPLIED` 例外）。
+
 ### 5.0 テーブル / シーケンス権限（PostgREST の前提）
 
-RLS は行スコープのゲートであり、テーブルに対する `GRANT SELECT / INSERT / UPDATE / DELETE` が無いと PostgREST は RLS を評価する前に HTTP 403 を返す。
+RLS は行スコープのゲートで、テーブルへの `GRANT SELECT / INSERT / UPDATE / DELETE` が無いと PostgREST は RLS 評価前に 403 を返す。現行のローカル Supabase イメージは `public` の DEFAULT PRIVILEGES が厳格で、`CREATE TABLE` だけでは `anon` / `authenticated` / `service_role` に CRUD が付かない。`20260826000000_17_grant_public_crud.sql` で標準の GRANT と DEFAULT PRIVILEGES を明示しており、`supabase db reset` 後も 403 に戻らない。関数の EXECUTE は付与しない（migration 15/16 の `custom_access_token_hook` 制限を維持）。
 
-現行のローカル Supabase Postgres イメージは `public` スキーマの DEFAULT PRIVILEGES が厳格化されており、マイグレーションの `CREATE TABLE` だけでは `anon` / `authenticated` / `service_role` に CRUD が付かない（付くのは `TRUNCATE` / `REFERENCES` / `TRIGGER` / `MAINTAIN` のみ）。`supabase/migrations/20260826000000_17_grant_public_crud.sql` で標準的なテーブル / シーケンス GRANT と DEFAULT PRIVILEGES を明示する。関数の `EXECUTE` は付与しない（migration 15/16 の `custom_access_token_hook` 制限を維持する）。
+新規テーブルは DEFAULT PRIVILEGES の設定差で 403 に戻らないよう、マイグレーション内でも `GRANT` を明示する（例: `20260830050000_19_budget_declarations.sql`）。あわせて、未ログイン（anon）が触らないテーブルは `REVOKE ALL ... FROM anon` で権限側でも閉じる（RLS だけがゲートだと、将来 `TO anon` のポリシーを足した・RLS を外した瞬間にフル CRUD が開くため）。
 
-`supabase db reset` はこのマイグレーションを含めて再適用するため、リセット後も PostgREST が 403 に戻らない。
-
-migration 17 以降に追加するテーブルは、同マイグレーションの `ALTER DEFAULT PRIVILEGES` で自動的に同じ権限が付くが、DEFAULT PRIVILEGES の設定差で 403 に戻らないよう、新規テーブルのマイグレーション内でも `GRANT` を明示する（例: `20260830050000_19_budget_declarations.sql`）。
-
-あわせて、`anon`（未ログイン）が触る必要のないテーブルでは自動付与された権限を `REVOKE ALL ... FROM anon` で剥奪する。migration 17 は既存テーブルの 403 障害に対する一括付与であり、新規テーブルで未ログインに CRUD を残す必然性は無い。RLS だけをゲートにしておくと、将来 `TO anon` のポリシーを足したり調査目的で RLS を外したりした瞬間にフル CRUD が開いてしまう。
-
-ただし `select_options` は Supabase keep-alive（`docs/setup.md`）が anon key で SELECT するため、anon の SELECT 権限を維持する（[5.5](#55-select_option_types-テーブルselect_options-テーブル)）。
+例外として `select_options` は Supabase keep-alive（`docs/setup.md`）が anon key で SELECT するため anon の SELECT を維持する（5.5）。
 
 ### 5.1 profiles テーブル
 
-> パフォーマンス最適化のため、`auth.uid()` は `(select auth.uid())` でラップして 1 行ごとの再評価を避けている（Supabase Linter `auth_rls_initplan` 対応）。
+- SELECT: 自分 / 経理・管理者（全員）/ 同チームのチームリーダー。以前の `USING (true)` では全ログインユーザーが他人の email・class を読めた（migration 12 で制限）。
+- INSERT: 自分の行のみ（`auth.uid() = user_id`）。
+- UPDATE: 自分または admin。WITH CHECK で admin 以外の `class` / `team` / `user_id` の改変（自己昇格・所有者付け替え）を防ぐ。
 
-> SELECT は「自分 / 経理・管理者 / 同チームのチームリーダー」に限定している（旧 `USING (true)` では全ログインユーザーが他人の email・class 等を読めたため）。閲覧者自身の `class` / `team` を SELECT ポリシー内で参照すると profiles への再帰参照で無限再帰になるため、`SECURITY DEFINER` のヘルパ関数（`auth_user_class()` / `auth_user_team()`、RLS をバイパスして自分の 1 行のみ読む）経由で取得する。
+#### 担当者選択肢用の関数（get_member_options / validate_member_ids）
 
-```sql
--- 閲覧者自身の class / team を RLS バイパスで取得するヘルパ（再帰回避用）
-CREATE OR REPLACE FUNCTION public.auth_user_class()
-RETURNS text LANGUAGE sql SECURITY DEFINER STABLE SET search_path = ''
-AS $$ SELECT class FROM public.profiles WHERE user_id = (select auth.uid()) LIMIT 1 $$;
+事前収支申告の明細担当者は全メンバーから選ぶが、teamleader は上記 SELECT で自チームしか読めない。そこで `SECURITY DEFINER` の `get_member_options()`（`id` / `name` のみ返す）と、保存前の実在確認用 `validate_member_ids(bigint[])`（実在する id のみ返す）を用意している。PostgREST の RPC はテーブル RLS と独立に公開されるため、関数内で呼び出しロールを teamleader / accounting / admin に絞り、それ以外は 0 行を返す（public に id/name を再び開けないため）。
 
-CREATE OR REPLACE FUNCTION public.auth_user_team()
-RETURNS text LANGUAGE sql SECURITY DEFINER STABLE SET search_path = ''
-AS $$ SELECT team FROM public.profiles WHERE user_id = (select auth.uid()) LIMIT 1 $$;
+#### ユーザーリストの一括更新（`update_profiles`。migration 33）
 
--- ヘルパ関数は認証済みロールのみ実行可能（不特定多数からの直接呼び出しを防ぐ）
-REVOKE EXECUTE ON FUNCTION public.auth_user_class() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.auth_user_team() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.auth_user_class() TO authenticated;
-GRANT EXECUTE ON FUNCTION public.auth_user_team() TO authenticated;
+管理画面（/dashboard/users）の一括保存は `update_profiles(p_updates jsonb)` を 1 回呼ぶ（1 トランザクション。1 件でも更新できなければ全体ロールバック）。`class` / `team` / `slack_id` / `updated_at` を更新する。
 
--- 自分 / 経理・管理者 / 同チームのチームリーダーのみ参照可能
-CREATE POLICY "Users can view own profile"
-  ON profiles
-  FOR SELECT
-  TO authenticated
-  USING (
-    user_id = (select auth.uid())
-    OR public.auth_user_class() IN ('admin', 'accounting')
-    OR (
-      public.auth_user_class() = 'teamleader'
-      AND public.auth_user_team() IS NOT NULL
-      AND profiles.team = public.auth_user_team()
-    )
-  );
-
--- 自分自身のプロフィールのみ挿入可能
-CREATE POLICY "Users can insert own profile"
-  ON profiles
-  FOR INSERT
-  TO authenticated
-  WITH CHECK ((select auth.uid()) = user_id);
-
--- 自分自身のプロフィールまたは管理者が更新可能。
--- WITH CHECK で更新後の値も制約し、admin 以外による class/team/user_id の改変
--- （自己昇格・所有者付け替え）を防ぐ。
-CREATE POLICY "Users can update own profile or admin can update any profile"
-  ON profiles
-  FOR UPDATE
-  TO authenticated
-  USING (
-    user_id = (select auth.uid())
-    OR public.auth_user_class() = 'admin'
-  )
-  WITH CHECK (
-    public.auth_user_class() = 'admin'
-    OR (
-      user_id = (select auth.uid())
-      AND class IS NOT DISTINCT FROM public.auth_user_class()
-      AND team  IS NOT DISTINCT FROM public.auth_user_team()
-    )
-  );
-```
-
-#### 担当者選択肢用の関数（get_member_options）
-
-事前収支申告の明細担当者（`budget_declaration_items.manager_id`）は、選択肢を全メンバーとする（[3.10](#310-budget_declaration_items-テーブル)、Issue #112）。しかし `/budget-declarations` は teamleader もアクセスでき、上記 SELECT ポリシーでは teamleader は自チームの行しか読めないため、`profiles` への直接 SELECT では全メンバー一覧を取得できない。
-
-`auth_user_class()` / `auth_user_team()` と同じ `SECURITY DEFINER` パターンで RLS をバイパスするが、返すのは `id` / `name` のみとし、SELECT ポリシーが保護する `email` / `slack_id` / `class` / `team` 等は含めない。
-
-`GRANT EXECUTE ... TO authenticated` だけでは関数内にロール判定が無く、PostgREST の RPC エンドポイントはテーブルの RLS ポリシーとは独立に公開されるため、`public` クラスのユーザーもアプリのルートガードを経由せず直接呼び出せてしまう（migration 12 が防いだ「public を含む全ログインユーザーが他人の情報を読める」を id/name について再び開けてしまう）。そのため呼び出し可能ロールを関数内で `/budget-declarations` の許可ロール（teamleader / accounting / admin）に絞り、それ以外のロールから呼ばれた場合は 0 行を返す。
-
-```sql
-CREATE OR REPLACE FUNCTION public.get_member_options()
-RETURNS TABLE(id bigint, name text)
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = ''
-AS $$
-  SELECT profiles.id, profiles.name FROM public.profiles
-  WHERE public.auth_user_class() IN ('teamleader', 'accounting', 'admin')
-  ORDER BY profiles.id
-$$;
-
-REVOKE EXECUTE ON FUNCTION public.get_member_options() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.get_member_options() TO authenticated;
-```
-
-#### 担当者保存前検証用の関数（validate_member_ids）
-
-事前収支申告の保存（ヘッダ + 明細差し替え）は `save_budget_declaration`（[5.9](#59-budget_declaration_items-テーブル)）内の単一トランザクションで行うため、フォーム表示後に担当者の `profiles` が削除される等で存在しない `manager_id` が保存されようとしても、DB 側の FK 違反（23503）でトランザクション全体がロールバックされ、明細が消えることはない。ただし FK 違反という分かりにくいエラーで保存全体が失敗するのを避けるため、保存前に渡された `manager_id` が実在するか確認してわかりやすいエラーメッセージを返す。
-
-`get_member_options()` で全メンバーを取得して JS 側で照合することもできるが、保存のたびに全メンバー分の行を転送するのは無駄（メンバー数が増えるほど悪化する）。渡された id 集合だけを DB 側で照合し、実在する id のみを返す。ロール制限は `get_member_options()` と同じ（teamleader / accounting / admin のみ。それ以外は 0 行）。
-
-```sql
-CREATE OR REPLACE FUNCTION public.validate_member_ids(target_ids bigint[])
-RETURNS TABLE(id bigint)
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = ''
-AS $$
-  SELECT profiles.id FROM public.profiles
-  WHERE public.auth_user_class() IN ('teamleader', 'accounting', 'admin')
-    AND profiles.id = ANY(target_ids)
-$$;
-
-REVOKE EXECUTE ON FUNCTION public.validate_member_ids(bigint[]) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.validate_member_ids(bigint[]) TO authenticated;
-```
+- SECURITY INVOKER。UPDATE ポリシー（他人の行は admin のみ）がそのまま適用される。RLS で弾かれた行は 0 行になるだけなので、更新件数が指定件数に満たなければ `NOT_APPLIED` で全体ロールバックする。admin 以外が class / team を変えた場合は WITH CHECK 違反（42501）。
+- 画面を経由しない呼び出しに備え、配列でない・必須キー（`id` / `class` / `team` / `slack_id`）欠落・`id` が 1 以上の bigint 整数でない／重複・`class` が許可値外・`team` / `slack_id` が文字列でも null でもない、のいずれかは `INVALID_INPUT`（22023）で全体拒否する。
+- 業務上のチェック（teamleader のチーム必須など）はアプリ側 `validateUserUpdates`（`app/utils/userList.ts`）。呼び出しは `bulkUpdateProfiles`（`app/utils/supabase/profiles.ts`）で、Server Action として公開されるため呼び出し元の権限も `hasClassAccess(PROFILE_WRITE_CLASSES, ...)`（現状 admin のみ。`app/utils/permissions.ts`）で確認する（RLS 上は admin 以外も自分の `slack_id` は更新できるが、この経路では変更させない）。
+- `class` の許可値はアプリの `ROLES`（`app/utils/permissions.ts`）と一致させる。ロールを追加・改名するときは本関数の許可値も直す（`tests/utils/permissions.test.ts` が最新マイグレーションの許可値との一致を確認する）。
+- クライアントからの upsert は使わない（INSERT ポリシーに弾かれる）。
 
 ### 5.2 matters テーブル
 
-```sql
--- 自身の案件または経理担当者/管理者/同チームのチームリーダーが参照可能
-CREATE POLICY "matters_select_policy" ON matters
-    FOR SELECT
-    TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.id = matters.user_id
-            AND profiles.user_id = (select auth.uid())
-        ) OR
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class IN ('admin', 'accounting')
-        ) OR
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class = 'teamleader'
-            AND profiles.team IS NOT NULL
-            AND profiles.team = matters.team
-        )
-    );
+- SELECT: 自分の案件 / 経理・管理者（全件）/ 同チームのチームリーダー。
+- INSERT: 自分の案件のみ。
+- UPDATE: 自分の案件 / 経理・管理者（経理申請済みの案件も編集可。編集すると `has_updates` が立つ。6.2）。
+- DELETE: 自分の案件 / admin。
 
--- 自身の案件のみ挿入可能
-CREATE POLICY "matters_insert_policy" ON matters
-    FOR INSERT
-    TO authenticated
-    WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.id = matters.user_id
-            AND profiles.user_id = (select auth.uid())
-        )
-    );
+### 5.3 costs テーブル / 5.4 business テーブル
 
--- 自身の案件または経理担当者/管理者が更新可能
--- 経理申請済の案件も編集可能にする（has_updatesフラグを設定）
-CREATE POLICY "matters_update_policy" ON matters
-    FOR UPDATE
-    TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.id = matters.user_id
-            AND profiles.user_id = (select auth.uid())
-        ) OR
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class IN ('admin', 'accounting')
-        )
-    );
-
--- 自身の案件または管理者が削除可能
-CREATE POLICY "matters_delete_policy" ON matters
-    FOR DELETE
-    TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.id = matters.user_id
-            AND profiles.user_id = (select auth.uid())
-        ) OR
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class = 'admin'
-        )
-    );
-```
-
-### 5.3 costs テーブル
-
-```sql
--- 自身の案件に関連するコスト、同チームのチームリーダー、または経理担当者/管理者が参照可能
-CREATE POLICY "costs_select_policy" ON costs
-    FOR SELECT
-    TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM matters
-            JOIN profiles ON profiles.id = matters.user_id
-            WHERE matters.id = costs.matter_id
-            AND profiles.user_id = (select auth.uid())
-        ) OR
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class IN ('admin', 'accounting')
-        ) OR
-        EXISTS (
-            SELECT 1 FROM profiles cu, matters
-            WHERE matters.id = costs.matter_id
-            AND cu.user_id = (select auth.uid())
-            AND cu.class = 'teamleader'
-            AND cu.team IS NOT NULL
-            AND cu.team = matters.team
-        )
-    );
-
--- 自身の案件に関連するコストのみ挿入可能
-CREATE POLICY "costs_insert_policy" ON costs
-    FOR INSERT
-    TO authenticated
-    WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM matters
-            JOIN profiles ON profiles.id = matters.user_id
-            WHERE matters.id = costs.matter_id
-            AND profiles.user_id = (select auth.uid())
-        )
-    );
-
--- 自身の案件に関連するコストまたは経理担当者/管理者が更新可能
-CREATE POLICY "costs_update_policy" ON costs
-    FOR UPDATE
-    TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM matters
-            JOIN profiles ON profiles.id = matters.user_id
-            WHERE matters.id = costs.matter_id
-            AND profiles.user_id = (select auth.uid())
-        ) OR
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class IN ('admin', 'accounting')
-        )
-    );
-
--- 自身の案件に関連するコストまたは管理者が削除可能
-CREATE POLICY "costs_delete_policy" ON costs
-    FOR DELETE
-    TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM matters
-            JOIN profiles ON profiles.id = matters.user_id
-            WHERE matters.id = costs.matter_id
-            AND profiles.user_id = (select auth.uid())
-        ) OR
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class = 'admin'
-        )
-    );
-```
-
-### 5.4 business テーブル
-
-```sql
--- 自身の案件に関連する取引先、同チームのチームリーダー、または経理担当者/管理者が参照可能
-CREATE POLICY "business_select_policy" ON business
-    FOR SELECT
-    TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM matters
-            JOIN profiles ON profiles.id = matters.user_id
-            WHERE matters.id = business.matter_id
-            AND profiles.user_id = (select auth.uid())
-        ) OR
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class IN ('admin', 'accounting')
-        ) OR
-        EXISTS (
-            SELECT 1 FROM profiles cu, matters
-            WHERE matters.id = business.matter_id
-            AND cu.user_id = (select auth.uid())
-            AND cu.class = 'teamleader'
-            AND cu.team IS NOT NULL
-            AND cu.team = matters.team
-        )
-    );
-
--- 自身の案件に関連する取引先のみ挿入可能
-CREATE POLICY "business_insert_policy" ON business
-    FOR INSERT
-    TO authenticated
-    WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM matters
-            JOIN profiles ON profiles.id = matters.user_id
-            WHERE matters.id = business.matter_id
-            AND profiles.user_id = (select auth.uid())
-        )
-    );
-
--- 自身の案件に関連する取引先または経理担当者/管理者が更新可能
-CREATE POLICY "business_update_policy" ON business
-    FOR UPDATE
-    TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM matters
-            JOIN profiles ON profiles.id = matters.user_id
-            WHERE matters.id = business.matter_id
-            AND profiles.user_id = (select auth.uid())
-        ) OR
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class IN ('admin', 'accounting')
-        )
-    );
-
--- 自身の案件に関連する取引先または管理者が削除可能
-CREATE POLICY "business_delete_policy" ON business
-    FOR DELETE
-    TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM matters
-            JOIN profiles ON profiles.id = matters.user_id
-            WHERE matters.id = business.matter_id
-            AND profiles.user_id = (select auth.uid())
-        ) OR
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class = 'admin'
-        )
-    );
-```
+案件（matter_id）経由で 5.2 と同じ権限構造。SELECT は自分の案件・経理・管理者・同チームのチームリーダー、INSERT は自分の案件のみ、UPDATE は自分の案件・経理・管理者、DELETE は自分の案件・admin。
 
 ### 5.5 select_option_types テーブル・select_options テーブル
 
-> 管理者向け書き込みポリシーは `FOR ALL` ではなく `INSERT/UPDATE/DELETE` を個別に定義する。`FOR ALL` だと SELECT も対象となり、参照用ポリシーと重複して Supabase Linter `multiple_permissive_policies` が発火するため。
-
-```sql
--- 以下 2 ポリシーとも TO 句が無いため全ロール（anon 含む）が参照可能。未ログインでも読める。
--- select_options は Supabase keep-alive（docs/setup.md）が anon key で参照するため、
--- migration 17 で anon に付与した SELECT 権限を REVOKE しないこと（REVOKE すると keep-alive が非 2xx で fail する）
-CREATE POLICY "Users can view select option types" ON select_option_types
-    FOR SELECT USING (true);
-
-CREATE POLICY "Users can view select options" ON select_options
-    FOR SELECT USING (true);
-
--- 管理者のみ書き込み可能（select_option_types）
-CREATE POLICY "Admin can insert select option types" ON select_option_types
-    FOR INSERT TO authenticated
-    WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class = 'admin'
-        )
-    );
-
-CREATE POLICY "Admin can update select option types" ON select_option_types
-    FOR UPDATE TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class = 'admin'
-        )
-    );
-
-CREATE POLICY "Admin can delete select option types" ON select_option_types
-    FOR DELETE TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class = 'admin'
-        )
-    );
-
--- 管理者のみ書き込み可能（select_options）
-CREATE POLICY "Admin can insert select options" ON select_options
-    FOR INSERT TO authenticated
-    WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class = 'admin'
-        )
-    );
-
-CREATE POLICY "Admin can update select options" ON select_options
-    FOR UPDATE TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class = 'admin'
-        )
-    );
-
-CREATE POLICY "Admin can delete select options" ON select_options
-    FOR DELETE TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class = 'admin'
-        )
-    );
-```
+- SELECT は `TO` 句なしの `USING (true)` で anon 含む全ロールが可。keep-alive（`docs/setup.md`）が anon で読むため、migration 17 で付与した anon の SELECT を REVOKE しない（すると keep-alive が非 2xx で fail する）。
+- INSERT / UPDATE / DELETE は admin のみ。`FOR ALL` にすると SELECT が参照用ポリシーと重複して `multiple_permissive_policies` リンタが発火するため、コマンドごとに定義する。
+- 項目管理の保存（`bulkUpsertSelectOptions`）は UPDATE に `.select("id")` を付け、更新 0 行なら失敗として返す。
 
 ### 5.6 recurring_costs テーブル
 
-> teamleader が全体共通（team IS NULL）の行を SELECT できるのは、損益計算書で「全体共通（参考）」として表示するため。チーム損益への算入可否はアプリケーション層で制御する。
-
-```sql
--- 経理担当者/管理者は全行、チームリーダーは自チームの行 + 全体共通の行を参照可能
-CREATE POLICY "recurring_costs_select_policy" ON recurring_costs
-    FOR SELECT TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class IN ('admin', 'accounting')
-        ) OR
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class = 'teamleader'
-            AND profiles.team IS NOT NULL
-            AND (recurring_costs.team IS NULL OR recurring_costs.team = profiles.team)
-        )
-    );
-
--- 経理担当者/管理者のみ挿入可能
-CREATE POLICY "recurring_costs_insert_policy" ON recurring_costs
-    FOR INSERT TO authenticated
-    WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class IN ('admin', 'accounting')
-        )
-    );
-
--- 経理担当者/管理者のみ更新可能
-CREATE POLICY "recurring_costs_update_policy" ON recurring_costs
-    FOR UPDATE TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class IN ('admin', 'accounting')
-        )
-    );
-
--- 経理担当者/管理者のみ削除可能
-CREATE POLICY "recurring_costs_delete_policy" ON recurring_costs
-    FOR DELETE TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class IN ('admin', 'accounting')
-        )
-    );
-```
+書き込みは経理・管理者のみ。SELECT は経理・管理者が全行、チームリーダーは自チーム + 全体共通（team IS NULL）。全体共通を読ませるのは損益計算書に「全体共通（参考）」として表示するため（チーム損益への算入可否はアプリ層で制御）。
 
 ### 5.7 extra_entries テーブル
 
-> recurring_costs と同じ方針。teamleader が全体共通（team IS NULL）の行を SELECT できるのは、損益計算書で「全体共通（参考）」として表示するため。チーム損益への算入可否はアプリケーション層で制御する。書き込みは経理担当者・管理者のみ。
+recurring_costs と同じ方針（書き込みは経理・管理者のみ。SELECT は経理・管理者が全行、チームリーダーは自チーム + 全体共通）。
 
-```sql
--- 経理担当者/管理者は全行、チームリーダーは自チームの行 + 全体共通の行を参照可能
-CREATE POLICY "extra_entries_select_policy" ON extra_entries
-    FOR SELECT TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class IN ('admin', 'accounting')
-        ) OR
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class = 'teamleader'
-            AND profiles.team IS NOT NULL
-            AND (extra_entries.team IS NULL OR extra_entries.team = profiles.team)
-        )
-    );
+確定済みの月の編集ロック（Issue #148、migration 27）: INSERT / UPDATE / DELETE のポリシーに `NOT private.is_pl_month_closed(entry_date)` が入る（UPDATE は変更前の月が USING、変更後の月が WITH CHECK）。詳細は 5.14。
 
--- 経理担当者/管理者のみ挿入可能
-CREATE POLICY "extra_entries_insert_policy" ON extra_entries
-    FOR INSERT TO authenticated
-    WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class IN ('admin', 'accounting')
-        )
-    );
+#### 一括保存（`save_extra_entries`。migration 30）
 
--- 経理担当者/管理者のみ更新可能
-CREATE POLICY "extra_entries_update_policy" ON extra_entries
-    FOR UPDATE TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class IN ('admin', 'accounting')
-        )
-    );
+`/extra-entries` の一括保存は `save_extra_entries(p_inserts, p_updates, p_delete_ids)` を 1 回呼ぶ（削除 → 更新 → 追加の順、1 トランザクション）。SECURITY INVOKER で上記 RLS が適用され、更新・削除が指定件数に満たなければ `NOT_APPLIED` で全体ロールバック、確定済みの月への追加・日付変更は 42501 でロールバックされる。呼び出し側（`bulkUpsertExtraEntry`）は書き込み前に確定済みの月・削除済みの行を確認して分かりやすいエラーを返し、編集していない行は UPDATE しない（確定済みの月の行に触れず他の月だけ保存できる）。
 
--- 経理担当者/管理者のみ削除可能
-CREATE POLICY "extra_entries_delete_policy" ON extra_entries
-    FOR DELETE TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.user_id = (select auth.uid())
-            AND profiles.class IN ('admin', 'accounting')
-        )
-    );
-```
+#### 前月コピー（`copy_extra_entries`。migration 35・37）
 
-> **確定中の編集ロック（Issue #148、migration 27）**: 上記の INSERT / UPDATE / DELETE ポリシーには、損益計算書で確定済みの月のエントリを変更できないよう `NOT private.is_pl_month_closed(entry_date)` が追加されている（UPDATE は USING = 変更前の月、WITH CHECK = 変更後の月）。詳細は 5.14。
+「前月の経理追加収支をコピー」は `copy_extra_entries(p_target_month date, p_rows jsonb)` を 1 回呼ぶ（1 トランザクション）。アプリ側で「既存行の確認」と「INSERT」を別リクエストにすると、2 人が同時にコピーして二重登録し得たため、対象月の排他 advisory lock を取ってから既存行を確認して INSERT する。
 
-#### 一括保存の原子的な書き込み（`save_extra_entries`。migration 30）
-
-経理追加収支画面（/extra-entries）の一括保存は `save_extra_entries(p_inserts jsonb, p_updates jsonb, p_delete_ids bigint[])` を 1 回呼ぶだけで行う（関数呼び出し = 1 トランザクション）。削除 → 更新 → 追加の順に実行し、途中で 1 つでも失敗すればすべてロールバックされるため、一部だけ保存された状態は残らない。
-
-- SECURITY INVOKER（既定）。上記の RLS（書き込みは経理担当者・管理者のみ・確定済みの月の編集ロック）がそのまま適用される
-- RLS の USING で弾かれた UPDATE / DELETE はエラーにならず 0 行になるだけのため、更新・削除した行数が指定した（重複を除いた）件数に満たなければ例外 `NOT_APPLIED` で全体をロールバックする（保存前の確認の後に月が確定された、行が他の利用者に削除された等）。追加・日付の変更が確定済みの月に当たる場合は RLS の WITH CHECK 違反（42501）で全体がロールバックされる
-- 各列の値（収入 / 支出ごとの項目の整合）はアプリ側（`app/utils/extraEntry.ts` の `toExtraEntryDbRow`）で揃え、`extra_entries_type_fields_check` でも担保する。`updated_at` は既存のトリガーが設定する
-- EXECUTE は authenticated のみ（`REVOKE ... FROM PUBLIC, anon`）
-- 呼び出し側（`app/utils/supabase/extraEntries.ts` の `bulkUpsertExtraEntry`）は、分かりやすいエラーを出すために書き込み前に確定済みの月・削除済みの行を確認し、該当すれば RPC を呼ばない。画面からは追加・削除・編集した行だけが送られる
+- ロックは `private.lock_extra_entries_copy`（`pg_advisory_xact_lock(140, YYYYMM)`、SECURITY DEFINER）。別の月は互いに待たない。advisory lock の第 1 キー: `140` = 前月コピー、`148` = 月次確定と書き込みの直列化（`private.lock_pl_month`、6.4）。別用途では異なる値にする。
+- デッドロックしない: コピーは 140 → 148（共有）の順に取る。確定・一括保存は 140 を取らないため循環しない。
+- ロック取得後の確認が先のコピーのコミットを見られるのは、READ COMMITTED の VOLATILE plpgsql 関数が文ごとに新しいスナップショットを取るため（ロック取得と確認付き INSERT を別の文にしている）。PostgREST が READ COMMITTED（既定）であることを前提にする。
+- 同一内容の判定: entry_type・分類・内容・責任者・チーム・請求額・経費がすべて一致する当月の行があればスキップ。比較はすべて `IS NOT DISTINCT FROM`（NULL 同士も一致。migration 37）。entry_date・請求書番号・請求先・決済方法は比較しない。判定の相手は当月の既存行だけで、`p_rows` 内の同一内容の行どうしは除かない。比較列を変えるときはテスト `supabase/tests/database/copy_extra_entries.test.sql` も更新する。
+- 一意制約にしない理由: 同一内容の明細（同日の交通費 2 件など）は正当に存在し得るため。
+- `p_rows` の `entry_date` はすべて `p_target_month` の月内でなければならない（NULL・他月が混ざると `INVALID_INPUT` 22023。`p_target_month` NULL・配列でない・要素がオブジェクトでない場合も同様）。戻り値は `inserted_count` / `skipped_count`。
+- SECURITY INVOKER。ロック取得前に `auth_user_class()` が経理・管理者か確認し、それ以外は `FORBIDDEN`（42501）（書き込めない利用者がロックを持ち続けて経理を待たせないため）。確定済みの月へは、登録する行があれば `MONTH_CLOSED`（42501）で拒否される（全行スキップなら何も書かず 0 件で正常終了）。
+- 同時実行の再現手順は `docs/testing.md` 3.7「前月コピーの同時実行の再現手順」。
 
 ### 5.8 budget_declarations テーブル
 
-> recurring_costs / extra_entries と異なり、**チームリーダーに自チーム分の書き込みを許可する**（事前収支申告はチームリーダー自身が入力するため）。経理担当者・管理者は全行、チームリーダーは自チームの行のみ SELECT / INSERT / UPDATE / DELETE でき、public ロールはアクセスできない。UPDATE は `WITH CHECK` でも team を制約し、他チームへの付け替えを防ぐ。
->
-> 判定には `EXISTS (SELECT ... FROM profiles ...)` ではなく `SECURITY DEFINER` ヘルパ関数 `auth_user_class()` / `auth_user_team()`（[5.1](#51-profiles-テーブル) 参照）を使う。profiles の SELECT ポリシー自体に依存しないため、閲覧できる profiles の行が絞られていても判定がぶれない。
->
-> この述語はヘッダ・明細あわせて 10 箇所で必要になるため、`public.can_access_team_budget(text)` に切り出している。逐語コピーだと将来ロール条件を変えたときに 1 箇所直し忘れ、特定の操作にだけ古いルールが残る（エラーにならない）RLS バグを踏みやすい。
->
-> **アプリ側との対応**: 同じ区分をアプリでも持っている（`app/utils/budgetDeclaration.ts` の `BUDGET_ALL_TEAMS_CLASSES` / `BUDGET_OWN_TEAM_ONLY_CLASSES`）。一覧で「未申告」を表示するには、申告が 1 行も無いチームも並べる必要があり、RLS だけでは表示対象のチームを決められないため。DB とアプリの二重定義になるので、ロール条件を変えるときは**両方**を直す（アプリ側は `ROUTE_PERMISSIONS["/budget-declarations"]` から導出しているため、ルートの許可ロールを増やす分には自動で追随する）。
->
-> **効率**: 判定は行の team に依存するため、[5.2](#52-matters-テーブル) 等の `(select auth.uid())` のように InitPlan 化（ステートメントあたり 1 回）はできず行ごとに評価される。1 行あたり profiles への索引参照が数回走るが、本テーブルの行数は「チーム数 × 対象月数」程度で小さいため許容している。`auth.uid()` 自体はヘルパ関数の内部で `(select auth.uid())` に包まれており、Supabase の `auth_rls_initplan` リンタの対象にはならない。
+recurring_costs / extra_entries と異なり、**チームリーダーに自チーム分の書き込みを許可する**（自分で入力するため）。経理・管理者は全行、チームリーダーは自チームの行のみ SELECT / INSERT / UPDATE / DELETE でき、public は不可。UPDATE は WITH CHECK でも team を制約し他チームへの付け替えを防ぐ。
 
-```sql
--- ロール判定ヘルパ（SECURITY DEFINER ではない。内部で migration 12 のヘルパを呼ぶ）
-CREATE OR REPLACE FUNCTION public.can_access_team_budget(target_team text)
-RETURNS boolean
-LANGUAGE sql
-STABLE
-SET search_path = ''
-AS $$
-  SELECT public.auth_user_class() IN ('admin', 'accounting')
-      OR (
-        public.auth_user_class() = 'teamleader'
-        AND public.auth_user_team() IS NOT NULL
-        AND target_team = public.auth_user_team()
-      )
-$$;
-
-REVOKE EXECUTE ON FUNCTION public.can_access_team_budget(text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.can_access_team_budget(text) TO authenticated;
-
--- 経理担当者/管理者は全行、チームリーダーは自チームの行のみ参照可能
-CREATE POLICY "budget_declarations_select_policy" ON budget_declarations
-    FOR SELECT TO authenticated
-    USING (public.can_access_team_budget(budget_declarations.team));
-
-CREATE POLICY "budget_declarations_delete_policy" ON budget_declarations
-    FOR DELETE TO authenticated
-    USING (public.can_access_team_budget(budget_declarations.team));
-
--- UPDATE は USING と WITH CHECK の双方に同条件を課し、他チームへの team 付け替えを防ぐ
-CREATE POLICY "budget_declarations_update_policy" ON budget_declarations
-    FOR UPDATE TO authenticated
-    USING (public.can_access_team_budget(budget_declarations.team))
-    WITH CHECK (public.can_access_team_budget(budget_declarations.team));
-
--- INSERT の WITH CHECK のみ、チームリーダーに declared_by = 自分自身も強制する
-CREATE POLICY "budget_declarations_insert_policy" ON budget_declarations
-    FOR INSERT TO authenticated
-    WITH CHECK (
-        public.can_access_team_budget(budget_declarations.team)
-        AND (
-            public.auth_user_class() IN ('admin', 'accounting')
-            OR EXISTS (
-                SELECT 1 FROM profiles p
-                WHERE p.id = budget_declarations.declared_by
-                AND p.user_id = (select auth.uid())
-            )
-        )
-    );
-```
+- 判定は `public.can_access_team_budget(text)`（`auth_user_class()` / `auth_user_team()` を呼ぶ）に切り出している。ヘッダ・明細で 10 箇所必要なため、逐語コピーだと将来ロール条件を変えたとき 1 箇所直し忘れて古いルールが残る（エラーにならない）RLS バグを踏みやすい。行ごとに評価されるが行数は小さいため許容している。
+- アプリ側にも同じ区分がある（`app/utils/budgetDeclaration.ts` の `BUDGET_ALL_TEAMS_CLASSES` / `BUDGET_OWN_TEAM_ONLY_CLASSES`。未申告チームを一覧に並べる必要があるため）。ロール条件を変えるときは **DB とアプリの両方**を直す（アプリ側は `ROUTE_PERMISSIONS["/budget-declarations"]` から導出しており、許可ロールの追加には自動追随する）。
 
 #### declared_by の扱い（DB が保証する範囲）
 
-INSERT の `WITH CHECK` に限り、チームリーダーには `declared_by` = 自分自身の profiles.id を強制する。経理担当者・管理者は代理入力があるため制約しない。ここだけは profiles を直接参照するが、参照するのは自分自身の行のみで、profiles の SELECT ポリシーは自分の行を常に許可するため阻まれない。
-
-**ただしこれは INSERT 単体での詐称防止にとどまり、UPDATE 経由では迂回できる。** UPDATE ポリシーは team しか見ないため、自分名義で INSERT → 直後に UPDATE で `declared_by` を他人に付け替える 2 手順が通る。RLS の `WITH CHECK` からは OLD 行を参照できず「`declared_by` は不変か自分自身」を表現できないため、厳密に守るには `BEFORE UPDATE` トリガーが必要になる。
-
-UPDATE / DELETE に `declared_by` の制約を課さないのは次の理由による。
-
-- 明細（budget_declaration_items）の書き込みは親ヘッダの team だけで判定するため、チームリーダーは `declared_by` に触れずに金額を全部書き換えられる。UPDATE だけを縛っても「`declared_by` = 実際に最後に手を入れた人」は DB では保証できない。
-- 一方で縛ると、既存行を読んでそのまま書き戻す一般的な更新パターン（元の `declared_by` を送る）が 42501 になり、同一チームの別リーダーや経理が作成した行を編集できなくなる。profiles 削除前に `declared_by` を付け替える運用（[3.9](#39-budget_declarations-テーブル)）も塞がる。
-
-したがって `declared_by` は**アプリが最終更新者で更新する表示・監査補助用の項目**と位置づけ、DB は素朴な他人名義 INSERT を弾くところまでを担保する。改ざん耐性のある監査証跡が必要になった時点で、トリガーによる強制を検討する。
-
-#### anon の権限
-
-`anon`（未ログイン）はこの 2 テーブルに一切アクセスしないため、[5.0](#50-テーブル--シーケンス権限postgrest-の前提) の `ALTER DEFAULT PRIVILEGES` で自動的に付く CRUD をマイグレーション内で `REVOKE ALL` している。現状は `TO anon` のポリシーが無いので SELECT は 0 行・書き込みは 42501 で拒否されるが、それは RLS だけがゲートになっている状態であり、将来 `TO anon` のポリシーを足したり調査目的で RLS を外したりした瞬間に未ログインからのフル CRUD が開く。権限側でも閉じておく。
+INSERT の WITH CHECK に限り、チームリーダーには `declared_by` = 自分自身の profiles.id を強制する（経理・管理者は代理入力があるため制約しない）。**これは INSERT 単体のなりすまし防止にとどまり、UPDATE 経由で他人名義に付け替える迂回は塞げない**（WITH CHECK から OLD 行を参照できず、明細の書き込みも親ヘッダの team だけで判定するため、UPDATE だけ縛っても意味がなく、縛ると既存行をそのまま書き戻す更新や profiles 削除前の付け替え運用が 42501 になる）。したがって `declared_by` は**アプリが最終更新者で更新する表示・監査補助用の項目**とし、改ざん耐性のある監査証跡が必要になった時点で BEFORE UPDATE トリガーによる強制を検討する。
 
 ### 5.9 budget_declaration_items テーブル
 
-> 明細は親ヘッダ（budget_declarations）への `EXISTS` で 5.8 と同じ条件を適用する（costs → matters の JOIN パターンと同様）。`WITH CHECK` にも同条件を課すことで、他チームの申告への付け替え（`declaration_id` の書き換え）を防ぐ。
->
-> 4 コマンドで条件が完全に同一のため `FOR ALL` 1 本にまとめている（`USING` が SELECT / UPDATE / DELETE に、`WITH CHECK` が INSERT / UPDATE に適用される）。recurring_costs / extra_entries がコマンド別に分けているのは SELECT と書き込みで条件が異なるためで、ここには当てはまらない。
-
-```sql
--- SELECT / INSERT / UPDATE / DELETE すべて、親ヘッダが 5.8 の条件を満たす行のみ
-CREATE POLICY "budget_declaration_items_all_policy" ON budget_declaration_items
-    FOR ALL TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM budget_declarations d
-            WHERE d.id = budget_declaration_items.declaration_id
-            AND public.can_access_team_budget(d.team)
-        )
-    )
-    WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM budget_declarations d
-            WHERE d.id = budget_declaration_items.declaration_id
-            AND public.can_access_team_budget(d.team)
-        )
-    );
-```
+親ヘッダへの EXISTS で 5.8 と同じ条件（`can_access_team_budget(d.team)`）を課す。4 コマンドの条件が同一なので `FOR ALL` 1 本（USING / WITH CHECK 両方。`declaration_id` の書き換えによる他チームへの付け替えを防ぐ）。
 
 #### 申告の原子的な保存（`save_budget_declaration`）
 
-`app/utils/supabase/budgetDeclarations.ts` の `saveBudgetDeclaration()` は、この DB 関数を1回呼ぶだけで完結する。以前はヘッダの UPDATE・既存明細の全 DELETE・新しい明細の INSERT をそれぞれ独立した PostgREST 呼び出しにしていたため、既存明細を全削除した後の INSERT が失敗すると、明細が1件も無い状態でコミット済みのまま確定してしまい、削除済みの明細を復元できず利用者の入力内容が失われる不具合があった（Issue #103）。本関数はヘッダの作成/更新・明細の全削除・全登録を単一トランザクション（関数呼び出し1回）内で行うことで、途中で失敗した場合に保存前の状態へ完全にロールバックされるようにする。
+`saveBudgetDeclaration()`（`app/utils/supabase/budgetDeclarations.ts`）はこの関数を 1 回呼ぶだけで、ヘッダの作成/更新と明細の全削除・全登録を 1 トランザクションで行う（以前は別々の呼び出しで、全削除後の INSERT 失敗で明細が失われる不具合があった）。明細は「差し替え」方式（フォームの配列が最終形のため diff 追跡は不要）。
 
-明細は「差し替え」方式（既存を全削除 → 入力内容を全 INSERT）のままにしている。`costs` テーブルのような `isNew`/`isRemoved` diff にしないのは、申告の明細は保存のたびにフォーム側の配列が最終形そのものであり、差分を追跡する状態を別途持つ必要がないため。
-
-`SECURITY INVOKER` を明示している（既定と同じだが、RLS をバイパスしないことを意図的に示すため明記する）。`budget_declarations` / `budget_declaration_items` への書き込みはいずれも呼び出し元のロールで [5.8](#58-budget_declarations-テーブル) / 本節の RLS がそのまま適用されるため、経理担当者・管理者・自チームのチームリーダー以外は書き込みポリシーで拒否される。
-
-`declared_by` はクライアントから受け取らず、関数内で `auth.uid()` から解決する（PostgREST 経由で任意の `profiles.id` を渡してなりすまされることを防ぐ）。INSERT 経路は `budget_declarations_insert_policy` の `WITH CHECK` でも「`declared_by` = 自分自身」を二重に担保するが、UPDATE 経路（`budget_declarations_update_policy`）は `declared_by` を検査しないため（[declared_by の扱い](#declared_by-の扱いdb-が保証する範囲)参照）、そちらは本関数内でのみなりすましを防いでいる。
-
-`manager_id`（[3.10](#310-budget_declaration_items-テーブル)）が実在しない `profiles.id` を指す場合、明細 INSERT が FK 違反（23503）で失敗するが、トランザクション全体がロールバックされるためヘッダ・既存明細は保存前の状態のまま残る。アプリ側は保存前に `assertManagerIdsExist()`（`app/utils/supabase/profiles.ts`）で存在確認しわかりやすいエラーメッセージを返すため通常はここに到達しないが、到達しても本関数のアトミック性によりデータが失われることはない。
-
-`p_declaration_id` / `p_comment` に `DEFAULT NULL` を付けている。Postgres 関数の引数は NULL 許容性を型として持たないため、`supabase gen types` は Args を「DEFAULT の有無」でしか区別しない（DEFAULT が無いと必須キー、あれば省略可能なオプションキーになるが、いずれも `| null` は付与しない）。DEFAULT を付けることで生成される型が `p_declaration_id?: number` / `p_comment?: string` になり、呼び出し側は null の代わりに `undefined`（キー省略）を渡せばよくなる（`app/utils/supabase/budgetDeclarations.ts` の `?? undefined` 参照）。PostgREST は常に名前付き引数で呼び出すため呼び出し側の引数の並びには影響しないが、SQL の `CREATE FUNCTION` 構文上 `DEFAULT` 付き引数は `DEFAULT` 無し引数より後ろに置く必要があるため、`p_declaration_id` / `p_comment` を末尾にしている。
-
-```sql
-CREATE OR REPLACE FUNCTION public.save_budget_declaration(
-  p_target_month date,
-  p_team text,
-  p_items jsonb,
-  p_declaration_id bigint DEFAULT NULL,
-  p_comment text DEFAULT NULL
-)
-RETURNS TABLE (id bigint)
-LANGUAGE plpgsql
-SECURITY INVOKER
-SET search_path = ''
-AS $$
-DECLARE
-  v_declaration_id bigint;
-  v_declared_by bigint;
-BEGIN
-  SELECT p.id INTO v_declared_by FROM public.profiles p WHERE p.user_id = auth.uid();
-  IF v_declared_by IS NULL THEN
-    RAISE EXCEPTION 'プロフィールが見つかりません';
-  END IF;
-
-  IF p_declaration_id IS NULL THEN
-    INSERT INTO public.budget_declarations (target_month, team, declared_by, comment)
-    VALUES (p_target_month, p_team, v_declared_by, p_comment)
-    RETURNING budget_declarations.id INTO v_declaration_id;
-  ELSE
-    -- team・target_month でも絞る。渡された id が別の申告を指していた場合に
-    -- 誤って別チーム・別月の申告を書き換えないための整合性チェック
-    UPDATE public.budget_declarations
-    SET declared_by = v_declared_by, comment = p_comment
-    WHERE budget_declarations.id = p_declaration_id
-      AND budget_declarations.team = p_team
-      AND budget_declarations.target_month = p_target_month
-    RETURNING budget_declarations.id INTO v_declaration_id;
-
-    -- RLS で 0 行 / 既に削除済みでもエラーにはならないため、呼び出し側が
-    -- 判別できるよう例外にする。ERRCODE には plpgsql 組み込みの no_data_found
-    -- （P0002）を使い、メッセージ文字列ではなく SQLSTATE で判別できるようにする
-    IF v_declaration_id IS NULL THEN
-      RAISE EXCEPTION 'DECLARATION_NOT_FOUND' USING ERRCODE = 'P0002';
-    END IF;
-  END IF;
-
-  -- 明細差し替え: 既存明細を全削除してから入力内容を挿入する。新規作成では
-  -- 既存明細が存在しないため 0 行 DELETE になるだけで無害
-  DELETE FROM public.budget_declaration_items
-  WHERE declaration_id = v_declaration_id;
-
-  -- p_items が空配列なら 0 行 INSERT になるだけで無害。manager_id は
-  -- 任意入力のため item に無い/JSON null の場合は NULL のまま INSERT する
-  INSERT INTO public.budget_declaration_items
-    (declaration_id, entry_type, category, description, amount, manager_id, display_order)
-  SELECT
-    v_declaration_id,
-    btrim(item ->> 'entry_type'),
-    btrim(item ->> 'category'),
-    btrim(item ->> 'description'),
-    (item ->> 'amount')::numeric,
-    (item ->> 'manager_id')::bigint,
-    ordinality - 1
-  FROM jsonb_array_elements(p_items) WITH ORDINALITY AS t(item, ordinality);
-
-  RETURN QUERY SELECT v_declaration_id;
-END;
-$$;
-
-COMMENT ON FUNCTION public.save_budget_declaration(date, text, jsonb, bigint, text) IS
-  '事前収支申告の作成・編集（ヘッダ + 明細差し替え）を単一トランザクションで行う。p_declaration_id が null なら新規作成、それ以外なら既存ヘッダの更新（team・target_month も一致する場合のみ）。明細は既存を全削除してから p_items（entry_type/category/description/amount/manager_id を持つオブジェクトの配列）を全登録する。declared_by は auth.uid() から解決しクライアントからは受け取らない。書き込みの可否は呼び出し元ロールに対する budget_declarations / budget_declaration_items の RLS がそのまま適用される（SECURITY INVOKER）。詳細: docs/database.md, Issue #103';
-
-REVOKE EXECUTE ON FUNCTION public.save_budget_declaration(date, text, jsonb, bigint, text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.save_budget_declaration(date, text, jsonb, bigint, text) TO authenticated;
-```
+- SECURITY INVOKER。書き込み可否は 5.8 / 5.9 の RLS がそのまま適用される。
+- `declared_by` はクライアントから受け取らず `auth.uid()` から解決する。UPDATE 経路は RLS が `declared_by` を見ないため、なりすまし防止はこの関数内だけで担保している。
+- `p_declaration_id` 指定時は `team` / `target_month` も一致する行のみ更新し、該当なしは `DECLARATION_NOT_FOUND`（SQLSTATE P0002）。
+- 存在しない `manager_id` は FK 違反（23503）で全体ロールバックされる（アプリは事前に `assertManagerIdsExist()` で確認）。
+- `p_declaration_id` / `p_comment` に `DEFAULT NULL` を付けているのは、`supabase gen types` が引数を DEFAULT の有無でしか区別せず、付けると生成型が省略可能（`?:`）になり呼び出し側が `undefined` を渡せるため。DEFAULT 付き引数は SQL 構文上末尾に置く。
 
 ### 5.10 budget_declaration_reminder_settings テーブル
 
-> 運用上の設定値であり一般ユーザーは関与しないため、`admin` / `accounting` のみ SELECT / UPDATE できる（budget_declarations の `can_access_team_budget` と同じロール区分。[5.8](#58-budget_declarations-テーブル) 参照）。cron ルートは `SUPABASE_SERVICE_ROLE_KEY` を用いた service role クライアント（`createServiceRoleSupabase`）で読むため RLS の対象外。
->
-> 行は migration で作成した 1 行のみを更新し続ける運用のため、INSERT / DELETE のポリシーは設けていない。migration 17 の `ALTER DEFAULT PRIVILEGES` により新規テーブルには何もしなくても `authenticated` に INSERT / DELETE の権限まで自動で付くため、RLS の deny-by-default だけに頼らず `REVOKE INSERT, DELETE ... FROM authenticated` で権限レベルでも明示的に塞ぐ（`id = 1` の CHECK 制約もあるため、admin / accounting であっても新規行は追加できない）。
-
-```sql
-CREATE POLICY "budget_declaration_reminder_settings_select_policy"
-    ON budget_declaration_reminder_settings
-    FOR SELECT TO authenticated
-    USING (public.auth_user_class() IN ('admin', 'accounting'));
-
-CREATE POLICY "budget_declaration_reminder_settings_update_policy"
-    ON budget_declaration_reminder_settings
-    FOR UPDATE TO authenticated
-    USING (public.auth_user_class() IN ('admin', 'accounting'))
-    WITH CHECK (public.auth_user_class() IN ('admin', 'accounting'));
-
-GRANT SELECT, UPDATE ON TABLE budget_declaration_reminder_settings TO authenticated;
-REVOKE INSERT, DELETE ON TABLE budget_declaration_reminder_settings FROM authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE budget_declaration_reminder_settings TO service_role;
-REVOKE ALL ON TABLE budget_declaration_reminder_settings FROM anon;
-```
+admin / accounting のみ SELECT / UPDATE（`can_access_team_budget` と同じロール区分）。cron は service role で読むため RLS 対象外。行は migration で作った 1 行のみを更新し続ける運用で INSERT / DELETE のポリシーは無く、DEFAULT PRIVILEGES で自動付与される INSERT / DELETE 権限も `REVOKE INSERT, DELETE ... FROM authenticated` で塞いでいる（`id = 1` の CHECK もあり新規行は追加できない）。
 
 ### 5.11 budget_recurring_items テーブル
 
-> budget_declarations と同じ判定（`public.can_access_team_budget`。[5.8](#58-budget_declarations-テーブル) 参照）を再利用する。経理担当者・管理者は全行、チームリーダーは自チームの行のみ SELECT / INSERT / UPDATE / DELETE でき、public ロールはアクセスできない。budget_declaration_items（5.9）と同じく 4 コマンドの条件が完全に同一のため `FOR ALL` 1 本にまとめている。declared_by のような「本人以外への付け替え」を制約する項目が無いため、budget_declarations のような INSERT 専用ポリシーの分離は不要。
-
-```sql
--- SELECT / INSERT / UPDATE / DELETE すべて、team が 5.8 の条件を満たす行のみ
-CREATE POLICY "budget_recurring_items_all_policy" ON budget_recurring_items
-    FOR ALL TO authenticated
-    USING (public.can_access_team_budget(budget_recurring_items.team))
-    WITH CHECK (public.can_access_team_budget(budget_recurring_items.team));
-
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE budget_recurring_items TO authenticated, service_role;
-REVOKE ALL ON TABLE budget_recurring_items FROM anon;
-```
-
-新規申告作成時の展開（`getActiveBudgetRecurringItems`）は、対象チーム・対象月が適用期間内の行を通常の SELECT で取得するだけであり、上記の RLS がそのまま適用される（チームリーダーは自チーム分のみ取得できる）。展開そのもの（`budget_declaration_items` への INSERT）は 5.9 の RLS に従う。
+5.8 と同じ `can_access_team_budget`（`FOR ALL` 1 本）。新規申告作成時の展開（`getActiveBudgetRecurringItems`）は通常の SELECT で RLS が適用される（チームリーダーは自チーム分のみ）。展開先の `budget_declaration_items` への INSERT は 5.9 の RLS に従う。
 
 ### 5.12 profit_loss_adjustments テーブル
 
-> 書き込み（INSERT / UPDATE / DELETE）は経理担当者・管理者のみ。SELECT は経理担当者・管理者が全行、チームリーダーは対象行のチームが自チーム、または全体共通（recurring_costs.team IS NULL）の行、または自分が作成した案件（matters.user_id = 自分の profiles.id）の売上・費用の行のみ（recurring_costs / extra_entries と同じ方針。作成者の分岐は migration 29 で追加。matters / business / costs の RLS でチームリーダーが読める範囲と揃える）。public ロールはアクセスできない。
->
-> 調整行自体には team 列が無く、対象（business → matters.team / costs → matters.team / recurring_costs.team）を辿って判定する必要があるため、`public.can_access_team_budget`（5.8）と同じ理由でヘルパー関数へ切り出している。
->
-> `pl_adjustment_team` は SECURITY DEFINER にしている。matters / costs / business の既存 RLS（チームリーダーは自チームの行のみ SELECT 可。5.2 〜 5.4）に判定を委ねると、他チームの対象行は「見えない」＝ NULL が返り、下の `can_view_pl_adjustment` が「対象不明 = 全体共通」として誤って表示を許可してしまう（`auth_user_class` / `auth_user_team` と同じ理由。migration 12 参照）。SECURITY DEFINER により、対象行の可視性に関わらず常に実際のチームを取得する。
->
-> 両関数は `private` スキーマに置く。`auth_user_class` / `auth_user_team` / `can_access_team_budget` を `public` に置いて `authenticated` へ EXECUTE を許可しているのとは異なり、この2関数は「呼び出し側が渡した `business_id` / `cost_id` / `recurring_cost_id` が指す行のチーム（や、そこから導いた可視性）」を返す。`public` に置くと PostgREST の `/rest/v1/rpc/pl_adjustment_team` 経由でどのロールからも直接呼び出せてしまい、SECURITY DEFINER が business / costs の RLS（チームリーダーを自チームに絞る）を素通りして、他チームの `matters.team` を返す情報漏えい経路になる（id を総当たりされれば行の存在有無まで分かる）。`private` スキーマは `supabase/config.toml` の `[api].schemas` に含まれず PostgREST から直接ルーティングされないため、RLS ポリシーの `USING` 句からの内部呼び出しに限定できる。
->
-> **本番運用上の注意**: `supabase/config.toml` はローカルスタックの設定であり、本番 Supabase プロジェクトで PostgREST に公開するスキーマは Supabase ダッシュボード（Project Settings > API > Exposed schemas）側の設定で決まる（マイグレーションからは変更できない）。既定値は `public, graphql_public` のみで `private` は含まれないため通常は安全だが、**本番のダッシュボードで Exposed schemas に `private` を追加しないこと**（追加すると `pl_adjustment_team` / `can_view_pl_adjustment` が RPC として直接呼び出し可能になり、上記の情報漏えい経路が復活する）。
+書き込みは経理・管理者のみ。SELECT は経理・管理者が全行、チームリーダーは対象行のチームが自チーム / 全体共通（recurring_costs.team IS NULL）/ 自分が作成した案件（matters.user_id = 自分の profiles.id）の売上・費用の行のみ（作成者の分岐は migration 29。matters / business / costs の RLS でチームリーダーが読める範囲と揃える）。public は不可。INSERT / UPDATE の WITH CHECK は `adjusted_by` が呼び出し本人の profiles.id であることも要求する。
 
-```sql
-CREATE SCHEMA IF NOT EXISTS private;
-REVOKE ALL ON SCHEMA private FROM anon, authenticated, PUBLIC;
-GRANT USAGE ON SCHEMA private TO authenticated;
-
-CREATE OR REPLACE FUNCTION private.pl_adjustment_team(
-  p_business_id bigint,
-  p_cost_id bigint,
-  p_recurring_cost_id bigint
-)
-RETURNS text
-LANGUAGE sql
-SECURITY DEFINER
-STABLE
-SET search_path = ''
-AS $$
-  SELECT CASE
-    WHEN p_business_id IS NOT NULL THEN (
-      SELECT matters.team FROM public.business
-      JOIN public.matters ON matters.id = business.matter_id
-      WHERE business.id = p_business_id
-    )
-    WHEN p_cost_id IS NOT NULL THEN (
-      SELECT matters.team FROM public.costs
-      JOIN public.matters ON matters.id = costs.matter_id
-      WHERE costs.id = p_cost_id
-    )
-    ELSE (
-      SELECT recurring_costs.team FROM public.recurring_costs
-      WHERE recurring_costs.id = p_recurring_cost_id
-    )
-  END
-$$;
-
-CREATE OR REPLACE FUNCTION private.can_view_pl_adjustment(
-  p_business_id bigint,
-  p_cost_id bigint,
-  p_recurring_cost_id bigint
-)
-RETURNS boolean
-LANGUAGE sql
-STABLE
-SET search_path = ''
-AS $$
-  SELECT public.auth_user_class() IN ('admin', 'accounting')
-      OR (
-        public.auth_user_class() = 'teamleader'
-        AND public.auth_user_team() IS NOT NULL
-        AND (
-          private.pl_adjustment_team(p_business_id, p_cost_id, p_recurring_cost_id) IS NULL
-          OR private.pl_adjustment_team(p_business_id, p_cost_id, p_recurring_cost_id) = public.auth_user_team()
-        )
-      )
-      -- migration 29 で追加: 自分が作成した案件の売上・費用の調整（作成者は
-      -- private.pl_label_matter_user（5.13）で取得。定期費用は NULL で該当しない）
-      OR (
-        public.auth_user_class() = 'teamleader'
-        AND private.pl_label_matter_user(NULL, p_business_id, p_cost_id) = (
-          SELECT p.id FROM public.profiles p WHERE p.user_id = auth.uid()
-        )
-      )
-$$;
-
--- private スキーマは PostgREST に公開されないため、EXECUTE を authenticated に
--- 許可しても直接の RPC 呼び出しはできない（RLS ポリシー内部からの呼び出しのみ）
-REVOKE EXECUTE ON FUNCTION private.pl_adjustment_team(bigint, bigint, bigint) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION private.pl_adjustment_team(bigint, bigint, bigint) TO authenticated;
-REVOKE EXECUTE ON FUNCTION private.can_view_pl_adjustment(bigint, bigint, bigint) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION private.can_view_pl_adjustment(bigint, bigint, bigint) TO authenticated;
-
-CREATE POLICY "profit_loss_adjustments_select_policy" ON profit_loss_adjustments
-    FOR SELECT TO authenticated
-    USING (private.can_view_pl_adjustment(business_id, cost_id, recurring_cost_id));
-
--- 書き込みは経理担当者・管理者のみ（対象行のチームは問わない。extra_entries /
--- recurring_costs と同じ方針で、チームリーダーには一切の書き込みを許可しない）。
--- adjusted_by は PostgREST 経由では任意の profiles.id を指定できてしまうため、
--- WITH CHECK で「adjusted_by が呼び出し本人の profiles.id と一致すること」も
--- 併せて要求する（budget_declarations_insert_policy と同じ理由。あちらはチーム
--- 協業のため UPDATE 側は縛っていないが、adjusted_by はアプリが常に呼び出し本人の
--- id を送るため、UPDATE も含めて縛ってもアプリの動作を妨げない）
-CREATE POLICY "profit_loss_adjustments_insert_policy" ON profit_loss_adjustments
-    FOR INSERT TO authenticated
-    WITH CHECK (
-      public.auth_user_class() IN ('admin', 'accounting')
-      AND EXISTS (
-        SELECT 1 FROM profiles p
-        WHERE p.id = profit_loss_adjustments.adjusted_by
-        AND p.user_id = (select auth.uid())
-      )
-    );
-
-CREATE POLICY "profit_loss_adjustments_update_policy" ON profit_loss_adjustments
-    FOR UPDATE TO authenticated
-    USING (public.auth_user_class() IN ('admin', 'accounting'))
-    WITH CHECK (
-      public.auth_user_class() IN ('admin', 'accounting')
-      AND EXISTS (
-        SELECT 1 FROM profiles p
-        WHERE p.id = profit_loss_adjustments.adjusted_by
-        AND p.user_id = (select auth.uid())
-      )
-    );
-
-CREATE POLICY "profit_loss_adjustments_delete_policy" ON profit_loss_adjustments
-    FOR DELETE TO authenticated
-    USING (public.auth_user_class() IN ('admin', 'accounting'));
-
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE profit_loss_adjustments TO authenticated, service_role;
-REVOKE ALL ON TABLE profit_loss_adjustments FROM anon;
-```
-
-> **確定中の編集ロック（Issue #148、migration 27）**: 上記の INSERT / UPDATE / DELETE ポリシーには、損益計算書で確定済みの月の調整を変更できないよう `NOT private.is_pl_month_closed(target_month)` が追加されている。`save_profit_loss_adjustment` も確定済みの月は `MONTH_CLOSED` 例外を返す。詳細は 5.14。
+- 調整行に team 列が無いため、対象（business → matters.team / costs → matters.team / recurring_costs.team）を辿る判定をヘルパ `private.pl_adjustment_team` / `private.can_view_pl_adjustment` に切り出している。
+- `pl_adjustment_team` は SECURITY DEFINER にしている。matters 等の RLS に委ねると、他チームの対象は「見えない = NULL」となり `can_view_pl_adjustment` が「全体共通」と誤認して表示を許可してしまうため。
+- **両関数は `private` スキーマに置く。** 呼び出し側が渡した id の行のチームを返すため、`public` に置くと PostgREST の RPC から直接呼べて他チームの `matters.team` の漏えい経路になる（id の総当たりで存在有無も分かる）。`private` は `supabase/config.toml` の `[api].schemas` に含めず、PostgREST から直接ルーティングされない。
+- **本番の注意**: PostgREST の公開スキーマは Supabase ダッシュボード（Project Settings > API > Exposed schemas）の設定で決まり、マイグレーションからは変えられない。既定は `public, graphql_public` のみで安全だが、**`private` を追加しないこと**（追加すると上記の漏えい経路が復活する）。
+- 確定済みの月の編集ロック（migration 27）: INSERT / UPDATE / DELETE のポリシーに `NOT private.is_pl_month_closed(target_month)`。詳細は 5.14。
 
 #### 実績額修正の原子的な保存（`save_profit_loss_adjustment`）
 
-`app/utils/supabase/profitLossAdjustments.ts` の保存処理は、この DB 関数を1回呼ぶだけで完結する。アプリ側で「元データ金額の取得 → 差分計算 → INSERT/UPDATE」を複数クエリに分けると、取得から書き込みまでの間に元データが変わる、または2人の経理担当者が同時に同じ対象へ保存する、といった競合の余地がある。本関数は対象行を `SELECT ... FOR UPDATE` でロックし、差分計算と `INSERT ... ON CONFLICT DO UPDATE`（部分 UNIQUE インデックスを一意性制約として使う upsert）を単一トランザクション（関数呼び出し1回）内で行うことでこれを解消する。
+保存処理（`app/utils/supabase/profitLossAdjustments.ts`）はこの関数を 1 回呼ぶだけで完結する。対象行を `FOR UPDATE` でロックして元データ金額を取得 → 差分計算 → 部分 UNIQUE インデックスへの upsert を 1 トランザクションで行い、取得から書き込みまでの間の元データ変更や同時保存の競合を防ぐ。
 
-SECURITY DEFINER にはしない（既定の SECURITY INVOKER のまま）。対象行（business / costs / recurring_costs）の SELECT・`profit_loss_adjustments` への書き込みはいずれも呼び出し元のロールで RLS がそのまま適用される。`pl_adjustment_team` / `can_view_pl_adjustment` とは異なり、対象データの SELECT 自体は経理担当者・管理者なら全行に許可されているため RLS 迂回の懸念はなく、`public` スキーマに置いて構わない。
-
-`adjusted_by` はクライアントから受け取らず、関数内で `auth.uid()` から解決する（PostgREST 経由でなりすまされることを防ぐ。上記 INSERT/UPDATE ポリシーの `WITH CHECK` と二重に担保する）。
-
-`p_actual_amount` は `adjustment_amount` / `source_amount_snapshot` の列精度（`numeric(15,2)`）に合わせて差分計算の直前に `round(…, 2)` する。画面側の `NumberInput`（`app/components/profitLoss/ProfitLossAdjustmentModal.tsx`）も `decimalScale={2}` で入力を小数第2位までに制限しており、両者を揃えることで「確認ダイアログの表示額」と「実際に保存される `adjustment_amount`」がずれる、または丸めにより差分が 0 になり `profit_loss_adjustments_amount_check` に想定外に抵触するケースを防ぐ。
-
-差分 0 で削除対象が無い場合（既存調整が無い行に元データと同額を入力した場合。Issue #139）は `deleted = false`・`adjustment_amount = 0` を返す。呼び出し側は `!deleted` を一律「保存しました」にせず、`adjustment_amount` とあわせて「変更なし」（`app/utils/profitLossAdjustmentToast.ts` の `resolveSaveAdjustmentOutcome`）として扱う。
-
-```sql
-CREATE OR REPLACE FUNCTION public.save_profit_loss_adjustment(
-  p_business_id bigint,
-  p_cost_id bigint,
-  p_recurring_cost_id bigint,
-  p_target_month date,
-  p_actual_amount numeric,
-  p_reason text
-)
-RETURNS TABLE (deleted boolean, source_amount numeric, adjustment_amount numeric)
-LANGUAGE plpgsql
-SET search_path = ''
-AS $$
-DECLARE
-  v_source_amount numeric;
-  v_actual_amount numeric;
-  v_adjustment_amount numeric;
-  v_adjusted_by bigint;
-  v_deleted_count integer;
-BEGIN
-  -- 対象は必ずちょうど1つ
-  IF num_nonnulls(p_business_id, p_cost_id, p_recurring_cost_id) <> 1 THEN
-    RAISE EXCEPTION '調整対象の指定が不正です';
-  END IF;
-
-  -- adjustment_amount / source_amount_snapshot は numeric(15,2) のため、差分計算前に
-  -- 実績額をここで丸める（丸めずに差分を取ると、確認ダイアログの表示額と実際に
-  -- 保存される差分がずれる場合がある）
-  v_actual_amount := round(p_actual_amount, 2);
-
-  SELECT p.id INTO v_adjusted_by FROM public.profiles p WHERE p.user_id = auth.uid();
-  IF v_adjusted_by IS NULL THEN
-    RAISE EXCEPTION 'プロフィールが見つかりません';
-  END IF;
-
-  -- 対象行をロックしたうえで元データ金額を取得する
-  IF p_business_id IS NOT NULL THEN
-    SELECT COALESCE(b.amount, 0) INTO v_source_amount
-    FROM public.business b WHERE b.id = p_business_id FOR UPDATE;
-  ELSIF p_cost_id IS NOT NULL THEN
-    SELECT c.price INTO v_source_amount FROM public.costs c WHERE c.id = p_cost_id FOR UPDATE;
-  ELSE
-    SELECT rc.price INTO v_source_amount
-    FROM public.recurring_costs rc WHERE rc.id = p_recurring_cost_id FOR UPDATE;
-  END IF;
-  IF v_source_amount IS NULL THEN
-    RAISE EXCEPTION '対象データが見つかりません';
-  END IF;
-
-  v_adjustment_amount := v_actual_amount - v_source_amount;
-
-  -- 差分 0（実績額 = 元データ）なら既存の調整を削除する。対象が無ければ
-  -- deleted = false を返し、呼び出し側が「変更なし」として扱えるようにする（Issue #139）
-  IF v_adjustment_amount = 0 THEN
-    DELETE FROM public.profit_loss_adjustments
-    WHERE target_month = p_target_month
-      AND business_id IS NOT DISTINCT FROM p_business_id
-      AND cost_id IS NOT DISTINCT FROM p_cost_id
-      AND recurring_cost_id IS NOT DISTINCT FROM p_recurring_cost_id;
-    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
-    RETURN QUERY SELECT (v_deleted_count > 0), v_source_amount, 0::numeric;
-    RETURN;
-  END IF;
-
-  -- 理由は必須（呼び出し側でも検証するが、直接の RPC 呼び出しに備える。
-  -- 判別できるよう固定のメッセージ文字列を使う）
-  IF btrim(p_reason) = '' THEN
-    RAISE EXCEPTION 'REASON_REQUIRED';
-  END IF;
-
-  -- 対象種別ごとに、対応する部分 UNIQUE インデックスを一意性制約として upsert する
-  -- （3種の対象で使う列が異なるため、1本の INSERT ... ON CONFLICT では書けない）
-  IF p_business_id IS NOT NULL THEN
-    INSERT INTO public.profit_loss_adjustments
-      (target_month, business_id, adjustment_amount, source_amount_snapshot, reason, adjusted_by)
-    VALUES (p_target_month, p_business_id, v_adjustment_amount, v_source_amount, btrim(p_reason), v_adjusted_by)
-    ON CONFLICT (business_id, target_month) WHERE business_id IS NOT NULL
-    DO UPDATE SET adjustment_amount = EXCLUDED.adjustment_amount,
-                  source_amount_snapshot = EXCLUDED.source_amount_snapshot,
-                  reason = EXCLUDED.reason, adjusted_by = EXCLUDED.adjusted_by;
-  ELSIF p_cost_id IS NOT NULL THEN
-    INSERT INTO public.profit_loss_adjustments
-      (target_month, cost_id, adjustment_amount, source_amount_snapshot, reason, adjusted_by)
-    VALUES (p_target_month, p_cost_id, v_adjustment_amount, v_source_amount, btrim(p_reason), v_adjusted_by)
-    ON CONFLICT (cost_id, target_month) WHERE cost_id IS NOT NULL
-    DO UPDATE SET adjustment_amount = EXCLUDED.adjustment_amount,
-                  source_amount_snapshot = EXCLUDED.source_amount_snapshot,
-                  reason = EXCLUDED.reason, adjusted_by = EXCLUDED.adjusted_by;
-  ELSE
-    INSERT INTO public.profit_loss_adjustments
-      (target_month, recurring_cost_id, adjustment_amount, source_amount_snapshot, reason, adjusted_by)
-    VALUES (p_target_month, p_recurring_cost_id, v_adjustment_amount, v_source_amount, btrim(p_reason), v_adjusted_by)
-    ON CONFLICT (recurring_cost_id, target_month) WHERE recurring_cost_id IS NOT NULL
-    DO UPDATE SET adjustment_amount = EXCLUDED.adjustment_amount,
-                  source_amount_snapshot = EXCLUDED.source_amount_snapshot,
-                  reason = EXCLUDED.reason, adjusted_by = EXCLUDED.adjusted_by;
-  END IF;
-
-  RETURN QUERY SELECT false, v_source_amount, v_adjustment_amount;
-END;
-$$;
-
-REVOKE EXECUTE ON FUNCTION public.save_profit_loss_adjustment(bigint, bigint, bigint, date, numeric, text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.save_profit_loss_adjustment(bigint, bigint, bigint, date, numeric, text) TO authenticated;
-```
+- SECURITY INVOKER（対象データの SELECT・調整の書き込みとも呼び出し元ロールの RLS が適用される。経理・管理者は全行を読めるため RLS 迂回の懸念がなく `public` に置ける）。
+- `adjusted_by` は `auth.uid()` から解決する。
+- `p_actual_amount` は列精度に合わせ差分計算の直前に `round(…, 2)` する（画面の `NumberInput` も小数第 2 位までに制限。ずれると差分が 0 になり CHECK に想定外に抵触する）。
+- 差分 0 は既存調整を削除する。削除対象が無ければ `deleted = false` かつ `adjustment_amount = 0` を返し、呼び出し側は「変更なし」として扱う（`resolveSaveAdjustmentOutcome`。migration 31）。
+- 差分が 0 でないのに理由が空なら `REASON_REQUIRED`。確定済みの月は `MONTH_CLOSED`。
 
 ### 5.13 profit_loss_labels テーブル
 
-> 書き込み（INSERT / UPDATE / DELETE）は経理担当者・管理者のみ。SELECT は経理担当者・管理者が全行、チームリーダーは対象のチーム（案件・明細は matters.team、定期費用は recurring_costs.team）が自チーム、全体共通（recurring_costs.team IS NULL）、または対象の案件を自分が作成した（`private.pl_label_matter_user` = 自分の profiles.id。ライブ集計で見える範囲と揃える）行のみ（profit_loss_adjustments と同じ方針）。チームリーダーにも上書き後のタイトルを表示するため SELECT は許可する。public ロールはアクセスできない。
->
-> 対象のチームの解決は `private.pl_label_team`（SECURITY DEFINER）で行う。`private.pl_adjustment_team`（5.12）と同じ理由で、matters 等の RLS に委ねず（他チームの対象が NULL = 全体共通に見えて誤って表示を許可しないため）、PostgREST に公開しない `private` スキーマに置く。
+書き込みは経理・管理者のみ（`updated_by` は呼び出し本人に限る）。SELECT は経理・管理者が全行、チームリーダーは対象のチームが自チーム / 全体共通 / 対象の案件を自分が作成した行（`private.pl_label_matter_user` = 自分の profiles.id。ライブ集計で見える範囲と揃える）（チームリーダーにも上書き後のタイトルを見せるため許可）。public は不可。
 
-```sql
-CREATE OR REPLACE FUNCTION private.pl_label_team(
-  p_matter_id bigint, p_business_id bigint, p_cost_id bigint, p_recurring_cost_id bigint
-)
-RETURNS text LANGUAGE sql SECURITY DEFINER STABLE SET search_path = ''
-AS $$
-  SELECT CASE
-    WHEN p_matter_id IS NOT NULL THEN (
-      SELECT matters.team FROM public.matters WHERE matters.id = p_matter_id
-    )
-    ELSE private.pl_adjustment_team(p_business_id, p_cost_id, p_recurring_cost_id)
-  END
-$$;
-
-CREATE OR REPLACE FUNCTION private.can_view_pl_label(
-  p_matter_id bigint, p_business_id bigint, p_cost_id bigint, p_recurring_cost_id bigint
-)
-RETURNS boolean LANGUAGE sql STABLE SET search_path = ''
-AS $$
-  SELECT public.auth_user_class() IN ('admin', 'accounting')
-      OR (
-        public.auth_user_class() = 'teamleader'
-        AND public.auth_user_team() IS NOT NULL
-        AND (
-          private.pl_label_team(p_matter_id, p_business_id, p_cost_id, p_recurring_cost_id) IS NULL
-          OR private.pl_label_team(p_matter_id, p_business_id, p_cost_id, p_recurring_cost_id) = public.auth_user_team()
-        )
-      )
-      OR (
-        public.auth_user_class() = 'teamleader'
-        AND private.pl_label_matter_user(p_matter_id, p_business_id, p_cost_id)
-            = (SELECT p.id FROM public.profiles p WHERE p.user_id = auth.uid())
-      )
-$$;
--- private.pl_label_matter_user: 対象（案件 / 売上明細 / 費用明細）の案件の matters.user_id を返す（SECURITY DEFINER）
-
-CREATE POLICY "profit_loss_labels_select_policy" ON profit_loss_labels
-    FOR SELECT TO authenticated
-    USING (private.can_view_pl_label(matter_id, business_id, cost_id, recurring_cost_id));
-
--- 書き込みは経理担当者・管理者のみ。updated_by は呼び出し本人の profiles.id に限る
-CREATE POLICY "profit_loss_labels_insert_policy" ON profit_loss_labels
-    FOR INSERT TO authenticated
-    WITH CHECK (
-      public.auth_user_class() IN ('admin', 'accounting')
-      AND EXISTS (SELECT 1 FROM profiles p WHERE p.id = profit_loss_labels.updated_by AND p.user_id = (select auth.uid()))
-    );
-CREATE POLICY "profit_loss_labels_update_policy" ON profit_loss_labels
-    FOR UPDATE TO authenticated
-    USING (public.auth_user_class() IN ('admin', 'accounting'))
-    WITH CHECK (
-      public.auth_user_class() IN ('admin', 'accounting')
-      AND EXISTS (SELECT 1 FROM profiles p WHERE p.id = profit_loss_labels.updated_by AND p.user_id = (select auth.uid()))
-    );
-CREATE POLICY "profit_loss_labels_delete_policy" ON profit_loss_labels
-    FOR DELETE TO authenticated
-    USING (public.auth_user_class() IN ('admin', 'accounting'));
-
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE profit_loss_labels TO authenticated, service_role;
-REVOKE ALL ON TABLE profit_loss_labels FROM anon;
-```
+対象のチーム解決は `private.pl_label_team`（SECURITY DEFINER）で、`pl_adjustment_team`（5.12）と同じ理由で RLS に委ねず `private` スキーマに置く。閲覧判定は `private.can_view_pl_label`。
 
 #### 表示タイトルの保存（`save_profit_loss_label`）
 
-`save_profit_loss_label(p_label, p_matter_id, p_business_id, p_cost_id, p_recurring_cost_id)`（対象の 4 引数は DEFAULT NULL で、ちょうど1つを指定する）。`p_label` の前後の空白を除去し、空なら既存のタイトルを削除（`deleted = true` を返す）、それ以外は対象の部分 UNIQUE インデックスに対する `INSERT ... ON CONFLICT (列) WHERE 列 IS NOT NULL DO UPDATE` で upsert する（部分 UNIQUE は PostgREST の upsert では推論できないため関数にしている。`save_profit_loss_adjustment` と同じ方式）。200 文字を超える場合は `LABEL_TOO_LONG` の例外。`updated_by` は `auth.uid()` から解決し、クライアントからは受け取らない。SECURITY INVOKER のため書き込み可否は上記 RLS がそのまま適用される。
+`p_label` の前後空白を除去し、空なら削除（`deleted = true`）、それ以外は対象の部分 UNIQUE インデックスへ upsert する（PostgREST の upsert では推論できないため関数にしている）。200 文字超は `LABEL_TOO_LONG`。`updated_by` は `auth.uid()` から解決。SECURITY INVOKER。
 
 ### 5.14 profit_loss_closings / profit_loss_closing_lines テーブル
 
-> 月次収支確定（Issue #148）。ヘッダ（profit_loss_closings）の SELECT はログインユーザー全員（担当者の案件編集時に「確定済みの月」の注意表示を出すため。金額を持たない）、DELETE（確定解除）は経理担当者・管理者のみ。**ヘッダ・明細の追加・更新はテーブルへの権限を authenticated に付与せず、確定用の RPC（`save_profit_loss_closing` / `apply_profit_loss_closing_diffs`。SECURITY DEFINER で関数内で経理担当者・管理者かを判定し、それ以外は `FORBIDDEN`）経由でのみ行う**。確定者・反映者（id と氏名）を RPC が auth.uid() から解決して書き込むため、PostgREST からの直接の書き込みで他人名義にしたり、経理担当者・管理者以外が書き込んだりできない。**ただし RPC は public スキーマにあり、経理担当者・管理者は PostgREST から直接呼べる。その場合の明細の値は検証しない**（集計し直した値を渡すのは Server Action の責務で、経理担当者・管理者は信頼する前提。損益調整の記録を残さずに確定値を変える操作まで防ぐには、RPC の EXECUTE を authenticated から外し service_role で呼ぶ構成に変える必要がある）。明細（profit_loss_closing_lines）の SELECT は経理担当者・管理者が全行、チームリーダーは `team = 自チーム OR team IS NULL`、または自分が作成した案件の明細（`matter_user_id` = 自分の profiles.id）（ライブ集計時の matters / business / costs / recurring_costs / extra_entries の RLS と同じ範囲。確定の前後でチームリーダーの表示範囲を変えない）、書き込みは RPC 経由のみ（確定解除時の削除はヘッダからの CASCADE）。public ロールは明細を読めない。anon は両テーブルとも権限なし。損益計算書改修（Issue #145）で追加した RPC（`save_profit_loss_label` / `save_profit_loss_closing` / `apply_profit_loss_closing_diffs` / `dismiss_profit_loss_closing_diffs` / `undo_profit_loss_closing_dismissals` / `save_extra_entries`）の EXECUTE は authenticated のみ（Supabase の既定で anon にも付く EXECUTE を `REVOKE ... FROM PUBLIC, anon` で外す）。
+月次収支確定（Issue #148）の権限:
 
-```sql
--- 確定済み判定（RLS の編集ロックから呼ぶ。private スキーマ・SECURITY DEFINER）
-CREATE OR REPLACE FUNCTION private.is_pl_month_closed(p_month date)
-RETURNS boolean LANGUAGE sql SECURITY DEFINER STABLE SET search_path = ''
-AS $$
-  SELECT p_month IS NOT NULL AND EXISTS (
-    SELECT 1 FROM public.profit_loss_closings c
-    WHERE c.target_month = date_trunc('month', p_month)::date
-  )
-$$;
+- ヘッダの SELECT は全ログインユーザー（担当者の案件編集画面で「確定済みの月」の注意を出すため。金額を持たない）。DELETE（確定解除）は経理・管理者のみ。
+- **ヘッダ・明細の追加・更新はテーブル権限を authenticated に付与せず、RPC（`save_profit_loss_closing` / `apply_profit_loss_closing_diffs`。SECURITY DEFINER で関数内で経理・管理者を判定し、それ以外は `FORBIDDEN`）経由のみ。** 確定者・反映者（id と氏名）を `auth.uid()` から解決するため、他人名義や権限外の書き込みはできない。
+- **ただし RPC は public スキーマにあり、経理・管理者は PostgREST から直接呼べ、その場合の明細の値は検証しない**（集計し直した値を渡すのは Server Action の責務で、経理・管理者は信頼する前提。損益調整の記録を残さず確定値を変える操作まで防ぐなら、RPC の EXECUTE を authenticated から外し service_role で呼ぶ構成に変える必要がある）。
+- 明細の SELECT は経理・管理者が全行、チームリーダーは `team = 自チーム OR team IS NULL`、または自分が作成した案件の明細（`matter_user_id` = 自分の profiles.id）（ライブ集計時の RLS と同じ範囲で、確定の前後で表示範囲を変えない）。public は明細を読めない。anon は両テーブルとも権限なし。
 
-CREATE POLICY "profit_loss_closings_select_policy" ON profit_loss_closings
-    FOR SELECT TO authenticated USING (true);
-CREATE POLICY "profit_loss_closings_delete_policy" ON profit_loss_closings
-    FOR DELETE TO authenticated
-    USING (public.auth_user_class() IN ('admin', 'accounting'));
+#### 確定中の編集ロック（migration 27）
 
-CREATE POLICY "profit_loss_closing_lines_select_policy" ON profit_loss_closing_lines
-    FOR SELECT TO authenticated
-    USING (
-      public.auth_user_class() IN ('admin', 'accounting')
-      OR (
-        public.auth_user_class() = 'teamleader'
-        AND (
-          (public.auth_user_team() IS NOT NULL
-           AND (profit_loss_closing_lines.team IS NULL OR profit_loss_closing_lines.team = public.auth_user_team()))
-          OR EXISTS (SELECT 1 FROM profiles p WHERE p.id = profit_loss_closing_lines.matter_user_id AND p.user_id = (select auth.uid()))
-        )
-      )
-    );
--- 追加・更新は RPC 経由のみ（下の GRANT で authenticated に INSERT / UPDATE を付与しない）
-REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE profit_loss_closings FROM authenticated;
-REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE profit_loss_closing_lines FROM authenticated;
-GRANT SELECT, DELETE ON TABLE profit_loss_closings TO authenticated;
-GRANT SELECT ON TABLE profit_loss_closing_lines TO authenticated;
-```
+- profit_loss_adjustments（5.12）と extra_entries（5.7）のポリシーに `NOT private.is_pl_month_closed(...)`（`private` の SECURITY DEFINER。`date_trunc` で月に丸めて確定済みか判定、NULL は false）を追加。`save_profit_loss_adjustment` は利用者に分かるよう関数の先頭でも判定し、固定文言の例外 `MONTH_CLOSED` を返す。
+- recurring_costs のポリシーは変更しない（定期費用マスタは確定済みの月があっても編集でき、確定済みの月の表示は確定明細から行うため影響しない）。
+- 案件の明細・定期費用の削除に伴う損益調整の CASCADE 削除は参照整合性のアクションで、RLS が適用されず妨げられない。
+- アプリ側（`bulkUpsertExtraEntry` / `deleteProfitLossAdjustment`）は、RLS に拒否された UPDATE / DELETE が 0 行になるだけである点を、書き込み前の判定・削除件数の確認で補い利用者にエラーを返す。
+- migration 34 以降は 6.4 のトリガーが RLS より先に判定するため、確定済みの月への INSERT と日付・対象月の変更（UPDATE の変更後の月）は RLS 違反ではなく `MONTH_CLOSED`（どちらも 42501）で拒否される。確定済みの月の行の UPDATE / DELETE は従来どおり RLS の USING で 0 行になる。
 
-#### 確定中の編集ロック（既存テーブルのポリシー変更。migration 27）
+#### 確定と書き込みの直列化（Issue #171、migration 34）
 
-- profit_loss_adjustments（5.12）: INSERT の WITH CHECK、UPDATE の USING / WITH CHECK、DELETE の USING に `NOT private.is_pl_month_closed(target_month)` を追加。`save_profit_loss_adjustment` は SECURITY INVOKER のため RLS が効くが、利用者に分かるよう関数の先頭でも判定し、確定済みの月は固定文言の例外 `MONTH_CLOSED` を返す
-- extra_entries（5.7）: INSERT の WITH CHECK（新しい entry_date の月）、UPDATE の USING（変更前の月）と WITH CHECK（変更後の月。従来 WITH CHECK は未指定で USING と同じだったため、経理担当者・管理者の条件も併せて明示）、DELETE の USING に `NOT private.is_pl_month_closed(entry_date)` を追加（entry_date が NULL の行は対象外）
-- recurring_costs のポリシーは変更しない（定期費用マスタは確定済みの月があっても編集できる。確定済みの月の表示は確定明細から行うため影響しない）
-- 案件の明細・定期費用の削除に伴う損益調整の CASCADE 削除は参照整合性のアクションで、RLS は適用されないため妨げられない
-- UPDATE / DELETE は RLS で拒否されても 0 行更新になるだけでエラーにならないため、アプリ側（`bulkUpsertExtraEntry` / `deleteProfitLossAdjustment`）は書き込み前の判定・削除件数の確認で利用者にエラーを返す。経理追加収支画面は全行をまとめて保存するため、保存済みで編集していない行は UPDATE せず、ロックの判定からも外す（確定済みの月の行を触らずに他の月の行を保存できる）
+RLS の `is_pl_month_closed` は文のスナップショットで評価されるため、READ COMMITTED では「書き込みが RLS を通過（未確定・未コミット）→ 確定がコミットし直後の再集計も書き込みを見ない → 書き込みがコミット」の順で、書き込みが確定値に含まれないままロックされていた（経理追加収支・管理費の調整は確定後の変更検知の対象外で誰も気付けない）。
+
+月単位の advisory lock（`private.lock_pl_month`、6.4）で直列化する。確定は対象月の**排他ロック**、損益調整・経理追加収支の書き込み（トリガー）は行の月の**共有ロック**を取り、書き込み側はロック取得後に確定済みかを判定し直す。
+
+- 確定より先にロックを取った書き込み: 確定はその終了まで待つため、確定のコミット後の再集計に必ず含まれ、違いがあれば確定値を取り直す。
+- 確定が先の場合: 書き込みは確定のコミットまで待ち、ロック取得後の判定で `MONTH_CLOSED` で拒否される（トランザクションごとロールバック。`save_extra_entries` も全体ロールバック）。
+- ロック取得後の判定が確定のコミットを見られるのは、READ COMMITTED の VOLATILE plpgsql 関数が式ごとに新しいスナップショットを取るため（トリガー内でロック取得と判定を別の文にしている）。PostgREST が READ COMMITTED（既定）であることが前提。
+- デッドロック: 保持中のロックを待つ循環は起きない（書き込みは共有ロック、確定は 1 つの月の排他ロックのみ）。複数月にまたがる書き込みと別月の確定が同時に待つと、待ち行列の公平性による一時的な待ちの循環（ソフトなデッドロック）は起こり得るが、PostgreSQL のデッドロック検出（`deadlock_timeout` 後）が待ち行列を並べ替えて解消するため、エラーにはならず待ちが延びるだけ。
+- 確定の解除・反映・見送りはロックを取らない（解除と競合した書き込みは、解除のコミット前に判定すれば確定済みとして拒否されるだけで確定値から漏れない）。
+- 塞がない経路: 案件（matters / business / costs）は確定済みの月でも編集でき、確定後の変更は確定明細とライブ集計の差分検知（5.15）で検出する。定期費用も確定後に編集でき、確定値には影響しない。
 
 #### 確定（`save_profit_loss_closing`）
 
-`save_profit_loss_closing(p_target_month date, p_lines jsonb, p_closing_id bigint DEFAULT NULL)`（SECURITY DEFINER。経理担当者・管理者以外は `FORBIDDEN`）は、ヘッダの追加と明細の全置換（既存明細の DELETE → `jsonb_to_recordset(p_lines)` の INSERT）を 1 回の関数呼び出し（= 1 トランザクション）で行う。途中で失敗（明細の CHECK 違反など）すると確定前の状態に完全にロールバックされる。`p_closing_id` が NULL のときは新規の確定のみ受け付け（`INSERT ... ON CONFLICT (target_month) DO NOTHING`）、既に確定済みの月なら `ALREADY_CLOSED` を返す（未確定の表示のまま残った古い画面から確定し、他の経理担当者の確定・見送りを黙って上書きしないため。Server Action は再読み込みを促す）。`p_closing_id` を指定したときは、確定直後の再検証による取り直しに限り、同じ月・自分が確定したヘッダ（id 一致）の確定者・確定日時を更新して反映者・反映日時をクリアし、見送り記録・明細を置き換える。一致しなければ（確定の直後に解除・確定し直された）`CLOSING_CHANGED`。closed_by / closed_by_name は `auth.uid()` から解決し、クライアントからは受け取らない。明細はサーバ（`app/utils/supabase/profitLossClosings.ts` の `closeProfitLossMonth`）が当月をライブ集計し直して組み立てる（クライアントから送られた金額は使わない）。集計から確定のコミットまでの間はまだ編集ロックが掛かっていないため、コミット後（= ロック後）にもう一度集計し、違いがあれば同じ関数に自分の確定の id を渡して取り直す（その間に他の経理担当者が保存した損益調整・経理追加収支が、確定値から漏れたままロックされるのを防ぐ）。確定解除はヘッダの DELETE（明細・見送り記録は CASCADE）。
+`save_profit_loss_closing(p_target_month, p_lines jsonb, p_closing_id bigint DEFAULT NULL)`（SECURITY DEFINER。経理・管理者以外は `FORBIDDEN`）は、ヘッダの追加と明細の全置換を 1 トランザクションで行う（途中失敗で確定前に完全ロールバック）。
+
+- `p_closing_id` NULL: 新規の確定のみ。既に確定済みなら `ALREADY_CLOSED`（古い画面から確定して他の経理の確定・見送りを黙って上書きしないため。Server Action は再読み込みを促す）。
+- `p_closing_id` 指定: 確定直後の再検証による取り直しに限り、同じ月・自分が確定したヘッダ（id 一致）の確定者・確定日時を更新し、反映者・反映日時をクリアし、見送り記録・明細を置き換える。一致しなければ `CLOSING_CHANGED`。
+- `closed_by` / `closed_by_name` は `auth.uid()` から解決する。明細はサーバ（`closeProfitLossMonth`、`app/utils/supabase/profitLossClosings.ts`）が当月をライブ集計し直して組み立て、クライアントの金額は使わない。集計から確定のコミットまでは編集ロックが掛かっていないため、コミット後にもう一度集計し、違いがあれば自分の確定の id を渡して取り直す。
+- 権限判定の後・書き込みの前に対象月の排他ロック（`private.lock_pl_month(p_target_month, true)`）を取る（migration 34）。
 
 ### 5.15 profit_loss_closing_dismissals テーブルと反映・見送りの関数
 
-> 確定後の変更の反映・見送り（Issue #149）。見送り記録の SELECT は経理担当者・管理者のみ（チームリーダーには確定値のみ表示し、アラート・差分は見せない）。追加・更新・削除はテーブルへの権限を authenticated に付与せず、見送り・取り消し・反映・確定の取り直しの RPC（SECURITY DEFINER で経理担当者・管理者かを判定）経由でのみ行う（見送った人と氏名を RPC が auth.uid() から解決するため、他人名義や経理担当者・管理者以外による書き込みはできない。経理担当者・管理者が RPC を直接呼んだ場合の値は検証しない。5.14 と同じ前提）。
+見送り記録の SELECT は経理・管理者のみ（チームリーダーには確定値だけ見せ、アラート・差分は見せない）。追加・更新・削除はテーブル権限を付与せず、RPC（SECURITY DEFINER）経由のみ（5.14 と同じ前提。経理・管理者が RPC を直接呼んだ場合の値は検証しない）。
 
-```sql
-CREATE POLICY "profit_loss_closing_dismissals_select_policy" ON profit_loss_closing_dismissals
-    FOR SELECT TO authenticated
-    USING (public.auth_user_class() IN ('admin', 'accounting'));
-REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE profit_loss_closing_dismissals FROM authenticated;
-GRANT SELECT ON TABLE profit_loss_closing_dismissals TO authenticated;
-```
+関数はいずれも SECURITY DEFINER・`SET search_path = ''`で、先頭で経理・管理者でなければ `FORBIDDEN`（42501）。値は Server Action がサーバ側でライブ集計し直して渡す。Server Action は画面で見ていた明細の状態（在否・実績額・チーム・分類）も受け取り、現在の状態と食い違えば反映・見送りを拒否する（利用者が見ていない変更を反映・見送りしない）。
 
-関数（いずれも SECURITY DEFINER・`SET search_path = ''`。先頭で `public.auth_user_class()` が経理担当者・管理者でなければ `FORBIDDEN`（SQLSTATE 42501）を返す。値は Server Action（`app/utils/supabase/profitLossClosings.ts`）がサーバ側でライブ集計し直したものを渡し、クライアントの値は使わない。Server Action は、画面で見ていた明細の状態（在否・実績額・チーム・分類）も受け取り、集計し直した現在の状態と食い違う場合は反映・見送りを拒否する＝利用者が見ていない変更を反映・見送りしない）:
+- `apply_profit_loss_closing_diffs(p_target_month, p_upsert_lines, p_delete_keys)`: 反映。確定ヘッダを `FOR UPDATE` でロック（未確定なら `NOT_CLOSED`）し、選択明細を確定明細へ upsert / delete、該当する見送り記録を削除、反映者・反映日時を更新する（確定者・確定日時は保持）。business / cost のみ。
+- `dismiss_profit_loss_closing_diffs(p_target_month, p_dismissals)`: 見送り。その時点のライブの状態を見送った人・日時とともに upsert する。
+- `undo_profit_loss_closing_dismissals(p_target_month, p_keys)`: 見送りの取り消し（未処理の差分に戻す）。
 
-- `apply_profit_loss_closing_diffs(p_target_month date, p_upsert_lines jsonb, p_delete_keys jsonb)`: 反映。確定ヘッダを `FOR UPDATE` でロックし（未確定なら `NOT_CLOSED`）、`p_upsert_lines`（ライブにある明細の最新の値。`save_profit_loss_closing` の明細と同じ形）を `ON CONFLICT (closing_id, source_type, source_id) DO UPDATE` で upsert、`p_delete_keys`（ライブに無い明細の `{source_type, source_id}`）を確定明細から削除、両方のキーの見送り記録を削除し、反映者（refreshed_by / refreshed_by_name）・反映日時を更新する（確定者・確定日時は保持）。source_type は business / cost のみ受け付ける。1 トランザクション
-- `dismiss_profit_loss_closing_diffs(p_target_month date, p_dismissals jsonb)`: 見送り。`{source_type, source_id, live_present, live_actual_amount, live_team, live_category}` の配列を、見送った人（auth.uid() から解決）・日時とともに upsert する（再見送りは見送った時点の状態・日時・人を更新）
-- `undo_profit_loss_closing_dismissals(p_target_month date, p_keys jsonb)`: 見送りの取り消し（見送り記録を削除して未処理の差分に戻す）
-- `save_profit_loss_closing`（5.14）は migration 28 で見送り記録の全削除を加えている（確定直後の取り直しではそれまでの見送りを破棄する。新規の確定では見送り記録は存在せず、確定解除では CASCADE で消える）
+### 5.16 リリース用の読み取り専用ロール（migration_reader。migration 36）
+
+リリース PR 作成ワークフロー（`.github/workflows/release-pr.yml`）が本番の `supabase migration list` を読むための専用ロール（アプリ・PostgREST・RLS からは使わない）。権限は `supabase_migrations.schema_migrations` の SELECT のみで、業務テーブルには権限が無く、接続情報が漏れても業務データは読めない（`pg_read_all_data` や `BYPASSRLS` も付けない）。パスワードはマイグレーションに書かず、本番で `psql` の `\password migration_reader` で設定する（ローカルではロールと権限だけ再現され接続には使えない）。接続情報の登録とローテーションは `docs/release.md` の「読み取り専用ロール」を参照。
 
 ## 6. トリガー
 
 ### 6.1 updated_at 更新トリガー
 
-全テーブルに対して、更新時に updated_at カラムを現在時刻で更新するトリガーを設定。
-
-`now()` はセッション TZ に依存せず `timestamptz` をそのまま返す（[1.3](#13-タイムゾーン方針) 参照）。`search_path = ''` は `20260523053903_07_harden_function_search_path.sql` で設定したもので、`CREATE OR REPLACE FUNCTION` は SET 句を含む関数属性も置き換えるため定義側で明示する。
-
-```sql
--- 更新時のタイムスタンプ更新関数
-CREATE OR REPLACE FUNCTION public.update_updated_at_column()
-RETURNS TRIGGER
-LANGUAGE plpgsql
-SET search_path = ''
-AS $$
-BEGIN
-    NEW.updated_at = now();
-    RETURN NEW;
-END;
-$$;
-
--- テーブルごとのトリガー設定
-CREATE TRIGGER update_profiles_updated_at
-    BEFORE UPDATE ON profiles
-    FOR EACH ROW
-    EXECUTE PROCEDURE update_updated_at_column();
-
-CREATE TRIGGER update_matters_updated_at
-    BEFORE UPDATE ON matters
-    FOR EACH ROW
-    EXECUTE PROCEDURE update_updated_at_column();
-
-CREATE TRIGGER update_costs_updated_at
-    BEFORE UPDATE ON costs
-    FOR EACH ROW
-    EXECUTE PROCEDURE update_updated_at_column();
-
-CREATE TRIGGER update_business_updated_at
-    BEFORE UPDATE ON business
-    FOR EACH ROW
-    EXECUTE PROCEDURE update_updated_at_column();
-
-CREATE TRIGGER update_recurring_costs_updated_at
-    BEFORE UPDATE ON recurring_costs
-    FOR EACH ROW
-    EXECUTE PROCEDURE update_updated_at_column();
-
-CREATE TRIGGER update_extra_entries_updated_at
-    BEFORE UPDATE ON extra_entries
-    FOR EACH ROW
-    EXECUTE PROCEDURE update_updated_at_column();
-
-CREATE TRIGGER update_budget_declarations_updated_at
-    BEFORE UPDATE ON budget_declarations
-    FOR EACH ROW
-    EXECUTE PROCEDURE update_updated_at_column();
-
-CREATE TRIGGER update_budget_declaration_items_updated_at
-    BEFORE UPDATE ON budget_declaration_items
-    FOR EACH ROW
-    EXECUTE PROCEDURE update_updated_at_column();
-
-CREATE TRIGGER update_budget_declaration_reminder_settings_updated_at
-    BEFORE UPDATE ON budget_declaration_reminder_settings
-    FOR EACH ROW
-    EXECUTE PROCEDURE update_updated_at_column();
-
-CREATE TRIGGER update_budget_recurring_items_updated_at
-    BEFORE UPDATE ON budget_recurring_items
-    FOR EACH ROW
-    EXECUTE PROCEDURE update_updated_at_column();
-
-CREATE TRIGGER update_profit_loss_adjustments_updated_at
-    BEFORE UPDATE ON profit_loss_adjustments
-    FOR EACH ROW
-    EXECUTE PROCEDURE update_updated_at_column();
-```
+`update_updated_at_column()`（`NEW.updated_at = now()`）を、`updated_at` を持つ業務テーブルの BEFORE UPDATE に設定している（select_option_types / select_options / profit_loss_closing_lines / dismissals を除く）。`search_path = ''` は migration 07 で設定したもので、`CREATE OR REPLACE FUNCTION` は SET 句も置き換えるため定義側で明示する。関数が `updated_at` を無条件に上書きするため、値を補正する UPDATE を書くときはトリガーを一時的に無効化する必要がある。
 
 ### 6.2 案件更新検知トリガー
 
-経理申請済み案件が更新された場合に、has_updates フラグを true に設定するトリガー
+`detect_matter_updates()`（BEFORE UPDATE ON matters）: 経理申請済み（`is_fixed`）かつ経理確認未完了（`is_completed = false`）の案件が更新されたら `has_updates` を true にする（経理側でのハイライト表示の元）。
 
-```sql
--- 案件更新検知関数
-CREATE OR REPLACE FUNCTION detect_matter_updates()
-RETURNS TRIGGER AS $$
-BEGIN
-    -- 経理申請済みで、かつ経理確認未完了の案件が更新された場合
-    IF OLD.is_fixed = TRUE AND NEW.is_fixed = TRUE AND NEW.is_completed = FALSE THEN
-        -- 更新フラグをONにする
-        NEW.has_updates = TRUE;
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+### 6.3 売上金額チェック
 
--- トリガー設定
-CREATE TRIGGER detect_matters_updates
-    BEFORE UPDATE ON matters
-    FOR EACH ROW
-    EXECUTE PROCEDURE detect_matter_updates();
-```
+経理申請時の売上金額 0 の警告は DB トリガーではなくアプリ側で実装している。
 
-### 6.3 売上金額チェックトリガー
+### 6.4 月次収支確定との直列化トリガー（Issue #171、migration 34）
 
-経理申請時に売上金額が 0 の場合に警告を表示するトリガー（アプリケーション側で実装）
+損益調整・経理追加収支の書き込みを同じ月の確定と直列化する BEFORE 行トリガー（設計の詳細は 5.14「確定と書き込みの直列化」）。
 
-```sql
--- この機能はアプリケーション側で実装
--- データベース側ではトリガーではなく、アプリケーションロジックで対応
-```
+- `private.lock_pl_month(p_month date, p_exclusive boolean)`: 月単位の advisory lock（`pg_advisory_xact_lock(148, YYYYMM)` / `..._shared`）。トランザクション終了まで保持。NULL は何もしない。SECURITY DEFINER。前月コピーの 140 とは別の名前空間（5.7）。
+- `private.guard_pl_closed_month_write()`（トリガー関数。SECURITY INVOKER）: `TG_ARGV[0]` の列（月）について、`row_security_active` が true（RLS が適用される利用者の書き込み）のときだけ、書き込んだ行の月（INSERT は新しい行、DELETE は元の行、UPDATE は変更前と変更後の両方）の共有ロックを取り、別の文で `is_pl_month_closed` を判定し直して確定済みなら `MONTH_CLOSED`（42501）で拒否する。
+- 対象は `profit_loss_adjustments`（`target_month`）と `extra_entries`（`entry_date`）。
+- BEFORE トリガーは RLS の WITH CHECK より先に走るため、書き込み権限の無い利用者（teamleader / public）の INSERT も RLS で拒否される前に共有ロックを取る（トランザクション終了で外れるため実害はない）。
+- anon: 日付ありの経理追加収支の INSERT は、`private` の関数を実行できず `permission denied` で拒否される（従来の RLS 違反とメッセージが違うだけで書き込めないのは同じ。日付なしの行はロックを取らず従来どおり RLS 違反）。損益調整は anon にテーブル権限が無く、トリガーより前に拒否される。
+- RLS をバイパスするロール（service_role・テーブル所有者）と、損益調整の CASCADE 削除（`row_security_active` が false）は対象外。
 
 ## 7. 認証フック（Custom Access Token Hook）
 
-`public.custom_access_token_hook(event jsonb)` は Supabase Auth がトークン発行/リフレッシュ時に呼び出すフック関数。`profiles.class` を JWT の `user_class` クレームに載せ、`middleware.ts` が制限ルートでのロール判定を DB クエリなし（JWT から直接読む）で行えるようにする。
+`public.custom_access_token_hook(event jsonb)` は Supabase Auth がトークン発行/リフレッシュ時に呼ぶフック。`profiles.class` を JWT の `user_class` クレームに載せ、`middleware.ts` が制限ルートのロール判定を DB クエリなしで行えるようにする（middleware 側の挙動・フォールバック・503 判定は [specification.md 3 章](specification.md) が正本）。定義は migration 15 を migration 16 で是正したもの。
 
-現在の定義（migration 15 を migration 16 で是正したもの）:
+- フェイルセーフ: `claims` が object でない場合や、uuid 不正・権限ドリフトなど想定外の例外では、`RAISE WARNING` のうえクレーム付与を諦めて `event` をそのまま返す（トークン発行自体は失敗させない）。
+- 実行は `supabase_auth_admin` のみ（`REVOKE ... FROM PUBLIC, authenticated, anon`）。`profiles.class` を読むため `supabase_auth_admin` 向けの SELECT ポリシーを追加し、テーブル権限は `SELECT (user_id, class)` の**列単位 GRANT** に絞る（RLS の `USING (true)` は行スコープの制御であり、email / slack_id / team などの PII 列は列単位 GRANT で読めないようにしている）。
+- 有効化:
+  - ローカル: `supabase/config.toml` の `[auth.hook.custom_access_token]`。フックは関数の存在が前提のため、pull 後は再起動だけでなく **`supabase db reset` でマイグレーションを適用する**（関数が無い状態でフックが有効だとトークン発行が失敗し、全ユーザーがログインできなくなる）。
+  - 本番: Supabase ダッシュボード（Authentication > Hooks）で「Custom Access Token」に `public.custom_access_token_hook` を設定する（**手動対応**）。マイグレーション適用前に有効化すると同様にログイン不能になるため、**適用後に有効化する**。
+- `class` の変更は、対象ユーザーのトークンのリフレッシュ（既定で最大約 1 時間）または再ログインまで JWT に反映されない。即時反映が必要な用途では middleware だけに依存しない。新規ユーザーの初回トークンはプロフィール作成前に発行されるため必ず `user_class: null` で、middleware が DB にフォールバックする。
+- PostgREST の `JWT issued at future`（`getUser()` は通るのに直後の REST が 401 になる）は、アプリや Supabase の設定ではなく PostgREST 側の不具合（現在時刻のキャッシュの誤読。上流 issue [#5172](https://github.com/PostgREST/postgrest/issues/5172) / [#5196](https://github.com/PostgREST/postgrest/issues/5196)）で、14.18 / 16.3 で修正済み。クライアントは `app/utils/supabase/postgrestFetch.ts` が同じトークンを短い待ち（200ms / 500ms の計 2 回）のあと再送する（refresh はしない。判定は**メッセージ一致のみ**。`PGRST303` は `JWT expired` など他の `JwtClaimsErr` と同じコードのため、コードだけで再試行すると期限切れトークンを無駄に再送する）。これは修正前バージョン向けの保険で、本番の PostgREST が 14.18 以上と確認できたら削除してよい（Supabase ダッシュボード → Settings → Infrastructure）。
 
-```sql
-CREATE OR REPLACE FUNCTION public.custom_access_token_hook(event jsonb)
-RETURNS jsonb
-LANGUAGE plpgsql
-STABLE
-SET search_path = ''
-AS $$
-DECLARE
-  claims jsonb;
-  user_class text;
-BEGIN
-  SELECT class INTO user_class
-  FROM public.profiles
-  WHERE user_id = (event->>'user_id')::uuid;
+## 8. 初期データ
 
-  claims := COALESCE(event->'claims', '{}'::jsonb);
-
-  -- claims キーが JSON null / 配列など object 以外の場合、jsonb_set は
-  -- "cannot set path in scalar" で例外を投げる（COALESCE は SQL NULL しか
-  -- 救えないため別ガードが必要）。空オブジェクトにリセットすると sub / exp / role 等の
-  -- 既存クレームを破棄した event を返すことになるため、クレーム付与を諦めて
-  -- event をそのまま返す（EXCEPTION 節と同じフェイルセーフ方針）。
-  IF jsonb_typeof(claims) IS DISTINCT FROM 'object' THEN
-    RAISE WARNING 'custom_access_token_hook: claims is not an object (%) for user_id=%, skipping',
-      jsonb_typeof(claims), event->>'user_id';
-    RETURN event;
-  END IF;
-
-  claims := jsonb_set(claims, '{user_class}', COALESCE(to_jsonb(user_class), 'null'::jsonb));
-
-  event := jsonb_set(event, '{claims}', claims);
-  RETURN event;
-EXCEPTION WHEN OTHERS THEN
-  -- user_id が uuid として不正な形式、権限ドリフトによる SELECT 権限不足など、
-  -- 想定外の要因も含めて全て捕捉し、クレーム付与を諦めて event をそのまま返す
-  -- （フェイルセーフ。トークン発行自体は失敗させない）。
-  RAISE WARNING 'custom_access_token_hook failed for user_id=%: % (SQLSTATE %)',
-    event->>'user_id', SQLERRM, SQLSTATE;
-  RETURN event;
-END;
-$$;
-
--- 実行はフック呼び出し元の supabase_auth_admin のみに許可する
-GRANT USAGE ON SCHEMA public TO supabase_auth_admin;
-GRANT EXECUTE ON FUNCTION public.custom_access_token_hook(jsonb) TO supabase_auth_admin;
-REVOKE EXECUTE ON FUNCTION public.custom_access_token_hook(jsonb) FROM PUBLIC, authenticated, anon;
-
--- フック関数が profiles.class を読めるよう、supabase_auth_admin 向けの SELECT ポリシーを追加
-CREATE POLICY "Auth admin can read profile class for token hook"
-  ON public.profiles AS PERMISSIVE FOR SELECT
-  TO supabase_auth_admin USING (true);
-
--- フックが実際に必要とするのは user_id / class の 2 列のみ。
--- テーブル全体への SELECT ではなく列単位の GRANT に絞り、email / slack_id / team
--- （migration 12 で一般ユーザーからの参照を制限した PII 列）を supabase_auth_admin から
--- も読めない状態に保つ（RLS の USING(true) は行スコープの制御であり、列スコープは
--- 別途この列単位 GRANT で絞る必要がある）。
-GRANT SELECT (user_id, class) ON TABLE public.profiles TO supabase_auth_admin;
-```
-
-**有効化**:
-
-- ローカル: `supabase/config.toml` の `[auth.hook.custom_access_token]`（`enabled = true` / `uri = "pg-functions://postgres/public/custom_access_token_hook"`）。フックは関数の存在を前提とするため、このブランチを pull した後は `supabase stop && supabase start` の再起動だけでなく **`supabase db reset` を実行してマイグレーションを適用すること**。関数が無い状態でフックが有効だとトークン発行自体が失敗し、全ユーザーがログインできなくなる。
-- 本番: Supabase ダッシュボード（Authentication > Hooks）で「Custom Access Token」に `public.custom_access_token_hook` を設定する（**手動対応が必要**）。マイグレーション適用前に有効化すると同様にログイン不能になるため、マイグレーション適用後に有効化すること。
-
-**注意点**:
-
-- `class` を変更しても、対象ユーザーのトークンがリフレッシュ（既定で最大約 1 時間）または再ログインするまで JWT に反映されない。制限ルートの `middleware.ts` によるゲーティングはこの遅延を許容する仕様とし、即時反映が必要な用途では別途対応すること。
-- `middleware.ts` は `user_class` クレームが有効な文字列でない場合（クレームキー自体が無い / 値が明示的に `null` / 空文字 / 文字列以外）は `profiles` への DB クエリにフォールバックする（フェイルセーフ）。`app/auth/callback/route.ts` はトークン発行（フック実行）の**後**に profiles 行を作成するため、新規ユーザーの初回トークンは必ず `user_class: null` になる。この場合もフォールバックすることで、直後の管理者によるロール付与を最大約 1 時間待たずに反映できる。
-- `middleware.ts` は `getUser()`（Supabase Auth サーバでの署名検証を伴う）で認証済みかどうかを判定したうえで、同じアクセストークンから `user_class` クレームを読む。`getSession()` はローカル Cookie を読むだけで署名検証を行わないため、認証の可否判定には使わない。`getUser()` が Supabase Auth 側の一時的障害を返した場合は、ログイン中ユーザーを一律 `/login` に飛ばさず 503 を返す（一時的障害と不正トークンを区別する）。判定は「`AuthRetryableFetchError`（fetch 自体の失敗と 502/503/504）**または** ステータス 5xx の `AuthApiError`」で行う。auth-js が `AuthRetryableFetchError` にするのは 502/503/504 のみで 500 は `AuthApiError` になるため、後者を含めないと Auth の 500 で全ユーザーが強制ログアウトされる。偽造・期限切れトークンは 401/403 になるためこの判定には混入しない。
-- PostgREST の `JWT issued at future` は、アプリの JWT 発行でも Supabase の設定でもなく、**PostgREST 側の不具合**で起きる。PostgREST は現在時刻を `auto-update` でキャッシュしており、これを誤って読むため有効なトークンでも散発的に `iat` が未来と判定される（上流 issue [#5172](https://github.com/PostgREST/postgrest/issues/5172) / [#5196](https://github.com/PostgREST/postgrest/issues/5196)）。修正は **14.18（2026-09-10）/ 16.3（2026-09-11）** で入っている。`getUser()` は通るが直後の REST（選択肢マスタなど）が 401 になる、という形で観測される。
-- クライアント側では `app/utils/supabase/postgrestFetch.ts` が **同じトークン** を短い待ち（200ms / 500ms の計 2 回）のあと再送する。refresh はしない（検証側の不具合なので新しいトークンでも再現し得る）。判定は**メッセージ一致のみ**で行う。`PGRST303` は `JwtClaimsErr` の総称コードで `JWT expired` / `JWT not yet valid` / `JWT not in audience` / `Parsing claims failed` も同じコードになるため、コードだけで再試行すると期限切れトークンを無駄に再送してしまう。
-- このラッパは恒久対策ではなく、修正前のバージョンが動いている間の保険。本番の PostgREST が 14.18 以上であることを確認できたら削除してよい（Supabase ダッシュボード → Settings → Infrastructure）。
-
-## 8. ER 図
-
-```mermaid
-erDiagram
-    profiles ||--o{ matters : "creates"
-    profiles ||--o{ extra_entries : "manages"
-    profiles ||--o{ budget_declarations : "declares"
-    profiles ||--o{ budget_declaration_items : "manages"
-    profiles ||--o{ budget_recurring_items : "manages"
-    profiles ||--o{ profit_loss_adjustments : "adjusts"
-    budget_declarations ||--o{ budget_declaration_items : "contains"
-    matters ||--o{ costs : "contains"
-    matters ||--o{ business : "has"
-    matters ||--o{ matters : "is parent of"
-    select_option_types ||--o{ select_options : "has"
-    business ||--o{ profit_loss_adjustments : "adjusted by"
-    costs ||--o{ profit_loss_adjustments : "adjusted by"
-    recurring_costs ||--o{ profit_loss_adjustments : "adjusted by"
-    profiles ||--o{ profit_loss_labels : "labels"
-    matters ||--o| profit_loss_labels : "titled by"
-    business ||--o| profit_loss_labels : "titled by"
-    costs ||--o| profit_loss_labels : "titled by"
-    recurring_costs ||--o| profit_loss_labels : "titled by"
-    profiles ||--o{ profit_loss_closings : "closes"
-    profit_loss_closings ||--o{ profit_loss_closing_lines : "contains"
-    profit_loss_closings ||--o{ profit_loss_closing_dismissals : "has"
-    profiles ||--o{ profit_loss_closing_dismissals : "dismisses"
-
-    profiles {
-        bigint id PK
-        uuid user_id FK
-        text email
-        text name
-        text slack_id
-        text class
-        text team
-        timestamp inserted_at
-        timestamp updated_at
-    }
-
-    matters {
-        bigint id PK
-        text title
-        text category
-        text team
-        text description
-        date start_date
-        boolean is_fixed
-        boolean is_completed
-        boolean has_updates
-        numeric total_cost
-        integer cost_count
-        numeric total_amount
-        integer business_count
-        text accounting_memo
-        integer unchecked_cost_count
-        bigint user_id FK
-        bigint parent_matter_id FK
-        timestamp inserted_at
-        timestamp updated_at
-    }
-
-    costs {
-        bigint id PK
-        text name
-        text item
-        text payment_target
-        numeric price
-        date period
-        text certificate
-        boolean withholding
-        boolean is_completed
-        text comment
-        bigint matter_id FK
-        timestamp inserted_at
-        timestamp updated_at
-    }
-
-    business {
-        bigint id PK
-        text name
-        date invoice_date
-        date period_date
-        numeric amount
-        boolean is_completed
-        bigint matter_id FK
-        timestamp inserted_at
-        timestamp updated_at
-    }
-
-    select_option_types {
-        uuid id PK
-        varchar name
-        varchar display_name
-        enum category
-        text description
-        integer display_order
-        timestamp created_at
-        timestamp updated_at
-    }
-
-    select_options {
-        serial id PK
-        uuid type_id FK
-        varchar value
-        integer display_order
-        boolean is_active
-        timestamp created_at
-        timestamp updated_at
-    }
-
-    recurring_costs {
-        bigint id PK
-        text name
-        text item
-        numeric price
-        text team
-        text payment_cycle
-        date start_month
-        date end_month
-        text comment
-        timestamp inserted_at
-        timestamp updated_at
-    }
-
-    extra_entries {
-        bigint id PK
-        text entry_type
-        text category
-        date entry_date
-        text invoice_number
-        text description
-        text billing_target
-        bigint manager_id FK
-        text team
-        numeric billing_amount
-        numeric expense_amount
-        text payment_method
-        timestamp inserted_at
-        timestamp updated_at
-    }
-
-    budget_declarations {
-        bigint id PK
-        date target_month
-        text team
-        bigint declared_by FK
-        text comment
-        timestamp inserted_at
-        timestamp updated_at
-    }
-
-    budget_declaration_items {
-        bigint id PK
-        bigint declaration_id FK
-        text entry_type
-        text category
-        text description
-        numeric amount
-        bigint manager_id FK
-        integer display_order
-        timestamp inserted_at
-        timestamp updated_at
-    }
-
-    budget_recurring_items {
-        bigint id PK
-        text team
-        text entry_type
-        text category
-        text description
-        numeric amount
-        bigint manager_id FK
-        date start_month
-        date end_month
-        integer display_order
-        timestamp inserted_at
-        timestamp updated_at
-    }
-
-    profit_loss_adjustments {
-        bigint id PK
-        date target_month
-        bigint business_id FK
-        bigint cost_id FK
-        bigint recurring_cost_id FK
-        numeric adjustment_amount
-        numeric source_amount_snapshot
-        text reason
-        bigint adjusted_by FK
-        timestamp inserted_at
-        timestamp updated_at
-    }
-
-    profit_loss_labels {
-        bigint id PK
-        bigint matter_id FK
-        bigint business_id FK
-        bigint cost_id FK
-        bigint recurring_cost_id FK
-        text label
-        bigint updated_by FK
-        timestamp inserted_at
-        timestamp updated_at
-    }
-
-    profit_loss_closings {
-        bigint id PK
-        date target_month
-        bigint closed_by FK
-        text closed_by_name
-        timestamp closed_at
-        bigint refreshed_by FK
-        text refreshed_by_name
-        timestamp refreshed_at
-        timestamp inserted_at
-        timestamp updated_at
-    }
-
-    profit_loss_closing_lines {
-        bigint id PK
-        bigint closing_id FK
-        text source_type
-        bigint source_id
-        bigint matter_id
-        bigint matter_user_id
-        text matter_title
-        text name
-        text category
-        text item
-        text team
-        text entry_type
-        date entry_date
-        text payment_cycle
-        numeric source_amount
-        numeric adjustment_amount
-        numeric actual_amount
-        text adjustment_reason
-        numeric billing_amount
-        numeric expense_amount
-    }
-
-    profit_loss_closing_dismissals {
-        bigint id PK
-        bigint closing_id FK
-        text source_type
-        bigint source_id
-        boolean live_present
-        numeric live_actual_amount
-        text live_team
-        text live_category
-        bigint dismissed_by FK
-        text dismissed_by_name
-        timestamp dismissed_at
-    }
-```
-
-## 9. 初期データ
-
-### 9.1 選択肢マスタ
-
-```sql
--- 選択肢の種類
-INSERT INTO select_option_types (name, display_name, category, display_order) VALUES
-    ('team', 'チーム', 'basic_info', 1),
-    ('category', '分類', 'basic_info', 2),
-    ('item', '品目', 'cost_info', 1),
-    ('certificate', '通知方法', 'cost_info', 2),
-    ('extra_income_category', '収入分類', 'business_info', 1),
-    ('extra_expense_category', '支出分類', 'cost_info', 3),
-    ('payment_method', '決済方法', 'cost_info', 4);
-
--- チーム選択肢
-INSERT INTO select_options (type_id, value, display_order) VALUES
-    ((SELECT id FROM select_option_types WHERE name = 'team'), 'シンラボ', 1),
-    ((SELECT id FROM select_option_types WHERE name = 'team'), 'SDGs', 2),
-    ((SELECT id FROM select_option_types WHERE name = 'team'), '広報', 3),
-    ((SELECT id FROM select_option_types WHERE name = 'team'), 'AI事業創出', 4),
-    ((SELECT id FROM select_option_types WHERE name = 'team'), 'ハロスク', 5),
-    ((SELECT id FROM select_option_types WHERE name = 'team'), '事務局', 6);
-
--- 案件分類選択肢
-INSERT INTO select_options (type_id, value, display_order) VALUES
-    ((SELECT id FROM select_option_types WHERE name = 'category'), '会員費', 1),
-    ((SELECT id FROM select_option_types WHERE name = 'category'), '受託案件', 2),
-    ((SELECT id FROM select_option_types WHERE name = 'category'), '認定ファシリ', 3),
-    ((SELECT id FROM select_option_types WHERE name = 'category'), '研修・検定', 4),
-    ((SELECT id FROM select_option_types WHERE name = 'category'), 'ボードゲーム', 5),
-    ((SELECT id FROM select_option_types WHERE name = 'category'), 'イベント', 6),
-    ((SELECT id FROM select_option_types WHERE name = 'category'), 'ハロスク', 7),
-    ((SELECT id FROM select_option_types WHERE name = 'category'), 'その他', 8);
-
--- 費目選択肢
-INSERT INTO select_options (type_id, value, display_order) VALUES
-    ((SELECT id FROM select_option_types WHERE name = 'item'), 'システム料', 1),
-    ((SELECT id FROM select_option_types WHERE name = 'item'), '施設利用料', 2),
-    ((SELECT id FROM select_option_types WHERE name = 'item'), '外注費', 3),
-    ((SELECT id FROM select_option_types WHERE name = 'item'), '備品購入', 4),
-    ((SELECT id FROM select_option_types WHERE name = 'item'), 'メンバー報酬', 5),
-    ((SELECT id FROM select_option_types WHERE name = 'item'), 'シンラボ活動費', 6),
-    ((SELECT id FROM select_option_types WHERE name = 'item'), '広告宣伝費', 7),
-    ((SELECT id FROM select_option_types WHERE name = 'item'), '教育・研修', 8),
-    ((SELECT id FROM select_option_types WHERE name = 'item'), '営業費', 9),
-    ((SELECT id FROM select_option_types WHERE name = 'item'), 'その他', 10);
-
--- 証憑選択肢
-INSERT INTO select_options (type_id, value, display_order) VALUES
-    ((SELECT id FROM select_option_types WHERE name = 'certificate'), '請求書', 1),
-    ((SELECT id FROM select_option_types WHERE name = 'certificate'), '領収書', 2);
-
--- 収入分類選択肢（経理追加収支用。暫定値のため管理画面で実運用に合わせて編集する）
-INSERT INTO select_options (type_id, value, display_order) VALUES
-    ((SELECT id FROM select_option_types WHERE name = 'extra_income_category'), '協賛金', 1),
-    ((SELECT id FROM select_option_types WHERE name = 'extra_income_category'), '助成金', 2),
-    ((SELECT id FROM select_option_types WHERE name = 'extra_income_category'), '受託収入', 3),
-    ((SELECT id FROM select_option_types WHERE name = 'extra_income_category'), 'その他収入', 4);
-
--- 支出分類選択肢（経理追加収支用。暫定値のため管理画面で実運用に合わせて編集する）
-INSERT INTO select_options (type_id, value, display_order) VALUES
-    ((SELECT id FROM select_option_types WHERE name = 'extra_expense_category'), '消耗品費', 1),
-    ((SELECT id FROM select_option_types WHERE name = 'extra_expense_category'), '交通費', 2),
-    ((SELECT id FROM select_option_types WHERE name = 'extra_expense_category'), '会議費', 3),
-    ((SELECT id FROM select_option_types WHERE name = 'extra_expense_category'), '通信費', 4),
-    ((SELECT id FROM select_option_types WHERE name = 'extra_expense_category'), 'その他経費', 5);
-
--- 決済方法選択肢（経理追加収支用）
-INSERT INTO select_options (type_id, value, display_order) VALUES
-    ((SELECT id FROM select_option_types WHERE name = 'payment_method'), '銀行振込', 1),
-    ((SELECT id FROM select_option_types WHERE name = 'payment_method'), 'クレジットカード', 2),
-    ((SELECT id FROM select_option_types WHERE name = 'payment_method'), '口座引き落とし', 3),
-    ((SELECT id FROM select_option_types WHERE name = 'payment_method'), '現金', 4);
-```
+選択肢マスタの初期値は `supabase/migrations/20260523053842_06_seed_select_options.sql` と、経理追加収支の追加（`extra_income_category` / `extra_expense_category` / `payment_method`。migration 14）で投入する。経理追加収支の収入分類・支出分類の値は暫定で、管理画面から実運用に合わせて編集する。

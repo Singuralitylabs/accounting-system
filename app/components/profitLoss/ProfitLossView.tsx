@@ -6,6 +6,7 @@ import {
   useProfitLossReport,
 } from "@/app/hooks/useProfitLossData";
 import { Alert, Group, Select, Tabs } from "@mantine/core";
+import dynamic from "next/dynamic";
 import { useState } from "react";
 import { CustomMonthPicker } from "../CustomMonthPicker";
 import { LoadingSpinner } from "../LoadingSpinner";
@@ -15,26 +16,39 @@ import ProfitLossStatement, {
   resolveBreakdownTab,
 } from "./ProfitLossStatement";
 import AnnualTrendTable from "./AnnualTrendTable";
+import AnnualTrendChartFrame, {
+  AnnualTrendChartPlaceholder,
+} from "./AnnualTrendChartFrame";
 import AccountingMasterActions from "./AccountingMasterActions";
 import CopyPreviousExtraEntriesButton from "./CopyPreviousExtraEntriesButton";
 import ClosingControl from "./ClosingControl";
 import ClosingDiffBanner from "./ClosingDiffBanner";
+import ClosingDiffScopeNote, {
+  isBeforeDiffScope,
+  isClosedMonthBeforeDiffScope,
+} from "./ClosingDiffScopeNote";
 import {
   useClosedMonths,
   useClosingDiffSummary,
 } from "@/app/hooks/useProfitLossClosing";
 
+// The annual trend chart pulls in Recharts, so it is kept out of the initial bundle and loaded when the annual tab shows, with a same-height placeholder in the frame.
+const loadAnnualTrendChart = () => import("./AnnualTrendChart");
+const AnnualTrendChart = dynamic(loadAnnualTrendChart, {
+  ssr: false,
+  loading: () => <AnnualTrendChartPlaceholder />,
+});
+
 type Props = {
   initialMonth: string; // "YYYY-MM"
   initialReport: PLReportType | null;
-  canEditRecurringCosts: boolean; // 定期費用マスタへの管理リンクを表示するか
-  canEditExtraEntries: boolean; // 経理追加収支への管理リンクを表示するか
-  canEditAdjustments: boolean; // 損益調整（実績額修正）の操作を表示するか
-  canEditLabels: boolean; // 表示タイトルの変更操作を表示するか
-  canClose: boolean; // 月次収支の確定・確定解除を操作できるか（Issue #148）
+  canEditRecurringCosts: boolean;
+  canEditExtraEntries: boolean;
+  canEditAdjustments: boolean;
+  canEditLabels: boolean;
+  canClose: boolean;
 };
 
-// 月キー（YYYY-MM）から年度（7月始まり）を求める
 const monthToFiscalYear = (month: string) => {
   const year = parseInt(month.slice(0, 4), 10);
   const monthNumber = parseInt(month.slice(5, 7), 10);
@@ -53,7 +67,6 @@ const ProfitLossView = ({
   const currentFiscalYear = monthToFiscalYear(initialMonth);
 
   const [activeTab, setActiveTab] = useState<string | null>("monthly");
-  // 月次の収支の内訳タブ（Issue #152。案件別 / チーム別）。月を切り替えても維持する
   const [breakdownTab, setBreakdownTab] = useState<BreakdownTab>(
     DEFAULT_BREAKDOWN_TAB,
   );
@@ -73,15 +86,17 @@ const ProfitLossView = ({
     isLoading: isTrendLoading,
     isError: isTrendError,
   } = useAnnualTrend(fiscalYear, undefined, activeTab === "annual");
-  // 確定済みの月（月ピッカーの目印）と、確定後に未反映の変更がある月（Issue #149。
-  // ページ上部のバナー・月ピッカー・年間推移の目印。経理担当者・管理者のみ）
   const { closedMonths } = useClosedMonths();
   const { data: diffSummary } = useClosingDiffSummary(canClose);
   const diffCountByMonth = new Map(
-    (diffSummary ?? []).map(({ month: m, count }) => [m, count]),
+    (diffSummary?.summary ?? []).map(({ month: m, count }) => [m, count]),
+  );
+  // Note the count scope when showing a closed month before the count's start month (not when the summary is unfetched or failed).
+  const diffScopeFromMonth = diffSummary?.fromMonth;
+  const hasClosedMonthBeforeDiffScope = Array.from(closedMonths).some((m) =>
+    isBeforeDiffScope(m, diffScopeFromMonth),
   );
 
-  // 年度の選択肢（当年度+1 〜 当年度-4）
   const fiscalYearOptions = Array.from({ length: 6 }, (_, i) => {
     const year = currentFiscalYear + 1 - i;
     return {
@@ -95,20 +110,31 @@ const ProfitLossView = ({
       <AccountingMasterActions
         canEditRecurringCosts={canEditRecurringCosts}
         canEditExtraEntries={canEditExtraEntries}
-        // 年間推移タブの表示中に月次タブ側の月を引き継ぐと、画面と一致しない
-        // ため月次タブのときだけ渡す
+        // Passing the monthly tab's month while on the annual tab would mismatch the screen.
         month={activeTab === "monthly" ? month : undefined}
       />
       {canClose && (
         <ClosingDiffBanner
-          summary={diffSummary ?? []}
+          summary={diffSummary?.summary ?? []}
+          scopeFromMonth={
+            hasClosedMonthBeforeDiffScope ? diffScopeFromMonth : undefined
+          }
           onSelectMonth={(selected) => {
             setActiveTab("monthly");
             setMonth(selected);
           }}
         />
       )}
-      <Tabs value={activeTab} onChange={setActiveTab}>
+      <Tabs
+        value={activeTab}
+        onChange={(value) => {
+          if (value === "annual") {
+            // Prefetch the chart in parallel; failures are swallowed since next/dynamic loads it again on display.
+            loadAnnualTrendChart().catch(() => {});
+          }
+          setActiveTab(value);
+        }}
+      >
         <Tabs.List>
           <Tabs.Tab value="monthly">月次</Tabs.Tab>
           <Tabs.Tab value="annual">年間推移</Tabs.Tab>
@@ -134,6 +160,19 @@ const ProfitLossView = ({
               }
             />
           </div>
+          {/* Note the marker scope for a closed month outside the count range. */}
+          {canClose &&
+            diffScopeFromMonth &&
+            isClosedMonthBeforeDiffScope(
+              month,
+              closedMonths.has(month),
+              diffScopeFromMonth,
+            ) && (
+              <ClosingDiffScopeNote
+                fromMonth={diffScopeFromMonth}
+                className="-mt-2 mb-4"
+              />
+            )}
           {isReportError ? (
             <Alert color="red" title="損益レポートの取得に失敗しました">
               時間をおいてページを再読み込みしてください。
@@ -164,9 +203,7 @@ const ProfitLossView = ({
                   />
                 </Group>
               )}
-              {/* 月ごとに作り直し、展開状態・差分一覧の選択を別の月へ持ち越さない
-                  （他の月へ移動した明細は両月で同じキーになるため、選択が残ると
-                  選んでいない月で反映してしまう） */}
+              {/* Recreated per month so expansion state and diff selection do not carry over to another month. */}
               <ProfitLossStatement
                 key={report.month}
                 report={report}
@@ -207,10 +244,17 @@ const ProfitLossView = ({
               年度を変えるか、時間をおいて再読み込みしてください。
             </Alert>
           ) : (
-            <AnnualTrendTable
-              trend={trend}
-              diffCountByMonth={diffCountByMonth}
-            />
+            <>
+              <AnnualTrendTable
+                trend={trend}
+                diffCountByMonth={diffCountByMonth}
+                diffScopeFromMonth={canClose ? diffScopeFromMonth : undefined}
+              />
+              {/* Render the chart only while the annual tab is shown: Tabs keeps hidden panels mounted (re-measured at width 0 and redrawn on every refetch), and Tabs.Panel keepMounted={false} is ORed with Tabs' own so it has no effect. */}
+              <AnnualTrendChartFrame fiscalYear={trend.fiscalYear}>
+                {activeTab === "annual" && <AnnualTrendChart trend={trend} />}
+              </AnnualTrendChartFrame>
+            </>
           )}
         </Tabs.Panel>
       </Tabs>

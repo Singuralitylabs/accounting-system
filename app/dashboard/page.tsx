@@ -1,15 +1,8 @@
-import { Suspense } from "react";
-import DynamicDashboard from "../components/dynamic/DynamicDashboard";
-import { LoadingSpinner } from "../components/LoadingSpinner";
+import { redirect } from "next/navigation";
 
+// /dashboard stays the navigation entry point (NAV_ITEMS / NavigationHub) and redirects to /dashboard/users.
 const DashboardPage = () => {
-  return (
-    <main className="p-4">
-      <Suspense fallback={<LoadingSpinner />}>
-        <DynamicDashboard />
-      </Suspense>
-    </main>
-  );
+  redirect("/dashboard/users");
 };
 
 export default DashboardPage;

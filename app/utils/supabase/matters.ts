@@ -8,15 +8,15 @@ import {
 } from "../matterListFilters";
 import { createServerSupabase } from "./clients";
 import { NO_ROWS_DELETED } from "./errorCodes";
+import { hasClassAccess, TEAM_MATTER_VIEW_CLASSES } from "../permissions";
 import { getProfileInfo } from "./profiles";
 
 export const getAllMatterInfoList = async (
   filters: MatterListFilters = {}
 ) => {
-  // Issue #16 の判断: 完了案件をデフォルトで隠さない。経理用一覧は完了案件の
-  // 確認も用途に含み、既存の並び順（is_completed 昇順）で未完了を先頭に寄せている。
-  // デフォルト非表示にすると一覧の表示内容が変わり、完了・通知の対象解決にも
-  // 影響するため、件数対策はクライアント側ページネーションで行う。
+  // Completed matters are not hidden by default: the accounting list also serves confirming completed
+  // matters (is_completed ascending puts incomplete first), and hiding would change the list and
+  // completion/notification resolution. Volume is handled by client-side pagination.
   const supabase = createServerSupabase();
   const userNames =
     filters.user_name && filters.user_name.length > 0
@@ -107,7 +107,7 @@ export const getTeamMatterInfoList = async () => {
   }
 
   if (
-    !["teamleader", "admin"].includes(profileInfo.class!) ||
+    !hasClassAccess(TEAM_MATTER_VIEW_CLASSES, profileInfo.class) ||
     !profileInfo.team
   ) {
     return null;
@@ -223,7 +223,7 @@ export const updateMatterInfo = async (matterInfo: MatterType) => {
     return { status: null, error };
   }
 
-  // RLS で 0 行 / 削除済みでも PostgREST は error なしで [] を返す。
+  // RLS-filtered or deleted rows return [] without an error.
   if (!status || status.length !== 1) {
     const emptyUpdateError = {
       message: `${matterInfo.title}の案件情報の更新対象が見つかりませんでした。`,
@@ -235,9 +235,7 @@ export const updateMatterInfo = async (matterInfo: MatterType) => {
   return { status, error: null };
 };
 
-// 複数案件を一括で確認完了（is_completed = true）にする。
-// 1件ずつ updateMatterInfo を呼ぶと Server Action の往復が件数分発生するため、
-// 一括 UPDATE 1回にまとめる。
+// One bulk UPDATE instead of a Server Action round trip per matter.
 export const bulkCompleteMatterInfo = async (matterIds: number[]) => {
   const supabase = createServerSupabase();
 
@@ -257,8 +255,7 @@ export const bulkCompleteMatterInfo = async (matterIds: number[]) => {
   return { error: null };
 };
 
-// 複数案件を一括で下書き（is_fixed = false）に戻す。
-// Slack 通知後の差し戻し処理で使用する。
+// Used for sending back after the Slack notice.
 export const bulkUnfixMatterInfo = async (matterIds: number[]) => {
   const supabase = createServerSupabase();
 
@@ -281,8 +278,7 @@ export const bulkUnfixMatterInfo = async (matterIds: number[]) => {
 export const deleteMatterInfo = async (id: number) => {
   const supabase = createServerSupabase();
 
-  // .select() を付けないと削除行が返らず、RLS で 0 行になっても error は null に
-  // なるため、削除できていないのに成功として扱われてしまう。
+  // Without .select() no deleted rows return, so RLS filtering to 0 rows would look like success.
   const { data: status, error } = await supabase
     .from("matters")
     .delete()
@@ -295,7 +291,7 @@ export const deleteMatterInfo = async (id: number) => {
   }
 
   if (!status || status.length !== 1) {
-    // DB 障害と区別できるよう code を持たせる（呼び出し元がメッセージを出し分ける）
+    // code lets callers distinguish this from a DB failure.
     const emptyDeleteError = {
       code: NO_ROWS_DELETED,
       message: `案件ID : ${id}の削除対象が見つかりませんでした。`,

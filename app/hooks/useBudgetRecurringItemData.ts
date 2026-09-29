@@ -16,7 +16,6 @@ import {
 } from "../utils/budgetDeclaration";
 import { notifyError, notifySuccess, toErrorMessage } from "../utils/notify";
 
-// 定期明細の一覧（管理セクション用。可視範囲は RLS が担保する）
 export const useBudgetRecurringItemList = (
   initialData?: BudgetRecurringItemType[] | null,
 ) => {
@@ -30,18 +29,16 @@ export const useBudgetRecurringItemList = (
       return items;
     },
     initialData: initialData ?? undefined,
-    staleTime: 2 * 60 * 1000, // 2分
+    staleTime: 2 * 60 * 1000,
     retry: retryUnlessForbidden,
   });
 };
 
-// 定期明細の一括登録・更新・削除（ステージング編集 + 一括保存）
 export const useSaveBudgetRecurringItems = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    // 非冪等な書き込み（削除を含む）のため、グローバル retry による
-    // mutationFn 再実行を防ぐ（useSaveBudgetDeclaration と同方針）
+    // Non-idempotent write (including deletes): prevent global retry.
     retry: 0,
     mutationFn: async (rows: BudgetRecurringItemInListType[]) => {
       const result = await bulkSaveBudgetRecurringItems(rows);
@@ -52,8 +49,7 @@ export const useSaveBudgetRecurringItems = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["budgetRecurringItems"] });
-      // 定期明細の変更は次に開く新規申告フォームの初期投入内容に影響するため、
-      // 対象月・チームを問わず無効化する
+      // Affects initial items of the next new declaration form regardless of month/team.
       queryClient.invalidateQueries({
         queryKey: ["budgetDeclarations", "activeRecurringItems"],
       });
@@ -71,9 +67,7 @@ export const useSaveBudgetRecurringItems = () => {
   });
 };
 
-// 対象月・チームの適用期間内の定期明細（新規申告フォームの初期投入用）。
-// usePreviousBudgetDeclarationItems と同じ理由で refetchOnMount: "always" にする
-// （他画面での定期明細の追加・変更を、フォームを開き直すたびに反映するため）
+// Refetch on mount (as in usePreviousBudgetDeclarationItems) so changes made elsewhere show when the form reopens.
 export const useActiveBudgetRecurringItems = (
   enabled: boolean,
   targetMonth: string,

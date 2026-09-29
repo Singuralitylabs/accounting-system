@@ -31,7 +31,6 @@ describe("useExpandedRows", () => {
     );
     expect(Array.from(result.current.expandedRows)).toEqual(["gross:matter"]);
 
-    // 初期表示で開いた行もトグル・collapseAll で閉じられる
     act(() => result.current.toggleRow("gross:matter"));
     expect(result.current.expandedRows.has("gross:matter")).toBe(false);
     act(() => result.current.expandAll(["gross:matter", "recurring:通信費"]));
@@ -40,7 +39,6 @@ describe("useExpandedRows", () => {
       "recurring:通信費",
     ]);
 
-    // 初期値は初回だけ使う（再レンダーで initialKeys を渡し直しても状態を上書きしない）
     rerender({ initialKeys: ["gross:matter"] });
     expect(result.current.expandedRows.has("gross:matter")).toBe(false);
   });

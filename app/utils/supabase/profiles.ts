@@ -1,8 +1,15 @@
 "use server";
 
 import { User } from "@supabase/supabase-js";
-import { AccessFailure, ProfilesType } from "../../types/types";
+import { AccessFailure } from "../../types/types";
 import { isAllowedEmailDomain } from "../constants";
+import { hasClassAccess, PROFILE_WRITE_CLASSES } from "../permissions";
+import {
+  formatUserValidationErrors,
+  ProfileUpdateInput,
+  toProfileDbRow,
+  validateUserUpdates,
+} from "../userList";
 import { getCachedProfileInfo, getCachedProfileInfoById } from "./requestCache";
 import { createServerSupabase } from "./clients";
 
@@ -24,8 +31,7 @@ export const getProfileInfoById = async (userId: string) => {
   }
 };
 
-// 取得失敗（DB 障害・権限エラー）と「0 件」を呼び出し元が区別できるよう、
-// error を握りつぶさず結果に含めて返す。
+// error is returned (not swallowed) so callers can tell a failure from 0 rows.
 export const getAllUserInfo = async () => {
   const supabase = createServerSupabase();
 
@@ -41,13 +47,10 @@ export const getAllUserInfo = async () => {
   return { userInfoList, error };
 };
 
-// 担当者選択の選択肢（全メンバーの id/name）を返す。profiles への直接 SELECT
-// （getAllUserInfo）は RLS で teamleader が自チームに絞られるため使えない
-// （事前収支申告は teamleader もアクセスでき、選択肢は全メンバーである必要がある）。
-// DB 関数 get_member_options（SECURITY DEFINER。migration 21）経由で取得する
-// エラー時のログは呼び出し元（利用箇所の文脈が分かる場所）に任せる。
-// ここで console.error すると、呼び出し元も別途ログする場合に同じエラーが
-// 2 回出力されてノイズになる（DynamicBudgetDeclarations.tsx 参照）
+// Returns all members' id/name for the manager picker. A direct profiles SELECT (getAllUserInfo) is
+// limited to the own team for teamleader by RLS, but budget declarations need all members, so use
+// get_member_options (SECURITY DEFINER, migration 21). Errors are logged by the caller (which has
+// the context) to avoid double logging (see DynamicBudgetDeclarations.tsx).
 export const getMemberOptions = async () => {
   const supabase = createServerSupabase();
 
@@ -58,10 +61,8 @@ export const getMemberOptions = async () => {
   return { memberOptions, error };
 };
 
-// 渡された id のうち実在する profiles.id のみを返す（事前収支申告の manager_id
-// 保存前検証用）。get_member_options() で全メンバーを取得して JS 側で照合する
-// こともできるが、保存のたびに全メンバー分の行を転送するのは無駄
-// （メンバー数が増えるほど悪化する）ため、id 集合だけを DB 側で照合する
+// Returns only ids that exist in profiles (pre-save manager_id check). Checking a set in the DB
+// avoids transferring all members via get_member_options() on every save.
 export const validateMemberIds = async (targetIds: number[]) => {
   const supabase = createServerSupabase();
 
@@ -73,20 +74,15 @@ export const validateMemberIds = async (targetIds: number[]) => {
   return { existingIds, error };
 };
 
-// 保存前に manager_id が実在する profiles.id か確認する共通ヘルパ。
-// 存在しない manager_id のまま書き込みへ進めると FK 違反（23503）という
-// 分かりにくいエラーで失敗するため、DB 書き込みの前にここで弾いてわかりやすい
-// エラーメッセージを返す。budgetRecurringItems.ts（明細の書き込みが非トランザクション
-// = 複数行の並列 INSERT/UPDATE）では存在しない manager_id により一部だけ反映された
-// 状態（partialWriteFailed）を防ぐ役割も兼ねるが、budgetDeclarations.ts の保存は
-// save_budget_declaration（migration 24）内の単一トランザクションで原子的に行われる
-// ため、このチェックを経ずに FK 違反が起きても保存前の状態に完全にロールバックされる。
-// 問題なければ null、問題があれば呼び出し元にそのまま返せる AccessFailure を返す
+// Shared pre-save check that manager_id exists in profiles: returns null if OK, otherwise an
+// AccessFailure to return as-is. Avoids an obscure FK violation (23503) and, for
+// budgetRecurringItems.ts (parallel non-transactional writes), a partial write
+// (partialWriteFailed). budgetDeclarations.ts saves in one transaction (save_budget_declaration,
+// migration 24), so an FK violation there rolls back fully.
 export const assertManagerIdsExist = async (
   managerIds: number[],
   subject: string,
-  // 「見つからない」場合の案内文の末尾（呼び出し元の画面遷移に合わせて変える。
-  // 例: "フォームを開き直して選び直してください。" / "画面を再読み込みして選び直してください。"）
+  // Suffix of the "not found" message, varied per caller's screen flow.
   notFoundHint: string,
 ): Promise<AccessFailure | null> => {
   if (managerIds.length === 0) return null;
@@ -120,8 +116,7 @@ export const insertUserInfo = async ({
   name: string;
   email: string;
 }) => {
-  // 多層防御: 呼び出し元（OAuth コールバック）でもドメイン検証しているが、
-  // プロフィール作成の最終段でも許可ドメイン外を弾く。
+  // Defense in depth: the OAuth callback also validates the domain; reject non-allowed domains at profile creation too.
   if (!isAllowedEmailDomain(email)) {
     console.warn(`許可されていないドメインのプロフィール作成を拒否しました: ${email}`);
     return { error: new Error("許可されていないドメインのメールアドレスです。") };
@@ -160,36 +155,100 @@ export const insertUserInfo = async ({
   }
 };
 
-export const updateUserInfo = async ({
-  profile,
-}: {
-  profile: ProfilesType;
-}) => {
-  const supabase = createServerSupabase();
+export type BulkUpdateProfilesResult = { error?: AccessFailure };
 
-  try {
-    const { error: updateError } = await supabase
-      .from("profiles")
-      .update({
-        slack_id: profile.slack_id,
-        class: profile.class,
-        team: profile.team,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", profile.id)
-      .select();
+const PROFILES_SAVE_FAILED: AccessFailure = {
+  kind: "fetchFailed",
+  message: "ユーザー情報の保存に失敗しました。何も保存されていません。",
+};
 
-    if (updateError) {
-      console.error(
-        `profilesテーブルへの${profile.id}の更新処理で失敗しました。`,
-        updateError
-      );
-      return { error: updateError };
-    }
-
-    return { error: null };
-  } catch (error) {
-    console.error("Unexpected error during update Profile:", error);
-    return { error };
+// Bulk save of role/team/Slack ID. `updates` are changed rows only (selectChangedUsers). Written by
+// update_profiles (migration 33; one transaction, one UPDATE): any failure rolls back everything.
+// Updating others' rows is admin-only via RLS (SECURITY INVOKER). Because this is a Server Action,
+// also require admin here before any validation or write (defense in depth), so no other user's
+// names leak through validation messages. NOT_APPLIED: RLS-rejected or missing rows; 42501: a
+// non-admin changing role/team; INVALID_INPUT (22023): bad input. The same validation as the UI
+// runs here, and written columns are limited by toProfileDbRow.
+export const bulkUpdateProfiles = async (
+  updates: ProfileUpdateInput[],
+): Promise<BulkUpdateProfilesResult> => {
+  // Not viewerAccess.getAuthorizedViewer: its logs/messages are view-oriented and it imports
+  // profiles.ts (circular import). Do the same profile fetch -> hasClassAccess here and record it as a save permission error.
+  const { profileInfo, error: profileError } = await getProfileInfo();
+  if (profileError || !profileInfo) {
+    console.error(
+      "ユーザー情報の保存前に、保存する人の権限を確認できませんでした。",
+      profileError,
+    );
+    return {
+      error: {
+        kind: "fetchFailed",
+        message:
+          "権限を確認できなかったため、何も保存しませんでした。時間をおいて保存し直してください。",
+      },
+    };
   }
+  if (!hasClassAccess(PROFILE_WRITE_CLASSES, profileInfo.class)) {
+    console.error(
+      `ユーザー情報を保存する権限がありません（管理者のみ）。profiles.id: ${profileInfo.id}`,
+    );
+    return {
+      error: {
+        kind: "forbidden",
+        message:
+          "ユーザー情報を保存する権限がありません（管理者のみ）。何も保存されていません。",
+      },
+    };
+  }
+
+  if (updates.length === 0) {
+    return {};
+  }
+
+  const validationErrors = validateUserUpdates(updates);
+  if (validationErrors.size > 0) {
+    return {
+      error: {
+        kind: "validationFailed",
+        message: `入力内容に誤りがあるため、何も保存しませんでした。（${formatUserValidationErrors(
+          updates,
+          validationErrors,
+        ).join("、")}）`,
+      },
+    };
+  }
+
+  const supabase = createServerSupabase();
+  const { error: rpcError } = await supabase.rpc("update_profiles", {
+    p_updates: updates.map(toProfileDbRow),
+  });
+  if (rpcError) {
+    // update_profiles rejects invalid input (missing keys, duplicate/null ids, disallowed role) as a
+    // whole with INVALID_INPUT (22023). 22023 can come from other causes, so match the exception message.
+    if (rpcError.message.includes("INVALID_INPUT")) {
+      return {
+        error: {
+          kind: "validationFailed",
+          message:
+            "入力内容が正しくないため、何も保存しませんでした。画面を再読み込みしてから保存し直してください。",
+        },
+      };
+    }
+    if (
+      rpcError.message.includes("NOT_APPLIED") ||
+      rpcError.code === "42501"
+    ) {
+      return {
+        error: {
+          kind: "validationFailed",
+          message:
+            "保存できないユーザーが含まれていたため、何も保存しませんでした。管理者権限が外れたか、ユーザーが削除された可能性があります。画面を再読み込みしてから保存し直してください。",
+        },
+      };
+    }
+    console.error("ユーザー情報の保存に失敗しました:", rpcError);
+    return { error: PROFILES_SAVE_FAILED };
+  }
+
+  return {};
 };

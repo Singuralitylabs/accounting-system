@@ -37,11 +37,9 @@ import {
 
 type Props = {
   matters: MatterBreakdown[];
-  // 案件の合計（集計側で計算した PLReportType.matterTotals。損益計算書の「案件」行と同じ値）
   totals: MatterTotals;
-  canEditAdjustments: boolean; // 実績額修正の操作を表示するか（accounting / admin）
-  isClosed?: boolean; // 確定済みの月か（Issue #148。実績額修正を無効化する）
-  // 確定後に未処理の変更がある明細（"business:1" 形式）・案件（Issue #149。変更アイコンを付ける）
+  canEditAdjustments: boolean;
+  isClosed?: boolean;
   changedKeys?: ReadonlySet<string>;
   changedMatterIds?: ReadonlySet<number>;
   loadingMatterId: number | null;
@@ -51,7 +49,7 @@ type Props = {
     label: string,
     detail: AdjustableAmount,
   ) => void;
-  canEditLabels: boolean; // 表示タイトルの変更操作を表示するか（accounting / admin）
+  canEditLabels: boolean;
   onEditTitle: (
     target: LabelTarget,
     originalTitle: string,
@@ -59,7 +57,6 @@ type Props = {
   ) => void;
 };
 
-// 確定後に未処理の変更がある行の目印（Issue #149）
 const ChangedIcon = ({ label }: { label: string }) => (
   <Tooltip label={label}>
     <span
@@ -73,8 +70,7 @@ const ChangedIcon = ({ label }: { label: string }) => (
   </Tooltip>
 );
 
-// 明細によって分類・チームが異なる案件の目印（Issue #152。確定済みの月で一部の明細
-// だけ反映した場合など。分類別の粗利・チーム別収支は明細ごとの分類・チームで集計している）
+// Matter whose lines have differing categories/teams (e.g. partially applied closed month); category and team totals aggregate per line.
 const MixedValuesIcon = ({ kind }: { kind: "分類" | "チーム" }) => {
   const target = kind === "分類" ? "損益計算書の分類別の粗利" : "チーム別収支";
   const label = `明細によって${kind}が異なります（確定後に一部の明細だけ反映した場合など）。${target}は明細ごとの${kind}で集計しています`;
@@ -92,7 +88,6 @@ const MixedValuesIcon = ({ kind }: { kind: "分類" | "チーム" }) => {
   );
 };
 
-// 金額 3 列（売上 / 案件費用 / 粗利）。null の列は空欄にする（明細行は該当列のみ）
 const AmountCells = ({
   revenue,
   cost,
@@ -121,10 +116,7 @@ const AmountCells = ({
   </>
 );
 
-// 案件別収支（案件 → 案件内訳。Issue #147、#152 でチームの階層を廃止しチームは列で表示）。
-// 案件は ID の昇順、案件内訳は売上明細 → 費用明細（各 ID 昇順）で、
-// 並び順は集計側（buildMatterBreakdowns）で確定済みのものをそのまま表示する。
-// 経理追加収支は案件ではないため含めない（損益計算書の売上総利益・管理費の内訳に表示する）
+// Per-matter results. Order (matter ID, then revenue lines -> cost lines by ID) is fixed by buildMatterBreakdowns. Extra entries are not matters and are shown elsewhere.
 const MatterProfitTable = ({
   matters,
   totals,
@@ -238,7 +230,7 @@ const MatterProfitTable = ({
             <Table.Th className="text-right w-32">売上</Table.Th>
             <Table.Th className="text-right w-32">案件費用</Table.Th>
             <Table.Th className="text-right w-32">粗利</Table.Th>
-            {/* 列見出しの名前は「操作」（一括開閉のボタンの文言を列名として読み上げないようにする） */}
+            {/* Column name is "操作" so the bulk-toggle button text is not read as the column name. */}
             <Table.Th className="w-36" aria-label="操作">
               <ExpandAllButtons
                 label="案件別収支"

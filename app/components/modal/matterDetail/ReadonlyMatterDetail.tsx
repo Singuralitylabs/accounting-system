@@ -15,8 +15,7 @@ type Props = {
 export function ReadonlyMatterDetail({ matterInfo, opened, setOpened }: Props) {
   const { data, isLoading } = useMatterDetail(matterInfo.id, opened, {
     staleTime: 0,
-    // QueryProvider が refetchOnMount: false のため、staleTime: 0 だけでは
-    // キャッシュがある再マウントで再取得されない。開くたびに最新を取る。
+    // QueryProvider sets refetchOnMount: false, so staleTime: 0 alone would not refetch on a cached remount; refetch on every open.
     refetchOnMount: "always",
   });
   const businessList = data?.businesses ?? [];
@@ -50,10 +49,8 @@ export function ReadonlyMatterDetail({ matterInfo, opened, setOpened }: Props) {
       <div className="relative">
         <LoadingOverlay visible={isLoading} />
 
-        {/* ステータスバッジ */}
         <div className="flex justify-end w-full mb-4">{getStatusBadge()}</div>
 
-        {/* 基本情報 */}
         <div className="mb-6">
           <h3 className="text-lg font-semibold mb-3 border-b pb-2">基本情報</h3>
           <Grid>
@@ -82,7 +79,6 @@ export function ReadonlyMatterDetail({ matterInfo, opened, setOpened }: Props) {
           </Grid>
         </div>
 
-        {/* 取引先情報 */}
         <div className="mb-6">
           <h3 className="text-lg font-semibold mb-3 border-b pb-2">
             取引先情報 ({businessList.length}件)
@@ -137,7 +133,6 @@ export function ReadonlyMatterDetail({ matterInfo, opened, setOpened }: Props) {
           )}
         </div>
 
-        {/* コスト情報 */}
         <div className="mb-6">
           <h3 className="text-lg font-semibold mb-3 border-b pb-2">
             コスト情報 ({costList.length}件)
@@ -213,7 +208,6 @@ export function ReadonlyMatterDetail({ matterInfo, opened, setOpened }: Props) {
           )}
         </div>
 
-        {/* 収支サマリー */}
         <div className="mb-4">
           <h3 className="text-lg font-semibold mb-3 border-b pb-2">
             収支サマリー
@@ -257,7 +251,6 @@ export function ReadonlyMatterDetail({ matterInfo, opened, setOpened }: Props) {
           </div>
         </div>
 
-        {/* 注意事項 */}
         <div className="bg-blue-50 p-3 rounded-lg">
           <div className="text-sm text-blue-700">
             <strong>ℹ️ チームリーダー権限</strong>

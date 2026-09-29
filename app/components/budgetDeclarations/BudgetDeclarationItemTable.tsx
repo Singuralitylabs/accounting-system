@@ -10,7 +10,7 @@ type Props = {
   declarationId: number;
 };
 
-// コメントは明細の有無に関わらず表示する（明細 0 件の申告でも DB 上は成立する）
+// Shown regardless of items (a declaration with 0 items is valid).
 const Comment = ({ comment }: { comment: string | null }) =>
   comment ? (
     <p className="mt-2 whitespace-pre-wrap text-sm text-gray-600">
@@ -18,8 +18,6 @@ const Comment = ({ comment }: { comment: string | null }) =>
     </p>
   ) : null;
 
-// 一覧の行を開いたときに表示する明細（参照のみ）。
-// 申告の作成・編集フォームは別 Issue（#87）で追加する。
 const BudgetDeclarationItemTable = ({ declarationId }: Props) => {
   const {
     data: detail,
@@ -40,7 +38,6 @@ const BudgetDeclarationItemTable = ({ declarationId }: Props) => {
     return <LoadingSpinner />;
   }
 
-  // 申告そのものが見つからない（削除された / RLS で見えない）
   if (!detail) {
     return (
       <Alert color="gray" title="申告が見つかりません">
@@ -49,7 +46,7 @@ const BudgetDeclarationItemTable = ({ declarationId }: Props) => {
     );
   }
 
-  // ヘッダはあるが明細が 0 件。コメントだけが登録されている場合があるため表示する
+  // Header exists but 0 items; a comment may still be registered.
   if (detail.items.length === 0) {
     return (
       <>

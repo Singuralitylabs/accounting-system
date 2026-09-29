@@ -47,7 +47,7 @@ const UserCostBlock = ({
     onCostUpdate({ ...costInfo, ...updates });
   };
 
-  // 申請済みの案件でも、新規追加された項目は編集可能
+  // Newly added items stay editable even in submitted matters.
   const isItemDisabled = isFixed && !costInfo.isNew;
   const lgBgColor = formType === "new" ? "lg:bg-slate-50" : "lg:bg-white";
 

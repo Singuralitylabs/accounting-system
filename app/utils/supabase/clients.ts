@@ -5,13 +5,10 @@ import type { Database } from "@/app/lib/database.types";
 import { createPostgrestFetch } from "./postgrestFetch";
 
 /**
- * Server Component / Server Action / Route Handler 用の Supabase クライアント。
- * `"use server"` ファイルからは async 関数しか export できないため、
- * このモジュールには `"use server"` を付けない。
- *
- * RSC からの cookie set は失敗するので try/catch で無視する。
- * トークンリフレッシュの Set-Cookie は middleware が担う。
- * Route Handler（`app/auth/callback`）では setAll が実際に効く。
+ * Supabase client for Server Components / Server Actions / Route Handlers. No `"use server"` here:
+ * such files may only export async functions.
+ * Cookie sets from RSC fail and are ignored (middleware handles the refresh Set-Cookie); in Route
+ * Handlers (`app/auth/callback`) setAll works.
  */
 export const createServerSupabase = () => {
   const cookieStore = cookies();
@@ -30,7 +27,7 @@ export const createServerSupabase = () => {
               cookieStore.set(name, value, options),
             );
           } catch {
-            // Server Component からは cookie を書けない
+            // RSC cannot set cookies; middleware handles the refresh.
           }
         },
       },
@@ -40,12 +37,9 @@ export const createServerSupabase = () => {
 };
 
 /**
- * cron ルート（`app/api/cron/budget-declaration-reminder/route.ts`）限定の
- * server-only な service role クライアント。cron 実行には認証セッション（cookie）が無く
- * createServerSupabase（anon key + RLS）では読めないため、ここだけ RLS をバイパスする
- * service role キーを使う。読み取り専用の用途に限り、キーはこのクライアント外に出さない。
- * 他の用途（Server Component / Server Action / Route Handler の通常アクセス）には
- * createServerSupabase を使うこと。
+ * Server-only service-role client for the cron route (`app/api/cron/budget-declaration-reminder/route.ts`)
+ * only: cron has no session cookie, so the anon key + RLS cannot read. Bypasses RLS, so use for
+ * read-only purposes and never expose the key. Use createServerSupabase everywhere else.
  */
 export const createServiceRoleSupabase = () =>
   createClient<Database>(

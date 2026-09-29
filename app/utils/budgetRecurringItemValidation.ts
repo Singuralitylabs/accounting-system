@@ -1,9 +1,5 @@
-// 事前収支申告の定期明細（budget_recurring_items）管理セクションのバリデーション
-// 純粋関数。DB アクセス（"use server" が付く app/utils/supabase/budgetRecurringItems.ts）
-// から切り離しているのは、副作用なしでユニットテストできるようにするため
-// （docs/testing.md「2.6 テスト容易化リファクタリング方針」）。budget_declaration_items
-// と値域が重なる項目（entry_type / amount 上限 / manager_id）は
-// budgetDeclarationValidation.ts の定数・判定を再利用し、二重定義を避ける。
+// Pure validation for the budget_recurring_items admin section. Values shared with
+// budget_declaration_items (entry_type / amount cap / manager_id) reuse budgetDeclarationValidation.ts.
 
 import { BudgetRecurringItemInListType } from "../types/types";
 import {
@@ -34,12 +30,8 @@ export const BUDGET_RECURRING_ITEM_VALIDATION_MESSAGES: Record<
   category: "分類がマスタに登録されていない行があります。選び直してください。",
 };
 
-// 明細 1 行の妥当性。"ok" 以外は理由を返し、呼び出し側でメッセージを出し分ける。
-// entry_type / category / description の必須チェックと amount / manager_id の
-// 値域チェックは budget_declaration_items と共通のため
-// budgetDeclarationValidation.ts の validateBudgetDeclarationItem に委譲し、
-// 二重定義（値域を変えたときの片側直し忘れ）を避ける。team・start_month の
-// 必須チェックと適用期間（period）のチェックだけをここに残す
+// Delegates the shared checks to validateBudgetDeclarationItem to avoid double definitions; only
+// the team / start_month required checks and the period check stay here.
 export const validateBudgetRecurringItem = (
   row: BudgetRecurringItemInListType,
   masters?: BudgetDeclarationCategoryMaster,
@@ -55,7 +47,7 @@ export const validateBudgetRecurringItem = (
   if (commonResult === "manager_id") return "manager_id";
   if (commonResult === "category") return "category";
 
-  // 月初日どうしの比較のため文字列の先頭7文字（YYYY-MM）の辞書順比較でよい
+  // Both are month-start dates, so lexical comparison of YYYY-MM is enough.
   if (
     row.end_month &&
     row.end_month.slice(0, 7) < row.start_month.slice(0, 7)
@@ -65,7 +57,7 @@ export const validateBudgetRecurringItem = (
   return "ok";
 };
 
-// 削除予定でない行すべてを検証する。最初に見つかった不備の理由を返す
+// Returns the first problem found.
 export const validateBudgetRecurringItemList = (
   rows: readonly BudgetRecurringItemInListType[],
   masters?: BudgetDeclarationCategoryMaster,

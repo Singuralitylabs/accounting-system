@@ -5,7 +5,6 @@ import {
 } from "../types/types";
 import { currentJstMonth, isMonthKey } from "./formatter";
 
-// 経理追加収支の種別定義（extra_entries.entry_type の値域）
 const ENTRY_TYPE_LABELS: Record<string, string> = {
   income: "収入",
   expense: "支出",
@@ -14,22 +13,18 @@ const ENTRY_TYPE_LABELS: Record<string, string> = {
 export const formatEntryType = (entryType: string): string =>
   ENTRY_TYPE_LABELS[entryType] ?? entryType;
 
-// 収入エントリか（損益計算書の明細行 ExtraEntryLine の entryType で判定する）
 export const isIncomeExtraEntry = (entry: { entryType: string }): boolean =>
   entry.entryType === "income";
 
-// 種別 Select の選択肢（income/expense）。事前収支申告の明細フォーム
-// （BudgetDeclarationForm）と定期明細管理セクション（BudgetRecurringItemList）で共用する
+// Shared by BudgetDeclarationForm and BudgetRecurringItemList.
 export const ENTRY_TYPE_OPTIONS = [
   { value: "income", label: formatEntryType("income") },
   { value: "expense", label: formatEntryType("expense") },
 ];
 
-// 一覧の行データを DB 書き込み用の形に変換する（INSERT / UPDATE 共通）
-// 種別ごとの項目の整合性（収入=請求額あり・決済方法なし / 支出=経費・決済方法あり、
-// 収入専用項目なし）はここで揃え、DB の CHECK 制約
-// （extra_entries_type_fields_check）でも担保する。
-// updated_at は DB トリガー（update_extra_entries_updated_at）が now() で設定する
+// Shared by INSERT / UPDATE. Per-type field consistency (income: billed amount, no payment method;
+// expense: expense and payment method, no income-only fields) is aligned here and enforced by the
+// DB CHECK extra_entries_type_fields_check. updated_at is set by a DB trigger.
 export const toExtraEntryDbRow = (entry: ExtraEntryInListType) => {
   const isIncome = entry.entry_type === "income";
   return {
@@ -42,14 +37,13 @@ export const toExtraEntryDbRow = (entry: ExtraEntryInListType) => {
     manager_id: entry.manager_id,
     team: entry.team,
     billing_amount: isIncome ? entry.billing_amount : null,
-    // 経費は収入時は任意（未入力 = null）、支出時は必須
+    // Expense is optional for income, required for expense.
     expense_amount: entry.expense_amount,
     payment_method: isIncome ? null : entry.payment_method,
   };
 };
 
-// 保存済みの行が編集されていないか（DB に書き込む項目がすべて読み込み時の値と同じか）。
-// 比較する項目は toExtraEntryDbRow が書き込む項目から導くため、列を追加しても比較から漏れない
+// Compared fields derive from toExtraEntryDbRow, so new columns are not missed.
 export const isExtraEntryUnchanged = (
   original: ExtraEntryType,
   entry: ExtraEntryInListType,
@@ -58,7 +52,7 @@ export const isExtraEntryUnchanged = (
   return (Object.keys(next) as (keyof typeof next)[]).every((key) => {
     const before = original[key];
     const after = next[key];
-    // 金額は numeric のため、数値として比較する（"100.00" と 100 など）
+    // numeric: compare as numbers ("100.00" vs 100).
     if (typeof before === "number" || typeof after === "number") {
       return (
         (before === null && after === null) ||
@@ -69,45 +63,36 @@ export const isExtraEntryUnchanged = (
   });
 };
 
-// 経理追加収支画面（/extra-entries）の初期の対象月を解決する（純粋関数）。
-// `?month=YYYY-MM` が有効な月キーならその月、無効・未指定なら当月（JST）。
-// 損益計算書の「経理追加収支を管理」ボタンは表示中の対象月を `?month=` に付けて遷移する。
+// `?month=YYYY-MM` if valid, otherwise the current month (JST).
 export const resolveExtraEntryMonth = (
   monthParam: string | null | undefined,
   now: Date = new Date(),
 ): string =>
   monthParam && isMonthKey(monthParam) ? monthParam : currentJstMonth(now);
 
-// 一括保存でサーバへ送る行（追加・削除・編集した行）を選ぶ。
-// baseline は画面に読み込んだ時点の保存済みの行（id → 行）。編集していない行は送らない
-// （他の利用者がその後に保存した内容を、読み込み時点の値で上書きしない。確定済みの月の
-// 行を触っていなければ、その行は確定中の編集ロック（Issue #148）の判定対象にもならない）
+// baseline = saved rows as loaded. Unedited rows are not sent so another user's later save is not
+// overwritten with stale values (and untouched closed-month rows stay out of the edit-lock check).
 export const selectChangedExtraEntries = (
   rows: ExtraEntryInListType[],
   baseline: ReadonlyMap<number, ExtraEntryType>,
 ): ExtraEntryInListType[] =>
   rows.filter((row) => {
-    if (row.isNew) return !row.isRemoved; // 未保存の行の取り消しは送らない
+    if (row.isNew) return !row.isRemoved;
     if (row.isRemoved) return true;
     const base = baseline.get(row.id);
     return !base || !isExtraEntryUnchanged(base, row);
   });
 
-// ===== 前月の経理追加収支コピー（損益計算書 月次タブ「前月の経理追加収支をコピー」用） =====
-// Supabase アクセス（app/utils/supabase/extraEntries.ts）から切り離しているのは、
-// 副作用なしでユニットテストできるようにするため（docs/testing.md「2.6」）。
+// ===== Copy previous month's extra entries (profit and loss monthly tab) =====
 
-// 対象月（YYYY-MM）の日数。Date のローカルコンストラクタ/ゲッターのみで計算し、
-// toISOString 等の UTC 変換を経由しないため TZ の影響を受けない
-// （formatter.ts の toDateString / parseDateString と同じ方式）。
+// Uses only local Date constructor/getters (no UTC conversion), so it is TZ-independent.
 const daysInMonth = (targetMonth: string): number => {
   const year = parseInt(targetMonth.slice(0, 4), 10);
   const month = parseInt(targetMonth.slice(5, 7), 10);
   return new Date(year, month, 0).getDate();
 };
 
-// 日付文字列（YYYY-MM-DD）の日をそのまま、月だけを targetMonth（YYYY-MM）に置き換える。
-// 対象月にその日が無い場合（例: 31日→2月）は対象月の末日に丸める。
+// Keeps the day, swaps the month; rounds to the last day when it does not exist (e.g. 31 -> Feb).
 export const shiftDateToMonth = (
   dateStr: string,
   targetMonth: string,
@@ -117,11 +102,8 @@ export const shiftDateToMonth = (
   return `${targetMonth}-${String(clampedDay).padStart(2, "0")}`;
 };
 
-// 前月の経理追加収支明細 → 当月への複製用データを組み立てる（純粋関数）。
-// id・inserted_at・updated_at は複製しない（新規行として INSERT するため）。
-// invoice_number は当月の請求書番号が別物のため常に空にする。entry_date が
-// NULL（月未確定）の明細は対象外にする（取得側のクエリで既に除外される想定だが、
-// ここでも防御的に除外する）。
+// Not copied: id, timestamps. invoice_number is always cleared (differs per month). Entries with NULL
+// entry_date are excluded (the query already does; defensive here).
 export const buildCopiedExtraEntries = (
   previousEntries: readonly ExtraEntryType[],
   targetMonth: string,
@@ -141,46 +123,3 @@ export const buildCopiedExtraEntries = (
       expense_amount: entry.expense_amount,
       payment_method: entry.payment_method,
     }));
-
-// 二重コピー防止用の重複判定キー。entry_date は対象月内で共通のため含めず、
-// invoice_number（当月は常に空にする）・billing_target（自由入力の補足情報）も
-// 対象外にする（entry_type・分類・内容・責任者・チーム・金額が一致すれば
-// 同一明細の再コピーとみなす）。
-// team・billing_amount・expense_amount は ExtraEntryInsertType（INSERT 用の行。
-// これらは省略可能）・ExtraEntryType（DB の Row。常に存在）のどちらからも
-// 呼べるよう任意項目にする
-type ExtraEntryDuplicateFields = {
-  entry_type: string;
-  category: string;
-  description: string;
-  manager_id: number;
-  team?: string | null;
-  billing_amount?: number | null;
-  expense_amount?: number | null;
-};
-
-export const extraEntryDuplicateKey = (
-  entry: ExtraEntryDuplicateFields,
-): string =>
-  JSON.stringify([
-    entry.entry_type,
-    entry.category,
-    entry.description,
-    entry.manager_id,
-    entry.team ?? null,
-    entry.billing_amount ?? null,
-    entry.expense_amount ?? null,
-  ]);
-
-// 複製予定の行から、当月に既に同一内容の明細がある行を取り除く（純粋関数）。
-// 確認ダイアログを見逃して連続でボタンを押した場合などに、同じ明細が
-// 何重にも登録されるのを防ぐ。
-export const excludeDuplicateExtraEntries = (
-  rows: readonly ExtraEntryInsertType[],
-  existingEntries: readonly ExtraEntryType[],
-): ExtraEntryInsertType[] => {
-  const existingKeys = new Set(
-    existingEntries.map((entry) => extraEntryDuplicateKey(entry)),
-  );
-  return rows.filter((row) => !existingKeys.has(extraEntryDuplicateKey(row)));
-};

@@ -11,14 +11,12 @@ import { notifyError, notifySuccess, toErrorMessage } from "@/app/utils/notify";
 import { CLOSED_MONTH_LOCK_MESSAGE } from "@/app/utils/profitLossClosing";
 
 type Props = {
-  month: string; // 表示中の対象月（"YYYY-MM"）
-  hasExistingEntries: boolean; // 当月に既に経理追加収支があるか（追記になる旨の案内用）
-  isClosed: boolean; // 当月が確定済みか（Issue #148。確定中はコピーできない）
+  month: string; // "YYYY-MM"
+  hasExistingEntries: boolean;
+  isClosed: boolean;
 };
 
-// 損益計算書 月次タブの「前月の経理追加収支をコピー」ボタン。
-// 経理担当者・管理者のみ表示する（呼び出し側で canEditExtraEntries を見て出し分ける。
-// 書き込み自体も RLS で accounting / admin のみに制限される）。
+// Shown to accounting/admin only (caller checks canEditExtraEntries; writes are also RLS-restricted).
 const CopyPreviousExtraEntriesButton = ({
   month,
   hasExistingEntries,
@@ -62,7 +60,6 @@ const CopyPreviousExtraEntriesButton = ({
         targetMonth: month,
       });
       if (insertedCount === 0 && skippedCount > 0) {
-        // 全件が当月の既存明細と重複していた（誤操作による連続実行など）
         notifySuccess(
           "当月に同一内容の経理追加収支が既に登録されているため、コピーをスキップしました。",
         );

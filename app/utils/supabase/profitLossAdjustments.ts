@@ -11,18 +11,14 @@ export type SaveProfitLossAdjustmentResult =
   | { deleted: boolean; adjustmentAmount: number; error?: undefined }
   | { deleted?: undefined; adjustmentAmount?: undefined; error: AccessFailure };
 
-// 実績額修正の保存（1件ずつ即時保存）。元データ金額の取得・差分計算・保存を
-// DB 関数（public.save_profit_loss_adjustment）内の単一トランザクションで
-// 原子的に行う。対象行を FOR UPDATE でロックしたうえで計算するため、保存の
-// 途中で元データが変わる・複数人が同時に同じ対象へ保存するといった競合が
-// 起きない（アプリ側で「取得 → 差分計算 → 書き込み」を複数クエリに分けると、
-// その間に別の変更が挟まる余地が生まれる）。
-// adjusted_by は関数内で auth.uid() から解決され、クライアントからは渡さない
-// （なりすまし防止。RLS の WITH CHECK でも二重に担保される）。
-// 書き込み権限（accounting / admin のみ）は RLS でも担保される。
+// Saves one actual-amount adjustment immediately. Fetching the source amount, computing the delta
+// and saving happen in one transaction (public.save_profit_loss_adjustment) with the target row
+// FOR UPDATE, so concurrent changes cannot interleave (separate queries would allow that).
+// adjusted_by is resolved from auth.uid() in the function, never sent by the client (RLS WITH CHECK
+// also enforces it). Write permission (accounting / admin) is also enforced by RLS.
 export const saveProfitLossAdjustment = async (
   target: AdjustmentTarget,
-  targetMonth: string, // "YYYY-MM"
+  targetMonth: string,
   actualAmount: number,
   reason: string,
 ): Promise<SaveProfitLossAdjustmentResult> => {
@@ -48,10 +44,10 @@ export const saveProfitLossAdjustment = async (
     .single();
 
   if (rpcError) {
-    // DB 関数内の RAISE EXCEPTION 'REASON_REQUIRED'（実績額が元データと異なるのに
-    // 理由が空の場合）を判別できるようにする。クライアント側でも同じ検証を行うため
-    // 通常はここに到達しないが、直接の呼び出しに備える
-    // 確定済みの月（Issue #148）は DB 関数が MONTH_CLOSED を返す（RLS でも拒否される）
+    // Detects the function's RAISE EXCEPTION 'REASON_REQUIRED' (amount differs from source but reason
+    // empty); the client validates too, so this guards direct calls.
+    // Closed months return MONTH_CLOSED (also RLS-rejected); a month closed mid-save also yields
+    // MONTH_CLOSED from the write trigger.
     if (rpcError.message.includes("MONTH_CLOSED")) {
       return {
         error: { kind: "validationFailed", message: CLOSED_MONTH_LOCK_MESSAGE },
@@ -71,9 +67,8 @@ export const saveProfitLossAdjustment = async (
     };
   }
 
-  // 差分 0 で削除対象が無い場合（Issue #139）は deleted=false・
-  // adjustment_amount=0 が返る。呼び出し側は adjustmentAmount とあわせて
-  // 「変更なし」を判定する（app/utils/profitLossAdjustmentToast.ts）
+  // With delta 0 and nothing to delete, deleted=false and adjustment_amount=0 are returned; callers
+  // judge "no change" together with adjustmentAmount (profitLossAdjustmentToast.ts).
   return {
     deleted: data?.deleted ?? false,
     adjustmentAmount: Number(data?.adjustment_amount ?? 0),
@@ -82,8 +77,8 @@ export const saveProfitLossAdjustment = async (
 
 export type DeleteProfitLossAdjustmentResult = { error?: AccessFailure };
 
-// 調整の削除（実績額を元データと同額に戻す操作は saveProfitLossAdjustment が
-// 内部で行うため、こちらは「対象行が当月に存在しない」調整の削除専用）
+// Only for adjustments whose target row is not in the month (returning to the source amount is
+// handled inside saveProfitLossAdjustment).
 export const deleteProfitLossAdjustment = async (
   adjustmentId: number,
 ): Promise<DeleteProfitLossAdjustmentResult> => {
@@ -96,14 +91,19 @@ export const deleteProfitLossAdjustment = async (
   }
 
   const supabase = createServerSupabase();
-  // 確定済みの月（Issue #148）の調整は RLS で削除が拒否される。DELETE は RLS で
-  // 拒否されてもエラーにならず 0 行削除になるだけのため、削除された行を返させて判定する
+  // RLS-rejected DELETE returns no error, just 0 rows, so return the deleted rows and check. A month
+  // closed mid-delete yields MONTH_CLOSED from the write trigger.
   const { data, error: deleteError } = await supabase
     .from("profit_loss_adjustments")
     .delete()
     .eq("id", adjustmentId)
     .select("id");
 
+  if (deleteError?.message.includes("MONTH_CLOSED")) {
+    return {
+      error: { kind: "validationFailed", message: CLOSED_MONTH_LOCK_MESSAGE },
+    };
+  }
   if (deleteError) {
     console.error("損益調整の削除に失敗しました:", deleteError);
     return {

@@ -1,6 +1,13 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   hasClassAccess,
+  isRole,
+  PROFILE_WRITE_CLASSES,
+  TEAM_MATTER_VIEW_CLASSES,
+  ROLE_DISPLAY_RANK,
+  ROLES,
   visibleNavItems,
   ROUTE_PERMISSIONS,
   AUTH_ONLY_ROUTES,
@@ -35,7 +42,7 @@ describe("ROUTE_PERMISSIONS による各保護ルートの認可", () => {
     ["/matters/team", "accounting", false],
     ["/matters/accounting", "accounting", true],
     ["/matters/accounting", "teamleader", false],
-    // 旧 URL。許可ロールは新 URL と同一（リダイレクト前の保護を維持するため残す）
+    // Legacy URLs keep the same roles as the new ones (kept for protection before the redirect).
     ["/team", "teamleader", true],
     ["/team", "accounting", false],
     ["/accounting", "accounting", true],
@@ -93,9 +100,6 @@ describe("visibleNavItems", () => {
   const hrefsFor = (profileClass: string | null | undefined) =>
     visibleNavItems(profileClass).map((item) => item.href);
 
-  // 新規作成・チーム案件・経理用一覧は案件カード（/matters）内のタブ・ボタンに、
-  // 定期費用マスタ・経理追加収支は損益計算書（/profit-loss）内のボタンに集約したため、
-  // トップページ／ヘッダーのナビ項目は4つ（案件カード・損益計算書・事前収支申告・管理画面）のみ。
   it("admin には全項目を表示する", () => {
     expect(hrefsFor("admin")).toEqual([
       "/matters",
@@ -135,5 +139,75 @@ describe("visibleNavItems", () => {
     for (const item of items) {
       expect(item.description.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("ロール一覧（ROLES）の整合（Issue #192）", () => {
+  it("isRole は ROLES の値だけ true を返す", () => {
+    for (const role of ROLES) expect(isRole(role)).toBe(true);
+    expect(isRole("superuser")).toBe(false);
+    expect(isRole("")).toBe(false);
+    expect(isRole(null)).toBe(false);
+    expect(isRole(undefined)).toBe(false);
+  });
+
+  it("表示順（ROLE_DISPLAY_RANK）はすべてのロールを重複なく定義している", () => {
+    expect(Object.keys(ROLE_DISPLAY_RANK).sort()).toEqual([...ROLES].sort());
+    const ranks = Object.values(ROLE_DISPLAY_RANK);
+    expect(new Set(ranks).size).toBe(ROLES.length);
+  });
+
+  it("ROUTE_PERMISSIONS・PROFILE_WRITE_CLASSES はすべて ROLES の値だけを使う", () => {
+    const used = [
+      ...Object.values(ROUTE_PERMISSIONS).flat(),
+      ...PROFILE_WRITE_CLASSES,
+    ];
+    for (const role of used) expect(isRole(role)).toBe(true);
+  });
+
+  // If the values update_profiles allows drift from ROLES, options vanish or saves fail with INVALID_INPUT
+  // silently. Target the last migration that defines update_profiles so later redefinitions are not missed.
+  it("update_profiles（最後に定義したマイグレーション）が受け付ける class の許可値と ROLES が一致する", () => {
+    const dir = resolve(__dirname, "../../supabase/migrations");
+    const definitions = readdirSync(dir)
+      .filter((name) => name.endsWith(".sql"))
+      .sort()
+      .map((name) => readFileSync(resolve(dir, name), "utf-8"))
+      .filter((sql) =>
+        /CREATE\s+(OR\s+REPLACE\s+)?FUNCTION\s+public\.update_profiles\s*\(/i.test(
+          sql,
+        ),
+      );
+    expect(definitions.length).toBeGreaterThan(0);
+    const sql = definitions[definitions.length - 1];
+    const match = sql.match(
+      /\(\s*e\.elem\s*->>\s*'class'\s*\)\s*NOT\s+IN\s*\(([^)]*)\)/i,
+    );
+    expect(
+      match,
+      "update_profiles の class の許可値を抽出できません（SQL の書式を変えた場合は、このテストの正規表現も更新してください）",
+    ).not.toBeNull();
+    const allowed = Array.from(match![1].matchAll(/'([^']+)'/g), (m) => m[1]);
+    expect(new Set(allowed).size).toBe(allowed.length);
+    expect([...allowed].sort()).toEqual([...ROLES].sort());
+  });
+});
+
+describe("PROFILE_WRITE_CLASSES（ユーザーリストの一括保存の権限。Issue #191）", () => {
+  it("権限の変更（特権の昇格）は admin のみ。profiles の RLS・update_profiles と揃える", () => {
+    expect(PROFILE_WRITE_CLASSES).toEqual(["admin"]);
+  });
+
+  it("書き込めるロールは、管理画面（/dashboard）を開けるロールに必ず含まれる", () => {
+    for (const role of PROFILE_WRITE_CLASSES) {
+      expect(hasClassAccess(ROUTE_PERMISSIONS["/dashboard"], role)).toBe(true);
+    }
+  });
+});
+
+describe("TEAM_MATTER_VIEW_CLASSES（チーム案件の取得の権限。Issue #215）", () => {
+  it("チーム案件のルート保護（/matters/team）と同じ定義を参照する", () => {
+    expect(TEAM_MATTER_VIEW_CLASSES).toBe(ROUTE_PERMISSIONS["/matters/team"]);
+    expect(TEAM_MATTER_VIEW_CLASSES).toEqual(["teamleader", "admin"]);
   });
 });

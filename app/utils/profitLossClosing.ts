@@ -1,7 +1,5 @@
-// 損益計算書の月次収支確定（Issue #148）の純粋関数。
-// 確定明細（profit_loss_closing_lines）⇔ 明細行（PLMonthLines）の変換、
-// 確定済みの月の判定と編集可否の判定を行う。Supabase アクセスは
-// app/utils/supabase/profitLossClosings.ts / profitLossReport.ts が行う。
+// Pure functions for monthly closing: convert closing lines <-> PLMonthLines and decide whether a
+// month is closed/editable. Supabase access lives in supabase/profitLossClosings.ts / profitLossReport.ts.
 
 import {
   ClosingInfo,
@@ -32,9 +30,7 @@ import {
 
 const toMonthKey = (value: string): string => value.slice(0, 7);
 
-// 明細行（ライブ集計の結果）を確定明細の保存形式に変換する。
-// 実績額・調整額・調整理由を含めて保存し、確定後に調整・元データが変わっても
-// 確定値は変わらないようにする
+// Stores actual, adjustment and reason so later changes to adjustments/source do not alter closed values.
 export const monthLinesToClosingRows = (
   lines: PLMonthLines,
 ): ClosingLineInput[] => {
@@ -115,7 +111,7 @@ export const monthLinesToClosingRows = (
   ];
 };
 
-// 2 つの確定明細の集合が同じか（確定直後の再検証に使う。並び順には依存しない）
+// Order-independent; used to re-verify right after closing.
 export const sameClosingRows = (
   a: ClosingLineInput[],
   b: ClosingLineInput[],
@@ -128,16 +124,15 @@ export const sameClosingRows = (
   return a.length === b.length && normalize(a) === normalize(b);
 };
 
-// 確定明細の金額（numeric）は PostgREST から number で返るが、NULL 許容の列のため
-// 種別ごとに必須の列は CHECK 制約で NOT NULL が担保されている
+// Amount columns are nullable; per-type required columns are enforced NOT NULL by CHECK constraints.
 const amount = (value: number | null): number => Number(value ?? 0);
 
 const snapshotAdjustable = (row: ClosingLineInput) => ({
   sourceAmount: amount(row.source_amount),
   adjustmentAmount: amount(row.adjustment_amount),
   actualAmount: amount(row.actual_amount),
-  // 確定値は元データの変更を追従しないため、元データ変更の警告は出さない
-  // （確定後の変更は Issue #149 の差分として検知する）
+  // Closed values do not follow source changes, so no source-changed warning
+  // (post-closing changes are detected as diffs, see profitLossDiff.ts).
   sourceChanged: false,
   adjustment: null,
   adjustmentReason: row.adjustment_reason,
@@ -146,8 +141,7 @@ const snapshotAdjustable = (row: ClosingLineInput) => ({
 const bySourceId = (a: { source_id: number }, b: { source_id: number }) =>
   a.source_id - b.source_id;
 
-// 確定明細を明細行（集計の入力）に戻す。ライブ集計と同じ aggregateMonthLines で
-// 集計するため、確定済みの月もライブの月と同じ形の損益計算書になる
+// Reuses aggregateMonthLines so closed months have the same shape as live months.
 export const closingRowsToMonthLines = (
   rows: ClosingLineInput[],
 ): PLMonthLines => {
@@ -205,10 +199,8 @@ export const closingRowsToMonthLines = (
   };
 };
 
-// 確定済みの月の名称（案件名・取引先名・コスト名・定期費用名）を最新の元データに
-// 差し替える。名称は金額・集計に影響しないため確定の対象外とし、常に最新を表示する
-// （Issue #149 / #150）。元の行が取得範囲に無い（削除済み・他月へ移動）場合は
-// 確定明細に保存した名称のまま。分類・チーム・金額は確定値のまま変えない
+// Names do not affect amounts, so closed months always show the latest names. If the source row is
+// gone (deleted / moved to another month), the stored name is kept. Category/team/amount stay closed values.
 export const refreshSnapshotNames = (
   lines: PLMonthLines,
   live: {
@@ -220,7 +212,7 @@ export const refreshSnapshotNames = (
   const businessById = new Map(live.businessRows.map((row) => [row.id, row]));
   const costById = new Map(live.costRows.map((row) => [row.id, row]));
   const recurringById = new Map(live.recurringCosts.map((rc) => [rc.id, rc]));
-  // 案件名は同じ案件の他の明細から引けることもあるため、案件単位の索引も作る
+  // Matter names can also come from sibling lines, so index by matter too.
   const matterTitleById = new Map<number, string>();
   [...live.businessRows, ...live.costRows].forEach((row) =>
     matterTitleById.set(row.matter_id, row.matters.title),
@@ -244,7 +236,6 @@ export const refreshSnapshotNames = (
   };
 };
 
-// 確定ヘッダ → 画面表示用の確定情報
 export const toClosingInfo = (
   closing: Pick<
     ProfitLossClosingType,
@@ -262,23 +253,22 @@ export const toClosingInfo = (
   refreshedByName: closing.refreshed_by_name,
 });
 
-// ===== 確定済みの月の判定・編集可否 =====
+// ===== Closed-month checks and edit locks =====
 
-// 確定済みの月キー（"YYYY-MM"）の集合
+// Set of closed month keys ("YYYY-MM").
 export const toClosedMonthSet = (
   closings: Pick<ProfitLossClosingType, "target_month">[],
 ): Set<string> =>
   new Set(closings.map((closing) => toMonthKey(closing.target_month)));
 
-// 日付（"YYYY-MM-DD"）または月キーの属する月が確定済みか。NULL（日付未入力）は false
+// Whether a date ("YYYY-MM-DD") or month key ("YYYY-MM") falls in a closed month. NULL (no date) is false.
 export const isClosedMonth = (
   closedMonths: ReadonlySet<string>,
   dateOrMonth: string | null | undefined,
 ): boolean => !!dateOrMonth && closedMonths.has(toMonthKey(dateOrMonth));
 
-// 経理追加収支の保存可否（確定中の編集ロック）。
-// 変更前の日付（新規は undefined）・変更後の日付のどちらかが確定済みの月なら不可
-// （確定済みの月へ / からの日付の移動を含む）。削除は変更後の日付を渡さない
+// Edit lock while closed: not savable if either the old date (undefined for new) or the new date
+// is in a closed month (including moves into/out of one). Deletion passes no new date.
 export const canWriteExtraEntry = (
   closedMonths: ReadonlySet<string>,
   originalDate: string | null | undefined,
@@ -287,10 +277,8 @@ export const canWriteExtraEntry = (
   !isClosedMonth(closedMonths, originalDate) &&
   !isClosedMonth(closedMonths, nextDate);
 
-// 経理追加収支の一括保存で、確定中の編集ロックに抵触する行の内容（表示用）を返す。
-// 新規行は変更後の日付、削除行は変更前の日付、更新行は変更前・変更後の両方を判定する。
-// entries は保存する行（追加・削除・編集した行のみ。selectChangedExtraEntries で選ぶ）。
-// originals は保存前の DB 上の行（id → 行）
+// Returns rows that hit the edit lock. New rows check the new date, deleted rows the old date,
+// updated rows both. `entries` are only changed rows (selectChangedExtraEntries); `originals` map id -> DB row.
 export const findExtraEntryLockViolations = (
   entries: ExtraEntryInListType[],
   originals: ReadonlyMap<number, ExtraEntryType>,
@@ -298,7 +286,7 @@ export const findExtraEntryLockViolations = (
 ): string[] =>
   entries
     .filter((entry) => {
-      if (entry.isNew && entry.isRemoved) return false; // 未保存の行の取り消し
+      if (entry.isNew && entry.isRemoved) return false;
       if (entry.isNew) {
         return !canWriteExtraEntry(closedMonths, undefined, entry.entry_date);
       }
@@ -314,8 +302,7 @@ export const findExtraEntryLockViolations = (
     })
     .map((entry) => entry.description || "（内容未入力の行）");
 
-// 定期費用マスタの適用期間に含まれる確定済みの月（昇順）。
-// 定期費用の変更は確定済みの月には反映されないため、編集ダイアログで注記する
+// Recurring cost changes do not affect closed months (noted in the edit dialog).
 export const closedMonthsInRecurringRange = (
   recurringCost: Pick<RecurringCostType, "start_month" | "end_month">,
   closedMonths: ReadonlySet<string>,
@@ -329,8 +316,7 @@ export const closedMonthsInRecurringRange = (
     .sort();
 };
 
-// 案件の開始日（保存済み・入力中）のうち、確定済みの月に当たるもの（重複なし・昇順）。
-// 案件詳細モーダルの注意表示（Issue #149）に使う
+// Used for the matter detail modal warning.
 export const closedMonthsForMatter = (
   closedMonths: ReadonlySet<string>,
   startDates: (string | null | undefined)[],
@@ -343,15 +329,13 @@ export const closedMonthsForMatter = (
     ),
   ).sort();
 
-// 確定中の編集ロックの案内（損益計算書・経理追加収支画面のツールチップ共通）
 export const CLOSED_MONTH_LOCK_MESSAGE =
   "確定済みの月です。編集するには損益計算書で『確定済み』をオフにしてください";
 
-// 確定済みの月の一覧表示（「2026年8月 / 2026年9月」）
 export const formatClosedMonths = (months: string[]): string =>
   months.map(formatMonthLabel).join(" / ");
 
-// 確定明細の行（DB から取得した形）を保存形式と同じ形に揃える（id / closing_id を除く）
+// Normalizes DB rows to the stored shape (minus id / closing_id).
 export const stripClosingLineIds = (
   rows: ProfitLossClosingLineType[],
 ): ClosingLineInput[] =>
@@ -360,7 +344,6 @@ export const stripClosingLineIds = (
     return rest;
   });
 
-// 確定済みの月のスナップショット（ヘッダ＋明細）
 export type MonthClosingSnapshot = {
   header: Pick<
     ProfitLossClosingType,
@@ -371,13 +354,12 @@ export type MonthClosingSnapshot = {
     | "refreshed_by_name"
   >;
   lines: ClosingLineInput[];
-  // 見送り記録（Issue #149。RLS により accounting / admin のみ取得できる）
+  // Skip records; RLS restricts them to accounting / admin.
   dismissals: ProfitLossClosingDismissalType[];
 };
 
-// 確定済みの月の「対象行が当月に存在しない調整」に、対象行が確定明細に含まれているか
-// （= 確定値にこの調整が算入済みか）を付ける。確定後に対象行が外れた場合は算入済み、
-// 確定時点で既に外れていた場合は確定値にも含まれない
+// Marks whether the target row is in the closing lines (i.e. the adjustment is already included
+// in closed values). A row that left after closing is included; one already gone at closing is not.
 const markIncludedInClosing = (
   orphans: OrphanedAdjustmentType[],
   closingLines: ClosingLineInput[] | undefined,
@@ -398,10 +380,8 @@ const markIncludedInClosing = (
   });
 };
 
-// 指定月の損益レポートを組み立てる。確定済みの月（closing あり）は確定明細から、
-// 未確定の月はライブ集計から集計する（Issue #148）。
-// 月未確定（undated）と対象行が当月に存在しない調整（orphanedAdjustments）は、
-// 確定済みの月でも常にライブの行から計算する（「月未確定」枠は確定の対象外）
+// Closed months aggregate from closing lines, unclosed from live lines. undated and
+// orphanedAdjustments are always computed from live rows ("undated" is outside closing).
 export const buildMonthReport = (
   input: MonthlyReportInput & { closing?: MonthClosingSnapshot | null },
 ): PLReportType => {
@@ -416,9 +396,8 @@ export const buildMonthReport = (
     includeTeamBreakdown: input.includeTeamBreakdown,
     labels: input.labels,
   });
-  // 対象行なし調整・確定後の変更は、経理担当者・管理者（includeTeamBreakdown）の
-  // 月次タブの単月表示（includeMonthlyDetails）でのみ計算する（年間推移では使わない）。
-  // 取得側（supplementAdjustmentTargets）と同じ needsMonthlyAdjustmentDetails で判定する
+  // Computed only for accounting/admin (includeTeamBreakdown) in the monthly single-month view,
+  // using the same needsMonthlyAdjustmentDetails as planAdjustmentSupplement (profitLossSource.ts).
   const monthlyDetails = needsMonthlyAdjustmentDetails({
     includeTeamBreakdown: input.includeTeamBreakdown,
     includeMonthlyDetails: input.includeMonthlyDetails,
@@ -447,8 +426,7 @@ export const buildMonthReport = (
         )
       : undefined,
     closing: input.closing ? toClosingInfo(input.closing.header) : null,
-    // 確定後の案件の変更（Issue #149）。差分・反映・見送りを操作するロール
-    // （includeTeamBreakdown = accounting / admin）にのみ含める
+    // Only for roles that can act on diffs (includeTeamBreakdown = accounting / admin).
     closingDiffs:
       input.closing && labelIndex
         ? diffClosingLines({

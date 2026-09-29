@@ -1,75 +1,186 @@
 "use client";
 
-import { Table, Text, Title, LoadingOverlay } from "@mantine/core";
+import {
+  Alert,
+  Button,
+  Group,
+  LoadingOverlay,
+  Table,
+  Text,
+  Title,
+} from "@mantine/core";
 import { ProfilesType } from "../types/types";
-import { useState } from "react";
-import updateProfile from "../utils/supabase/updateProfile";
-import { notifyError, notifySuccess, toErrorMessage } from "../utils/notify";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { bulkUpdateProfiles } from "../utils/supabase/profiles";
+import { notifyError, notifySuccess } from "../utils/notify";
+import { confirmAction } from "../utils/confirmAction";
+import {
+  formatUserValidationErrors,
+  selectChangedUsers,
+  UserValidationErrors,
+  validateUserUpdates,
+} from "../utils/userList";
+import { sortUserList } from "../utils/userListSort";
 import { useViewportSize } from "@mantine/hooks";
+import { useReportDashboardUnsavedChanges } from "./dashboard/DashboardUnsavedChanges";
 import UserCard from "./UserCard";
 import UserTable from "./UserTable";
 
 const elementListOfUser = [
-  "ID",
   "名前",
   "メールアドレス",
   "権限",
   "チーム",
   "slack ID",
 ];
-export const classList = ["public", "teamleader", "accounting", "admin"];
 
-// チーム欄の選択肢。Select は value が data に無いと空表示になるため、
-// 選択肢に無い現在値（無効化・名前変更されたチーム、選択肢の取得失敗時）も先頭に補い、
-// 管理者が現在の所属を確認できるようにする。
+// Team options: a Select shows blank when value is not in data, so prepend the current value if missing (disabled/renamed team, or fetch failure) so admins can see the current team.
 export const teamOptionsFor = (team: string | null, teamList: string[]) =>
   team && !teamList.includes(team) ? [team, ...teamList] : teamList;
 
 type Props = {
   userList: ProfilesType[];
-  // チームの選択肢。サーバ側（DynamicDashboard）で取得済みのものを受け取る。
-  // 行ごとにクライアントから取得すると、行数分の Server Action が直列に走り
-  // チーム欄だけ表示が遅れるため（Select は value が data に無いと空表示になる）。
+  // Team options fetched server-side (DynamicDashboardUsers); fetching per row from the client would run one Server Action per row serially and delay the team column.
   teamList: string[];
-  // チームの選択肢の取得に失敗したか（チーム欄の選択肢が現在値のみになる旨を表示する）
   teamListError?: boolean;
 };
 
+const toRowMap = (users: ProfilesType[]) =>
+  new Map(users.map((user) => [user.id, user]));
+
 const UserList = ({ userList, teamList, teamListError = false }: Props) => {
-  const [updatedUserList, setUpdatedUserList] =
-    useState<ProfilesType[]>(userList);
-  const [isLoading, setIsLoading] = useState(false);
+  const router = useRouter();
+  // Sort by role -> team -> name (sortUserList) only on load and after a successful save, not while editing (a moving row would be lost).
+  const [rows, setRows] = useState<ProfilesType[]>(() =>
+    sortUserList(userList, teamList),
+  );
+  // Rows when loaded (or at the last successful save); changed rows are highlighted and only they are sent on save (same as ExtraEntryList).
+  const [baseline, setBaseline] = useState(() => toRowMap(userList));
+  const [isSaving, setIsSaving] = useState(false);
+  const [showErrors, setShowErrors] = useState(false);
 
   const { width } = useViewportSize();
   const isMobile = width < 768;
+
+  const changedRows = useMemo(
+    () => selectChangedUsers(rows, baseline),
+    [rows, baseline],
+  );
+  const changedIds = useMemo(
+    () => new Set(changedRows.map((row) => row.id)),
+    [changedRows],
+  );
+  const hasChanges = changedRows.length > 0;
+  const validationErrors = useMemo(
+    () => validateUserUpdates(changedRows),
+    [changedRows],
+  );
+  const visibleErrors = showErrors
+    ? validationErrors
+    : new Map<number, UserValidationErrors>();
+
+  // Sync from the server list (router.refresh etc.) only when there are no unsaved changes. A list that arrived while editing is synced once changes end (discard, reverted, saved); remember the synced list in a ref so the latest is not missed and a stale baseline does not overwrite another admin's values on the next save.
+  const syncedUserListRef = useRef(userList);
+  const syncedTeamListRef = useRef(teamList);
+  // Latest props, so a successful save can treat them as synced.
+  const latestPropsRef = useRef({ userList, teamList });
+  latestPropsRef.current = { userList, teamList };
+  useEffect(() => {
+    if (hasChanges) return;
+    if (
+      userList === syncedUserListRef.current &&
+      teamList === syncedTeamListRef.current
+    ) {
+      return;
+    }
+    syncedUserListRef.current = userList;
+    syncedTeamListRef.current = teamList;
+    setRows(sortUserList(userList, teamList));
+    setBaseline(toRowMap(userList));
+  }, [userList, teamList, hasChanges]);
+
+  // Reports unsaved state to DashboardUnsavedChangesProvider (confirm in DashboardNav, beforeunload warning).
+  useReportDashboardUnsavedChanges(hasChanges);
 
   const handleUpdateUserList = (
     userId: number,
     updates: Partial<ProfilesType>,
   ) => {
-    setUpdatedUserList(
-      updatedUserList.map((user) =>
-        user.id === userId ? { ...user, ...updates } : user,
+    // Reverting the role to its loaded value restores the team too (otherwise the team stays cleared with no "changed" state or error); changing to a non-teamleader role clears the team (PC and mobile).
+    const saved = baseline.get(userId);
+    const normalized: Partial<ProfilesType> =
+      "class" in updates && saved && updates.class === saved.class
+        ? { ...updates, team: saved.team }
+        : "class" in updates && updates.class !== "teamleader"
+          ? { ...updates, team: null }
+          : updates;
+    setRows((prev) =>
+      prev.map((user) =>
+        user.id === userId ? { ...user, ...normalized } : user,
       ),
     );
   };
 
-  const handleSave = async (userId: number) => {
-    setIsLoading(true);
+  // Discard changes back to the loaded (or last saved) values; a list that arrived while editing syncs right after via the effect above.
+  const handleDiscard = () => {
+    setRows((prev) => prev.map((user) => baseline.get(user.id) ?? user));
+    setShowErrors(false);
+  };
+
+  const handleSave = async () => {
+    if (!hasChanges || isSaving) return;
+    if (validationErrors.size > 0) {
+      setShowErrors(true);
+      return;
+    }
+
+    const confirmed = await confirmAction(
+      `${changedRows.length} 件のユーザー情報を保存しますか？`,
+    );
+    if (!confirmed) return;
+
+    setIsSaving(true);
     try {
-      const user = updatedUserList.find((user) => user.id === userId);
-      if (!user) {
+      // Send only fields needed for writing (name is for server error messages).
+      const { error } = await bulkUpdateProfiles(
+        changedRows.map(({ id, name, class: userClass, team, slack_id }) => ({
+          id,
+          name,
+          class: userClass,
+          team,
+          slack_id,
+        })),
+      );
+      if (error) {
+        // Nothing was saved; keep the edits on screen.
+        notifyError(error.message);
         return;
       }
-      await updateProfile({ profile: user });
-      notifySuccess("ユーザー情報を保存しました。");
+      setBaseline((prev) => {
+        const next = new Map(prev);
+        changedRows.forEach((row) => next.set(row.id, row));
+        return next;
+      });
+      // Treat the list held during editing (pre-save content) as synced so saved values do not flash back; apply from the next list.
+      syncedUserListRef.current = latestPropsRef.current.userList;
+      syncedTeamListRef.current = latestPropsRef.current.teamList;
+      setRows((prev) => sortUserList(prev, latestPropsRef.current.teamList));
+      setShowErrors(false);
+      notifySuccess(`${changedRows.length} 件のユーザー情報を保存しました。`);
+      router.refresh();
     } catch (error) {
+      // Outcome unknown (single transaction: all or nothing).
       console.error("ユーザー情報の保存に失敗しました:", error);
-      notifyError(toErrorMessage(error, "ユーザー情報の保存に失敗しました。"));
+      notifyError(
+        "ユーザー情報の保存結果を確認できませんでした。画面を再読み込みして内容を確認してください。",
+      );
     } finally {
-      setIsLoading(false);
+      setIsSaving(false);
     }
   };
+
+  const errorMessages = formatUserValidationErrors(changedRows, visibleErrors);
 
   const tableHeads = (
     <Table.Tr key={elementListOfUser[0]}>
@@ -91,33 +202,71 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
           チームの選択肢を取得できませんでした。チーム欄は現在の値のみ表示しています。
         </Text>
       )}
-      {!isMobile ? (
-        <Table>
-          <Table.Thead>{tableHeads}</Table.Thead>
-          <Table.Tbody>
-            {updatedUserList.map((user) => (
-              <UserTable
-                key={user.id}
-                userInfo={user}
-                teamList={teamList}
-                onUpdateUserList={handleUpdateUserList}
-                onSaveUser={handleSave}
-              />
+      <Group justify="space-between" className="pb-4">
+        <Text size="sm" c={hasChanges ? "orange.8" : "dimmed"} fw={500}>
+          {hasChanges ? `${changedRows.length} 件変更あり` : "変更はありません"}
+        </Text>
+        <Group gap="xs">
+          <Button
+            variant="default"
+            disabled={!hasChanges || isSaving}
+            onClick={handleDiscard}
+          >
+            変更を破棄
+          </Button>
+          <Button
+            color="green"
+            disabled={!hasChanges || isSaving}
+            onClick={handleSave}
+          >
+            一括保存
+          </Button>
+        </Group>
+      </Group>
+      {errorMessages.length > 0 && (
+        <Alert color="red" title="入力内容を確認してください" className="mb-4">
+          <ul className="list-disc pl-5">
+            {errorMessages.map((message, index) => (
+              // Include index: users with the same name can produce identical errors.
+              <li key={`${index}-${message}`}>{message}</li>
             ))}
-          </Table.Tbody>
-        </Table>
+          </ul>
+        </Alert>
+      )}
+      {!isMobile ? (
+        // Even at PC widths the side menu narrows the table, so scroll horizontally when it does not fit (keeps Select and inputs from being squashed).
+        <Table.ScrollContainer minWidth={760}>
+          <Table>
+            <Table.Thead>{tableHeads}</Table.Thead>
+            <Table.Tbody>
+              {rows.map((user) => (
+                <UserTable
+                  key={user.id}
+                  userInfo={user}
+                  teamList={teamList}
+                  isChanged={changedIds.has(user.id)}
+                  errors={visibleErrors.get(user.id)}
+                  disabled={isSaving}
+                  onUpdateUserList={handleUpdateUserList}
+                />
+              ))}
+            </Table.Tbody>
+          </Table>
+        </Table.ScrollContainer>
       ) : (
-        updatedUserList.map((user) => (
+        rows.map((user) => (
           <UserCard
             key={user.id}
             userInfo={user}
             teamList={teamList}
+            isChanged={changedIds.has(user.id)}
+            errors={visibleErrors.get(user.id)}
+            disabled={isSaving}
             onUpdateUserList={handleUpdateUserList}
-            onSaveUser={handleSave}
           />
         ))
       )}
-      <LoadingOverlay visible={isLoading} />
+      <LoadingOverlay visible={isSaving} />
     </div>
   );
 };

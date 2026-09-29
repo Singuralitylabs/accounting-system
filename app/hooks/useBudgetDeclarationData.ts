@@ -24,20 +24,13 @@ import {
 } from "../utils/budgetDeclaration";
 import { notifyError, notifySuccess, toErrorMessage } from "../utils/notify";
 
-// 一覧は月付きキー（["budgetDeclarations", "list", month]）の前方一致で
-// まとめて無効化できるよう、プレフィックスだけを共有する。
+// Share only the prefix so lists (keyed by month) can be invalidated together by prefix match.
 const budgetDeclarationListQueryKey = ["budgetDeclarations", "list"] as const;
 
 const budgetDeclarationDetailQueryKey = (declarationId: number | null) =>
   ["budgetDeclarations", "detail", declarationId] as const;
 
-// list と、id があるときだけ detail を無効化する。
-// previousItems（このファイル）と activeRecurringItems
-// （useBudgetRecurringItemData）は対象にしない。previousItems は
-// refetchOnMount: "always" で取り直す。
-// 一覧は対象月が変わっても追従するよう list 全体を無効化する。
-// 明細 id が null のとき（新規作成の失敗）は detail を触らない。
-// 削除成功時の明細破棄は removeQueries であり、このヘルパでは行わない。
+// Invalidates list and, when id is given, detail. previousItems and activeRecurringItems are excluded (they refetch on mount).
 const invalidateBudgetDeclarationQueries = (
   queryClient: QueryClient,
   declarationId: number | null,
@@ -53,13 +46,10 @@ const invalidateBudgetDeclarationQueries = (
   });
 };
 
-// 対象月のチーム別申告状況一覧（month: "YYYY-MM"）
 export const useBudgetDeclarationList = (
   month: string,
   initialData?: BudgetDeclarationStatusType[],
-  // initialData をサーバで取得した時刻。渡さないと TanStack Query は
-  // 「今」シードされたものとして扱い、GC 後に古い initialData が
-  // 新鮮なデータとして再表示される（QueryProvider は refetchOnMount: false）。
+  // Time initialData was fetched on the server; without it TanStack Query treats it as seeded "now" and re-shows stale initialData as fresh after GC (QueryProvider uses refetchOnMount: false).
   initialDataUpdatedAt?: number,
 ) => {
   return useQuery({
@@ -74,18 +64,13 @@ export const useBudgetDeclarationList = (
     initialData,
     initialDataUpdatedAt: initialData ? initialDataUpdatedAt : undefined,
     enabled: !!month,
-    staleTime: 2 * 60 * 1000, // 2分
-    // 月を切り替えている間は前月の表を残す（毎回フルスピナーにしない）
+    staleTime: 2 * 60 * 1000,
     placeholderData: keepPreviousData,
     retry: retryUnlessForbidden,
   });
 };
 
-// 申告の明細（行を開いたときだけ取得する）。declarationId は一覧行が保持している。
-// 読み取り専用の明細パネルと、書き込みを行う編集フォームの両方がこのクエリキーを
-// 共有する。staleTime（2分）内のキャッシュを編集フォームがそのまま使うと、他の
-// 担当者が直近で更新した明細を古いまま保存してしまう（lost update）ため、
-// マウントのたびに staleTime を無視して必ず再取得する（refetchOnMount: "always"）
+// Shared by the read-only panel and the edit form. Always refetch on mount: reusing cached data within staleTime in the edit form could overwrite another user's recent update (lost update).
 export const useBudgetDeclarationDetail = (declarationId: number | null) => {
   return useQuery<BudgetDeclarationDetailType | null>({
     queryKey: budgetDeclarationDetailQueryKey(declarationId),
@@ -96,31 +81,17 @@ export const useBudgetDeclarationDetail = (declarationId: number | null) => {
       if (error) {
         throw new BudgetDeclarationError(error);
       }
-      // 該当なし（null）は正常な結果としてキャッシュする
       return detail;
     },
     enabled: declarationId !== null,
-    // refetchOnMount: "always" のため、マウント時（明細パネルを閉じて再度開く
-    // 場合を含む）の再取得可否にはこの staleTime は影響しない（常に再取得する）。
-    // 編集フォーム用の lost update 対策（直近の担当者更新を古いまま保存しない）は
-    // refetchOnMount 側で担保している。staleTime は reconnect 時の自動再取得
-    // （refetchOnReconnect。既定で有効）など、マウント以外のタイミングでの
-    // stale 判定に使われる
+    // staleTime has no effect on mount refetch (always refetches); it only governs other stale checks such as refetchOnReconnect.
     staleTime: 2 * 60 * 1000,
     refetchOnMount: "always",
     retry: retryUnlessForbidden,
   });
 };
 
-// 対象月の前月・同チームの申告明細（フォームの「前月の明細をコピー」ボタン用）。
-// items: null は前月に申告が無いことを示し、呼び出し側でボタンを無効化する判定に使う。
-// フォームを開いている間だけ有効化する想定（enabled は呼び出し側が渡す）。
-// useBudgetDeclarationDetail と同じ理由で refetchOnMount: "always" にする。
-// このクエリは保存・削除ミューテーションが invalidate/remove しないため、
-// QueryProvider既定の refetchOnMount: false のままだと、他の月・チームの
-// 申告を保存・削除した後にフォームを開き直しても gcTime（10分）内は
-// 古いキャッシュ（前月申告なし判定や、削除済み・編集前の明細）がそのまま
-// 使われてしまう
+// Previous month's items for the "copy previous" button; items: null means no previous declaration. Save/delete mutations do not invalidate this query, so refetch on mount (as in useBudgetDeclarationDetail) to avoid stale cache within gcTime.
 export const usePreviousBudgetDeclarationItems = (
   enabled: boolean,
   targetMonth: string,
@@ -145,13 +116,11 @@ export const usePreviousBudgetDeclarationItems = (
   });
 };
 
-// 申告の作成・編集（ヘッダ + 明細差し替え）。
 export const useSaveBudgetDeclaration = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    // 非冪等な書き込み（INSERT 一意制約違反の判定を含む）のため、
-    // グローバル retry による mutationFn 再実行を防ぐ
+    // Non-idempotent write (unique-violation handling): prevent global retry from re-running mutationFn.
     retry: 0,
     mutationFn: async (input: BudgetDeclarationSaveInput) => {
       const result = await saveBudgetDeclaration(input);
@@ -161,8 +130,7 @@ export const useSaveBudgetDeclaration = () => {
       return result;
     },
     onSuccess: (result, variables) => {
-      // 一覧は対象月・チームの組み合わせ次第でどの行が変わるか分からないため
-      // list 全体（月違い含む）を無効化し、明細は保存した申告の分だけ無効化する
+      // Which rows change depends on month/team, so invalidate all lists; detail only for the saved declaration.
       invalidateBudgetDeclarationQueries(queryClient, result.id);
       notifySuccess(
         variables.declarationId === null
@@ -172,30 +140,18 @@ export const useSaveBudgetDeclaration = () => {
     },
     onError: (error, variables) => {
       console.error("事前収支申告の保存エラー:", error);
-      // ヘッダの作成/更新・明細の差し替えは DB 関数（save_budget_declaration、
-      // migration 24）内の単一トランザクションで行われるため、失敗しても
-      // 「一部だけ反映された状態」にはならない。ただし DB 自体が変わらなくても、
-      // 手元のキャッシュ（staleTime 2分、QueryProvider は refetchOnMount: false）が
-      // 他の担当者の変更で既に実 DB とずれているケースは残る。例えば「未申告」の
-      // まま作成フォームを開いている間に他の担当者が同じ対象月・チームを作成すると
-      // duplicate（23505）になり、対象行が削除された後に編集を保存しようとすると
-      // 対象なし（P0002）になる。いずれも一覧・明細のキャッシュを無効化しないと
-      // 古い表示のまま「一覧から編集してください」の案内どおりに操作できない
-      // ループになるため、失敗時は無条件に無効化する（コストは再取得 1 回のみ）
+      // The DB function (save_budget_declaration) is one transaction, so no partial writes. But the local cache may already be stale (e.g. another user created the same month/team: duplicate 23505; row deleted: P0002), so always invalidate on failure to avoid a stuck stale UI.
       invalidateBudgetDeclarationQueries(queryClient, variables.declarationId);
       notifyError(toErrorMessage(error, "事前収支申告の保存に失敗しました。"));
     },
   });
 };
 
-// 申告の削除
 export const useDeleteBudgetDeclaration = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    // 削除は非冪等（成功後にレスポンスが失われても再試行すると 0 行ヒットになり、
-    // 実際は削除済みなのに失敗として扱われる）。useSaveBudgetDeclaration と同様に
-    // グローバル retry による mutationFn 再実行を防ぐ
+    // Non-idempotent: retrying after a lost response would hit 0 rows and report failure for an already-deleted row.
     retry: 0,
     mutationFn: async (data: { declarationId: number; team: string }) => {
       const result = await deleteBudgetDeclaration(
@@ -208,7 +164,7 @@ export const useDeleteBudgetDeclaration = () => {
       return result;
     },
     onSuccess: (_result, variables) => {
-      // 明細は removeQueries で破棄し、観測中のクエリが消した申告を再取得しないようにする。
+      // Remove detail so observers do not refetch the deleted declaration.
       queryClient.removeQueries({
         queryKey: budgetDeclarationDetailQueryKey(variables.declarationId),
       });
@@ -219,11 +175,7 @@ export const useDeleteBudgetDeclaration = () => {
     },
     onError: (error, variables) => {
       console.error("事前収支申告の削除エラー:", error);
-      // 二重クリックや別タブでの先行削除では削除 0 行がエラーになるが、申告は
-      // 実際には消えていることがある。DB エラー等で行が残っている場合でも、
-      // 手元のキャッシュ（staleTime 2分）は他の担当者の変更で実 DB とずれて
-      // いる可能性があるため、useDeleteMatter と同様に失敗時は無条件に
-      // 無効化して一覧・詳細を実状態に合わせる（コストは再取得のみ）。
+      // Zero-row deletes error on double click or delete in another tab; cache may be stale either way, so always invalidate (as in useDeleteMatter).
       invalidateBudgetDeclarationQueries(queryClient, variables.declarationId);
       notifyError(toErrorMessage(error, "事前収支申告の削除に失敗しました。"));
     },

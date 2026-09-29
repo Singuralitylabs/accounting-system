@@ -139,16 +139,12 @@ export const bulkUpsertBusinessInfo = async (
 ) => {
   const supabase = createServerSupabase();
   
-  // 新規作成用
   const newBusinesses = businesses.filter(b => b.isNew && !b.isRemoved);
-  // 更新用  
   const updateBusinesses = businesses.filter(b => !b.isNew && !b.isRemoved);
-  // 削除用
   const deleteBusinesses = businesses.filter(b => b.isRemoved && !b.isNew);
   
   const operations = [];
   
-  // バルクINSERT
   if (newBusinesses.length > 0) {
     const insertData = newBusinesses.map(business => ({
       name: business.name,
@@ -164,7 +160,6 @@ export const bulkUpsertBusinessInfo = async (
     );
   }
   
-  // バルクUPDATE
   if (updateBusinesses.length > 0) {
     const updatePromises = updateBusinesses.map(business => {
       if (!business.id) {
@@ -194,7 +189,6 @@ export const bulkUpsertBusinessInfo = async (
     operations.push(...updatePromises);
   }
   
-  // バルクDELETE
   if (deleteBusinesses.length > 0) {
     const deleteIds = deleteBusinesses.map(b => b.id).filter(id => id !== undefined);
     if (deleteIds.length > 0) {
@@ -204,7 +198,6 @@ export const bulkUpsertBusinessInfo = async (
     }
   }
   
-  // 全て並列実行
   if (operations.length > 0) {
     const results = await Promise.all(operations);
     const errors = results.filter(result => result.error).map(result => result.error);

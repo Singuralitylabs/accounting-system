@@ -149,14 +149,12 @@ describe("doesRecurringCostOverlapRange", () => {
   });
 
   it("適用期間が重ならない行だけを落とす", () => {
-    // 取得期間より前に終了
     expect(
       doesRecurringCostOverlapRange(
         recurring("2025-01-01", "2026-06-01"),
         bounds,
       ),
     ).toBe(false);
-    // 取得期間より後に開始
     expect(
       doesRecurringCostOverlapRange(recurring("2026-08-01", null), bounds),
     ).toBe(false);
@@ -212,7 +210,6 @@ describe("orphanedAdjustments のラベル解決（補完取得）", () => {
         cost_id: null,
       }),
       adjustmentOn("2026-07-01", { business_id: null, cost_id: julyCost.id }),
-      // 対象月が当月でない調整は集計対象外のため集めない
       adjustmentOn("2026-08-01", {
         business_id: movedRow.id,
         cost_id: null,
@@ -234,8 +231,6 @@ describe("orphanedAdjustments のラベル解決（補完取得）", () => {
   });
 
   it("補完行を追加しても集計値は変わらずラベルが解決される", () => {
-    // レビュー指摘の再現手順：2026-07 の business 行に調整を入れる →
-    // invoice_date を 2026-08 に変更 → 2026-07 の月次を開く
     const monthlyRow = business(500000, "2026-07-10");
     const movedRow = business(300000, "2026-08-05");
     const adjustments = [
@@ -253,7 +248,6 @@ describe("orphanedAdjustments のラベル解決（補完取得）", () => {
       includeTeamBreakdown: true,
       includeMonthlyDetails: true,
     };
-    // 期間絞り込みで対象行が落ちた状態：ラベルは汎用表示に落ちる
     const withoutSupplement = buildMonthReport({
       ...base,
       businessRows: [monthlyRow],
@@ -264,7 +258,6 @@ describe("orphanedAdjustments のラベル解決（補完取得）", () => {
       `売上（ID: ${movedRow.id}）`,
     );
 
-    // 補完取得を模擬：欠けている ID を集めて対象行を追加する
     const missing = collectMissingAdjustmentTargetIds(
       "2026-07",
       adjustments,
@@ -283,7 +276,6 @@ describe("orphanedAdjustments のラベル解決（補完取得）", () => {
       label: `${movedRow.matters.title} - ${movedRow.name}`,
     });
 
-    // 集計値は不変（orphanedAdjustments のラベル以外が一致）
     expect(withSupplement.revenueTotal).toBe(withoutSupplement.revenueTotal);
     expect(withSupplement.matterCostTotal).toBe(
       withoutSupplement.matterCostTotal,
@@ -443,7 +435,6 @@ describe("期間絞り込みの前後で集計値が変わらない", () => {
       adjustments,
     });
 
-    // SQL の WHERE 句と同じ条件でインメモリ絞り込み
     const bounds = reportRangeBounds({
       startMonth: "2026-07",
       endMonth: "2026-07",
@@ -465,7 +456,6 @@ describe("期間絞り込みの前後で集計値が変わらない", () => {
     });
 
     expect(filtered).toEqual(full);
-    // 月未確定行が脱落していないこと
     expect(filtered.undated).toEqual({
       revenue: 790000,
       matterCost: 200000,
@@ -481,7 +471,6 @@ describe("期間絞り込みの前後で集計値が変わらない", () => {
       business(111111, "2026-06-30"),
     ];
     const costRows = [cost(100000, "2026-12-15"), cost(99999, "2028-01-01")];
-    // 年度をまたぐ定期費用（四半期・年払い・年度前終了・年度後開始・継続中）
     const recurringCosts: RecurringCostType[] = [
       {
         id: 1,
@@ -624,7 +613,6 @@ describe("期間絞り込みの前後で集計値が変わらない", () => {
     const filteredCosts = costRows.filter((row) =>
       isMatterInRangeOrUndated(row.matters, bounds),
     );
-    // SQL と同じ条件で絞り込む（定期費用は適用期間の重なり、調整は対象月）
     const filteredRecurring = recurringCosts.filter((rc) =>
       doesRecurringCostOverlapRange(rc, bounds),
     );
@@ -634,7 +622,6 @@ describe("期間絞り込みの前後で集計値が変わらない", () => {
     const filteredAdjustments = adjustments.filter((adj) =>
       isAdjustmentInRange(adj.target_month, bounds),
     );
-    // 年度外の行だけが落ちていること
     expect(filteredRecurring.map((rc) => rc.id).sort()).toEqual([1, 2]);
     expect(filteredExtra.map((entry) => entry.id).sort()).toEqual([11, 12]);
     expect(filteredAdjustments.map((adj) => adj.id)).toEqual([21]);

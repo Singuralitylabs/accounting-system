@@ -10,14 +10,15 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 5 * 60 * 1000, // 5分間はキャッシュを使用
-            gcTime: 10 * 60 * 1000, // 10分後にGC
+            staleTime: 5 * 60 * 1000,
+            gcTime: 10 * 60 * 1000,
             refetchOnWindowFocus: false,
             retry: 2,
-            refetchOnMount: false, // マウント時の自動再取得を無効化
+            refetchOnMount: false,
           },
           mutations: {
-            retry: 1,
+            // Writes are not retried by default: if the response is lost after commit, re-running mutationFn would double-insert rows (INSERT-containing saves). All writes are uniformly not auto-retried; failures are reported and the user retries (docs/specification.md 9.1). The explicit retry: 0 on non-idempotent hooks keeps them safe if this default changes.
+            retry: 0,
           },
         },
       }),

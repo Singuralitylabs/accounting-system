@@ -11,13 +11,13 @@ import {
   undeclaredBudgetTeams,
 } from "@/app/utils/budgetDeclarationReminder";
 
-// vitest.config.ts で TZ=Asia/Tokyo に固定している（JST 前提のアプリのため）
+// TZ is pinned to Asia/Tokyo in vitest.config.ts (the app assumes JST).
 
 describe("isBudgetDeclarationReminderTargetDay", () => {
   it.each(DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS)(
     "JST %d日は対象日である",
     (day) => {
-      const dateString = `2026-09-${String(day).padStart(2, "0")}T03:00:00Z`; // JST 12:00
+      const dateString = `2026-09-${String(day).padStart(2, "0")}T03:00:00Z`; // 12:00 JST
       expect(
         isBudgetDeclarationReminderTargetDay(
           new Date(dateString),
@@ -37,14 +37,14 @@ describe("isBudgetDeclarationReminderTargetDay", () => {
   });
 
   it("UTC 深夜は JST 日付にシフトして判定する", () => {
-    // 2026-09-14T15:00:00Z = 2026-09-15T00:00 JST（対象日）
+    // 2026-09-14T15:00:00Z = 2026-09-15T00:00 JST (target day)
     expect(
       isBudgetDeclarationReminderTargetDay(
         new Date("2026-09-14T15:00:00Z"),
         DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS,
       ),
     ).toBe(true);
-    // 2026-09-19T15:00:00Z = 2026-09-20T00:00 JST（対象日）
+    // 2026-09-19T15:00:00Z = 2026-09-20T00:00 JST (target day)
     expect(
       isBudgetDeclarationReminderTargetDay(
         new Date("2026-09-19T15:00:00Z"),
@@ -98,7 +98,6 @@ describe("groupSlackIdsByTeam", () => {
 
     expect(result.get("営業チーム")).toEqual(["U001", "U002"]);
     expect(result.get("開発チーム")).toEqual([]);
-    // リーダー不在チーム（leaderRows に行が無い）も空配列で含まれる
     expect(result.get("広報チーム")).toEqual([]);
   });
 });

@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCopiedExtraEntries,
-  excludeDuplicateExtraEntries,
-  extraEntryDuplicateKey,
   formatEntryType,
   shiftDateToMonth,
   isExtraEntryUnchanged,
@@ -136,73 +134,6 @@ describe("buildCopiedExtraEntries", () => {
   });
 });
 
-describe("extraEntryDuplicateKey", () => {
-  it("entry_type・分類・内容・責任者・チーム・金額が同じなら同じキーになる", () => {
-    const a = entry({ id: 1, entry_date: "2026-08-10" });
-    const b = entry({ id: 2, entry_date: "2026-09-10", invoice_number: null });
-    expect(extraEntryDuplicateKey(a)).toBe(extraEntryDuplicateKey(b));
-  });
-
-  it("金額が違えば別キーになる", () => {
-    const a = entry({ billing_amount: 300000 });
-    const b = entry({ billing_amount: 300001 });
-    expect(extraEntryDuplicateKey(a)).not.toBe(extraEntryDuplicateKey(b));
-  });
-
-  it("チームが違えば別キーになる（全体共通 team: null との区別も含む）", () => {
-    const a = entry({ team: "Aチーム" });
-    const b = entry({ team: "Bチーム" });
-    const c = entry({ team: null });
-    expect(extraEntryDuplicateKey(a)).not.toBe(extraEntryDuplicateKey(b));
-    expect(extraEntryDuplicateKey(a)).not.toBe(extraEntryDuplicateKey(c));
-  });
-
-  it("ExtraEntryInsertType 形（team 等が省略された行）でも Row と同じキーになる", () => {
-    const row = buildCopiedExtraEntries([entry()], "2026-09")[0];
-    expect(extraEntryDuplicateKey(row)).toBe(
-      extraEntryDuplicateKey(entry({ entry_date: "2026-09-10" })),
-    );
-  });
-});
-
-describe("excludeDuplicateExtraEntries", () => {
-  it("当月に同一内容の明細が既にあれば除外する", () => {
-    const rows = buildCopiedExtraEntries([entry()], "2026-09");
-    const existing = [entry({ id: 99, entry_date: "2026-09-10" })];
-
-    expect(excludeDuplicateExtraEntries(rows, existing)).toEqual([]);
-  });
-
-  it("重複が無ければそのまま返す", () => {
-    const rows = buildCopiedExtraEntries([entry()], "2026-09");
-    const existing = [entry({ id: 99, billing_amount: 999999 })];
-
-    expect(excludeDuplicateExtraEntries(rows, existing)).toEqual(rows);
-  });
-
-  it("一部だけ重複する場合は重複分だけ除外する", () => {
-    const rows = buildCopiedExtraEntries(
-      [
-        entry({ id: 1, description: "受託案件A" }),
-        entry({ id: 2, description: "受託案件B" }),
-      ],
-      "2026-09",
-    );
-    const existing = [
-      entry({ id: 99, entry_date: "2026-09-10", description: "受託案件A" }),
-    ];
-
-    const result = excludeDuplicateExtraEntries(rows, existing);
-    expect(result).toHaveLength(1);
-    expect(result[0].description).toBe("受託案件B");
-  });
-
-  it("当月に既存明細が無ければ全件そのまま返す", () => {
-    const rows = buildCopiedExtraEntries([entry()], "2026-09");
-    expect(excludeDuplicateExtraEntries(rows, [])).toEqual(rows);
-  });
-});
-
 describe("isExtraEntryUnchanged", () => {
   const original = {
     id: 1,
@@ -229,7 +160,6 @@ describe("isExtraEntryUnchanged", () => {
 
   it("DB に書き込む項目がすべて同じなら未変更", () => {
     expect(isExtraEntryUnchanged(original, asRow())).toBe(true);
-    // updated_at など書き込まない項目の違いは無視する
     expect(isExtraEntryUnchanged(original, asRow({ updated_at: "x" }))).toBe(
       true,
     );
@@ -249,7 +179,7 @@ describe("isExtraEntryUnchanged", () => {
 });
 
 describe("resolveExtraEntryMonth", () => {
-  // 2026-09-15 00:00 JST（UTC 2026-09-14 15:00）
+  // 2026-09-15 00:00 JST (UTC 2026-09-14 15:00)
   const now = new Date(Date.UTC(2026, 8, 14, 15, 0, 0));
 
   it("有効な `?month=` はそのまま対象月にする", () => {
@@ -284,11 +214,11 @@ describe("selectChangedExtraEntries", () => {
 
   it("追加・削除・編集した行だけを選び、編集していない行と追加の取り消しは送らない", () => {
     const rows = [
-      asRow({ id: 1 }), // 未変更
-      asRow({ id: 2, billing_amount: 400000 }), // 編集
-      asRow({ id: 3 }, { isRemoved: true }), // 削除
-      asRow({ id: 10 }, { isNew: true }), // 追加
-      asRow({ id: 11 }, { isNew: true, isRemoved: true }), // 追加して取り消し
+      asRow({ id: 1 }),
+      asRow({ id: 2, billing_amount: 400000 }),
+      asRow({ id: 3 }, { isRemoved: true }),
+      asRow({ id: 10 }, { isNew: true }),
+      asRow({ id: 11 }, { isNew: true, isRemoved: true }),
     ];
     expect(
       selectChangedExtraEntries(rows, baseline).map((row) => row.id),
@@ -296,7 +226,7 @@ describe("selectChangedExtraEntries", () => {
   });
 
   it("読み込み時点の値と比べる（読み込み後に他の利用者が変えた行を上書きしない）", () => {
-    // 画面の行は読み込み時点のまま。DB 側が後から変わっていても送らない
+    // Screen rows stay as loaded; do not send them even if the DB row changed later.
     expect(selectChangedExtraEntries([asRow({ id: 1 })], baseline)).toEqual([]);
   });
 });

@@ -12,10 +12,9 @@ import { canManageBudgetDeclarationReminderSettings } from "@/app/utils/budgetDe
 import BudgetDeclarationList from "../budgetDeclarations/BudgetDeclarationList";
 
 const DynamicBudgetDeclarations = async () => {
-  // 初期表示は翌月（毎月20日までに翌月分を申告する運用に合わせる）
+  // Initial month is next month (declarations for the next month are due by the 20th).
   const initialMonth = defaultTargetMonth();
-  // getProfileInfo は React cache() 経由で dedupe されるため、
-  // getBudgetDeclarationList 内で既に呼ばれていても DB 往復は増えない
+  // getProfileInfo is deduped via React cache(), so no extra DB round trip.
   const [
     { rows },
     { profileInfo, error: profileError },
@@ -26,11 +25,7 @@ const DynamicBudgetDeclarations = async () => {
     getMemberOptions(),
   ]);
 
-  // 担当者選択肢は補助的な入力項目のため、取得に失敗しても一覧自体は表示する。
-  // ただしフォーム側の担当者 Select は disabled にする（memberListError 参照）。
-  // memberList が空のまま表示すると、既存明細の manager_id が選択肢に無いため
-  // Select が空欄に描画され、値は保持されているにもかかわらず「担当者が
-  // クリアされた」と利用者に誤認させてしまう
+  // Members are auxiliary: on failure still show the list, but disable the form's manager Select (see memberListError; an empty memberList would render existing manager_id values as blank, looking cleared).
   if (memberOptionsError) {
     console.error(
       "事前収支申告の担当者選択肢の取得に失敗しました:",
@@ -38,8 +33,7 @@ const DynamicBudgetDeclarations = async () => {
     );
   }
 
-  // 取得失敗時は canEditAllTeams が false（チーム固定）側にフォールバックする。
-  // 経理・管理者が対象でも、失敗の原因を追えるようログだけは残す
+  // On failure canEditAllTeams falls back to false (team fixed); still log the cause.
   if (profileError) {
     console.error(
       "事前収支申告フォームの権限判定用プロフィール取得に失敗しました:",
@@ -51,9 +45,7 @@ const DynamicBudgetDeclarations = async () => {
     profileInfo?.class,
   );
 
-  // リマインド設定セクションは admin / accounting にのみ描画するため、
-  // 対象外のロールでは Server Action 自体を呼ばない
-  // （teamleader / public に権限不足のログを残さない）
+  // The reminder settings button renders for admin / accounting only, so do not call the Server Action for other roles (avoids permission-denied logs).
   const reminderSettings = canManageReminderSettings
     ? await getBudgetDeclarationReminderSettings()
     : null;
@@ -69,8 +61,7 @@ const DynamicBudgetDeclarations = async () => {
     <BudgetDeclarationList
       initialMonth={initialMonth}
       initialData={rows ?? null}
-      // シード時刻を渡さないと、TanStack Query が「今取得した」と扱い、
-      // GC 後に古い initialData を再取得なしで表示してしまう
+      // Without the seed time TanStack Query treats initialData as fetched now and shows stale data after GC without refetching.
       initialDataUpdatedAt={Date.now()}
       canEditAllTeams={canViewAllBudgetTeams(profileInfo?.class)}
       canManageReminderSettings={canManageReminderSettings}

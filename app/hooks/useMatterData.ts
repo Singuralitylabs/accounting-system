@@ -27,7 +27,6 @@ import {
   CostType,
 } from "../types/types";
 
-// getAllMatterInfoListの戻り値の型定義
 export type MatterWithProfileType = MatterType & {
   profiles: {
     name: string;
@@ -35,26 +34,22 @@ export type MatterWithProfileType = MatterType & {
   } | null;
 };
 
-// ユーザーの案件一覧
 export const useUserMatterList = (initialData?: MatterType[]) => {
   return useQuery({
     queryKey: ["matters", "user"],
     queryFn: async () => {
       const result = await getUserMatterInfoList();
-      // getUserMatterInfoList はエラー時に null を返す。null をそのまま返すと
-      // 成功扱いでキャッシュされリトライされないため throw に変換し、
-      // TanStack Query の retry と前回データ保持に任せる（useAllMatterList と統一）
+      // The helper returns null on error; convert to throw so retry and previous-data retention apply (as in useAllMatterList).
       if (result === null) {
         throw new Error("案件情報の取得に失敗しました");
       }
       return result;
     },
     initialData,
-    staleTime: 2 * 60 * 1000, // 2分
+    staleTime: 2 * 60 * 1000,
   });
 };
 
-// 全案件一覧（経理用）
 export const useAllMatterList = (
   initialData?: MatterWithProfileType[],
   filters: MatterListFilters = {},
@@ -63,9 +58,7 @@ export const useAllMatterList = (
     queryKey: ["matters", "all", filters],
     queryFn: async () => {
       const result = await getAllMatterInfoList(filters);
-      // getAllMatterInfoList はエラー時に null を返す。null をそのまま返すと
-      // 成功扱いでキャッシュが null 上書きされ一覧が白紙化するため throw に変換し、
-      // TanStack Query の retry と前回データ保持に任せる
+      // The helper returns null on error; convert to throw so the cache is not overwritten with null.
       if (result === null) {
         throw new Error("案件一覧の取得に失敗しました");
       }
@@ -76,7 +69,6 @@ export const useAllMatterList = (
   });
 };
 
-// 案件詳細（コスト・ビジネス情報含む）
 export const useMatterDetail = (
   matterId: number,
   enabled = true,
@@ -90,11 +82,7 @@ export const useMatterDetail = (
         getUserBusinessInfoList(matterId),
       ]);
 
-      // 取得失敗（error あり）を空配列にフォールバックすると「成功・空」として
-      // キャッシュされモーダルが無言で空表示になるため、throw して
-      // TanStack Query の retry・エラー表示に委ねる。
-      // throw すると Supabase の元エラーが失われ原因を追えなくなるため、
-      // 事前に両方のエラーをログしておく
+      // Throw on fetch error instead of falling back to [] (cached as "success, empty"); log both errors first because throwing loses the original Supabase error.
       if (costResult.error || businessResult.error) {
         console.error(
           "案件詳細の取得に失敗しました:",
@@ -118,20 +106,18 @@ export const useMatterDetail = (
       };
     },
     enabled: enabled && !!matterId,
-    staleTime: options?.staleTime ?? 1 * 60 * 1000, // 既定1分。閲覧専用は 0 を指定
+    staleTime: options?.staleTime ?? 1 * 60 * 1000, // default 1 min; 0 for read-only
     ...(options?.refetchOnMount !== undefined && {
       refetchOnMount: options.refetchOnMount,
     }),
   });
 };
 
-// 案件更新
 export const useUpdateMatter = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    // コスト・取引先の isNew INSERT を含む非冪等更新のため、
-    // グローバル retry: 1 による mutationFn 再実行を防ぐ
+    // Non-idempotent update (isNew INSERTs): prevent automatic re-run explicitly, independent of QueryProvider defaults.
     retry: 0,
     mutationFn: (data: {
       matterInfo: MatterType;
@@ -159,11 +145,9 @@ export const useUpdateMatter = () => {
       return updateMatter(matterInfo, data.businessInfoList, data.costInfoList);
     },
     onSuccess: (_, variables) => {
-      // 特定の matter だけを無効化
       queryClient.invalidateQueries({
         queryKey: ["matter", variables.matterInfo.id],
       });
-      // 一覧も無効化（合計金額などが変わるため）
       queryClient.invalidateQueries({ queryKey: ["matters"] });
     },
     onError: (error) => {
@@ -173,13 +157,11 @@ export const useUpdateMatter = () => {
   });
 };
 
-// 案件作成
 export const useCreateMatter = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    // addMatterInfo は matter INSERT 後にコスト・取引先を入れる非冪等処理。
-    // グローバル retry: 1 だと一時失敗で案件行が重複する
+    // Non-idempotent (matter INSERT then costs/businesses); re-running would duplicate the matter row.
     retry: 0,
     mutationFn: (data: {
       matterInfo: MatterType;
@@ -210,7 +192,6 @@ export const useCreateMatter = () => {
   });
 };
 
-// 案件削除
 export const useDeleteMatter = () => {
   const queryClient = useQueryClient();
 
@@ -224,8 +205,7 @@ export const useDeleteMatter = () => {
     },
     onError: (error, deletedMatter) => {
       console.error("案件削除エラー:", error);
-      // 二重クリックや別タブでの先行削除では削除 0 行がエラーになるが、案件は
-      // 実際には消えている。キャッシュを無効化して一覧・詳細を実状態に合わせる。
+      // Zero-row deletes error on double click or delete in another tab; invalidate to resync.
       queryClient.invalidateQueries({ queryKey: ["matter", deletedMatter.id] });
       queryClient.invalidateQueries({ queryKey: ["matters"] });
       notifyError(toErrorMessage(error, "案件削除に失敗しました。"));
@@ -233,13 +213,11 @@ export const useDeleteMatter = () => {
   });
 };
 
-// Slack通知（案件をis_fixed=falseに戻す）
 export const useSlackNotification = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    // Slack 送信は非冪等な副作用のため、グローバル設定（retry: 1）による
-    // mutationFn 全体の自動再実行＝通知の二重送信を防ぐ
+    // Slack sends are non-idempotent side effects; auto re-run would double-notify.
     retry: 0,
     mutationFn: async (data: {
       matters: MatterInfoWithUserNameType[];
@@ -247,21 +225,16 @@ export const useSlackNotification = () => {
     }): Promise<{ failedTitles: string[]; dbUpdateFailed: boolean }> => {
       const { matters, message } = data;
 
-      // import はループ内ではなく最初に1回だけ行う
       const [{ default: sendMessageToSlack }, { bulkUnfixMatterInfo }] =
         await Promise.all([
           import("../utils/slack/sendMessageToSlack"),
           import("../utils/supabase/matters"),
         ]);
 
-      // Server Action は同一クライアントからは直列実行される上、Slack 側の
-      // レート制限（概ね1メッセージ/秒）もあるため、送信は明示的に直列で行い、
-      // 失敗しても残りの案件の送信は継続する
+      // Send sequentially (Server Actions run serially per client; Slack rate limit is about 1 msg/s); continue after failures.
       const notifiedMatterIds: number[] = [];
       const failedTitles: string[] = [];
       for (const matter of matters) {
-        // slack_id が null の場合は sendMessageToSlack 側で
-        // ユーザー名表示にフォールバックする
         const notified = await sendMessageToSlack(
           matter.slack_id ?? "",
           matter.user_name ?? "",
@@ -275,9 +248,7 @@ export const useSlackNotification = () => {
         }
       }
 
-      // 通知できた案件のみ、一括UPDATEで is_fixed=false に戻す。
-      // 部分失敗は throw せず戻り値で返す（throw すると DB 更新済みなのに
-      // キャッシュ無効化されず、UI が DB と乖離するため）
+      // Revert only notified matters. Return partial failures instead of throwing, otherwise the cache is not invalidated and the UI diverges from the DB.
       let dbUpdateFailed = false;
       if (notifiedMatterIds.length > 0) {
         const { error } = await bulkUnfixMatterInfo(notifiedMatterIds);
@@ -290,7 +261,7 @@ export const useSlackNotification = () => {
       return { failedTitles, dbUpdateFailed };
     },
     onSettled: () => {
-      // 部分失敗でも DB が更新されている可能性があるため、成否によらず無効化する
+      // Invalidate regardless of outcome: the DB may be updated even on partial failure.
       queryClient.invalidateQueries({ queryKey: ["matters"] });
     },
     onError: (error) => {
@@ -299,7 +270,6 @@ export const useSlackNotification = () => {
   });
 };
 
-// 確認完了処理（複数案件）
 export const useCheckCompleted = () => {
   const queryClient = useQueryClient();
 
@@ -321,7 +291,6 @@ export const useCheckCompleted = () => {
   });
 };
 
-// 確認完了処理（単一案件）
 export const useCheckCompletedSingle = () => {
   const queryClient = useQueryClient();
 
@@ -349,7 +318,7 @@ export const useCheckCompletedSingle = () => {
         unchecked_cost_count: data.matterInfo.unchecked_cost_count,
         parent_matter_id: data.matterInfo.parent_matter_id,
         is_fixed: data.matterInfo.is_fixed,
-        is_completed: true, // 確認完了
+        is_completed: true,
         has_updates: data.clearHasUpdates ? false : data.matterInfo.has_updates,
         user_id: data.matterInfo.user_id,
         accounting_memo: data.accountingMemo || data.matterInfo.accounting_memo,
@@ -357,7 +326,6 @@ export const useCheckCompletedSingle = () => {
         updated_at: data.matterInfo.updated_at,
       };
 
-      // BusinessTypeとCostTypeをBusinessInCardTypeとCostInCardTypeに変換
       const businessInCardList: BusinessInCardType[] = data.businessList.map(
         (business) => ({
           ...business,
@@ -372,17 +340,14 @@ export const useCheckCompletedSingle = () => {
         isRemoved: false,
       }));
 
-      // updateMatterを使用してビジネス情報とコスト情報も同時に更新
       await updateMatter(matterToUpdate, businessInCardList, costInCardList);
 
       return true;
     },
     onSuccess: (_, variables) => {
-      // 特定の matter だけを無効化
       queryClient.invalidateQueries({
         queryKey: ["matter", variables.matterInfo.id],
       });
-      // 一覧も無効化
       queryClient.invalidateQueries({ queryKey: ["matters"] });
     },
     onError: (error) => {
@@ -391,7 +356,6 @@ export const useCheckCompletedSingle = () => {
   });
 };
 
-// 経理メモ保存処理（確認完了はしない）
 export const useSaveAccountingMemo = () => {
   const queryClient = useQueryClient();
 
@@ -419,7 +383,7 @@ export const useSaveAccountingMemo = () => {
         unchecked_cost_count: data.matterInfo.unchecked_cost_count,
         parent_matter_id: data.matterInfo.parent_matter_id,
         is_fixed: data.matterInfo.is_fixed,
-        is_completed: data.matterInfo.is_completed, // 現在の状態を維持
+        is_completed: data.matterInfo.is_completed,
         has_updates: data.clearHasUpdates ? false : data.matterInfo.has_updates,
         user_id: data.matterInfo.user_id,
         accounting_memo: data.accountingMemo || data.matterInfo.accounting_memo,
@@ -427,7 +391,6 @@ export const useSaveAccountingMemo = () => {
         updated_at: data.matterInfo.updated_at,
       };
 
-      // BusinessTypeとCostTypeをBusinessInCardTypeとCostInCardTypeに変換
       const businessInCardList: BusinessInCardType[] = data.businessList.map(
         (business) => ({
           ...business,
@@ -442,17 +405,14 @@ export const useSaveAccountingMemo = () => {
         isRemoved: false,
       }));
 
-      // updateMatterを使用してビジネス情報とコスト情報も同時に更新
       await updateMatter(matterToUpdate, businessInCardList, costInCardList);
 
       return true;
     },
     onSuccess: (_, variables) => {
-      // 特定の matter だけを無効化
       queryClient.invalidateQueries({
         queryKey: ["matter", variables.matterInfo.id],
       });
-      // 一覧も無効化
       queryClient.invalidateQueries({ queryKey: ["matters"] });
     },
     onError: (error) => {
@@ -461,7 +421,6 @@ export const useSaveAccountingMemo = () => {
   });
 };
 
-// 申請中に戻す処理
 export const useRevertToFixed = () => {
   const queryClient = useQueryClient();
 
@@ -486,8 +445,8 @@ export const useRevertToFixed = () => {
         cost_count: data.matterInfo.cost_count,
         unchecked_cost_count: data.matterInfo.unchecked_cost_count,
         parent_matter_id: data.matterInfo.parent_matter_id,
-        is_fixed: true, // 申請中に戻す
-        is_completed: false, // 確認完了を取り消し
+        is_fixed: true,
+        is_completed: false,
         has_updates: data.clearHasUpdates ? false : data.matterInfo.has_updates,
         user_id: data.matterInfo.user_id,
         accounting_memo: data.accountingMemo || data.matterInfo.accounting_memo,
@@ -506,7 +465,6 @@ export const useRevertToFixed = () => {
       return result;
     },
     onSuccess: () => {
-      // 全ての案件一覧を無効化
       queryClient.invalidateQueries({ queryKey: ["matters"] });
     },
     onError: (error) => {
@@ -515,7 +473,6 @@ export const useRevertToFixed = () => {
   });
 };
 
-// 下書きに戻す処理
 export const useRevertToDraft = () => {
   const queryClient = useQueryClient();
 
@@ -540,8 +497,8 @@ export const useRevertToDraft = () => {
         cost_count: data.matterInfo.cost_count,
         unchecked_cost_count: data.matterInfo.unchecked_cost_count,
         parent_matter_id: data.matterInfo.parent_matter_id,
-        is_fixed: false, // 下書きに戻す
-        is_completed: false, // 確認完了を取り消し
+        is_fixed: false,
+        is_completed: false,
         has_updates: data.clearHasUpdates ? false : data.matterInfo.has_updates,
         user_id: data.matterInfo.user_id,
         accounting_memo: data.accountingMemo || data.matterInfo.accounting_memo,
@@ -560,7 +517,6 @@ export const useRevertToDraft = () => {
       return result;
     },
     onSuccess: () => {
-      // 全ての案件一覧を無効化
       queryClient.invalidateQueries({ queryKey: ["matters"] });
     },
     onError: (error) => {

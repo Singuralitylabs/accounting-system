@@ -12,8 +12,7 @@ type Props = {
 };
 
 const DynamicExtraEntries = async ({ monthParam }: Props = {}) => {
-  // 初期の対象月: `?month=YYYY-MM` が有効ならその月、無効・未指定なら当月（JST）。
-  // 損益計算書の「経理追加収支を管理」ボタンは表示中の対象月を `?month=` に付けて遷移する
+  // Initial month: `?month=YYYY-MM` if valid, else the current month (JST); the statement's manage link passes the displayed month.
   const initialMonth = resolveExtraEntryMonth(monthParam);
   const [
     { extraEntryList, error: extraEntryError },
@@ -33,9 +32,7 @@ const DynamicExtraEntries = async ({ monthParam }: Props = {}) => {
     getExtraEntrySuggestions(),
   ]);
 
-  // 取得に失敗した結果を空配列として描画すると「0 件」と区別が付かず、
-  // TanStack Query の initialData にも成功結果としてキャッシュされてしまう。
-  // 失敗時は throw してルートの error boundary（app/extra-entries/error.tsx）に処理させる。
+  // A failed result rendered as an empty array is indistinguishable from 0 rows and cached as success in initialData; throw to the route error boundary (app/extra-entries/error.tsx).
   if (extraEntryError || !extraEntryList) {
     throw new Error("経理追加収支情報の取得に失敗しました。");
   }
@@ -53,8 +50,7 @@ const DynamicExtraEntries = async ({ monthParam }: Props = {}) => {
     throw new Error("ユーザー情報の取得に失敗しました。");
   }
 
-  // サジェスト候補は補助的な表示のため、取得に失敗しても空配列で描画する
-  // （クライアント側で再取得される）
+  // Suggestions are auxiliary: render with an empty array on failure (the client refetches).
   if (suggestionError) {
     console.error(
       "経理追加収支のサジェスト候補の取得に失敗しました:",
@@ -67,8 +63,7 @@ const DynamicExtraEntries = async ({ monthParam }: Props = {}) => {
       <ExtraEntryList
         initialMonth={initialMonth}
         initialData={extraEntryList}
-        // シード時刻を渡さないと、TanStack Query が「今取得した」と扱い、
-        // GC 後に古い initialData を再取得なしで表示してしまう
+        // Without the seed time TanStack Query treats initialData as fetched now and shows stale data after GC without refetching.
         initialDataUpdatedAt={Date.now()}
         incomeCategoryList={incomeCategoryResult.options.map(
           (option) => option.value,

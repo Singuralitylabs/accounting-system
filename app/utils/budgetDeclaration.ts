@@ -1,7 +1,5 @@
-// 事前収支申告の集計・対象月ロジック（純粋関数）。
-// Supabase アクセス（"use server" が付く app/utils/supabase/budgetDeclarations.ts）から
-// 切り離しているのは、副作用なしでユニットテストできるようにするため
-// （docs/testing.md「2.6 テスト容易化リファクタリング方針」）。
+// Pure aggregation and target-month logic for budget declarations, separate from the
+// "use server" Supabase access so it can be unit-tested.
 
 import {
   AccessFailure,
@@ -14,40 +12,33 @@ import {
 import { addMonths, currentJstMonth } from "./formatter";
 import { ROUTE_PERMISSIONS, Role, hasClassAccess } from "./permissions";
 
-// addMonths は月キー（YYYY-MM）の汎用ヘルパのため app/utils/formatter.ts に定義し、
-// 既存の import 元（本ファイル経由）を壊さないようここで re-export する
+// Re-exported so existing importers keep working (addMonths lives in formatter.ts).
 export { addMonths };
 
-// 事前収支申告を閲覧できるロール（/budget-declarations のルート保護と常に一致する）
+// Always matches the /budget-declarations route protection.
 export const BUDGET_DECLARATION_ALLOWED_CLASSES =
   ROUTE_PERMISSIONS["/budget-declarations"];
 
-// 自チームの申告だけを閲覧できるロール。閲覧可ロールのうちこれ以外は全チームを見られる
-// （DB 側の判定 `public.can_access_team_budget`（migration 19 / docs/database.md 5.8）と
-// 同じ区分。片方だけ変えるとアプリと RLS がずれるため、変更時は両方を直す）。
+// Roles that see only their own team's declarations. Mirrors DB `public.can_access_team_budget`
+// (migration 19); change both together or the app and RLS diverge.
 export const BUDGET_OWN_TEAM_ONLY_CLASSES: Role[] = ["teamleader"];
 
-// 全チームの申告を閲覧できるロール。ルートの許可ロールから導出しているため、
-// ROUTE_PERMISSIONS にロールを足せば一覧の表示範囲も自動で追随する。
+// Derived from route permissions, so adding a role there widens the list automatically.
 export const BUDGET_ALL_TEAMS_CLASSES =
   BUDGET_DECLARATION_ALLOWED_CLASSES.filter(
     (role) => !BUDGET_OWN_TEAM_ONLY_CLASSES.includes(role),
   );
 
-// 集計に必要な明細の最小形（DB 行・フォームの入力行のどちらからでも渡せる）
 export type BudgetItemAmount = {
   entry_type: string;
   amount: number;
 };
 
-// 一覧の初期表示に使う対象月 = JST の翌月。
-// 「毎月20日までに翌月分を申告する」運用に合わせる（docs/specification.md 4.20）。
+// Default list month = next month in JST (declare next month's budget by the 20th).
 export const defaultTargetMonth = (now: Date = new Date()): string =>
   addMonths(currentJstMonth(now), 1);
 
-// 明細から収入合計・支出合計・差引を求める。
-// 合計はヘッダに非正規化していないため、表示のたびにここで集計する
-// （docs/database.md 3.9）。
+// Totals are not denormalized in the header; computed at display time.
 export const summarizeBudgetItems = (
   items: readonly BudgetItemAmount[],
 ): BudgetSummaryType => {
@@ -55,7 +46,6 @@ export const summarizeBudgetItems = (
   let expenseTotal = 0;
 
   for (const item of items) {
-    // amount は DB の CHECK（> 0）で正の値のみ。符号は entry_type が決める
     if (item.entry_type === "income") {
       incomeTotal += item.amount;
     } else if (item.entry_type === "expense") {
@@ -70,14 +60,12 @@ export const summarizeBudgetItems = (
   };
 };
 
-// 全チームの申告を閲覧できるロールか。取得側はこれを見て、チームマスタの
-// 取得と全チーム分の RLS 評価が必要かを判断する。
+// Lets the fetch side decide whether the team master and all-team RLS evaluation are needed.
 export const canViewAllBudgetTeams = (
   profileClass: string | null | undefined,
 ): boolean => hasClassAccess(BUDGET_ALL_TEAMS_CLASSES, profileClass);
 
-// 自チームのみ閲覧できるロールが見られるチーム。
-// 閲覧権限がない場合とチーム未設定の場合は空配列（表示対象なし）。
+// Empty when the role has no access or no team is set.
 export const ownBudgetTeams = (
   profileClass: string | null | undefined,
   profileTeam: string | null | undefined,
@@ -86,9 +74,8 @@ export const ownBudgetTeams = (
     ? [profileTeam]
     : [];
 
-// 一覧に表示するチームを決める。
-// 行そのものの可視範囲は RLS が担保するが、「未申告」を表示するには
-// 申告が無いチームも並べる必要があるため、チームマスタ側もロールで絞る。
+// RLS bounds visible rows, but showing "not declared" needs teams without declarations, so the
+// team master is also filtered by role.
 export const visibleBudgetTeams = (
   profileClass: string | null | undefined,
   profileTeam: string | null | undefined,
@@ -98,10 +85,7 @@ export const visibleBudgetTeams = (
     ? [...teamList]
     : ownBudgetTeams(profileClass, profileTeam);
 
-// 対象チームへの書き込み（作成・編集・削除）が許可されるか。
-// DB 側の判定 `public.can_access_team_budget`（migration 19）と同じ区分
-// （canViewAllBudgetTeams / ownBudgetTeams を参照。片方だけ変えるとアプリと
-// RLS がずれるため、変更時は両方を直す）。
+// Mirrors DB `public.can_access_team_budget` (migration 19); change both together.
 export const canWriteBudgetTeam = (
   profileClass: string | null | undefined,
   profileTeam: string | null | undefined,
@@ -110,7 +94,6 @@ export const canWriteBudgetTeam = (
   canViewAllBudgetTeams(profileClass) ||
   ownBudgetTeams(profileClass, profileTeam).includes(targetTeam);
 
-// 集計前の申告（ヘッダ＋明細）。DB から取得した形に対応する
 export type BudgetDeclarationWithItems = {
   id: number;
   team: string;
@@ -119,9 +102,7 @@ export type BudgetDeclarationWithItems = {
   items: BudgetItemAmount[];
 };
 
-// チーム一覧と申告を突き合わせ、チーム × 申告状況の行を組み立てる。
-// マスタから外れた（無効化・改名された）チームの申告を取りこぼさないよう、
-// チームマスタに無いチームの申告も末尾に残す。
+// Declarations for teams missing from the master (disabled/renamed) are appended so none are dropped.
 export const buildBudgetDeclarationStatusList = (
   teams: readonly string[],
   declarations: readonly BudgetDeclarationWithItems[],
@@ -152,10 +133,8 @@ export const buildBudgetDeclarationStatusList = (
   return [...rows, ...orphanRows];
 };
 
-// 分類がマスタに登録されている値か（種別に連動。収入 = category、支出 = item）。
-// 空文字は「未入力」であり「未登録」とは区別する（未入力は required 側の責務）。
-// 前後の空白は保存時に trim されるため、照合前に trim する
-// （validateBudgetDeclarationItem / Server Action 側と同一基準）。
+// Empty string means "not entered" (required's job), distinct from "unregistered". Trims before
+// matching, as saving trims (same criterion as validateBudgetDeclarationItem / the Server Action).
 export const isCategoryUnregistered = (
   entryType: string,
   category: string,
@@ -172,14 +151,10 @@ export const isCategoryUnregistered = (
   return !master.includes(trimmedCategory);
 };
 
-// 種別に連動した分類の選択肢を返す（収入 = category、支出 = item の既存マスタを流用）。
-// 分類がマスタから外れていても（無効化・改名。前月コピー・定期明細の取り込みで
-// 持ち込んだ場合を含む）選択肢に残し、見せかけ上クリアされたように見せない。
-// ただしマスタの値と紛れないよう、注入した選択肢のラベルだけ「（マスタ未登録）」と
-// 付記する（保存される値そのものは変えない）。注入した選択肢は disabled にし、
-// 一度有効な値に変えた後に「選び直して」無効値を復活させられないようにする
-// （現在値としての表示は維持される）。BudgetDeclarationForm と
-// BudgetRecurringItemList（管理セクション）で共用する
+// Income = category, expense = item master. Values missing from the master (disabled/renamed, or
+// brought in via previous-month copy / recurring import) stay selectable, labelled 「（マスタ未登録）」,
+// and disabled so an invalid value cannot be re-selected after switching to a valid one.
+// Shared by BudgetDeclarationForm and BudgetRecurringItemList.
 export const categoryOptionsFor = (
   entryType: string,
   category: string,
@@ -194,12 +169,8 @@ export const categoryOptionsFor = (
   ];
 };
 
-// 前月の明細を「新規行」に変換する（id・display_order を持たない。フォームの
-// 明細追加ボタンで作る行と同じ形にする）。並び順は取得側
-// （getPreviousBudgetDeclarationItems）が display_order 順に揃えて渡すため、
-// ここでは並べ替えない（二重ソートで判定基準がずれるのを避ける）。分類が
-// マスタから外れていても値はそのまま保持する（フォーム側の Select で選択肢に
-// 含めるかどうかは表示側の責務であり、ここでは判定・除外しない）
+// Order comes from the fetch side (display_order), so do not re-sort. Values missing from the
+// master are kept; whether to offer them is the form's job.
 export const previousItemsToFormRows = (
   items: readonly BudgetDeclarationPreviousItem[],
 ): BudgetDeclarationItemInput[] =>
@@ -211,7 +182,6 @@ export const previousItemsToFormRows = (
     manager_id,
   }));
 
-// 一覧全体の合計（表示中のチーム分のみ）
 export const totalBudgetSummary = (
   rows: readonly BudgetDeclarationStatusType[],
 ): BudgetSummaryType =>
@@ -224,9 +194,8 @@ export const totalBudgetSummary = (
     { incomeTotal: 0, expenseTotal: 0, balance: 0 },
   );
 
-// Server Action が返した失敗（プレーンオブジェクト）を、react-query の
-// queryFn から throw できる Error に変換する。kind を保持することで、
-// 権限不足のときだけリトライを止め、専用のメッセージを出せる。
+// Lets react-query's queryFn throw; keeps `kind` so retries stop and a dedicated message shows
+// only for permission errors.
 export class BudgetDeclarationError extends Error {
   readonly kind: AccessFailureKind;
 
@@ -237,11 +206,8 @@ export class BudgetDeclarationError extends Error {
   }
 }
 
-// error が BudgetDeclarationError なら kind を返す（それ以外は undefined）。
-// `instanceof BudgetDeclarationError` で判定しないのは、ES5 へダウンレベルする
-// ツールチェーンでは組み込み Error のサブクラス判定が常に false になり、
-// kind を使った出し分け（リトライ抑止・案内メッセージの切り替え）が
-// 黙って効かなくなるため。`instanceof Error` と `.kind` の有無で代用する。
+// Not `instanceof BudgetDeclarationError`: toolchains that down-level to ES5 make built-in Error
+// subclass checks always false, silently disabling kind-based branching. Use `instanceof Error` + `.kind`.
 const getBudgetDeclarationErrorKind = (
   error: unknown,
 ): AccessFailureKind | undefined =>
@@ -249,20 +215,17 @@ const getBudgetDeclarationErrorKind = (
     ? (error as Partial<BudgetDeclarationError>).kind
     : undefined;
 
-// 権限不足は再試行しても回復しないため、リトライ対象から外す。
+// Permission errors do not recover on retry.
 export const isForbiddenError = (error: unknown): boolean =>
   getBudgetDeclarationErrorKind(error) === "forbidden";
 
-// QueryProvider の既定は retry: 2。権限不足は再試行しても回復しないため打ち切る。
-// useBudgetDeclarationData.ts / useBudgetRecurringItemData.ts の両フックが使う
-// react-query の retry オプション（TQuery のエラー型を問わないよう Error を受ける）
+// QueryProvider defaults to retry: 2. Used by useBudgetDeclarationData / useBudgetRecurringItemData.
 export const retryUnlessForbidden = (failureCount: number, error: Error) =>
   !isForbiddenError(error) && failureCount < 2;
 
-// ヘッダ保存→明細差し替えの途中で失敗し、一部のみ反映された可能性があるケースかどうか。
-// budget_recurring_items（budgetRecurringItems.ts）は明細の書き込みが非トランザクション
-// （複数行の並列 INSERT/UPDATE/DELETE）のため、この判定が今も必要。budget_declarations
-// の保存（saveBudgetDeclaration）は save_budget_declaration（migration 24）内の単一
-// トランザクションで行われるため、partialWriteFailed を返すことはない
+// Failure midway through header save -> line replacement may leave a partial write.
+// budget_recurring_items lines are written non-transactionally (parallel INSERT/UPDATE/DELETE), so
+// this is still needed; saveBudgetDeclaration is a single transaction (migration 24) and never
+// returns partialWriteFailed.
 export const isPartialWriteFailureError = (error: unknown): boolean =>
   getBudgetDeclarationErrorKind(error) === "partialWriteFailed";
