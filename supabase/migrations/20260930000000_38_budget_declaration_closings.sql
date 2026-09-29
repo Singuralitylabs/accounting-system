@@ -1,4 +1,4 @@
--- Budget declaration: all-team read for teamleaders and monthly closing (Issue #222)
+-- Budget declaration: all-team read for teamleaders and monthly closing
 --
 --   1. SELECT on budget_declarations / budget_declaration_items is opened to every
 --      teamleader / accounting / admin (all teams). Writes keep can_access_team_budget.
@@ -22,7 +22,7 @@ CREATE TABLE budget_declaration_closings (
   CONSTRAINT budget_declaration_closings_target_month_key UNIQUE (target_month)
 );
 
-COMMENT ON TABLE budget_declaration_closings IS '事前収支申告の月次確定（Issue #222）。1 ヶ月 1 行。行があれば target_month の月は確定済みで、全チームの申告の作成・編集・削除ができない。確定解除は行の削除。損益計算書の月次収支確定（profit_loss_closings）とは独立';
+COMMENT ON TABLE budget_declaration_closings IS '事前収支申告の月次確定。1 ヶ月 1 行。行があれば target_month の月は確定済みで、全チームの申告の作成・編集・削除ができない。確定解除は行の削除。損益計算書の月次収支確定（profit_loss_closings）とは独立';
 
 CREATE INDEX IF NOT EXISTS idx_budget_declaration_closings_closed_by
   ON budget_declaration_closings (closed_by);
@@ -42,12 +42,12 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION private.is_budget_month_closed(date) IS
-  '指定日の属する月が事前収支申告で確定済みか（Issue #222）。NULL は false。RLS の編集ロックとトリガーから呼ぶ。詳細: docs/database.md 5.8';
+  '指定日の属する月が事前収支申告で確定済みか。NULL は false。RLS の編集ロックとトリガーから呼ぶ。詳細: docs/database.md 5.8';
 
 REVOKE EXECUTE ON FUNCTION private.is_budget_month_closed(date) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION private.is_budget_month_closed(date) TO authenticated;
 
--- Lock class 222 (the issue number) keeps this separate from lock_pl_month (148).
+-- Lock class 222 keeps this separate from lock_pl_month (class 148).
 CREATE OR REPLACE FUNCTION private.lock_budget_month(p_month date, p_exclusive boolean)
 RETURNS void
 LANGUAGE plpgsql
@@ -70,7 +70,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION private.lock_budget_month(date, boolean) IS
-  '事前収支申告の月次確定と、同じ月への申告の書き込みを直列化する月単位の advisory lock（Issue #222）。p_exclusive = true は確定用の排他ロック、false は書き込み用の共有ロック。トランザクション終了まで保持。詳細: docs/database.md 5.8';
+  '事前収支申告の月次確定と、同じ月への申告の書き込みを直列化する月単位の advisory lock。p_exclusive = true は確定用の排他ロック、false は書き込み用の共有ロック。トランザクション終了まで保持。詳細: docs/database.md 5.8';
 
 REVOKE EXECUTE ON FUNCTION private.lock_budget_month(date, boolean) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION private.lock_budget_month(date, boolean) TO authenticated;
@@ -98,7 +98,7 @@ CREATE POLICY "budget_declaration_closings_delete_policy" ON budget_declaration_
   USING (public.auth_user_class() IN ('admin', 'accounting'));
 
 -- Exclusive lock before the closing row becomes visible: declaration writes that hold the shared
--- lock commit first, later ones wait and then see the month as closed.
+-- lock commit first, later ones wait and then see the month as closed. Also fixes closed_by_name.
 CREATE OR REPLACE FUNCTION private.lock_budget_closing_insert()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -106,6 +106,8 @@ SET search_path = ''
 AS $$
 BEGIN
   PERFORM private.lock_budget_month(NEW.target_month, true);
+  -- The name is displayed as "closed by"; take it from the profile so a direct insert cannot forge it.
+  SELECT p.name INTO NEW.closed_by_name FROM public.profiles p WHERE p.id = NEW.closed_by;
   RETURN NEW;
 END;
 $$;
@@ -278,7 +280,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION private.guard_budget_closed_month_write() IS
-  '事前収支申告（ヘッダ・明細）の書き込みトリガー（Issue #222）。RLS が適用される利用者の書き込みについて、対象月の共有ロック（private.lock_budget_month）を取り、取得後に確定済みなら MONTH_CLOSED（SQLSTATE 42501）で拒否する。確定の排他ロックと直列化する。詳細: docs/database.md 5.8';
+  '事前収支申告（ヘッダ・明細）の書き込みトリガー。RLS が適用される利用者の書き込みについて、対象月の共有ロック（private.lock_budget_month）を取り、取得後に確定済みなら MONTH_CLOSED（SQLSTATE 42501）で拒否する。確定の排他ロックと直列化する。詳細: docs/database.md 5.8';
 
 REVOKE EXECUTE ON FUNCTION private.guard_budget_closed_month_write() FROM PUBLIC;
 
@@ -356,4 +358,4 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.save_budget_declaration(date, text, jsonb, bigint, text) IS
-  '事前収支申告の作成・編集（ヘッダ + 明細差し替え）を単一トランザクションで行う。p_declaration_id が null なら新規作成、それ以外なら既存ヘッダの更新（team・target_month も一致する場合のみ）。明細は既存を全削除してから p_items を全登録する。declared_by は auth.uid() から解決しクライアントからは受け取らない。対象月が確定済みなら MONTH_CLOSED（SQLSTATE 42501）で拒否する（Issue #222）。書き込みの可否は呼び出し元ロールの RLS がそのまま適用される（SECURITY INVOKER）。詳細: docs/database.md';
+  '事前収支申告の作成・編集（ヘッダ + 明細差し替え）を単一トランザクションで行う。p_declaration_id が null なら新規作成、それ以外なら既存ヘッダの更新（team・target_month も一致する場合のみ）。明細は既存を全削除してから p_items を全登録する。declared_by は auth.uid() から解決しクライアントからは受け取らない。対象月が確定済みなら MONTH_CLOSED（SQLSTATE 42501）で拒否する。書き込みの可否は呼び出し元ロールの RLS がそのまま適用される（SECURITY INVOKER）。詳細: docs/database.md';

@@ -1,7 +1,7 @@
--- 事前収支申告の全チーム閲覧と月次確定（Issue #222）の pgTAP テスト
+-- 事前収支申告の全チーム閲覧と月次確定の pgTAP テスト
 -- 実行: supabase test db（ローカル Supabase 起動中。docs/testing.md 3.8）
 BEGIN;
-SELECT plan(23);
+SELECT plan(31);
 
 INSERT INTO auth.users (id, email) VALUES
   ('11111111-1111-1111-1111-111111111111', 'acc@example.com'),
@@ -54,6 +54,10 @@ SELECT throws_ok(
 SELECT set_config('request.jwt.claims', '{"sub":"44444444-4444-4444-4444-444444444444","role":"authenticated"}', true);
 SELECT is((SELECT count(*) FROM public.budget_declarations)::int, 0, 'public は申告を閲覧できない');
 SELECT is((SELECT count(*) FROM public.budget_declaration_closings)::int, 0, 'public は確定状態を閲覧できない');
+SELECT throws_ok(
+  $$INSERT INTO public.budget_declaration_closings (target_month, closed_by, closed_by_name)
+    SELECT DATE '2026-10-01', id, name FROM public.profiles WHERE email = 'pub@example.com'$$,
+  '42501', NULL, 'public は確定できない');
 
 -- ===== accounting: 確定 =====
 SELECT set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', true);
@@ -67,8 +71,9 @@ SELECT throws_ok(
   '42501', NULL, '他人名義では確定できない');
 SELECT lives_ok(
   $$INSERT INTO public.budget_declaration_closings (target_month, closed_by, closed_by_name)
-    SELECT DATE '2026-10-01', id, name FROM public.profiles WHERE email = 'acc@example.com'$$,
+    SELECT DATE '2026-10-01', id, 'ニセ' FROM public.profiles WHERE email = 'acc@example.com'$$,
   'accounting は確定できる');
+SELECT is((SELECT closed_by_name FROM public.budget_declaration_closings), '経理', '確定者名は profiles から採用され、直接 INSERT で偽装できない');
 
 -- ===== 確定月: 全ロールで書き込み不可 =====
 SELECT throws_ok(
@@ -94,6 +99,42 @@ SELECT throws_ok(
 SELECT is((SELECT count(*) FROM public.budget_declaration_closings)::int, 1, 'teamleader は確定状態を閲覧できる');
 WITH d AS (DELETE FROM public.budget_declaration_closings RETURNING 1)
 SELECT is((SELECT count(*) FROM d)::int, 0, 'teamleader は確定を解除できない');
+
+-- ===== 書き込みトリガー単体の確認 =====
+-- RLS の確定月条件と同じ 42501 で区別できないため、テストのトランザクション内だけ書き込みポリシーを
+-- 確定月条件なしに差し替え、トリガー（MONTH_CLOSED）だけで拒否されることを確認する
+RESET ROLE;
+DROP POLICY budget_declarations_insert_policy ON public.budget_declarations;
+DROP POLICY budget_declarations_update_policy ON public.budget_declarations;
+DROP POLICY budget_declarations_delete_policy ON public.budget_declarations;
+DROP POLICY budget_declaration_items_insert_policy ON public.budget_declaration_items;
+DROP POLICY budget_declaration_items_update_policy ON public.budget_declaration_items;
+DROP POLICY budget_declaration_items_delete_policy ON public.budget_declaration_items;
+CREATE POLICY tap_open_declarations ON public.budget_declarations FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY tap_open_items ON public.budget_declaration_items FOR ALL TO authenticated USING (true) WITH CHECK (true);
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', true);
+
+SELECT throws_ok(
+  $$INSERT INTO public.budget_declarations (target_month, team, declared_by)
+    SELECT DATE '2026-10-01', 'Cチーム', id FROM public.profiles WHERE email = 'acc@example.com'$$,
+  '42501', 'MONTH_CLOSED', 'トリガー: 確定月のヘッダ INSERT を拒否する');
+SELECT throws_ok(
+  $$UPDATE public.budget_declarations SET comment = 'x' WHERE target_month = DATE '2026-10-01'$$,
+  '42501', 'MONTH_CLOSED', 'トリガー: 確定月のヘッダ UPDATE を拒否する');
+SELECT throws_ok(
+  $$DELETE FROM public.budget_declarations WHERE target_month = DATE '2026-10-01'$$,
+  '42501', 'MONTH_CLOSED', 'トリガー: 確定月のヘッダ DELETE を拒否する');
+SELECT throws_ok(
+  $$UPDATE public.budget_declarations SET target_month = DATE '2026-10-01' WHERE target_month = DATE '2026-11-01'$$,
+  '42501', 'MONTH_CLOSED', 'トリガー: 未確定月から確定月への付け替えを拒否する');
+SELECT throws_ok(
+  $$INSERT INTO public.budget_declaration_items (declaration_id, entry_type, category, description, amount)
+    SELECT id, 'income', '協賛金', 'x', 1 FROM public.budget_declarations WHERE target_month = DATE '2026-10-01' LIMIT 1$$,
+  '42501', 'MONTH_CLOSED', 'トリガー: 確定月の明細 INSERT を拒否する');
+SELECT throws_ok(
+  $$DELETE FROM public.budget_declaration_items$$,
+  '42501', 'MONTH_CLOSED', 'トリガー: 確定月の明細 DELETE を拒否する');
 
 -- ===== 確定解除後は再び書き込める（admin による解除） =====
 SELECT set_config('request.jwt.claims', '{"sub":"55555555-5555-5555-5555-555555555555","role":"authenticated"}', true);
