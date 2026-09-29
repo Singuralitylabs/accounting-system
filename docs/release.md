@@ -7,8 +7,7 @@
 - `release` への反映は必ず `main` を経由する。作業ブランチから `release` へ直接 PR を作らない。本番ホットフィックスも `main` に入れてからカットする（`release` のツリーは常に `main` のある時点と一致する）。
 - `release` へのマージは merge commit で行う（Squash / Rebase 禁止）。`create-release.yml` が親数で検証する。
 - PR のマージはユーザーのみが行う（エージェントは実行しない）。
-- タグ命名は `REL-TAG-X.Y.Z` を継続する（既存: `REL-TAG-1.0.0`〜`REL-TAG-3.2.0`）。
-- リリース PR は Draft で作成する（マイグレーション適用前の誤マージ防止）。
+- タグ名は `REL-TAG-X.Y.Z`。リリース PR は Draft で作成する（マイグレーション適用前の誤マージ防止）。
 
 ## 自動化の範囲
 
@@ -21,7 +20,7 @@
 | 本番動作確認 → 承認              | 手動（Environment の承認）                   |
 | タグ作成・GitHub Release 公開    | 自動（承認後）                               |
 
-ワークフローが本番 DB へ書き込むことはない（`db push` を含まない）。`release-pr.yml` の DB アクセスは `supabase migration list` の読み取り専用のみである。
+ワークフローが本番 DB へ書き込むことはない（`release-pr.yml` の DB アクセスは `supabase migration list` の読み取りのみ）。
 
 ## 事前準備（管理者作業・初回のみ）
 
@@ -61,14 +60,9 @@ GitHub の **Settings > Environments** で以下を設定する。
 
 1. GitHub の **Actions > Release PR > Run workflow** を `main` ブランチから起動する（`version`: `X.Y.Z` 形式、`summary`: 任意）。
 2. 品質ゲート（typecheck+lint / test / build / format-check の再利用）を通過した場合のみ、main → release の Draft PR（タイトル `リリース X.Y.Z`）が作成される。
-3. 本文には以下が入る。起動前に手書きする必要はない。
-   - マイグレーション一覧（`release..main` で追加）・適用済みファイルの変更/削除（別枠）
-   - 後方互換でない SQL の警告（`DROP` / `ALTER COLUMN ... TYPE` / `RENAME` / トップレベルの `UPDATE`・`DELETE` / `POLICY` など。コメントと `$$` 関数本体を除外）
-   - 環境変数の差分（コード側の `process.env.*`。`app/**` と `middleware.ts` が対象）
-   - 本番 DB の `migration list`（または手動確認の案内）
-   - マージ前チェックリスト（下記）
+3. 本文には自動で以下が入る: マイグレーション一覧（`release..main` で追加）と適用済みファイルの変更/削除、後方互換でない SQL の警告（`DROP` / `ALTER COLUMN ... TYPE` / `RENAME` / トップレベルの `UPDATE`・`DELETE` / `POLICY` など）、環境変数の差分（`app/**` と `middleware.ts` の `process.env.*`）、本番 DB の `migration list`（または手動確認の案内）、マージ前チェックリスト。
 
-起動ガード（いずれも失敗する）: main 以外からの起動 / バージョン形式不正 / タグ重複（`REL-TAG-X.Y.Z`） / オープン中のリリース PR あり。既存 PR の確認は品質ゲートの前に行う。
+起動ガード（いずれも失敗する）: main 以外からの起動 / バージョン形式不正 / タグ重複 / オープン中のリリース PR あり。
 
 ### 2. マイグレーションを手動適用する（`db push`）
 
@@ -101,35 +95,28 @@ supabase db push
 
 ### 5. 本番動作確認後に承認する
 
-Vercel の本番デプロイ後に動作確認し、問題がなければ `create-release.yml` の承認ゲート（Environment `production-release`）を承認する。承認されるまでタグは作られない。マージコミットの SHA はワークフロー起動時に固定されるため、承認待ちの間に `release` が進んでも付け先がずれない。タグ付け対象は同一リポジトリの `main` を head とする PR に限定される（作業ブランチ → `release` の直接 PR は `create-release.yml` が拒否する）。既存タグの再利用時は指し先が対象 SHA と一致するか承認後に再検証する。
+Vercel の本番デプロイ後に動作確認し、問題がなければ `create-release.yml` の承認ゲート（Environment `production-release`）を承認する。承認されるまでタグは作られない。マージコミットの SHA は起動時に固定されるため、承認待ちの間に `release` が進んでもずれない。タグ付け対象は同一リポジトリの `main` を head とする PR のみ。
 
-承認後にマージコミットへ注釈付きタグ `REL-TAG-X.Y.Z` が作られ、GitHub Release が公開される（自動生成ノート + PR 本文のサマリー）。自動生成ノートの起点は直前の既存 `REL-TAG-*` タグ（無ければ全履歴）。再実行しても重複作成しない（冪等）。
+承認後にマージコミットへ注釈付きタグ `REL-TAG-X.Y.Z` が作られ、GitHub Release が公開される（自動生成ノート + PR 本文のサマリー。再実行しても重複しない）。
 
 ### 手動実行（workflow_dispatch）はマージ後の再実行専用
 
 `create-release.yml` の手動実行（**Actions > Create Release > Run workflow**、`version` に `X.Y.Z`）は、**リリース PR をマージした後に**、自動実行が失敗・中断したときの再実行にだけ使う。リリース PR のマージ前に実行してはならない。
 
-- 手動実行では、その時点の `release` HEAD をタグの対象にする。そのうえで、HEAD が「リリース X.Y.Z」（`version` と同じバージョン）のマージ済み PR のマージコミットであること、その PR の head が同一リポジトリの `main` であることを検証する（`release` 向けのクローズ済み PR を API で全件取得し、マージコミットが HEAD と一致するマージ済み PR を探す。件数上限は設けていない）。条件を満たさない場合はタグを付けずに失敗する。
-  - マージ前に実行すると、HEAD は前回リリースのマージコミットになる（親が 2 つあるため squash 検出は通ってしまう）。この検証が無いと、旧ツリーに新バージョンのタグが付き、マージ後の自動実行が「タグが既に別のコミットを指している」で失敗する。
-- 次のリリースをマージして `release` HEAD が進んだ後は、前のバージョンを手動実行でタグ付けできない（HEAD が別の PR のマージコミットになるため）。その場合は、元の自動実行（`pull_request` イベント）を **Re-run jobs** で再実行する（マージコミットの SHA はイベントに固定されている）。
-  - GitHub の Re-run は元の実行から 30 日以内しかできない。30 日を過ぎた場合は自動では付けられないため、対象のマージコミットを確認したうえでタグと Release を手動で作成する。
-- 検証で特定したリリース PR の本文から、リリースサマリーを抽出する（自動実行と同じ）。
+- 手動実行は `release` HEAD をタグの対象にし、HEAD が「リリース X.Y.Z」（`version` と同じ）のマージ済み PR のマージコミットで、その PR の head が同一リポジトリの `main` であることを検証する。満たさなければタグを付けずに失敗する（マージ前に実行すると HEAD は前回リリースのままで、旧ツリーに新バージョンのタグが付いてしまうため）。
+- 次のリリースで `release` HEAD が進んだ後は、前のバージョンを手動実行でタグ付けできない。元の自動実行（`pull_request` イベント）を **Re-run jobs** で再実行する。Re-run は元の実行から 30 日以内のみ。過ぎた場合は対象のマージコミットを確認したうえでタグと Release を手動で作成する。
 
 ## トラブルシューティング
 
 - `release-pr.yml` が「既存のリリース PR が open」で失敗する: 既存 PR をマージ/クローズしてから再実行する。
 - `create-release.yml` が squash 検出で失敗する: release へのマージを merge commit でやり直す（PR を作り直す）。
-- `create-release.yml` が承認ゲートの確認（「承認ゲートの保護ルールを確認」ステップ）で失敗する: ログの `承認ゲート確認: GET environments/production-release → HTTP <ステータス>` 行とエラーメッセージで原因を見分ける。どの場合もタグは作られない（フェイルクローズ）。
-  - `HTTP 404`（「Environment 'production-release' が存在しません」）: Environment が未作成。**Settings > Environments** で `production-release` を作成し、Required reviewers を設定して再実行する。
-  - `HTTP 403`（「取得が拒否されました」）: トークンの権限不足、または API のレート制限。ワークフローの `permissions` に `actions: read` があるかを確認する。ログの「API メッセージ」に GitHub の応答が出る。
-  - `HTTP 200`（「Required reviewers が設定されていません」）: Environment はあるが承認者が未設定。メッセージに設定済みの保護ルール（`wait_timer` など）が出る。Required reviewers を設定して再実行する。
-  - それ以外の HTTP ステータス（5xx など）や「HTTP 応答なし」: GitHub 側の一時的な障害やネットワーク障害の可能性がある。時間をおいて再実行する。
-- `create-release.yml` の手動実行が「マージ済みのリリース PR のマージコミットではありません」「指定バージョン X.Y.Z のリリース PR ではありません」で失敗する: リリース PR のマージ前に実行したか、`version` が違う。リリース PR をマージしてから、正しい `version` で実行する（上記「手動実行はマージ後の再実行専用」を参照）。
+- `create-release.yml` が「承認ゲートの保護ルールを確認」ステップで失敗する: ログの `承認ゲート確認: GET environments/production-release → HTTP <ステータス>` で見分ける。どの場合もタグは作られない（フェイルクローズ）。
+  - `404`: Environment が未作成。**Settings > Environments** で `production-release` を作成し Required reviewers を設定して再実行する。
+  - `403`: トークン権限不足またはレート制限。ワークフローの `permissions` に `actions: read` があるか確認する。
+  - `200`（Required reviewers 未設定）: Environment はあるが承認者が未設定。設定して再実行する。
+  - その他（5xx / 応答なし）: GitHub 側の一時障害の可能性。時間をおいて再実行する。
+- `create-release.yml` の手動実行が「マージ済みのリリース PR のマージコミットではありません」「指定バージョン X.Y.Z のリリース PR ではありません」で失敗する: マージ前に実行したか `version` が違う。マージ後に正しい `version` で実行する（上記「手動実行（workflow_dispatch）はマージ後の再実行専用」）。
 - `migration list` が「自動確認できませんでした」になる: Secret 未設定、Secret の形式不正（`SUPABASE_READONLY_DB_URL` にパスワードが含まれている等。上記「読み取り専用ロール」の形に直す）、または DB Pause。手元で `npx supabase migration list`（本番プロジェクトに link 済みの状態で実行）を実行して確認する（リリース自体はブロックされない）。`--db-url` を渡す場合も `yarn supabase ...` は使わない（上記「読み取り専用ロール」参照）。
   - ローテーション直後の場合は、Session pooler のキャッシュで一時的に認証に失敗していることがある。数分おいて再実行する。
-- `release-pr.yml` が「PR 本文に認証情報付きの URL が含まれている」または「migration list の出力にパスワードが含まれている」で失敗する: 本文（サマリー等の入力値を含む）や `migration list` の出力に認証情報が混入している（PR は作成されない。公開リポジトリの PR 本文は編集履歴に残るため、フェイルクローズにしている）。混入元を取り除いてから再実行する。パスワードが出力に出た場合はローテーションも行う（Issue #195）。
+- `release-pr.yml` が「PR 本文に認証情報付きの URL が含まれている」または「migration list の出力にパスワードが含まれている」で失敗する: 本文（サマリー入力を含む）や `migration list` の出力に認証情報が混入している（PR は作成されない）。混入元を取り除いて再実行し、パスワードが出力に出た場合はローテーションも行う（Issue #195）。
 - タグ重複で失敗する: バージョン番号を変える。部分失敗後の再実行で同名タグが同一 SHA を指している場合は正常系として続行される。
-
-## 既存タグの扱い
-
-既存の `REL-TAG-*` タグに対応する GitHub Release を遡って作るかは任意とする。必要になった時点で対象バージョンのタグから手動で作成する。
