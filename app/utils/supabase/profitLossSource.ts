@@ -344,7 +344,7 @@ const fetchLabelsByTargetIds = async (
   };
 };
 
-// 月次レポートの調整対象行の補完取得（supplementAdjustmentTargets と同じ条件）の指定
+// 月次レポートの調整対象行の補完取得の指定
 export type AdjustmentSupplementOptions = {
   month: string;
   includeTeamBreakdown?: boolean;
