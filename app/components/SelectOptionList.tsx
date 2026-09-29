@@ -1,8 +1,19 @@
 "use client";
 
-import { Button, LoadingOverlay, Table, Title } from "@mantine/core";
+import {
+  Alert,
+  Badge,
+  Button,
+  Group,
+  LoadingOverlay,
+  Paper,
+  Table,
+  Text,
+  Title,
+} from "@mantine/core";
+import { useViewportSize } from "@mantine/hooks";
 import { SelectOptionType } from "../types/types";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   bulkUpsertSelectOptions,
@@ -26,8 +37,8 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { SortableTableRow } from "./SortableTableRow";
-import { CiSquarePlus } from "react-icons/ci";
+import { OptionRowStatus, SortableTableRow } from "./SortableTableRow";
+import { OPTION_CLASSES, getOptionLabel } from "../utils/selectOptionClasses";
 import { useReportDashboardUnsavedChanges } from "./dashboard/DashboardUnsavedChanges";
 
 type OptionRow = Pick<
@@ -157,15 +168,47 @@ export const findDuplicateOptionValue = (rows: OptionRow[]) => {
   return undefined;
 };
 
+// Number of rows a save would send (changed, reordered, added and removed rows).
+export const countOptionChanges = (baseline: OptionRow[], rows: OptionRow[]) =>
+  optionRowsToSave(baseline, rows).length;
+
+export const countActiveOptions = (rows: { is_active: boolean | null }[]) =>
+  rows.filter((row) => row.is_active).length;
+
+// Input errors on displayed rows: empty names and names shared by several rows, keyed by row id.
+export const findOptionRowErrors = (rows: OptionRow[]) => {
+  const errors = new Map<number, string>();
+  const idsByValue = new Map<string, number[]>();
+  for (const row of rows) {
+    if (!row.is_active) continue;
+    if (!row.value) {
+      errors.set(row.id, "項目名を入力してください");
+      continue;
+    }
+    idsByValue.set(row.value, [...(idsByValue.get(row.value) ?? []), row.id]);
+  }
+  for (const ids of Array.from(idsByValue.values())) {
+    if (ids.length > 1) {
+      for (const id of ids) errors.set(id, "項目名が重複しています");
+    }
+  }
+  return errors;
+};
+
+export type OptionListStatus = { count: number; changeCount: number };
+
 const SelectOptionList = ({
   optionClass,
   optionList,
+  onStatusChange,
 }: {
   optionClass: string;
   optionList: Pick<
     SelectOptionType,
     "id" | "value" | "display_order" | "is_active"
   >[];
+  // Reports the enabled row count and unsaved change count so the parent can show badges and dots.
+  onStatusChange?: (optionClass: string, status: OptionListStatus) => void;
 }) => {
   const [updatedOptionList, setUpdatedOptionList] = useState<OptionRow[]>(() =>
     toOptionRows(optionList),
@@ -175,8 +218,22 @@ const SelectOptionList = ({
     toOptionRows(optionList),
   );
   const [isLoading, setIsLoading] = useState(false);
+  // Input errors are shown only after a save attempt, so a freshly added empty row is not flagged.
+  const [showErrors, setShowErrors] = useState(false);
   const router = useRouter();
+  const { width } = useViewportSize();
+  const isMobile = width < 768;
   const hasChanges = hasOptionListChanges(baseline, updatedOptionList);
+  const changeCount = countOptionChanges(baseline, updatedOptionList);
+  const activeCount = countActiveOptions(updatedOptionList);
+  const rowErrors = useMemo(
+    () => findOptionRowErrors(updatedOptionList),
+    [updatedOptionList],
+  );
+  const baselineById = useMemo(
+    () => new Map(baseline.map((row) => [row.id, row])),
+    [baseline],
+  );
   useReportDashboardUnsavedChanges(hasChanges);
 
   // Sync the display after router.refresh etc. only when there are no unsaved changes (reflects DB ids for saved rows without silently discarding edits; syncs once edits end).
@@ -193,15 +250,14 @@ const SelectOptionList = ({
     }
   }, [optionList, hasChanges]);
 
-  const OPTION_TITLES: Record<string, string> = {
-    team: "チーム",
-    category: "分類",
-    item: "品目",
-    extra_income_category: "収入分類",
-    extra_expense_category: "支出分類",
-    payment_method: "決済方法",
-  };
-  const optionTitle = OPTION_TITLES[optionClass] ?? optionClass;
+  const optionTitle = getOptionLabel(optionClass);
+  const optionDescription = OPTION_CLASSES.find(
+    (option) => option.optionClass === optionClass,
+  )?.description;
+
+  useEffect(() => {
+    onStatusChange?.(optionClass, { count: activeCount, changeCount });
+  }, [onStatusChange, optionClass, activeCount, changeCount]);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -210,7 +266,7 @@ const SelectOptionList = ({
     }),
   );
 
-  const handleUpdateTeamList = (
+  const handleUpdateOption = (
     id: number,
     updates: { value: string } | { is_active: boolean },
   ) => {
@@ -260,9 +316,15 @@ const SelectOptionList = ({
     );
   };
 
+  const handleDiscard = () => {
+    setUpdatedOptionList(baseline);
+    setShowErrors(false);
+  };
+
   const handleSaveOption = async () => {
     try {
       setIsLoading(true);
+      setShowErrors(true);
       for (const option of updatedOptionList) {
         if (!option.value && option.is_active) {
           notifyError("未入力の欄があります。");
@@ -319,6 +381,7 @@ const SelectOptionList = ({
         withoutDiscardedNewRows(applyInsertedOptionIds(sentRows, insertedIds)),
       );
       setUpdatedOptionList((prev) => withoutDiscardedNewRows(prev));
+      setShowErrors(false);
       // Treat props held during editing (pre-save content) as synced so saved values do not flash back to pre-save content; apply from the next props.
       syncedOptionListRef.current = latestOptionListRef.current;
       notifySuccess(`${optionTitle}情報を更新しました。`);
@@ -332,59 +395,156 @@ const SelectOptionList = ({
     }
   };
 
+  const displayedRows = updatedOptionList.filter((option) => option.is_active);
+  const errorMessages = showErrors
+    ? [
+        ...(updatedOptionList.some((row) => row.is_active && !row.value)
+          ? ["未入力の項目名があります。"]
+          : []),
+        ...(findDuplicateOptionValue(updatedOptionList) !== undefined
+          ? [
+              `「${findDuplicateOptionValue(updatedOptionList)}」が複数あります。項目名が重ならないようにしてください。`,
+            ]
+          : []),
+      ]
+    : [];
+
+  const rowStatus = (option: OptionRow): OptionRowStatus | undefined => {
+    if (option.isNew) return "added";
+    const saved = baselineById.get(option.id);
+    return saved && saved.value !== option.value ? "changed" : undefined;
+  };
+
+  const changeText = hasChanges
+    ? `${changeCount} 件変更あり`
+    : "変更はありません";
+  const actionButtons = (
+    <Group gap="xs">
+      <Button
+        type="button"
+        variant="default"
+        disabled={!hasChanges || isLoading}
+        onClick={handleDiscard}
+      >
+        変更を破棄
+      </Button>
+      <Button
+        type="button"
+        color="green"
+        // Disabled while there are no unsaved changes (repeated clicks while awaiting the refetch would re-register added rows).
+        disabled={isLoading || !hasChanges}
+        onClick={handleSaveOption}
+      >
+        保存
+      </Button>
+    </Group>
+  );
+
   return (
-    <div className="relative p-4 border-collapse border border-gray-500 bg-slate-50 rounded">
-      <div className="flex justify-between items-center">
-        <Title order={3} className="pb-4">
-          {optionTitle}
-        </Title>
-        <Button
-          type="button"
-          // Disabled while there are no unsaved changes (repeated clicks while awaiting the refetch would re-register added rows).
-          disabled={isLoading || !hasChanges}
-          onClick={handleSaveOption}
-        >
-          更新
-        </Button>
-      </div>
+    <Paper withBorder className={`relative p-4 ${isMobile ? "pb-24" : ""}`}>
+      <Group justify="space-between" align="flex-start" className="pb-4">
+        <div>
+          <Group gap="xs">
+            <Title order={3}>{optionTitle}</Title>
+            <Badge variant="light" color="gray">
+              {activeCount} 件
+            </Badge>
+          </Group>
+          {optionDescription && (
+            <Text size="sm" c="dimmed">
+              {optionDescription}
+            </Text>
+          )}
+        </div>
+        {!isMobile && (
+          <Group gap="md">
+            <Text size="sm" c={hasChanges ? "orange.8" : "dimmed"} fw={500}>
+              {changeText}
+            </Text>
+            {actionButtons}
+          </Group>
+        )}
+      </Group>
+      {errorMessages.length > 0 && (
+        <Alert color="red" title="入力内容を確認してください" className="mb-4">
+          <ul className="list-disc pl-5">
+            {errorMessages.map((message) => (
+              <li key={message}>{message}</li>
+            ))}
+          </ul>
+        </Alert>
+      )}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
         onDragEnd={handleDragEnd}
       >
         <Table>
+          <Table.Thead>
+            <Table.Tr>
+              {!isMobile && (
+                <Table.Th className="w-10 text-center">順</Table.Th>
+              )}
+              <Table.Th className="w-8">
+                <span className="sr-only">並び替え</span>
+              </Table.Th>
+              <Table.Th>項目名</Table.Th>
+              <Table.Th className="w-12">
+                <span className="sr-only">操作</span>
+              </Table.Th>
+            </Table.Tr>
+          </Table.Thead>
           <Table.Tbody>
             <SortableContext
               items={updatedOptionList}
               strategy={verticalListSortingStrategy}
             >
-              {updatedOptionList
-                .filter((option) => option.is_active)
-                .map((option) => (
-                  <SortableTableRow
-                    key={option.id}
-                    option={option}
-                    onUpdate={handleUpdateTeamList}
-                    onRemove={handleRemoveOption}
-                  />
-                ))}
+              {displayedRows.map((option, index) => (
+                <SortableTableRow
+                  key={option.id}
+                  option={option}
+                  label={optionTitle}
+                  position={isMobile ? undefined : index + 1}
+                  status={rowStatus(option)}
+                  error={showErrors ? rowErrors.get(option.id) : undefined}
+                  disabled={isLoading}
+                  onUpdate={handleUpdateOption}
+                  onRemove={handleRemoveOption}
+                />
+              ))}
             </SortableContext>
           </Table.Tbody>
         </Table>
+        {displayedRows.length === 0 && (
+          <Text size="sm" c="dimmed" className="py-4 text-center">
+            まだ{optionTitle}がありません。下のボタンから追加してください。
+          </Text>
+        )}
         <Button
           type="button"
           fullWidth
           className="mt-4"
           color="dark"
           variant="outline"
-          rightSection={<CiSquarePlus />}
           onClick={handleAddOption}
+          disabled={isLoading}
         >
-          {optionTitle}追加
+          ＋ {optionTitle}を追加
         </Button>
+        <Text size="xs" c="dimmed" className="pt-2">
+          左端のつまみをドラッグすると並び順を変えられます
+        </Text>
       </DndContext>
+      {isMobile && hasChanges && (
+        <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-2 border-t border-gray-300 bg-white px-4 py-3 shadow-md">
+          <Text size="sm" c="orange.8" fw={500}>
+            {changeText}
+          </Text>
+          {actionButtons}
+        </div>
+      )}
       <LoadingOverlay visible={isLoading} />
-    </div>
+    </Paper>
   );
 };
 

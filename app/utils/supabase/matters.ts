@@ -8,6 +8,7 @@ import {
 } from "../matterListFilters";
 import { createServerSupabase } from "./clients";
 import { NO_ROWS_DELETED } from "./errorCodes";
+import { hasClassAccess, TEAM_MATTER_VIEW_CLASSES } from "../permissions";
 import { getProfileInfo } from "./profiles";
 
 export const getAllMatterInfoList = async (
@@ -106,7 +107,7 @@ export const getTeamMatterInfoList = async () => {
   }
 
   if (
-    !["teamleader", "admin"].includes(profileInfo.class!) ||
+    !hasClassAccess(TEAM_MATTER_VIEW_CLASSES, profileInfo.class) ||
     !profileInfo.team
   ) {
     return null;

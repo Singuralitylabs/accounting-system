@@ -176,12 +176,12 @@ describe("Dynamic* サーバコンポーネントの取得エラー", () => {
     it("取得に成功したら throw せず、エラーを表示しない", async () => {
       const html = await renderOptions();
 
-      expect(html).toContain("項目管理");
+      expect(html).toContain("編集する項目");
       expect(html).not.toContain("取得に失敗しました");
       expect(getSelectOptions).toHaveBeenCalledTimes(6);
     });
 
-    it("選択肢の取得に失敗しても throw せず、失敗した種類のカードの中にエラーを表示する", async () => {
+    it("選択肢の取得に失敗しても throw せず、失敗した種類のパネルの中にエラーを表示する", async () => {
       vi.spyOn(console, "error").mockImplementation(() => {});
       getSelectOptions.mockImplementation(async (typeName: string) =>
         typeName === "payment_method"

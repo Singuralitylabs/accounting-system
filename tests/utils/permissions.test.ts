@@ -5,6 +5,7 @@ import {
   hasClassAccess,
   isRole,
   PROFILE_WRITE_CLASSES,
+  TEAM_MATTER_VIEW_CLASSES,
   ROLE_DISPLAY_RANK,
   ROLES,
   visibleNavItems,
@@ -201,5 +202,12 @@ describe("PROFILE_WRITE_CLASSES（ユーザーリストの一括保存の権限�
     for (const role of PROFILE_WRITE_CLASSES) {
       expect(hasClassAccess(ROUTE_PERMISSIONS["/dashboard"], role)).toBe(true);
     }
+  });
+});
+
+describe("TEAM_MATTER_VIEW_CLASSES（チーム案件の取得の権限。Issue #215）", () => {
+  it("チーム案件のルート保護（/matters/team）と同じ定義を参照する", () => {
+    expect(TEAM_MATTER_VIEW_CLASSES).toBe(ROUTE_PERMISSIONS["/matters/team"]);
+    expect(TEAM_MATTER_VIEW_CLASSES).toEqual(["teamleader", "admin"]);
   });
 });

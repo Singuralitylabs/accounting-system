@@ -49,7 +49,7 @@ describe("SelectOptionList", () => {
 
     // Update stays disabled until something changes; edit the name first.
     editOption();
-    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
     expect(bulkUpsertSelectOptions).toHaveBeenCalledWith(
@@ -67,7 +67,7 @@ describe("SelectOptionList", () => {
 
     // Update stays disabled until something changes; edit the name first.
     editOption();
-    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() => expect(notifyError).toHaveBeenCalled());
     expect(refresh).not.toHaveBeenCalled();
@@ -81,7 +81,7 @@ describe("SelectOptionList", () => {
 
     // Update stays disabled until something changes; edit the name first.
     editOption();
-    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() => expect(confirmAction).toHaveBeenCalled());
     expect(bulkUpsertSelectOptions).not.toHaveBeenCalled();
@@ -144,7 +144,7 @@ describe("SelectOptionList", () => {
       target: { value: "開発2" },
     });
     const [teamSaveButton, categorySaveButton] = screen.getAllByRole("button", {
-      name: "更新",
+      name: "保存",
     });
     fireEvent.click(categorySaveButton);
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
@@ -194,11 +194,11 @@ describe("SelectOptionList", () => {
     });
 
     const addAndSaveTeamB = async () => {
-      fireEvent.click(screen.getByRole("button", { name: "チーム追加" }));
+      fireEvent.click(screen.getByRole("button", { name: "＋ チームを追加" }));
       fireEvent.change(screen.getByDisplayValue(""), {
         target: { value: "チームB" },
       });
-      fireEvent.click(screen.getByRole("button", { name: "更新" }));
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
       await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
     };
 
@@ -210,11 +210,11 @@ describe("SelectOptionList", () => {
       expect(sentOptions(0)).toContainEqual(
         expect.objectContaining({ value: "チームB", isNew: true }),
       );
-      expect(screen.getByRole("button", { name: "更新" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
 
       // Edit before the refresh result arrives (props still hold the pre-save state).
       editOption();
-      fireEvent.click(screen.getByRole("button", { name: "更新" }));
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
       await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
 
       expect(sentOptions(1)).toEqual([
@@ -236,7 +236,7 @@ describe("SelectOptionList", () => {
         ?.querySelector("button");
       fireEvent.click(removeButton as HTMLButtonElement);
       expect(screen.queryByDisplayValue("チームB")).not.toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "更新" }));
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
       await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
 
       expect(sentOptions(1)).toContainEqual(
@@ -262,23 +262,23 @@ describe("SelectOptionList", () => {
         <SelectOptionList optionClass="team" optionList={optionList} />,
       );
 
-      fireEvent.click(screen.getByRole("button", { name: "チーム追加" }));
+      fireEvent.click(screen.getByRole("button", { name: "＋ チームを追加" }));
       fireEvent.change(screen.getByDisplayValue(""), {
         target: { value: "チームB" },
       });
-      fireEvent.click(screen.getByRole("button", { name: "チーム追加" }));
+      fireEvent.click(screen.getByRole("button", { name: "＋ チームを追加" }));
       fireEvent.change(screen.getByDisplayValue(""), {
         target: { value: "チームC" },
       });
-      fireEvent.click(screen.getByRole("button", { name: "更新" }));
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
       await waitFor(() => expect(notifyError).toHaveBeenCalled());
       expect(notifyError).toHaveBeenCalledWith(
         "チーム情報の保存に失敗しました。項目の追加に失敗しました。一部の項目は保存済みです。",
       );
       expect(refresh).not.toHaveBeenCalled();
-      expect(screen.getByRole("button", { name: "更新" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
 
-      fireEvent.click(screen.getByRole("button", { name: "更新" }));
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
       await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
 
       expect(sentOptions(1)).toEqual([
@@ -307,11 +307,11 @@ describe("SelectOptionList", () => {
     );
 
     editOption();
-    fireEvent.click(screen.getByRole("button", { name: "チーム追加" }));
+    fireEvent.click(screen.getByRole("button", { name: "＋ チームを追加" }));
     fireEvent.change(screen.getByDisplayValue(""), {
       target: { value: "チームC" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await waitFor(() => expect(bulkUpsertSelectOptions).toHaveBeenCalled());
     const [, sent] = bulkUpsertSelectOptions.mock.calls[0];
     expect(sent).toEqual([
@@ -332,7 +332,7 @@ describe("SelectOptionList", () => {
     expect(screen.getByDisplayValue("チームB2")).toBeInTheDocument();
     expect(screen.getByDisplayValue("チームA2")).toBeInTheDocument();
     expect(screen.getByDisplayValue("チームC")).toBeInTheDocument();
-    const saveButton = screen.getByRole("button", { name: "更新" });
+    const saveButton = screen.getByRole("button", { name: "保存" });
     expect(saveButton).toBeEnabled();
 
     bulkUpsertSelectOptions.mockResolvedValueOnce({
@@ -345,7 +345,7 @@ describe("SelectOptionList", () => {
     expect(resent).toEqual([
       expect.objectContaining({ id: 2, value: "チームB2", isNew: false }),
     ]);
-    expect(screen.getByRole("button", { name: "更新" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
   });
 
   it("同じ名前の項目がある場合は、サーバのメッセージを表示する（何も保存されていなければ「一部の項目は保存済み」を添えない）", async () => {
@@ -362,11 +362,11 @@ describe("SelectOptionList", () => {
     );
 
     // Found only on the server: the name collides with a deleted item not shown on screen.
-    fireEvent.click(screen.getByRole("button", { name: "チーム追加" }));
+    fireEvent.click(screen.getByRole("button", { name: "＋ チームを追加" }));
     fireEvent.change(screen.getByDisplayValue(""), {
       target: { value: "チームZ" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() => expect(notifyError).toHaveBeenCalled());
     expect(notifyError).toHaveBeenCalledWith(
@@ -396,7 +396,7 @@ describe("SelectOptionList", () => {
     fireEvent.change(screen.getByDisplayValue("チームB"), {
       target: { value: "チームB2" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() => expect(notifyError).toHaveBeenCalled());
     expect(notifyError).toHaveBeenCalledWith(
@@ -422,7 +422,7 @@ describe("SelectOptionList", () => {
     fireEvent.change(screen.getByDisplayValue("チームB"), {
       target: { value: "チームA" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() => expect(notifyError).toHaveBeenCalled());
     expect(notifyError).toHaveBeenCalledWith(
@@ -435,7 +435,7 @@ describe("SelectOptionList", () => {
     fireEvent.click(
       first.closest("tr")?.querySelector("button") as HTMLButtonElement,
     );
-    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
     expect(bulkUpsertSelectOptions).toHaveBeenCalledTimes(1);
   });
@@ -452,11 +452,11 @@ describe("SelectOptionList", () => {
     );
 
     editOption();
-    fireEvent.click(screen.getByRole("button", { name: "チーム追加" }));
+    fireEvent.click(screen.getByRole("button", { name: "＋ チームを追加" }));
     fireEvent.change(screen.getByDisplayValue(""), {
       target: { value: "チームB" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await waitFor(() =>
       expect(notifyError).toHaveBeenCalledWith(
         "チーム情報の保存に失敗しました。項目の追加に失敗しました。一部の項目は保存済みです。",
@@ -472,7 +472,7 @@ describe("SelectOptionList", () => {
         .closest("tr")
         ?.querySelector("button") as HTMLButtonElement,
     );
-    const saveButton = screen.getByRole("button", { name: "更新" });
+    const saveButton = screen.getByRole("button", { name: "保存" });
     expect(saveButton).toBeEnabled();
 
     bulkUpsertSelectOptions.mockResolvedValueOnce({
@@ -484,7 +484,7 @@ describe("SelectOptionList", () => {
     expect(bulkUpsertSelectOptions.mock.calls[1][1]).toContainEqual(
       expect.objectContaining({ id: 1, value: "チームA", isNew: false }),
     );
-    expect(screen.getByRole("button", { name: "更新" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
   });
 
   it("削除して保存した項目と同じ名前を追加し、削除済みの行が再び有効になった場合は、その行を 1 行として扱う", async () => {
@@ -501,11 +501,11 @@ describe("SelectOptionList", () => {
       .closest("tr")
       ?.querySelector("button");
     fireEvent.click(removeButton as HTMLButtonElement);
-    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
 
     // The server reactivates the deleted row (id: 1) when the same name is added.
-    fireEvent.click(screen.getByRole("button", { name: "チーム追加" }));
+    fireEvent.click(screen.getByRole("button", { name: "＋ チームを追加" }));
     fireEvent.change(screen.getByDisplayValue(""), {
       target: { value: "チームA" },
     });
@@ -520,17 +520,17 @@ describe("SelectOptionList", () => {
         updatedIds: [1],
       }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
     expect(screen.getAllByDisplayValue("チームA")).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "更新" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
 
     bulkUpsertSelectOptions.mockResolvedValueOnce({
       insertedIds: [],
       updatedIds: [1],
     });
     editOption();
-    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(3));
     expect(bulkUpsertSelectOptions.mock.calls[2][1]).toEqual([
       expect.objectContaining({
@@ -565,11 +565,11 @@ describe("SelectOptionList", () => {
         .closest("tr")
         ?.querySelector("button") as HTMLButtonElement,
     );
-    fireEvent.click(screen.getByRole("button", { name: "チーム追加" }));
+    fireEvent.click(screen.getByRole("button", { name: "＋ チームを追加" }));
     fireEvent.change(screen.getByDisplayValue(""), {
       target: { value: "チームD" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
 
     expect(bulkUpsertSelectOptions.mock.calls[0][1]).toEqual([
@@ -593,7 +593,7 @@ describe("SelectOptionList", () => {
     renderWithMantine(
       <SelectOptionList optionClass="team" optionList={optionList} />,
     );
-    const saveButton = screen.getByRole("button", { name: "更新" });
+    const saveButton = screen.getByRole("button", { name: "保存" });
     expect(saveButton).toBeDisabled();
 
     fireEvent.change(screen.getByDisplayValue("チームA"), {
@@ -725,5 +725,128 @@ describe("optionRowsToSave", () => {
     expect(optionRowsToSave(baseline, rows)).toEqual([
       { ...row(1, "A2", { display_order: 2 }), valueChanged: true },
     ]);
+  });
+
+  describe("編集パネルの表示（Issue #197）", () => {
+    it("変更が無い間は「変更はありません」を表示し、保存・変更を破棄は押せない", () => {
+      renderWithMantine(
+        <SelectOptionList optionClass="team" optionList={optionList} />,
+      );
+
+      expect(screen.getByText("変更はありません")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "変更を破棄" })).toBeDisabled();
+    });
+
+    it("変更すると「n 件変更あり」を表示し、変更を破棄すると元に戻る", () => {
+      renderWithMantine(
+        <SelectOptionList optionClass="team" optionList={optionList} />,
+      );
+
+      editOption();
+      expect(screen.getByText("1 件変更あり")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "変更を破棄" }));
+
+      expect(screen.getByDisplayValue("チームA")).toBeInTheDocument();
+      expect(screen.getByText("変更はありません")).toBeInTheDocument();
+      expect(bulkUpsertSelectOptions).not.toHaveBeenCalled();
+    });
+
+    it("追加した行は破棄で消える", () => {
+      renderWithMantine(
+        <SelectOptionList optionClass="team" optionList={optionList} />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "＋ チームを追加" }));
+      expect(screen.getByText("1 件変更あり")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "変更を破棄" }));
+
+      expect(screen.getAllByLabelText("チームの項目名")).toHaveLength(1);
+    });
+
+    it("項目が無いときは空状態のメッセージを表示する", () => {
+      renderWithMantine(
+        <SelectOptionList optionClass="item" optionList={[]} />,
+      );
+
+      expect(
+        screen.getByText(
+          "まだ品目がありません。下のボタンから追加してください。",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it("削除ボタン・入力欄・ドラッグハンドルに読み上げ用のラベルがある", () => {
+      renderWithMantine(
+        <SelectOptionList optionClass="team" optionList={optionList} />,
+      );
+
+      expect(
+        screen.getByRole("button", { name: "チームAを削除" }),
+      ).toHaveAttribute("type", "button");
+      expect(screen.getByLabelText("チームの項目名")).toBeInTheDocument();
+      expect(
+        screen.getByLabelText("チームの並び順を変更（ドラッグ）"),
+      ).toBeInTheDocument();
+    });
+
+    it("未入力で保存しようとすると、Alert と該当の入力欄の両方にエラーを表示する", async () => {
+      renderWithMantine(
+        <SelectOptionList optionClass="team" optionList={optionList} />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "＋ チームを追加" }));
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+      await waitFor(() =>
+        expect(
+          screen.getByText("入力内容を確認してください"),
+        ).toBeInTheDocument(),
+      );
+      expect(screen.getByText("項目名を入力してください")).toBeInTheDocument();
+      expect(bulkUpsertSelectOptions).not.toHaveBeenCalled();
+    });
+
+    it("重複した名前は、Alert と重複した両方の入力欄にエラーを表示する", async () => {
+      renderWithMantine(
+        <SelectOptionList optionClass="team" optionList={optionList} />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "＋ チームを追加" }));
+      fireEvent.change(screen.getByDisplayValue(""), {
+        target: { value: "チームA" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+      await waitFor(() =>
+        expect(
+          screen.getByText("入力内容を確認してください"),
+        ).toBeInTheDocument(),
+      );
+      expect(screen.getAllByText("項目名が重複しています")).toHaveLength(2);
+    });
+
+    it("件数と変更件数を親へ通知する", () => {
+      const onStatusChange = vi.fn();
+      renderWithMantine(
+        <SelectOptionList
+          optionClass="team"
+          optionList={optionList}
+          onStatusChange={onStatusChange}
+        />,
+      );
+      expect(onStatusChange).toHaveBeenLastCalledWith("team", {
+        count: 1,
+        changeCount: 0,
+      });
+
+      editOption();
+
+      expect(onStatusChange).toHaveBeenLastCalledWith("team", {
+        count: 1,
+        changeCount: 1,
+      });
+    });
   });
 });
