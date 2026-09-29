@@ -126,7 +126,7 @@ export const reportFlags = (profileClass: string | null | undefined) => ({
 // 対象行なし調整・確定後の変更の明細（orphanedAdjustments / closingDiffs）の
 // ラベル解決に必要な行を計算・取得するか。月次タブの単月表示で、チーム別内訳を
 // 持つロール（accounting / admin）の場合のみ true になる（Issue #142）。
-// buildMonthReport（表示側）と supplementAdjustmentTargets（取得側）で同じ判定を
+// buildMonthReport（表示側）と planAdjustmentSupplement（取得側。profitLossSource.ts）で同じ判定を
 // 使うための単一の定義。どちらか片方だけを変えると、不要な取得が復活するか、
 // ラベルが未解決（「売上（ID: X）」）のまま残るため、条件変更時はここを変える。
 export const needsMonthlyAdjustmentDetails = (flags: {

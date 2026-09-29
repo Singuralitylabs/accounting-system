@@ -418,7 +418,7 @@ export const buildMonthReport = (
   });
   // 対象行なし調整・確定後の変更は、経理担当者・管理者（includeTeamBreakdown）の
   // 月次タブの単月表示（includeMonthlyDetails）でのみ計算する（年間推移では使わない）。
-  // 取得側（supplementAdjustmentTargets）と同じ needsMonthlyAdjustmentDetails で判定する
+  // 取得側（profitLossSource.ts の planAdjustmentSupplement）と同じ needsMonthlyAdjustmentDetails で判定する
   const monthlyDetails = needsMonthlyAdjustmentDetails({
     includeTeamBreakdown: input.includeTeamBreakdown,
     includeMonthlyDetails: input.includeMonthlyDetails,

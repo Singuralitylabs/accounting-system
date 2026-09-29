@@ -161,19 +161,15 @@ const createSupabaseMock = ({
         },
       }),
       select: () => ({
-        eq: () => ({
-          in: async (_column: string, values: string[]) => {
-            operations.push(`fetch:${values.join(",")}`);
-            if (failFetchExisting) {
-              return { data: null, error: { message: "fetch failed" } };
-            }
-            const data = rows
-              .filter((r) => values.includes(r.value))
-              .map((r) => ({ ...r }));
-            rows.push(...rowsAddedAfterFetch.map((r) => ({ ...r })));
-            return { data, error: null };
-          },
-        }),
+        eq: async () => {
+          operations.push("fetch");
+          if (failFetchExisting) {
+            return { data: null, error: { message: "fetch failed" } };
+          }
+          const data = rows.map((r) => ({ ...r }));
+          rows.push(...rowsAddedAfterFetch.map((r) => ({ ...r })));
+          return { data, error: null };
+        },
       }),
       update: updateBuilder,
     };
@@ -310,7 +306,7 @@ describe("bulkUpsertSelectOptions", () => {
     expect(operations).toEqual([
       "update:5",
       "insert:広報",
-      "fetch:広報",
+      "fetch",
       "reactivate:広報",
     ]);
     expect(rows).toEqual([
@@ -391,9 +387,7 @@ describe("bulkUpsertSelectOptions", () => {
       ["チームB", "広報", "チームC", "総務"],
       ["チームB", "チームC"],
     ]);
-    expect(operations.filter((op) => op.startsWith("fetch"))).toEqual([
-      "fetch:チームB,広報,チームC,総務",
-    ]);
+    expect(operations.filter((op) => op === "fetch")).toEqual(["fetch"]);
     expect(reactivated.map((r) => r.value).sort()).toEqual(["広報", "総務"]);
     expect(rows.find((r) => r.id === 5)?.is_active).toBe(true);
     expect(rows.find((r) => r.id === 6)?.is_active).toBe(true);
@@ -451,7 +445,7 @@ describe("bulkUpsertSelectOptions", () => {
     expect(result.insertedIds).toContainEqual({ tempId: -1, id: 100 });
     expect(result.insertedIds).toContainEqual({ tempId: -20, id: 119 });
     expect(insertCalls).toHaveLength(1);
-    expect(operations.filter((op) => op.startsWith("fetch"))).toEqual([]);
+    expect(operations.filter((op) => op === "fetch")).toEqual([]);
   });
 
   it("名前の変更が削除済みの行の名前と重なる場合（UPDATE の 23505）も、分かるメッセージを返し、追加へ進まない", async () => {

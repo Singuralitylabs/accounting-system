@@ -128,7 +128,7 @@ const UPDATE_FAILED_MESSAGE = "項目の更新に失敗しました。";
 //
 // 追加はまず 1 回の INSERT ... RETURNING でまとめて行う（20 行追加しても 1 往復）。
 // 一意制約違反（23505）で失敗した場合（一括 INSERT は全体が失敗し、何も追加されない）だけ、
-// 既存の行を value IN (...) で 1 回取得し、新規の行の INSERT（まとめて）と削除済みの行の
+// この種類の既存の行を 1 回取得し、新規の行の INSERT（まとめて）と削除済みの行の
 // 再有効化（並行）に振り分ける。仮 id と DB の id は項目名（value）をキーに 1 対 1 で
 // 対応付けて返す（一括 INSERT の戻り値の並び順は入力順と一致する保証が無いため）。
 // 画面は保存に成功した行を DB の id に置き換えるので、再取得（router.refresh）が届く前に
@@ -291,16 +291,15 @@ export const bulkUpsertSelectOptions = async (
       return addFailed();
     }
 
-    // 一意制約違反（23505）: 同じ名前の行が既にある（削除済みの行を含む）。既存の行を
-    // 先にまとめて取得し、新規 INSERT・削除済みの行の再有効化・重複エラーに振り分ける
+    // 一意制約違反（23505）: 同じ名前の行が既にある（削除済みの行を含む）。この種類の既存の
+    // 行を 1 回で取得し、新規 INSERT・削除済みの行の再有効化・重複エラーに振り分ける。
+    // 項目名で絞る（IN (...)）と、項目名に含まれる " や \ が PostgREST のフィルタで
+    // エスケープされず取りこぼすため、種類（type_id）で絞って項目名は JS 側で照合する
+    // （項目マスタは種類ごとの件数が少ない）
     const { data: existingRows, error: existingError } = await supabase
       .from("select_options")
       .select("id, value, is_active")
-      .eq("type_id", typeData.id)
-      .in(
-        "value",
-        newOptions.map((option) => option.value)
-      );
+      .eq("type_id", typeData.id);
     if (existingError || !existingRows) {
       console.error("既存の選択肢の取得に失敗しました", existingError);
       return addFailed();

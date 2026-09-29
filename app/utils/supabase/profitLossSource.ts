@@ -253,7 +253,7 @@ export type LabelTargetIds = {
 // 差分一覧・対象行が当月に存在しない調整の表示で引くため、次をすべて含める:
 // - 案件: ライブの売上・費用の案件 ID、確定明細（売上・費用）の案件 ID
 // - 売上・費用・定期費用: ライブの行の ID、確定明細の source_id、損益調整の対象 ID
-// （対象行が期間外へ移動した調整の対象行は supplementAdjustmentTargets で補完取得する）
+// （対象行が期間外へ移動した調整の対象行は fetchReportSourceRows の supplement で補完取得する）
 export const collectLabelTargetIds = (
   rows: Pick<
     ClosingSourceRows,
@@ -407,6 +407,10 @@ export const fetchReportSourceRows = async (
   return rows;
 };
 
+type MissingAdjustmentTargetIds = ReturnType<
+  typeof collectMissingAdjustmentTargetIds
+>;
+
 // 対象行が取得期間外へ移動した調整のラベル解決用に、欠けている対象行だけを
 // ID 指定で補完取得し rows に追加する（通常は0件でクエリを発行しない。あっても1往復にまとめる）。
 // 補完行は月振り分けで集計から除外されるため集計値は不変。
@@ -414,13 +418,8 @@ export const fetchReportSourceRows = async (
 // orphanedAdjustments は月次タブの単月表示でチーム別内訳を持つロール
 // （accounting / admin）でのみ計算・表示されるため、それ以外では補完取得自体を
 // スキップする（Issue #142）。表示側（buildMonthReport）と同じ
-// needsMonthlyAdjustmentDetails で判定する
-
-type MissingAdjustmentTargetIds = ReturnType<
-  typeof collectMissingAdjustmentTargetIds
->;
-
-// 補完取得が必要な対象行の ID。不要（スキップ対象のロール・欠けが無い）なら null
+// needsMonthlyAdjustmentDetails で判定する。
+// 以下は補完取得が必要な対象行の ID。不要（スキップ対象のロール・欠けが無い）なら null
 const planAdjustmentSupplement = (
   month: string,
   rows: ReportSourceRows | ClosingSourceRows,
@@ -552,7 +551,7 @@ const appendMatterLabels = async (
 
 // 取得済みの rows に、補完取得（欠けている対象行と、その案件の表示タイトル）を順に行う。
 // 月次レポート本体は fetchReportSourceRows の supplement で表示タイトルの取得と並列に
-// 行うため、これは取得済みの rows に後から補完したい場合のためのもの
+// 行うため、本番コードからは呼ばれない。並列版との結果の同値性を確かめるテスト・互換用
 export const supplementAdjustmentTargets = async (
   month: string,
   rows: ReportSourceRows,
