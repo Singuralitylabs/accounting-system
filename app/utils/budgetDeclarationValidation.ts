@@ -72,9 +72,8 @@ export const validateBudgetDeclarationItem = (
     return "overflow";
   }
   // manager_id is nullable but otherwise must be a positive integer (profiles.id bigint). The
-  // Server Action accepts arbitrary payloads from authorized users, and line replacement is
-  // non-transactional, so an invalid INSERT would lose existing lines (see saveBudgetDeclaration
-  // in budgetDeclarations.ts).
+  // Server Action accepts arbitrary payloads from authorized users; reject a bad value here so it
+  // does not surface as an obscure DB error (the save itself is atomic, see saveBudgetDeclaration).
   if (item.manager_id !== null && !Number.isSafeInteger(item.manager_id)) {
     return "manager_id";
   }

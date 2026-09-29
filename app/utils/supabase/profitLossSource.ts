@@ -616,7 +616,7 @@ export const fetchDiffMoveContext = async (
     }[]
   ).forEach((row) => {
     const key = diffKeyOf(row.source_type as DiffSourceType, row.source_id);
-    if (!addedKeys.has(key)) return;  // Excludes rows of the other type whose business / cost IDs collide.
+    if (!addedKeys.has(key)) return; // Excludes rows of the other type whose business / cost IDs collide.
     const months = otherClosedMonths.get(key) ?? [];
     months.push(row.profit_loss_closings.target_month.slice(0, 7));
     otherClosedMonths.set(key, months.sort());

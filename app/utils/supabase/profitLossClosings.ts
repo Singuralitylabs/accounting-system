@@ -132,7 +132,7 @@ export const closeProfitLossMonth = async (
 
   // Between the aggregation above and the closing commit there is no edit lock yet, so another
   // accountant's adjustment/extra entry saved in that window would be missing from the snapshot (and
-  // then locked; recurring costs / extra entries are outside diff detection, so unnoticed). After
+  // then locked; extra entries / management-fee adjustments are outside diff detection, so unnoticed). After
   // commit (= locked), aggregate again and re-take the snapshot if anything differs.
   // The closing DB function and the adjustment/extra-entry write triggers are serialized by the same
   // month advisory lock: writes started before closing commit first and are included in the re-aggregation;

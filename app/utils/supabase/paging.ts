@@ -14,7 +14,7 @@ export const fetchAllPages = async <T extends { id: number }>(
   fetchPage: (afterId: number, limit: number) => PageResult<T>,
 ): Promise<{ data: T[] | null; error: PostgrestError | null }> => {
   const rows: T[] = [];
-  let afterId = 0;  // id starts at 1 (GENERATED ... AS IDENTITY).
+  let afterId = 0; // id starts at 1 (GENERATED ... AS IDENTITY).
   for (;;) {
     const { data, error } = await fetchPage(afterId, PAGE_SIZE);
     if (error) {

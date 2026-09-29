@@ -6,7 +6,7 @@ Guidance for Claude Code in this repository. Product: accounting system of æœªæ
 
 - `CLAUDE.md` is English (read only by AI). `docs/` and `README.md` stay Japanese (humans read them). Issue / PR templates stay Japanese.
 - UI text, user-facing error messages and test names (`describe` / `it`) stay Japanese.
-- Code comments are English (see Comment policy).
+- Code comments are English (see Comment policy). Commit messages and PR titles / bodies are Japanese.
 
 ## Commands
 

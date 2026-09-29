@@ -234,7 +234,7 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
         </Alert>
       )}
       {!isMobile ? (
-        // Below 768px-equivalent widths (the side menu narrows the table even on PC) scroll horizontally so Select and inputs are not squashed.
+        // Even at PC widths the side menu narrows the table, so scroll horizontally when it does not fit (keeps Select and inputs from being squashed).
         <Table.ScrollContainer minWidth={760}>
           <Table>
             <Table.Thead>{tableHeads}</Table.Thead>
