@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -167,19 +167,28 @@ describe("ロール一覧（ROLES）の整合（Issue #192）", () => {
     for (const role of used) expect(isRole(role)).toBe(true);
   });
 
-  // update_profiles（migration 33）の許可値と ROLES がずれると、選択肢に出ない・保存時に
-  // INVALID_INPUT で弾かれるといった不整合がエラーなしに起きる
-  it("update_profiles（migration 33）が受け付ける class の許可値と ROLES が一致する", () => {
-    const sql = readFileSync(
-      resolve(
-        __dirname,
-        "../../supabase/migrations/20260928000000_33_update_profiles_rpc.sql",
-      ),
-      "utf-8",
+  // update_profiles の許可値と ROLES がずれると、選択肢に出ない・保存時に INVALID_INPUT で
+  // 弾かれるといった不整合がエラーなしに起きる。後続のマイグレーションが update_profiles を
+  // 再定義しても古い定義を見続けないよう、最後に定義したマイグレーションを対象にする
+  it("update_profiles（最後に定義したマイグレーション）が受け付ける class の許可値と ROLES が一致する", () => {
+    const dir = resolve(__dirname, "../../supabase/migrations");
+    const definitions = readdirSync(dir)
+      .filter((name) => name.endsWith(".sql"))
+      .sort()
+      .map((name) => readFileSync(resolve(dir, name), "utf-8"))
+      .filter((sql) =>
+        /CREATE\s+(OR\s+REPLACE\s+)?FUNCTION\s+public\.update_profiles\s*\(/i.test(
+          sql,
+        ),
+      );
+    expect(definitions.length).toBeGreaterThan(0);
+    const sql = definitions[definitions.length - 1];
+    const match = sql.match(
+      /\(e\.elem\s*->>\s*'class'\)\s+NOT\s+IN\s*\(([^)]*)\)/i,
     );
-    const match = sql.match(/\(e\.elem ->> 'class'\) NOT IN \(([^)]*)\)/);
     expect(match).not.toBeNull();
     const allowed = Array.from(match![1].matchAll(/'([^']+)'/g), (m) => m[1]);
+    expect(new Set(allowed).size).toBe(allowed.length);
     expect([...allowed].sort()).toEqual([...ROLES].sort());
   });
 });

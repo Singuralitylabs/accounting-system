@@ -718,7 +718,7 @@ GRANT EXECUTE ON FUNCTION public.validate_member_ids(bigint[]) TO authenticated;
 - クライアントからの upsert は使わない（INSERT ポリシー `auth.uid() = user_id` に弾かれるため）
 - EXECUTE は authenticated のみ（`REVOKE ... FROM PUBLIC, anon`）
 - 呼び出し側は `app/utils/supabase/profiles.ts` の `bulkUpdateProfiles`。`INVALID_INPUT`（22023）/ `NOT_APPLIED` / 42501 は「何も保存しなかった」旨の利用者向けメッセージに変換する。画面からは変更した行だけが送られる
-- `class` の許可値（`public` / `teamleader` / `accounting` / `admin`）はアプリ側の `ROLES`（`app/utils/permissions.ts`。ユーザーリストの選択肢・表示順・入力チェックの元）と一致させる。ロールを追加・改名するときは本関数の許可値も直す（`tests/utils/permissions.test.ts` がこのマイグレーションの許可値との一致を確認する）
+- `class` の許可値（`public` / `teamleader` / `accounting` / `admin`）はアプリ側の `ROLES`（`app/utils/permissions.ts`。ユーザーリストの選択肢・表示順・入力チェックの元）と一致させる。ロールを追加・改名するときは本関数の許可値も直す（`tests/utils/permissions.test.ts` が、`update_profiles` を最後に定義したマイグレーションの許可値との一致を確認する）
 - `bulkUpdateProfiles` は Server Action として公開されるため、RLS に加えて呼び出し元のプロフィール（`getProfileInfo`）の権限を `hasClassAccess(PROFILE_WRITE_CLASSES, ...)`（`app/utils/permissions.ts`。現状は admin のみで、RLS・本関数と揃える。`/dashboard` を開けるロール（`ROUTE_PERMISSIONS`）とは別定義で、書き込めるロールが画面を開けることはテストで確認する）で確認し（多層防御）、admin 以外は RPC を呼ばずに権限エラーを返す（RLS 上は admin 以外でも自分の `slack_id` を更新できるが、この経路では変更させない）
 
 ```sql
