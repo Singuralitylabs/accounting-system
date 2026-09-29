@@ -2,18 +2,13 @@ import { cache } from "react";
 import { Database } from "../../lib/database.types";
 import { createServerSupabase } from "./clients";
 
-// 同一リクエスト（RSC レンダリング）内での auth.getUser() / プロフィール取得を
-// 1 回にデデュープするためのキャッシュ。
-// AuthProvider・ページ本体・データ取得関数がそれぞれ認証情報を参照しても、
-// Supabase への往復はリクエストごとに 1 回で済む。
-// Server Action として直接エクスポートすると Next.js の
-// 「"use server" ファイルのエクスポートは async 関数のみ」という制約に反するため、
-// このファイルは "use server" にせず、profiles.ts の async ラッパー経由で公開する。
+// Dedupes auth.getUser() / profile fetches within one request (RSC render) so AuthProvider, pages
+// and data functions share one Supabase round trip. Not "use server" (exports must be async
+// functions only); exposed through async wrappers in profiles.ts.
 
 type ProfilesRow = Database["public"]["Tables"]["profiles"]["Row"];
 
-// 呼び出し側が const { profileInfo } = ... と分割代入できるよう、
-// 成功・失敗の両ケースで両プロパティを持つ判別可能な union にする
+// Discriminated union with both properties in both cases so callers can destructure { profileInfo }.
 export type ProfileInfoResult =
   | { profileInfo: ProfilesRow; error?: undefined }
   | { profileInfo?: undefined; error: Error };

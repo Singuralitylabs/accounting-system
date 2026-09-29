@@ -1,8 +1,6 @@
-// 損益計算書の集計元データの取得（サーバ専用）。
-// 損益レポートの取得（profitLossReport.ts）と月次収支確定（profitLossClosings.ts）の
-// 両方で同じ行を同じ条件で取得するために切り出している。
-// "use server" を付けないのは、この関数群を Server Action としてクライアントへ
-// 公開しないため（requestCache.ts / viewerAccess.ts と同じ）。サーバ専用モジュールからのみ import する。
+// Server-only fetching of P&L source rows, shared by profitLossReport.ts and profitLossClosings.ts so
+// both read the same rows under the same conditions. No "use server" so these are not exposed as
+// Server Actions (same as requestCache.ts / viewerAccess.ts).
 
 import type { PostgrestError } from "@supabase/supabase-js";
 import {
@@ -36,16 +34,14 @@ import { createServerSupabase } from "./clients";
 import { fetchClosedMonthKeys } from "./closedMonthsQuery";
 import { fetchAllByIds, fetchAllPages } from "./paging";
 
-// business / costs の取得列。計上月（案件開始日）・下書き判定・ラベル解決に
-// matters の列を使うため join を含む。通常取得と orphanedAdjustments 用の補完取得で同じ形を使う。
-// matters は !inner（inner join）にし、埋め込み側の絞り込み（matterPeriodFilter）で
-// 親の business / costs 行を絞れるようにする。
+// Columns for business / costs. Joins matters (start date, draft check, labels); shared by the normal
+// and orphanedAdjustments supplement fetches. matters is !inner so the embedded filter
+// (matterPeriodFilter) narrows the parent rows.
 const MATTER_COLUMNS =
   "matters!inner(id, user_id, title, team, category, start_date, is_fixed, is_completed)";
 export const BUSINESS_SELECT = `id, name, amount, matter_id, ${MATTER_COLUMNS}`;
 export const COST_SELECT = `id, name, price, item, matter_id, ${MATTER_COLUMNS}`;
 
-// ライブ集計（buildLiveMonthLines）に必要な行
 export type LiveSourceRows = {
   businessRows: BusinessRow[];
   costRows: CostRow[];
@@ -56,24 +52,20 @@ export type LiveSourceRows = {
 
 export type ReportSourceRows = LiveSourceRows & {
   labels: ProfitLossLabelType[];
-  // 確定済みの月（"YYYY-MM"）→ 確定スナップショット（Issue #148）
+  // Closed month ("YYYY-MM") -> snapshot.
   closings: Map<string, MonthClosingSnapshot>;
 };
 
-// ライブ集計に必要な行だけを取得する（RLS により権限に応じた行のみ返る）。
-// 月次収支の確定（スナップショットの保存）はこれだけで足りるため、表示タイトル・確定明細・
-// 見送り記録・チームマスタは取得しない。損益レポートの取得（fetchReportSourceRows）も
-// これを他の取得と並列に呼ぶ
+// Only the rows needed for live aggregation (RLS-filtered): closing needs nothing else, and
+// fetchReportSourceRows calls this in parallel with other fetches.
 export const fetchLiveSourceRows = async (
   period: ReportPeriod,
 ): Promise<LiveSourceRows | null> => {
   const supabase = createServerSupabase();
   const bounds = reportRangeBounds(period);
 
-  // 案件の売上・費用は案件開始日の月に計上し、下書きの案件は除外する（Issue #146）。
-  // 条件は埋め込みリソース（matters!inner）側に掛ける
-  // 行数が増えうるため fetchAllPages で id 順にページングする（年間推移・確定後の変更の集計は
-  // 複数月をまとめて取得するため、max_rows を超えうる）
+  // Filter on the embedded matters!inner. Page by id with fetchAllPages, since annual trend and
+  // post-closing summaries fetch several months and can exceed max_rows.
   const businessQuery = fetchAllPages((afterId, limit) =>
     supabase
       .from("business")
@@ -92,8 +84,7 @@ export const fetchLiveSourceRows = async (
       .order("id", { ascending: true })
       .limit(limit),
   );
-  // 定期費用は適用期間の重なりで絞る（支払サイクルの計上判定は集計側で行う）。
-  // 適用期間が取得期間と重ならない行だけを除外する。
+  // Filter by overlap of the applicable period; payment-cycle checks happen in aggregation.
   const recurringQuery = fetchAllPages((afterId, limit) =>
     supabase
       .from("recurring_costs")
@@ -113,7 +104,6 @@ export const fetchLiveSourceRows = async (
       .order("id", { ascending: true })
       .limit(limit),
   );
-  // 調整は対象月で絞る（target_month は NOT NULL）。
   const adjustmentQuery = fetchAllPages((afterId, limit) =>
     supabase
       .from("profit_loss_adjustments")
@@ -157,11 +147,10 @@ export const fetchLiveSourceRows = async (
   };
 };
 
-// 確定スナップショット（Issue #148 / #149）: 確定済みの月（"YYYY-MM"）→ ヘッダ・確定明細・見送り記録。
-// PostgREST の max_rows は埋め込みリソースの配列にも掛かるため、明細・見送り記録は埋め込まずに
-// 別クエリでページングし、ヘッダの月範囲で絞る（!inner の埋め込み側に条件を掛ける）。
-// 明細は RLS によりチームリーダーは自チーム＋全体共通（＋自分が作成した案件）のみ、
-// 見送り記録は accounting / admin のみ返る
+// Closing snapshots: closed month -> header, closing lines, skip records. PostgREST max_rows also
+// applies to embedded arrays, so lines/skips are paged in separate queries (filtered by the
+// header month range via !inner) instead of embedded. RLS returns lines for a teamleader only for
+// own team + team-less (+ own matters), and skip records for accounting / admin only.
 const fetchClosingSnapshots = async (
   period: ReportPeriod,
 ): Promise<Map<string, MonthClosingSnapshot> | null> => {
@@ -201,7 +190,7 @@ const fetchClosingSnapshots = async (
     return null;
   }
 
-  // 明細・見送り記録を確定ヘッダごとにまとめる（埋め込みの target_month は使わない）
+  // Group by closing header (embedded target_month is not used).
   const stripJoin = <T extends { profit_loss_closings: unknown }>({
     profit_loss_closings: _closing,
     ...row
@@ -224,12 +213,10 @@ const fetchClosingSnapshots = async (
 };
 
 export type ClosingSourceRows = LiveSourceRows & {
-  // 確定済みの月（"YYYY-MM"）→ 確定スナップショット（Issue #148）
   closings: Map<string, MonthClosingSnapshot>;
 };
 
-// ライブの行と確定スナップショットだけを取得する（確定後の差分の件数集計・反映・見送り用。
-// 表示タイトル・チームマスタは使わないため取得しない）
+// Live rows plus snapshots only (post-closing diff counts / apply / skip); no titles or team master.
 export const fetchClosingSourceRows = async (
   period: ReportPeriod,
 ): Promise<ClosingSourceRows | null> => {
@@ -240,7 +227,6 @@ export const fetchClosingSourceRows = async (
   return liveRows && closings ? { ...liveRows, closings } : null;
 };
 
-// 表示タイトル（profit_loss_labels。Issue #150）の取得対象の ID（対象種別ごと）
 export type LabelTargetIds = {
   matterIds: number[];
   businessIds: number[];
@@ -248,12 +234,11 @@ export type LabelTargetIds = {
   recurringCostIds: number[];
 };
 
-// 取得した行から、表示タイトルを引く可能性のある対象の ID を集める（Issue #172）。
-// 表示タイトルはライブの明細・確定明細（元の行が削除・他月へ移動した明細を含む）・
-// 差分一覧・対象行が当月に存在しない調整の表示で引くため、次をすべて含める:
-// - 案件: ライブの売上・費用の案件 ID、確定明細（売上・費用）の案件 ID
-// - 売上・費用・定期費用: ライブの行の ID、確定明細の source_id、損益調整の対象 ID
-// （対象行が期間外へ移動した調整の対象行は fetchReportSourceRows の supplement で補完取得する）
+// Collects IDs that display titles may be looked up for: live lines, closing lines (including
+// rows deleted or moved to another month), the diff list and orphanedAdjustments:
+// - matters: matter IDs of live sales/costs and closing lines
+// - sales / costs / recurring costs: live row IDs, closing source_id, adjustment target IDs
+// (targets moved outside the period are supplemented in fetchReportSourceRows).
 export const collectLabelTargetIds = (
   rows: Pick<
     ClosingSourceRows,
@@ -303,11 +288,8 @@ export const collectLabelTargetIds = (
   };
 };
 
-// 表示タイトルを対象 ID で取得する（Issue #172。以前は全月共通のため全件を取得していたが、
-// 件数が運用期間に比例して増えるため、表示する期間の明細に対応するものだけを読む）。
-// ID が多い場合（年間推移・案件の多い月）も URL の長さと max_rows に掛からないよう
-// fetchAllByIds で分割・ページングする。対象種別ごとに並列に問い合わせ、ID が無い種別は
-// 問い合わせない（RLS により閲覧できる行のみ返る）
+// Fetch only titles for the displayed rows' IDs (not all, which grows with operating period). fetchAllByIds
+// chunks/pages to avoid URL length and max_rows; types are queried in parallel, and types with no IDs are skipped.
 const fetchLabelsByTargetIds = async (
   ids: LabelTargetIds,
 ): Promise<{
@@ -344,23 +326,19 @@ const fetchLabelsByTargetIds = async (
   };
 };
 
-// 月次レポートの調整対象行の補完取得の指定
 export type AdjustmentSupplementOptions = {
   month: string;
   includeTeamBreakdown?: boolean;
   includeMonthlyDetails?: boolean;
 };
 
-// 集計・表示に必要な行をまとめて取得する（RLS により権限に応じた行のみ返る）
-// セッション Cookie は @supabase/ssr 形式。createServerSupabase() 以外のクライアントを混ぜない
-// 対象期間＋月未確定（NULL）行に絞る。月次は単月、年間推移は年度12ヶ月を渡し、
-// いずれも一括取得（Promise.all）のままクエリ往復を増やさない。
-// 表示タイトルは取得した行の ID で絞って取得するため、行の取得の後にもう 1 往復する
-// （Issue #172）。表示タイトルを表示しない年間推移は includeLabels: false で取得を省く。
-// 月次レポートは supplement を渡すと、対象行が期間外へ移動した調整の対象行の補完取得も
-// 行う。補完が必要かは取得した行だけで判定できるため、表示タイトルの取得と補完行の取得を
-// 並列にする（直列だと往復が 1 つ増える。Issue #193）。補完行の案件のうち、表示タイトルを
-// まだ問い合わせていないものがあるときだけ、その取得が追加の 1 往復になる
+// Fetches the rows for aggregation/display (RLS-filtered). Session cookies use the @supabase/ssr
+// format; never mix in a client other than createServerSupabase().
+// Restricted to the period plus NULL rows (monthly: one month, annual: 12 months) via one
+// Promise.all. Titles need the fetched row IDs, so they take one more round trip (skip with
+// includeLabels: false for the annual trend). With `supplement` (monthly), supplement rows for
+// adjustments whose target moved outside the period are fetched in parallel with the titles (Need
+// determined from fetched rows alone); only supplement matters with unqueried titles add a round trip.
 export const fetchReportSourceRows = async (
   period: ReportPeriod,
   options?: {
@@ -411,15 +389,12 @@ type MissingAdjustmentTargetIds = ReturnType<
   typeof collectMissingAdjustmentTargetIds
 >;
 
-// 対象行が取得期間外へ移動した調整のラベル解決用に、欠けている対象行だけを
-// ID 指定で補完取得し rows に追加する（通常は0件でクエリを発行しない。あっても1往復にまとめる）。
-// 補完行は月振り分けで集計から除外されるため集計値は不変。
-// RLS で読めない行は解決できず汎用表示（「売上（ID: X）」等）に落ちる。
-// orphanedAdjustments は月次タブの単月表示でチーム別内訳を持つロール
-// （accounting / admin）でのみ計算・表示されるため、それ以外では補完取得自体を
-// スキップする（Issue #142）。表示側（buildMonthReport）と同じ
-// needsMonthlyAdjustmentDetails で判定する。
-// 以下は補完取得が必要な対象行の ID。不要（スキップ対象のロール・欠けが無い）なら null
+// Fetches only the missing target rows of adjustments whose row moved outside the period, for label
+// resolution, and appends them to rows (usually none = no query). Aggregates are unchanged because
+// month bucketing excludes them. Unreadable rows (RLS) fall back to generic labels
+// (「売上（ID: X）」). Skipped unless the role computes orphanedAdjustments (same
+// needsMonthlyAdjustmentDetails as buildMonthReport). Below: IDs needing supplement; null when not
+// needed (role skipped / nothing missing).
 const planAdjustmentSupplement = (
   rows: ClosingSourceRows,
   options: AdjustmentSupplementOptions,
@@ -455,7 +430,7 @@ type SupplementedRows = {
   recurringCosts: RecurringCostType[];
 };
 
-// 欠けている対象行を ID 指定で取得する。失敗したら（汎用ラベルで表示するため）null
+// null on failure (generic labels are shown).
 const fetchAdjustmentTargetRows = async (
   missingIds: MissingAdjustmentTargetIds,
 ): Promise<SupplementedRows | null> => {
@@ -503,10 +478,8 @@ const fetchAdjustmentTargetRows = async (
   };
 };
 
-// 補完行を rows に追加し、表示タイトルをまだ問い合わせていない案件の ID を返す。
-// 表示タイトルは取得済みの行の案件 ID で絞って取得しているため、補完行の案件のうち
-// まだ問い合わせていない案件の表示タイトルを追加で取得する必要がある（Issue #172。明細・
-// 定期費用の表示タイトルは調整の対象 ID として取得済み）
+// Appends supplement rows and returns matter IDs whose titles were not queried yet (titles were
+// fetched by the original rows' matter IDs; row/recurring cost titles came via adjustment target IDs).
 const applyAdjustmentSupplement = (
   rows: ReportSourceRows,
   supplemented: SupplementedRows,
@@ -524,7 +497,6 @@ const applyAdjustmentSupplement = (
   );
 };
 
-// 補完行の案件の表示タイトルを追加で取得して rows.labels に加える（無ければ問い合わせない）
 const appendMatterLabels = async (
   rows: ReportSourceRows,
   matterIds: number[],
@@ -548,12 +520,11 @@ const appendMatterLabels = async (
   rows.labels.push(...(labelResult.data ?? []));
 };
 
-// 確定後の差分（Issue #149）の追加・削除に付ける、他の月との移動の情報を取得する。
-// - 削除の差分: 明細の現在の所在（案件開始日の月・下書きか。行が無ければ削除済み）
-// - 追加の差分: その明細を確定明細に持つ他の確定済みの月（移動元）
-// 追加・削除の差分が無ければクエリを発行しない（context: null。あっても 1 往復にまとめる）。
-// 取得に失敗した場合は failed: true を返す（移動の有無が分からないまま反映させないため、
-// 呼び出し側で差分一覧に注意を出し反映を止める）
+// Move info for added/removed post-closing diffs:
+// - removed: where the line is now (start month / draft; none = deleted)
+// - added: other closed months holding the line (move source)
+// No query without diffs (context: null; otherwise one round trip). On failure returns failed: true
+// so the diff list warns and blocks applying without knowing about moves.
 export type DiffMoveContextResult =
   | { context: Parameters<typeof annotateDiffMoves>[1] | null; failed?: false }
   | { context?: undefined; failed: true };
@@ -574,8 +545,7 @@ export const fetchDiffMoveContext = async (
   const removedBusinessIds = idsOf(removed, "business");
   const removedCostIds = idsOf(removed, "cost");
   const addedIds = added.map((diff) => diff.sourceId);
-  // 追加・削除の差分が多い月（案件の一括差し戻し等）でも max_rows で打ち切られないよう、
-  // ID を分割してページングする（fetchAllByIds。ID が無ければ問い合わせない）
+  // Chunk and page ids (fetchAllByIds) so mass diffs (e.g. bulk send-back) are not cut off by max_rows.
   const [businessResult, costResult, otherLinesResult, closingsResult] =
     await Promise.all([
       fetchAllByIds(removedBusinessIds, (chunk, afterId, limit) =>
@@ -646,7 +616,7 @@ export const fetchDiffMoveContext = async (
     }[]
   ).forEach((row) => {
     const key = diffKeyOf(row.source_type as DiffSourceType, row.source_id);
-    if (!addedKeys.has(key)) return; // business / cost の ID が重なる別種別の行を除く
+    if (!addedKeys.has(key)) return;  // Excludes rows of the other type whose business / cost IDs collide.
     const months = otherClosedMonths.get(key) ?? [];
     months.push(row.profit_loss_closings.target_month.slice(0, 7));
     otherClosedMonths.set(key, months.sort());

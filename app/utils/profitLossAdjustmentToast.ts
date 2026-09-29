@@ -1,9 +1,7 @@
-// 実績額修正の保存結果の表示振り分け（純粋関数）。
-// DB 関数 save_profit_loss_adjustment は差分 0（実績額 = 元データ）の場合、
-// 既存の調整を削除して deleted=true を返すが、削除対象が無い場合（Issue #139）は
-// deleted=false・adjustment_amount=0 を返す。呼び出し側は !deleted を一律
-// 「保存しました」にすると、競合時（別タブで先に削除済み）に何も起きていないのに
-// 保存成功に見えてしまうため、3 値で振り分ける。
+// Maps a save result to a toast. save_profit_loss_adjustment deletes the adjustment when delta is 0
+// (deleted=true), but returns deleted=false with adjustment_amount=0 when there was nothing to
+// delete (e.g. already deleted in another tab). Treating !deleted as "saved" would misreport that
+// no-op, hence three outcomes.
 
 export type SaveAdjustmentOutcome = "deleted" | "saved" | "unchanged";
 

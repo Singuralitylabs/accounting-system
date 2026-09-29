@@ -31,8 +31,7 @@ export const getProfileInfoById = async (userId: string) => {
   }
 };
 
-// 取得失敗（DB 障害・権限エラー）と「0 件」を呼び出し元が区別できるよう、
-// error を握りつぶさず結果に含めて返す。
+// error is returned (not swallowed) so callers can tell a failure from 0 rows.
 export const getAllUserInfo = async () => {
   const supabase = createServerSupabase();
 
@@ -48,13 +47,10 @@ export const getAllUserInfo = async () => {
   return { userInfoList, error };
 };
 
-// 担当者選択の選択肢（全メンバーの id/name）を返す。profiles への直接 SELECT
-// （getAllUserInfo）は RLS で teamleader が自チームに絞られるため使えない
-// （事前収支申告は teamleader もアクセスでき、選択肢は全メンバーである必要がある）。
-// DB 関数 get_member_options（SECURITY DEFINER。migration 21）経由で取得する
-// エラー時のログは呼び出し元（利用箇所の文脈が分かる場所）に任せる。
-// ここで console.error すると、呼び出し元も別途ログする場合に同じエラーが
-// 2 回出力されてノイズになる（DynamicBudgetDeclarations.tsx 参照）
+// Returns all members' id/name for the manager picker. A direct profiles SELECT (getAllUserInfo) is
+// limited to the own team for teamleader by RLS, but budget declarations need all members, so use
+// get_member_options (SECURITY DEFINER, migration 21). Errors are logged by the caller (which has
+// the context) to avoid double logging (see DynamicBudgetDeclarations.tsx).
 export const getMemberOptions = async () => {
   const supabase = createServerSupabase();
 
@@ -65,10 +61,8 @@ export const getMemberOptions = async () => {
   return { memberOptions, error };
 };
 
-// 渡された id のうち実在する profiles.id のみを返す（事前収支申告の manager_id
-// 保存前検証用）。get_member_options() で全メンバーを取得して JS 側で照合する
-// こともできるが、保存のたびに全メンバー分の行を転送するのは無駄
-// （メンバー数が増えるほど悪化する）ため、id 集合だけを DB 側で照合する
+// Returns only ids that exist in profiles (pre-save manager_id check). Checking a set in the DB
+// avoids transferring all members via get_member_options() on every save.
 export const validateMemberIds = async (targetIds: number[]) => {
   const supabase = createServerSupabase();
 
@@ -80,20 +74,15 @@ export const validateMemberIds = async (targetIds: number[]) => {
   return { existingIds, error };
 };
 
-// 保存前に manager_id が実在する profiles.id か確認する共通ヘルパ。
-// 存在しない manager_id のまま書き込みへ進めると FK 違反（23503）という
-// 分かりにくいエラーで失敗するため、DB 書き込みの前にここで弾いてわかりやすい
-// エラーメッセージを返す。budgetRecurringItems.ts（明細の書き込みが非トランザクション
-// = 複数行の並列 INSERT/UPDATE）では存在しない manager_id により一部だけ反映された
-// 状態（partialWriteFailed）を防ぐ役割も兼ねるが、budgetDeclarations.ts の保存は
-// save_budget_declaration（migration 24）内の単一トランザクションで原子的に行われる
-// ため、このチェックを経ずに FK 違反が起きても保存前の状態に完全にロールバックされる。
-// 問題なければ null、問題があれば呼び出し元にそのまま返せる AccessFailure を返す
+// Shared pre-save check that manager_id exists in profiles: returns null if OK, otherwise an
+// AccessFailure to return as-is. Avoids an obscure FK violation (23503) and, for
+// budgetRecurringItems.ts (parallel non-transactional writes), a partial write
+// (partialWriteFailed). budgetDeclarations.ts saves in one transaction (save_budget_declaration,
+// migration 24), so an FK violation there rolls back fully.
 export const assertManagerIdsExist = async (
   managerIds: number[],
   subject: string,
-  // 「見つからない」場合の案内文の末尾（呼び出し元の画面遷移に合わせて変える。
-  // 例: "フォームを開き直して選び直してください。" / "画面を再読み込みして選び直してください。"）
+  // Suffix of the "not found" message, varied per caller's screen flow.
   notFoundHint: string,
 ): Promise<AccessFailure | null> => {
   if (managerIds.length === 0) return null;
@@ -127,8 +116,7 @@ export const insertUserInfo = async ({
   name: string;
   email: string;
 }) => {
-  // 多層防御: 呼び出し元（OAuth コールバック）でもドメイン検証しているが、
-  // プロフィール作成の最終段でも許可ドメイン外を弾く。
+  // Defense in depth: the OAuth callback also validates the domain; reject non-allowed domains at profile creation too.
   if (!isAllowedEmailDomain(email)) {
     console.warn(`許可されていないドメインのプロフィール作成を拒否しました: ${email}`);
     return { error: new Error("許可されていないドメインのメールアドレスです。") };
@@ -174,25 +162,18 @@ const PROFILES_SAVE_FAILED: AccessFailure = {
   message: "ユーザー情報の保存に失敗しました。何も保存されていません。",
 };
 
-// 管理画面のユーザーリストの一括保存（権限・チーム・Slack ID）。
-// updates は変更した行のみ（画面側で selectChangedUsers により選ぶ）。
-// 書き込みは update_profiles（migration 33。1 トランザクション・1 文の UPDATE）で行い、
-// 1 件でも保存できなければすべてロールバックされる（一部だけ保存された状態は残らない）。
-// 他人の行を更新できるのは admin だけで、RLS（SECURITY INVOKER）で担保される。
-// Server Action として公開されるため、RLS に加えてここでも admin であることを確認する
-// （多層防御）。admin 以外は入力チェック・書き込みの前に権限エラーを返す（RLS 上は自分の
-// Slack ID を変えられる admin 以外の利用者も、この画面の保存経路では何も変えられない。
-// 入力チェックのエラーメッセージに含まれる他人の名前も返さない）。
-// RLS で弾かれた行・存在しない行があると NOT_APPLIED、admin 以外が権限・チームを
-// 変えようとすると RLS 違反（42501）、不正な入力は INVALID_INPUT（22023）になる。
-// Server Action として公開されるため、画面側と同じ入力チェックをここでも行い、
-// 書き込む列は toProfileDbRow で権限・チーム・Slack ID に限定する
+// Bulk save of role/team/Slack ID. `updates` are changed rows only (selectChangedUsers). Written by
+// update_profiles (migration 33; one transaction, one UPDATE): any failure rolls back everything.
+// Updating others' rows is admin-only via RLS (SECURITY INVOKER). Because this is a Server Action,
+// also require admin here before any validation or write (defense in depth), so no other user's
+// names leak through validation messages. NOT_APPLIED: RLS-rejected or missing rows; 42501: a
+// non-admin changing role/team; INVALID_INPUT (22023): bad input. The same validation as the UI
+// runs here, and written columns are limited by toProfileDbRow.
 export const bulkUpdateProfiles = async (
   updates: ProfileUpdateInput[],
 ): Promise<BulkUpdateProfilesResult> => {
-  // viewerAccess.ts の getAuthorizedViewer は閲覧向け（ログ・メッセージが「〜の閲覧権限が
-  // ありません」等）で、かつ profiles.ts を import する（循環 import になる）ため使わず、
-  // 同じ「プロフィール取得 → hasClassAccess」をここで行い、保存の権限エラーとして記録する
+  // Not viewerAccess.getAuthorizedViewer: its logs/messages are view-oriented and it imports
+  // profiles.ts (circular import). Do the same profile fetch -> hasClassAccess here and record it as a save permission error.
   const { profileInfo, error: profileError } = await getProfileInfo();
   if (profileError || !profileInfo) {
     console.error(
@@ -242,9 +223,8 @@ export const bulkUpdateProfiles = async (
     p_updates: updates.map(toProfileDbRow),
   });
   if (rpcError) {
-    // 不正な入力（キーの欠落・id の重複や null・許可値以外の権限など）は
-    // update_profiles が INVALID_INPUT（22023）で全体を拒否する。22023 は他の原因でも
-    // 返り得るため、例外のメッセージで判定する
+    // update_profiles rejects invalid input (missing keys, duplicate/null ids, disallowed role) as a
+    // whole with INVALID_INPUT (22023). 22023 can come from other causes, so match the exception message.
     if (rpcError.message.includes("INVALID_INPUT")) {
       return {
         error: {

@@ -4,8 +4,7 @@ import { RecurringCostInListType } from "../../types/types";
 import { toFirstOfMonthOrNull } from "../formatter";
 import { createServerSupabase } from "./clients";
 
-// 一覧の行データを DB 書き込み用の形に変換する（INSERT / UPDATE 共通）
-// updated_at は DB トリガー（update_recurring_costs_updated_at）が now() で設定する
+// Shared by INSERT / UPDATE. updated_at is set by the update_recurring_costs_updated_at trigger.
 const toDbRow = (rc: RecurringCostInListType) => ({
   name: rc.name,
   item: rc.item,
@@ -37,23 +36,18 @@ export const bulkUpsertRecurringCost = async (
 ) => {
   const supabase = createServerSupabase();
 
-  // 新規作成用
   const newCosts = recurringCosts.filter((rc) => rc.isNew && !rc.isRemoved);
-  // 更新用
   const updateCosts = recurringCosts.filter((rc) => !rc.isNew && !rc.isRemoved);
-  // 削除用
   const deleteCosts = recurringCosts.filter((rc) => rc.isRemoved && !rc.isNew);
 
   const operations = [];
 
-  // バルクINSERT
   if (newCosts.length > 0) {
     operations.push(
       supabase.from("recurring_costs").insert(newCosts.map(toDbRow))
     );
   }
 
-  // バルクUPDATE
   if (updateCosts.length > 0) {
     const updatePromises = updateCosts.map((rc) => {
       if (!rc.id) {
@@ -68,7 +62,6 @@ export const bulkUpsertRecurringCost = async (
     operations.push(...updatePromises);
   }
 
-  // バルクDELETE
   if (deleteCosts.length > 0) {
     const deleteIds = deleteCosts
       .map((rc) => rc.id)
@@ -80,7 +73,6 @@ export const bulkUpsertRecurringCost = async (
     }
   }
 
-  // 全て並列実行
   if (operations.length > 0) {
     const results = await Promise.all(operations);
     const errors = results

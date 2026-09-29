@@ -10,11 +10,9 @@ export type SaveProfitLossLabelResult =
   | { deleted: boolean; error?: undefined }
   | { deleted?: undefined; error: AccessFailure };
 
-// 損益計算書の表示タイトルの保存（1件ずつ即時保存。Issue #150）。
-// 前後の空白を除去し、空欄なら上書きを削除して元の名称に戻す。保存は DB 関数
-// public.save_profit_loss_label（部分 UNIQUE に対する upsert / 削除）を1回呼ぶだけで完結する。
-// updated_by は関数内で auth.uid() から解決され、クライアントからは渡さない。
-// 書き込み権限（accounting / admin のみ）は RLS でも担保される。
+// Saves a display title immediately: trimmed, empty removes the override. One call to
+// public.save_profit_loss_label (upsert / delete against a partial UNIQUE). updated_by is resolved
+// from auth.uid() in the function, never sent by the client. Write permission is also enforced by RLS.
 export const saveProfitLossLabel = async (
   target: LabelTarget,
   label: string,

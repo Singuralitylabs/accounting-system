@@ -23,8 +23,8 @@ export const updateMatter = async (
   matterInfo.unchecked_cost_count = totals.unchecked_cost_count;
   matterInfo.start_date = matterInfo.start_date || null;
 
-  // updateMatterInfo は throw せず { status, error } を返す。error が無くても
-  // RLS / 削除済みでは status が [] になり、案件行は保存されていない。
+  // updateMatterInfo returns { status, error } without throwing; even without error, RLS / deleted
+  // rows give status [] and the matter row was not saved.
   const { status, error } = await updateMatterInfo(matterInfo);
   const updatedCount = Array.isArray(status) ? status.length : 0;
   if (error || updatedCount !== 1) {
@@ -39,8 +39,8 @@ export const updateMatter = async (
     ]);
     return true;
   } catch (error) {
-    // costs.ts / businesses.ts は "use server" のため、本番ビルドでは
-    // throw した日本語がマスクされる。クライアント側で再ラップして表示を保証する。
+    // costs.ts / businesses.ts are "use server", so thrown Japanese messages are masked in production
+    // builds; rewrap on the client.
     console.error(UPDATE_FAILED_MESSAGE, error);
     throw new Error(UPDATE_FAILED_MESSAGE);
   }

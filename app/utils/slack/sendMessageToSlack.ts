@@ -16,7 +16,7 @@ const sendMessageToSlack = async (
       throw new Error(slackResult.error);
     }
     notifySuccess("担当者への通知が完了しました", "通知成功");
-    return true; // 成功時にtrueを返す
+    return true;
   } catch (error) {
     console.error("通知送信エラー:", error);
     notifyError(`${title}の通知に失敗しました`);

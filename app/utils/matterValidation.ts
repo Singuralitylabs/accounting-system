@@ -1,8 +1,7 @@
 import type { BusinessType, CostType, MatterType } from "../types/types";
 
-// 新規作成モーダルの初期表示・送信ペイロード組み立ての両方で使う空の案件データ。
-// id / is_completed / has_updates / user_id / inserted_at / updated_at /
-// parent_matter_id はサーバ側で上書きされるダミー値のため、ここ 1 箇所にまとめる。
+// Empty matter for the create modal's initial state and payload. The dummy fields
+// (id, is_completed, has_updates, user_id, timestamps, parent_matter_id) are overwritten server-side.
 export const createEmptyMatter = (): MatterType => ({
   id: 0,
   title: "",
@@ -39,7 +38,7 @@ export type CostValidationFields = Pick<
   CostType,
   "name" | "item" | "payment_target" | "period" | "certificate"
 > & {
-  // フォーム上は未入力を null とし得る（既存の必須チェック）
+  // The form can leave this null.
   price: CostType["price"] | null;
   isRemoved?: boolean;
 };
@@ -115,11 +114,10 @@ export const hasCostRequiredFields = (cost: CostValidationFields) =>
   );
 
 /**
- * 案件作成・更新で共通の必須チェックと請求日/振込期限の前後チェック。
- * `skipRemoved: true` のとき `isRemoved` 行は見ない（更新時の既存挙動）。
- * `requireStartDate: false` のとき開始日は必須にしない（DB 上 nullable な
- * 既存下書きを、他項目だけの編集で更新できるようにするため。作成時と
- * 経理申請時（`is_fixed === true`）は必須）。
+ * Required checks and invoice/payment-due ordering shared by create and update.
+ * `skipRemoved: true` ignores `isRemoved` rows. `requireStartDate: false` lets existing drafts with a
+ * nullable start date be updated by editing other fields (required on create and on accounting
+ * request, i.e. `is_fixed === true`).
  */
 export const validateMatterPayload = (
   matterInfo: MatterRequiredFields,

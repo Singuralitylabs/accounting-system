@@ -1,11 +1,8 @@
 import { SlackNotificationResponse } from "@/app/types/types";
 import { postSlackWebhookBlocks } from "./postSlackWebhookBlocks";
 
-// 未申告 Slack リマインド専用の Webhook 送信。
-// app/actions/slack の sendSlackNotification は「案件に関して、経理より通達です。」という
-// 案件通知専用の文言・ブロック構成を前提にしており、事前収支申告のリマインドには合わないため、
-// Webhook への POST（postSlackWebhookBlocks）だけを共用し、メッセージは呼び出し側
-// （buildBudgetDeclarationReminderMessage）が組み立てたテキストをそのまま送る。
+// sendSlackNotification's wording/blocks are specific to matter notices, so only the webhook POST is
+// shared and the message text comes from buildBudgetDeclarationReminderMessage.
 export const sendBudgetDeclarationReminderToSlack = async (
   message: string,
 ): Promise<SlackNotificationResponse> => {
