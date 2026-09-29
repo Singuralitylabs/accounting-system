@@ -12,6 +12,7 @@ import {
   copyExtraEntriesFromPreviousMonth,
 } from "../utils/supabase/extraEntries";
 import { ExtraEntryInListType, ExtraEntryType } from "../types/types";
+import { useQueryWithInvalidation } from "./useQueryWithInvalidation";
 
 // 経理追加収支一覧（対象月のエントリ＋月未確定のエントリ）。
 // 月を切り替えている間は前月の表を残す（毎回フルスピナーにしない）
@@ -22,11 +23,12 @@ export const useExtraEntryList = (
   // 「今」シードされたものとして扱い、GC 後に古い initialData が
   // 新鮮なデータとして再表示される（QueryProvider は refetchOnMount: false）。
   initialDataUpdatedAt?: number,
-) => {
-  const queryClient = useQueryClient();
-  const queryKey = ["extraEntries", "list", month];
-  const query = useQuery({
-    queryKey,
+) =>
+  // 画面を離れている間に無効化された一覧（損益計算書での前月コピー・確定の後など）は、
+  // 開き直したときに取り直し、無効化されたままの一覧での編集・保存を止められるように
+  // isInvalidated を購読して返す（useQueryWithInvalidation。Issue #170, #189）
+  useQueryWithInvalidation({
+    queryKey: ["extraEntries", "list", month],
     queryFn: async () => {
       const { extraEntryList, error } = await getExtraEntryList(month);
       if (error) {
@@ -38,23 +40,9 @@ export const useExtraEntryList = (
     initialDataUpdatedAt: initialData ? initialDataUpdatedAt : undefined,
     enabled: !!month,
     staleTime: 2 * 60 * 1000, // 2分
-    // 画面を離れている間に無効化された一覧（損益計算書での前月コピー・確定の後など）は、
-    // 開き直したときに取り直す（QueryProvider の既定は refetchOnMount: false。
-    // 古い一覧のまま編集して二重登録するのを防ぐ。Issue #170）
-    refetchOnMount: (query) => query.state.isInvalidated,
     // 月を切り替えている間は前月の表を残す（毎回フルスピナーにしない）
     placeholderData: keepPreviousData,
   });
-  // 保存・前月コピー・月次収支の確定などで無効化され（= 古いと分かっている）、まだ
-  // 取り直せていない一覧か。再取得に失敗しても成功するまで true のまま残るため、
-  // 月を切り替えて戻った場合や画面を開き直した場合も、古い一覧での編集を止められる
-  // （Issue #170）。isStale は staleTime の経過でも true になるため区別できない
-  const isInvalidated =
-    queryClient.getQueryState(queryKey)?.isInvalidated ?? false;
-  // スプレッドすると useQuery の結果の全プロパティを読むことになり、変更の追跡
-  // （tracked properties）が効かなくなって再描画が増えるため、結果に追加する
-  return Object.assign(query, { isInvalidated });
-};
 
 // 内容・請求先のサジェスト候補（直近12ヶ月＋月未確定分の過去の入力値）。
 // 補助的な表示のため staleTime を長めにし、保存時の ["extraEntries"] 無効化で追従する

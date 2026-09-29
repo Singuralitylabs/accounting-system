@@ -1,16 +1,18 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getRecurringCostList,
   bulkUpsertRecurringCost,
 } from "../utils/supabase/recurringCosts";
 import { RecurringCostInListType, RecurringCostType } from "../types/types";
+import { useQueryWithInvalidation } from "./useQueryWithInvalidation";
 
-// 定期費用一覧
+// 定期費用一覧。保存後の再取得に失敗したまま離れた場合などの無効化された一覧は、
+// 開き直したときに取り直し、古い一覧での編集を止められるよう isInvalidated を返す
+// （useExtraEntryList と同じ。useQueryWithInvalidation）
 export const useRecurringCostList = (
   initialData?: RecurringCostType[] | null,
-) => {
-  const queryClient = useQueryClient();
-  const query = useQuery({
+) =>
+  useQueryWithInvalidation({
     queryKey: ["recurringCosts", "all"],
     queryFn: async () => {
       const { recurringCostList, error } = await getRecurringCostList();
@@ -21,18 +23,7 @@ export const useRecurringCostList = (
     },
     initialData: initialData ?? undefined,
     staleTime: 2 * 60 * 1000, // 2分
-    // 画面を離れている間に無効化された一覧（保存後の再取得に失敗したまま離れた場合など）は、
-    // 開き直したときに取り直す（QueryProvider の既定は refetchOnMount: false。
-    // 古い一覧のまま編集して二重登録するのを防ぐ。useExtraEntryList と同じ）
-    refetchOnMount: (query) => query.state.isInvalidated,
   });
-  // 保存の失敗などで無効化され（= 古いと分かっている）、まだ取り直せていない一覧か。
-  // 再取得に失敗しても成功するまで true のまま残る
-  const isInvalidated =
-    queryClient.getQueryState(["recurringCosts", "all"])?.isInvalidated ??
-    false;
-  return Object.assign(query, { isInvalidated });
-};
 
 // 定期費用の一括登録・更新・削除
 export const useUpsertRecurringCost = () => {
