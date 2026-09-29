@@ -179,7 +179,7 @@ describe("ロール一覧（ROLES）の整合（Issue #192）", () => {
     );
     const match = sql.match(/\(e\.elem ->> 'class'\) NOT IN \(([^)]*)\)/);
     expect(match).not.toBeNull();
-    const allowed = [...match![1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+    const allowed = Array.from(match![1].matchAll(/'([^']+)'/g), (m) => m[1]);
     expect([...allowed].sort()).toEqual([...ROLES].sort());
   });
 });
