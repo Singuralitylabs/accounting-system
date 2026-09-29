@@ -1,6 +1,12 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   hasClassAccess,
+  isRole,
+  PROFILE_WRITE_CLASSES,
+  ROLE_DISPLAY_RANK,
+  ROLES,
   visibleNavItems,
   ROUTE_PERMISSIONS,
   AUTH_ONLY_ROUTES,
@@ -134,6 +140,58 @@ describe("visibleNavItems", () => {
     expect(items).toHaveLength(4);
     for (const item of items) {
       expect(item.description.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("ロール一覧（ROLES）の整合（Issue #192）", () => {
+  it("isRole は ROLES の値だけ true を返す", () => {
+    for (const role of ROLES) expect(isRole(role)).toBe(true);
+    expect(isRole("superuser")).toBe(false);
+    expect(isRole("")).toBe(false);
+    expect(isRole(null)).toBe(false);
+    expect(isRole(undefined)).toBe(false);
+  });
+
+  it("表示順（ROLE_DISPLAY_RANK）はすべてのロールを重複なく定義している", () => {
+    expect(Object.keys(ROLE_DISPLAY_RANK).sort()).toEqual([...ROLES].sort());
+    const ranks = Object.values(ROLE_DISPLAY_RANK);
+    expect(new Set(ranks).size).toBe(ROLES.length);
+  });
+
+  it("ROUTE_PERMISSIONS・PROFILE_WRITE_CLASSES はすべて ROLES の値だけを使う", () => {
+    const used = [
+      ...Object.values(ROUTE_PERMISSIONS).flat(),
+      ...PROFILE_WRITE_CLASSES,
+    ];
+    for (const role of used) expect(isRole(role)).toBe(true);
+  });
+
+  // update_profiles（migration 33）の許可値と ROLES がずれると、選択肢に出ない・保存時に
+  // INVALID_INPUT で弾かれるといった不整合がエラーなしに起きる
+  it("update_profiles（migration 33）が受け付ける class の許可値と ROLES が一致する", () => {
+    const sql = readFileSync(
+      resolve(
+        __dirname,
+        "../../supabase/migrations/20260928000000_33_update_profiles_rpc.sql",
+      ),
+      "utf-8",
+    );
+    const match = sql.match(/\(e\.elem ->> 'class'\) NOT IN \(([^)]*)\)/);
+    expect(match).not.toBeNull();
+    const allowed = [...match![1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+    expect([...allowed].sort()).toEqual([...ROLES].sort());
+  });
+});
+
+describe("PROFILE_WRITE_CLASSES（ユーザーリストの一括保存の権限。Issue #191）", () => {
+  it("権限の変更（特権の昇格）は admin のみ。profiles の RLS・update_profiles と揃える", () => {
+    expect(PROFILE_WRITE_CLASSES).toEqual(["admin"]);
+  });
+
+  it("書き込めるロールは、管理画面（/dashboard）を開けるロールに必ず含まれる", () => {
+    for (const role of PROFILE_WRITE_CLASSES) {
+      expect(hasClassAccess(ROUTE_PERMISSIONS["/dashboard"], role)).toBe(true);
     }
   });
 });
