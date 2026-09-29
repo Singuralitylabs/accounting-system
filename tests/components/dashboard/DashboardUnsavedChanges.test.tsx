@@ -118,10 +118,35 @@ describe("管理画面の未保存の変更の共有（DashboardUnsavedChangesPr
     });
     expect(probe()).toBe("未保存あり");
 
-    fireEvent.click(screen.getAllByRole("button", { name: "更新" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "保存" })[0]);
 
     await waitFor(() => expect(refresh).toHaveBeenCalled());
     expect(probe()).toBe("未保存なし");
+  });
+
+  it("非表示のカテゴリ（hidden）に未保存の変更があっても報告し続け、警告する", () => {
+    renderWithMantine(
+      <DashboardUnsavedChangesProvider>
+        <Probe />
+        <div>
+          <SelectOptionList optionClass="team" optionList={teamOptions} />
+        </div>
+        <div hidden>
+          <SelectOptionList
+            optionClass="category"
+            optionList={categoryOptions}
+          />
+        </div>
+      </DashboardUnsavedChangesProvider>,
+    );
+
+    fireEvent.change(screen.getByDisplayValue("開発"), {
+      target: { value: "開発2" },
+    });
+    expect(probe()).toBe("未保存あり");
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
   });
 
   const fireBeforeUnload = () => {
@@ -149,7 +174,7 @@ describe("管理画面の未保存の変更の共有（DashboardUnsavedChangesPr
     });
     expect(fireBeforeUnload()).toBe(true);
 
-    fireEvent.click(screen.getAllByRole("button", { name: "更新" })[1]);
+    fireEvent.click(screen.getAllByRole("button", { name: "保存" })[1]);
     await waitFor(() => expect(refresh).toHaveBeenCalled());
     // The warning is cleared in the Provider's effect; wait for it.
     await waitFor(() => expect(fireBeforeUnload()).toBe(false));

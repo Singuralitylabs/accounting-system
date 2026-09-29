@@ -13,7 +13,10 @@ vi.mock("@/app/utils/supabase/profiles", () => ({
   getProfileInfo,
 }));
 
-import { deleteMatterInfo } from "@/app/utils/supabase/matters";
+import {
+  deleteMatterInfo,
+  getTeamMatterInfoList,
+} from "@/app/utils/supabase/matters";
 import { NO_ROWS_DELETED } from "@/app/utils/supabase/errorCodes";
 
 const select = vi.fn();
@@ -61,5 +64,54 @@ describe("deleteMatterInfo", () => {
 
     expect(status).toBeNull();
     expect(error).toBe(dbError);
+  });
+});
+
+describe("getTeamMatterInfoList", () => {
+  const order3 = vi.fn();
+  const eqTeam = vi.fn(() => ({ order: () => ({ order: () => ({ order: order3 }) }) }));
+  const selectMatters = vi.fn(() => ({ eq: eqTeam }));
+  const fromMatters = vi.fn(() => ({ select: selectMatters }));
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    order3.mockResolvedValue({ data: [{ id: 1 }], error: null });
+    createServerSupabase.mockReturnValue({ from: fromMatters });
+  });
+
+  it.each(["teamleader", "admin"])(
+    "%s でチームが設定されていれば、そのチームの案件を返す",
+    async (cls) => {
+      getProfileInfo.mockResolvedValue({
+        profileInfo: { class: cls, team: "チームA" },
+        error: null,
+      });
+
+      expect(await getTeamMatterInfoList()).toEqual([{ id: 1 }]);
+      expect(eqTeam).toHaveBeenCalledWith("team", "チームA");
+    },
+  );
+
+  it.each(["public", "accounting", null])(
+    "権限のないクラス（%s）は案件を取得せず null を返す",
+    async (cls) => {
+      getProfileInfo.mockResolvedValue({
+        profileInfo: { class: cls, team: "チームA" },
+        error: null,
+      });
+
+      expect(await getTeamMatterInfoList()).toBeNull();
+      expect(fromMatters).not.toHaveBeenCalled();
+    },
+  );
+
+  it("チーム未設定なら null を返す", async () => {
+    getProfileInfo.mockResolvedValue({
+      profileInfo: { class: "teamleader", team: null },
+      error: null,
+    });
+
+    expect(await getTeamMatterInfoList()).toBeNull();
+    expect(fromMatters).not.toHaveBeenCalled();
   });
 });

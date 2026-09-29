@@ -35,6 +35,9 @@ export const ROUTE_PERMISSIONS: Record<string, Role[]> = {
 // Always matches the /profit-loss route protection.
 export const PL_ALLOWED_CLASSES = ROUTE_PERMISSIONS["/profit-loss"];
 
+// Always matches the /matters/team route protection (team matter tab and getTeamMatterInfoList).
+export const TEAM_MATTER_VIEW_CLASSES = ROUTE_PERMISSIONS["/matters/team"];
+
 // Has no dedicated route, so defined here. Matches profit_loss_adjustments RLS (write: accounting / admin).
 export const PL_ADJUSTMENT_WRITE_CLASSES: Role[] = ["accounting", "admin"];
 
