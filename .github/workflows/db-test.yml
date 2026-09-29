@@ -21,8 +21,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: supabase/setup-cli@v1
         with:
+          # 最新の CLI に追従する（db start / test db は安定したサブコマンド。壊れたら固定する）
           version: latest
-      - name: Start local database (applies supabase/migrations)
-        run: supabase db start
+      # マイグレーションが auth.users を参照し、テストも auth.users に行を作るため、
+      # DB だけでなく Auth を含むローカルスタックを起動する（supabase/migrations を適用）
+      - name: Start local Supabase
+        run: supabase start
       - name: Run pgTAP tests
         run: supabase test db

@@ -1,7 +1,7 @@
 -- copy_extra_entries（経理追加収支の前月コピー）の重複判定の pgTAP テスト（Issue #187）
 -- 実行: supabase test db（ローカル Supabase 起動中。docs/testing.md 3.8）
 BEGIN;
-SELECT plan(11);
+SELECT plan(10);
 
 INSERT INTO auth.users (id, email) VALUES
   ('11111111-1111-1111-1111-111111111111', 'acc1@example.com'),
