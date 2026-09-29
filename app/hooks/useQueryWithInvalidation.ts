@@ -35,7 +35,11 @@ export const useQueryWithInvalidation = <
   TData = TQueryFnData,
   TQueryKey extends QueryKey = QueryKey,
 >(
-  options: UseQueryOptions<TQueryFnData, TError, TData, TQueryKey>,
+  // refetchOnMount は本フックが決めるため受け付けない
+  options: Omit<
+    UseQueryOptions<TQueryFnData, TError, TData, TQueryKey>,
+    "refetchOnMount"
+  >,
 ) => {
   const query = useQuery({
     ...options,

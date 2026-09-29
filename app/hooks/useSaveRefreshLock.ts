@@ -35,7 +35,9 @@ export const useSaveRefreshLock = ({
     outcome: SaveOutcome;
   } | null>(null);
 
-  // 無効化された一覧の再取得が済んでいない間は編集・保存を止める
+  // 無効化された一覧の再取得が済んでいない間は編集・保存を止める。再取得中・取得失敗・
+  // 一時停止のいずれでもなく無効化されたまま残る状態（refetchType: "none" での無効化など）は
+  // 案内（isStalled）が出ないままロックだけがかかるため、そのような無効化を追加するときは注意する
   const locked = isInvalidated;
   // 再取得を試みたが取得できていない（失敗・オフラインで一時停止）
   const isStalled = isInvalidated && !isFetching && (isError || isPaused);

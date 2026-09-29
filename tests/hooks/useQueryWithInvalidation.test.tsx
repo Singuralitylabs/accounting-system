@@ -49,6 +49,20 @@ describe("useQueryWithInvalidation", () => {
     expect(result.current.isInvalidated).toBe(true);
   });
 
+  it('接頭辞のキーでの無効化（invalidateQueries({ queryKey: ["test"] })）でも isInvalidated が true になる', async () => {
+    const { result } = renderList();
+    await waitFor(() => expect(result.current.data).toEqual(["a"]));
+
+    await act(async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["test"],
+        refetchType: "none",
+      });
+    });
+
+    expect(result.current.isInvalidated).toBe(true);
+  });
+
   it("再取得に成功すると isInvalidated が false に戻る", async () => {
     const { result } = renderList();
     await waitFor(() => expect(result.current.data).toEqual(["a"]));
