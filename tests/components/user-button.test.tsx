@@ -1,10 +1,6 @@
 // @vitest-environment jsdom
 
-import {
-  fireEvent,
-  screen,
-  waitForElementToBeRemoved,
-} from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { User } from "@supabase/supabase-js";
 import UserButton from "@/app/components/buttons/user-button";
@@ -82,8 +78,12 @@ describe("UserButton", () => {
 
     fireEvent.click(trigger);
 
-    await waitForElementToBeRemoved(() =>
-      screen.queryByRole("menuitem", { name: "ログアウト" }),
+    // テストではトランジションを無効にしているため同期で閉じる（renderWithMantine 参照）。
+    // waitForElementToBeRemoved は「待ち始めに要素がある」ことを要求するため waitFor で確認する
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("menuitem", { name: "ログアウト" }),
+      ).not.toBeInTheDocument(),
     );
   });
 

@@ -14,7 +14,9 @@ if (typeof window !== "undefined") {
   Object.defineProperty(window, "matchMedia", {
     writable: true,
     value: vi.fn().mockImplementation((query: string) => ({
-      matches: false,
+      // prefers-reduced-motion だけ一致させる（renderWithMantine の respectReducedMotion と
+      // 組み合わせて Mantine のトランジションを無効にする。理由は renderWithMantine.tsx 参照）
+      matches: query.includes("prefers-reduced-motion: reduce"),
       media: query,
       onchange: null,
       addListener: vi.fn(),
