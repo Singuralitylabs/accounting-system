@@ -87,6 +87,7 @@ export function SortableTableRow({
           placeholder={`${label}の項目名を入力`}
           error={error}
           disabled={disabled}
+          data-option-input={option.id}
         />
       </Table.Td>
       <Table.Td className="w-12 align-top">

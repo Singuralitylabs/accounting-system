@@ -219,6 +219,8 @@ const SelectOptionList = ({
   const [isLoading, setIsLoading] = useState(false);
   // Input errors are shown only after a save attempt, so a freshly added empty row is not flagged.
   const [showErrors, setShowErrors] = useState(false);
+  const [focusTarget, setFocusTarget] = useState<number | "add" | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const hasChanges = hasOptionListChanges(baseline, updatedOptionList);
   const changeCount = countOptionChanges(baseline, updatedOptionList);
@@ -251,6 +253,16 @@ const SelectOptionList = ({
   const optionDescription = OPTION_CLASSES.find(
     (option) => option.optionClass === optionClass,
   )?.description;
+
+  useEffect(() => {
+    if (focusTarget === null) return;
+    const selector =
+      focusTarget === "add"
+        ? "[data-add-option]"
+        : `[data-option-input="${focusTarget}"]`;
+    panelRef.current?.querySelector<HTMLElement>(selector)?.focus();
+    setFocusTarget(null);
+  }, [focusTarget, updatedOptionList]);
 
   useEffect(() => {
     onStatusChange?.(optionClass, { count: activeCount, changeCount });
@@ -306,6 +318,10 @@ const SelectOptionList = ({
   };
 
   const handleRemoveOption = async (id: number) => {
+    // The removed row leaves the DOM with the focused button, so move focus to the next row's input (the add button for the last row).
+    const displayed = updatedOptionList.filter((option) => option.is_active);
+    const nextRow = displayed[displayed.findIndex((row) => row.id === id) + 1];
+    setFocusTarget(nextRow ? nextRow.id : "add");
     setUpdatedOptionList(
       updatedOptionList.map((option) =>
         option.id === id ? { ...option, is_active: false } : option,
@@ -313,6 +329,7 @@ const SelectOptionList = ({
     );
   };
 
+  // Deliberately no confirmation, same as "変更を破棄" in UserList.
   const handleDiscard = () => {
     setUpdatedOptionList(baseline);
     setShowErrors(false);
@@ -442,13 +459,16 @@ const SelectOptionList = ({
 
   return (
     <Paper
+      ref={panelRef}
       withBorder
       className={`relative p-4 ${hasChanges ? "pb-24 md:pb-4" : ""}`}
     >
       <Group justify="space-between" align="flex-start" className="pb-4">
         <div>
           <Group gap="xs">
-            <Title order={3}>{optionTitle}</Title>
+            <Title order={2} size="h3">
+              {optionTitle}
+            </Title>
             <Badge variant="light" color="gray">
               {activeCount} 件
             </Badge>
@@ -530,6 +550,7 @@ const SelectOptionList = ({
           className="mt-4"
           color="dark"
           variant="outline"
+          data-add-option
           onClick={handleAddOption}
           disabled={isLoading}
         >

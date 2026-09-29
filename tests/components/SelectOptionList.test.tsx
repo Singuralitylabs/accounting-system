@@ -832,6 +832,40 @@ describe("optionRowsToSave", () => {
       ).toBeInTheDocument();
     });
 
+    it("見出しは h2（ページの h1 の直下）にする", () => {
+      renderWithMantine(
+        <SelectOptionList optionClass="team" optionList={optionList} />,
+      );
+
+      expect(
+        screen.getByRole("heading", { level: 2, name: "チーム" }),
+      ).toBeInTheDocument();
+    });
+
+    it("行を削除したら、次の行の入力欄へフォーカスを移し、最後の行なら追加ボタンへ移す", () => {
+      renderWithMantine(
+        <SelectOptionList
+          optionClass="team"
+          optionList={[
+            { id: 1, value: "チームA", display_order: 1, is_active: true },
+            { id: 2, value: "チームB", display_order: 2, is_active: true },
+          ]}
+        />,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", { name: "チームA（1行目）を削除" }),
+      );
+      expect(screen.getByDisplayValue("チームB")).toHaveFocus();
+
+      fireEvent.click(
+        screen.getByRole("button", { name: "チームB（1行目）を削除" }),
+      );
+      expect(
+        screen.getByRole("button", { name: "＋ チームを追加" }),
+      ).toHaveFocus();
+    });
+
     it("空欄の行が 2 つあっても、Alert に空の名前の重複を出さない", async () => {
       renderWithMantine(
         <SelectOptionList optionClass="team" optionList={optionList} />,
