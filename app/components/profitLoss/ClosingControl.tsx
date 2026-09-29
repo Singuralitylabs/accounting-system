@@ -12,7 +12,7 @@ import { Badge, Group, Paper, Switch, Text } from "@mantine/core";
 import { FaLock } from "react-icons/fa";
 
 type Props = {
-  month: string;
+  month: string; // "YYYY-MM"
   closing: ClosingInfo | null;
   canClose: boolean;
 };

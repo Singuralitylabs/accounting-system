@@ -8,7 +8,7 @@ interface CustomMonthPickerProps {
   required?: boolean;
   placeholder: string;
   disabled?: boolean;
-  value: string | null;
+  value: string | null; // "YYYY-MM"
   onChange: (month: string | null) => void;
   className?: string;
   isClearable?: boolean;

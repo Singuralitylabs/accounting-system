@@ -40,7 +40,7 @@ const AnnualTrendChart = dynamic(loadAnnualTrendChart, {
 });
 
 type Props = {
-  initialMonth: string;
+  initialMonth: string; // "YYYY-MM"
   initialReport: PLReportType | null;
   canEditRecurringCosts: boolean;
   canEditExtraEntries: boolean;

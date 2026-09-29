@@ -433,7 +433,7 @@ export const toDiffSelection = (diff: ClosingDiff): ClosingDiffSelection => ({
     : { present: false, actualAmount: null, team: null, category: null },
 });
 
-// Null if any selection is invalid.
+// Null if any selection is invalid (duplicates included).
 export const sanitizeDiffSelections = (
   selections: unknown,
 ): ClosingDiffSelection[] | null => {

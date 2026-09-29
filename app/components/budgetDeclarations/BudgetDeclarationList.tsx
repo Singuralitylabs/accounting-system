@@ -17,7 +17,7 @@ import BudgetDeclarationItemTable from "./BudgetDeclarationItemTable";
 import BudgetDeclarationReminderSettings from "./BudgetDeclarationReminderSettings";
 
 type Props = {
-  initialMonth: string;
+  initialMonth: string; // "YYYY-MM"
   initialData: BudgetDeclarationStatusType[] | null;
   initialDataUpdatedAt: number;
   // Role that can create/edit all teams (accounting/admin); otherwise teamleader's own team only (rows are already own-team only, so this affects the select UI only).
@@ -35,7 +35,7 @@ type FormTarget = {
   team: string;
   declarationId: number | null;
   // Month at click time; referencing month directly would shift if the month picker changes while the modal is open.
-  targetMonth: string;
+  targetMonth: string; // "YYYY-MM"
 };
 
 const BudgetDeclarationList = ({

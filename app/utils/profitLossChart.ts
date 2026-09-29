@@ -4,7 +4,7 @@ import { AnnualTrendType } from "../types/types";
 import { formatMonthHeader } from "./formatter";
 
 export type AnnualTrendChartDatum = {
-  month: string;
+  month: string; // "YYYY-MM"
   monthLabel: string;
   revenue: number;
   matterCost: number;

@@ -10,7 +10,7 @@ interface CustomDatePickerProps {
   required?: boolean;
   placeholder: string;
   disabled?: boolean;
-  value: string | null;
+  value: string | null; // "YYYY-MM-DD"
   onChange: (date: string | null) => void;
   className?: string;
   showIcon?: boolean;

@@ -125,7 +125,7 @@ export const useCopyExtraEntriesFromPreviousMonth = () => {
       targetMonth,
     }: {
       sourceIds: number[];
-      targetMonth: string;
+      targetMonth: string; // "YYYY-MM"
     }) => {
       const { insertedCount, skippedCount, error, closedMonthError } =
         await copyExtraEntriesFromPreviousMonth(sourceIds, targetMonth);

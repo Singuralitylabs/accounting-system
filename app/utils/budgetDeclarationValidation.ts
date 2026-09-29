@@ -6,7 +6,7 @@ import { UNIQUE_VIOLATION } from "./supabase/errorCodes";
 import { isCategoryUnregistered } from "./budgetDeclaration";
 
 export type BudgetDeclarationHeaderInput = {
-  targetMonth: string;
+  targetMonth: string; // "YYYY-MM"
   team: string;
 };
 

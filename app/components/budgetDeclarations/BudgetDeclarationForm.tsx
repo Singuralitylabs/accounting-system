@@ -61,7 +61,7 @@ const emptyItem = (key: number): ItemRow => ({
 type Props = {
   opened: boolean;
   onClose: () => void;
-  targetMonth: string;
+  targetMonth: string; // "YYYY-MM"
   team: string;
   declarationId: number | null;
   // Team select is fixed for teamleader, and always when editing (month/team pair must not change).

@@ -11,7 +11,7 @@ Guidance for Claude Code in this repository. Product: accounting system of 未�
 ## Commands
 
 ```bash
-yarn dev | build | lint | typecheck | test | test:watch | format | format:check
+yarn dev | build | lint (includes no-console / no-debugger) | typecheck | test | test:watch | format | format:check
 yarn db:types          # generate types from production Supabase (PROJECT_ID in .env.local)
 yarn db:types-local    # generate types from local Supabase
 supabase start | stop | reset   # local Supabase (reset re-applies supabase/migrations/)
@@ -19,9 +19,9 @@ supabase start | stop | reset   # local Supabase (reset re-applies supabase/migr
 
 - After any schema change run `yarn db:types-local` and update `app/lib/database.types.ts`.
 - Schema changes (tables / RLS / triggers / enums / seed data) **must** be added as `supabase/migrations/YYYYMMDDHHMMSS_<snake_case_name>.sql`. Changes applied directly to a remote must be back-filled as a migration so `supabase db reset` reproduces the same state.
-- Update `docs/database.md` in the same PR only when a table's role, an RLS intent, or a trigger / function purpose changes (no column lists or SQL there).
-- Tests are Vitest under `tests/` (`*.test.ts` pure functions, `*.test.tsx` components with jsdom, TZ=Asia/Tokyo). See `docs/testing.md` for policy; update tests when you change tested code.
-- CI is GitHub Actions in `.github/workflows/` (typecheck+lint / test / build / format-check). `supabase-keepalive.yml` only prevents the free-plan auto-pause (see `docs/setup.md`). Releases: `release-pr.yml` / `create-release.yml`, procedure in `docs/release.md`.
+- Update `docs/database.md` in the same PR only when a table's role, an RLS intent, or a trigger / function purpose changes (no column lists or SQL there, except SQL that an applied migration or workflow refers to). Keep the content of sections that migrations / workflows reference by number (e.g. 1.3, 3.2, 5.x, 7).
+- Tests are Vitest under `tests/` (`*.test.ts` pure functions, `*.test.tsx` components with jsdom, TZ=Asia/Tokyo). SQL functions / RLS are tested with pgTAP: run `supabase test db` when you change `supabase/**` (CI: `db-test.yml`). See `docs/testing.md` for policy; update tests when you change tested code.
+- CI is GitHub Actions in `.github/workflows/` (typecheck+lint / test / build / format-check / pgTAP). `supabase-keepalive.yml` only prevents the free-plan auto-pause (see `docs/setup.md`). Releases: `release-pr.yml` / `create-release.yml`, procedure in `docs/release.md`.
 
 ## Working rules
 
@@ -40,7 +40,7 @@ supabase start | stop | reset   # local Supabase (reset re-applies supabase/migr
 
 ### Glossary (Japanese → English; match existing identifiers)
 
-案件 = matter / 経理申請 = accounting request / 経理確認完了 = accounting confirmed / 差し戻し = sent back (edited after accounting request) / 事前収支申告 = budget declaration / 経理追加収支 = extra entry / 損益計算書 = profit and loss statement / 月次収支確定 = monthly closing / 定期費用 = recurring cost / 権限クラス = role (`profiles.class`)
+案件 = matter / 経理申請 = accounting request / 経理確認完了 = accounting confirmed / 差し戻し = "updated after request" (`has_updates`: edited after accounting request) or "sent back to draft" (matter returned to draft) — keep the two apart / 事前収支申告 = budget declaration / 経理追加収支 = extra entry / 損益計算書 = profit and loss statement / 月次収支確定 = monthly closing / 定期費用 = recurring cost / 権限クラス = role (`profiles.class`)
 
 ## Architecture
 
@@ -71,7 +71,7 @@ supabase start | stop | reset   # local Supabase (reset re-applies supabase/migr
 - Matter lifecycle: draft → accounting requested → accounting confirmed → done.
 - Amounts: `business` (revenue) and `costs` (expenses) are linked per matter.
 - Team leaders can view all matters of their team.
-- A matter edited after its accounting request is highlighted on the accounting side (sent back).
+- A matter edited after its accounting request is highlighted on the accounting side (`has_updates`, "updated after request"). Sending a matter back to draft is a separate operation.
 - Matter owners are notified via Slack.
 
 ## Key files

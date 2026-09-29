@@ -7,7 +7,7 @@ type Props = {
   canEditRecurringCosts: boolean;
   canEditExtraEntries: boolean;
   // Target month shown on the statement; carried to the extra-entries link as `?month=`.
-  month?: string;
+  month?: string; // "YYYY-MM"
 };
 
 // Links from the statement to accounting masters. Each button is gated by its own route's ROUTE_PERMISSIONS so the UI stays consistent with middleware if the roles diverge later.

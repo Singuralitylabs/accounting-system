@@ -45,7 +45,7 @@ import { CustomMonthPicker } from "../CustomMonthPicker";
 import { SaveRefreshAlert } from "../SaveRefreshAlert";
 
 type Props = {
-  initialMonth: string;
+  initialMonth: string; // "YYYY-MM"
   initialData: ExtraEntryType[];
   initialDataUpdatedAt: number;
   incomeCategoryList: string[];

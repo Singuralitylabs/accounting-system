@@ -27,6 +27,7 @@ export const createServerSupabase = () => {
               cookieStore.set(name, value, options),
             );
           } catch {
+            // RSC cannot set cookies; middleware handles the refresh.
           }
         },
       },

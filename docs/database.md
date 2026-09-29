@@ -20,7 +20,7 @@ PostgreSQL（Supabase）/ スキーマ `public`（補助関数は `private`）�
   ```
 
 - アドホック SQL で日付境界を切るときは `timezone('Asia/Tokyo', ...)` / `AT TIME ZONE 'Asia/Tokyo'` を明示する。`now()::date` や素の `date_trunc` は UTC 日付になり、JST 0:00〜9:00 で日付がずれる。
-- Vitest は `TZ=Asia/Tokyo` 固定。アプリの日付表示は `app/utils/formatter.ts` などが実行環境のローカル TZ に従う。
+- Vitest は `TZ=Asia/Tokyo` 固定。アプリの日付表示は、`formatTimeToJp` / `formatDateTimeToJp` が `timeZone: "Asia/Tokyo"` を明示する（SSR とブラウザの hydration ずれを防ぐため）。`toMonthString` などの一部はローカル TZ に従う。
 
 ## 2. テーブル一覧
 
@@ -53,7 +53,7 @@ PostgreSQL（Supabase）/ スキーマ `public`（補助関数は `private`）�
 - `target_month` / `start_month` / `end_month` は月初日で格納し、CHECK（`= date_trunc('month', ...)::date`）で正規化を強制する（無いと同月の別日付が別行になり UNIQUE が効かない）。
 - `profiles.id` を参照する `declared_by` / `manager_id` / `adjusted_by` / `updated_by` / `closed_by` などは ON DELETE NO ACTION。担当者の退会で業務データが消えないための意図的な設計で、該当する profiles を削除するときは先に別メンバーへ付け替える（または NULL 可の列は解除する）。
 - `team` は select_options の team と同じ値域の自由テキストで DB 側に値域制約は無い。チーム名を変更するときは select_options だけでなく `profiles.team` と各テーブルの `team`（budget_declarations / budget_recurring_items など）の既存行も更新する（RLS の判定キー・UNIQUE の一部のため、表記ゆれが重複ヘッダや過去分の非表示に直結する）。
-- FK 列には索引を張る方針。`start_date` など集計用の列は案件数の規模的に索引を張っていない（必要になったら追加する）。
+- FK 列には索引を張る方針。`start_date` など集計用の列は案件数の規模的に索引を張っていない（必要になったら追加する。`matters.start_date` は 3.2 参照）。
 
 ### 3.1 profiles テーブル
 
@@ -62,6 +62,8 @@ PostgreSQL（Supabase）/ スキーマ `public`（補助関数は `private`）�
 ### 3.2 matters テーブル
 
 案件。`is_fixed`（経理申請済み）/ `is_completed`（経理確認完了）/ `has_updates`（申請後更新。6.2 のトリガーが立てる）でライフサイクルと差し戻し検知を表し、`total_cost` / `cost_count` / `total_amount` / `business_count` / `unchecked_cost_count` は costs / business から集計した非正規化値（アプリが更新する）。`parent_matter_id` は自己参照（削除時 SET NULL）。
+
+`matters.start_date` に索引を張らない理由: 損益計算書は案件開始日の範囲で取得するが、件数規模的に不要と判断している（必要になったら追加する。migration 25 のコメントがこの節を参照している）。
 
 損益計算書では、案件の売上（business）・費用（costs）を請求日・支払い期限ではなく案件の `start_date` の月に計上する。下書き（`is_fixed` / `is_completed` がともに false / NULL）の案件は計上しない（`docs/specification.md` 4.16.2）。
 
@@ -376,7 +378,7 @@ RLS の `is_pl_month_closed` は文のスナップショットで評価される
 
 ## 7. 認証フック（Custom Access Token Hook）
 
-`public.custom_access_token_hook(event jsonb)` は Supabase Auth がトークン発行/リフレッシュ時に呼ぶフック。`profiles.class` を JWT の `user_class` クレームに載せ、`middleware.ts` が制限ルートのロール判定を DB クエリなしで行えるようにする（middleware 側の挙動・フォールバック・503 判定は `CLAUDE.md` の「Authorization (`middleware.ts`)」が正本）。定義は migration 15 を migration 16 で是正したもの。
+`public.custom_access_token_hook(event jsonb)` は Supabase Auth がトークン発行/リフレッシュ時に呼ぶフック。`profiles.class` を JWT の `user_class` クレームに載せ、`middleware.ts` が制限ルートのロール判定を DB クエリなしで行えるようにする（middleware 側の挙動・フォールバック・503 判定は [specification.md 3 章](specification.md) が正本）。定義は migration 15 を migration 16 で是正したもの。
 
 - フェイルセーフ: `claims` が object でない場合や、uuid 不正・権限ドリフトなど想定外の例外では、`RAISE WARNING` のうえクレーム付与を諦めて `event` をそのまま返す（トークン発行自体は失敗させない）。
 - 実行は `supabase_auth_admin` のみ（`REVOKE ... FROM PUBLIC, authenticated, anon`）。`profiles.class` を読むため `supabase_auth_admin` 向けの SELECT ポリシーを追加し、テーブル権限は `SELECT (user_id, class)` の**列単位 GRANT** に絞る（RLS の `USING (true)` は行スコープの制御であり、email / slack_id / team などの PII 列は列単位 GRANT で読めないようにしている）。

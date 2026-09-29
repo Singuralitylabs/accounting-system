@@ -95,8 +95,8 @@ export type AdjustableAmount = {
   adjustmentAmount: number;
   actualAmount: number;
   sourceChanged: boolean;
-  adjustment: ProfitLossAdjustmentType | null;
-  adjustmentReason: string | null;
+  adjustment: ProfitLossAdjustmentType | null; // null; always null in closing snapshots
+  adjustmentReason: string | null; // kept in closing snapshots too
 };
 
 // An adjustment whose target row no longer exists in the month (e.g. matter start date moved); shown to prompt deletion.
@@ -132,7 +132,7 @@ export type BusinessLine = AdjustableAmount & {
   businessId: number;
   name: string;
   matterId: number;
-  matterUserId: number;
+  matterUserId: number; // matters.user_id; used by RLS on closing lines
   matterTitle: string;
   category: string;
   team: string;
@@ -143,7 +143,7 @@ export type CostLine = AdjustableAmount & {
   name: string;
   item: string;
   matterId: number;
-  matterUserId: number;
+  matterUserId: number; // matters.user_id; used by RLS on closing lines
   matterTitle: string;
   category: string;
   team: string;
@@ -153,16 +153,16 @@ export type RecurringCostLine = AdjustableAmount & {
   recurringCostId: number;
   name: string;
   item: string;
-  team: string | null;
+  team: string | null; // NULL = shared by all teams
   paymentCycle: string;
 };
 
 export type ExtraEntryLine = {
   extraEntryId: number;
-  entryType: string;
+  entryType: string; // "income" | "expense"
   category: string;
   description: string;
-  team: string | null;
+  team: string | null; // NULL = shared by all teams
   entryDate: string | null;
   billingAmount: number | null;
   // Expense: income entries count as matter cost (gross profit), expense entries as admin cost.
@@ -235,7 +235,7 @@ export type TeamBreakdown = {
 };
 
 export type PLReportType = {
-  month: string;
+  month: string; // "YYYY-MM"
   revenueTotal: number;
   // Matter cost + expenses of income extra entries (expense entries go to admin cost).
   matterCostTotal: number;
@@ -283,7 +283,7 @@ export type ClosingLineInput = Omit<
 >;
 
 export type ClosingInfo = {
-  month: string;
+  month: string; // "YYYY-MM"
   closedAt: string;
   closedByName: string;
   refreshedAt: string | null;
@@ -314,7 +314,7 @@ export type BudgetDeclarationStatusType = {
   team: string;
   declarationId: number | null;
   isDeclared: boolean;
-  declaredByName: string | null;
+  declaredByName: string | null; // null when profiles RLS hides the row
   updatedAt: string | null;
   summary: BudgetSummaryType;
 };
@@ -362,7 +362,7 @@ export type BudgetDeclarationItemInput = {
 
 export type BudgetDeclarationSaveInput = {
   declarationId: number | null;
-  targetMonth: string;
+  targetMonth: string; // "YYYY-MM"
   team: string;
   comment: string | null;
   items: BudgetDeclarationItemInput[];
@@ -455,7 +455,7 @@ export type ClosingDiff = {
   item: string | null;
   before: DiffLineState | null;
   after: DiffLineState | null;
-  delta: number;
+  delta: number; // after - before (0 when either side is absent)
   movedMonth: string | null;
   movedMonthClosed: boolean;
   removedReason: RemovedReason | null;
@@ -474,5 +474,5 @@ export type ClosingDiffSummary = { month: string; count: number }[];
 // Count of pending diffs. Months before fromMonth are outside the count.
 export type ClosingDiffSummaryData = {
   summary: ClosingDiffSummary;
-  fromMonth: string;
+  fromMonth: string; // "YYYY-MM"
 };

@@ -4,7 +4,7 @@ import { formatMonthLabel } from "@/app/utils/formatter";
 import { Text } from "@mantine/core";
 
 type Props = {
-  fromMonth: string;
+  fromMonth: string; // "YYYY-MM"
   className?: string;
 };
 

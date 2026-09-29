@@ -327,7 +327,7 @@ const fetchLabelsByTargetIds = async (
 };
 
 export type AdjustmentSupplementOptions = {
-  month: string;
+  month: string; // "YYYY-MM"
   includeTeamBreakdown?: boolean;
   includeMonthlyDetails?: boolean;
 };

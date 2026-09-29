@@ -26,10 +26,11 @@ export const formatTimeToJp = (date: string | null) => {
 export const toMonthString = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 
+// "YYYY-MM-DD" -> Date (local midnight); null passes through.
 export const parseDateString = (value: string | null): Date | null =>
   value ? new Date(`${value}T00:00:00`) : null;
 
-// Built from local parts to avoid the UTC shift of toISOString.
+// Date -> "YYYY-MM-DD". Built from local parts to avoid the UTC shift of toISOString.
 export const toDateString = (date: Date | null): string | null => {
   if (!date) return null;
   const year = date.getFullYear();

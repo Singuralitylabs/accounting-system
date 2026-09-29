@@ -7,7 +7,7 @@ export type Role = (typeof ROLES)[number];
 export const isRole = (value: string | null | undefined): value is Role =>
   !!value && (ROLES as readonly string[]).includes(value);
 
-// Record<Role, number> so a missing rank for a new role fails type checking.
+// Display order in the user list (lower first). Record<Role, number> so a missing rank for a new role fails type checking.
 export const ROLE_DISPLAY_RANK: Record<Role, number> = {
   admin: 0,
   accounting: 1,

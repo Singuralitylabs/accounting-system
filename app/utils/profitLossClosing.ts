@@ -255,12 +255,13 @@ export const toClosingInfo = (
 
 // ===== Closed-month checks and edit locks =====
 
+// Set of closed month keys ("YYYY-MM").
 export const toClosedMonthSet = (
   closings: Pick<ProfitLossClosingType, "target_month">[],
 ): Set<string> =>
   new Set(closings.map((closing) => toMonthKey(closing.target_month)));
 
-// NULL (no date) is false.
+// Whether a date ("YYYY-MM-DD") or month key ("YYYY-MM") falls in a closed month. NULL (no date) is false.
 export const isClosedMonth = (
   closedMonths: ReadonlySet<string>,
   dateOrMonth: string | null | undefined,

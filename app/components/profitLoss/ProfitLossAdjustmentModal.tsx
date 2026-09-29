@@ -23,7 +23,7 @@ type Props = {
   opened: boolean;
   onClose: () => void;
   target: AdjustmentTarget;
-  targetMonth: string;
+  targetMonth: string; // "YYYY-MM"
   label: string;
   sourceAmount: number;
   currentActualAmount: number;

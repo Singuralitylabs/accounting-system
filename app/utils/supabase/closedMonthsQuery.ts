@@ -12,7 +12,7 @@ export type ClosedMonthsQueryResult =
 
 // Ascending "YYYY-MM"; with fromMonth, only that month and later (summary window).
 export const fetchClosedMonthKeys = async (options?: {
-  fromMonth?: string;
+  fromMonth?: string; // "YYYY-MM"
 }): Promise<ClosedMonthsQueryResult> => {
   const supabase = createServerSupabase();
   let query = supabase.from("profit_loss_closings").select("target_month");

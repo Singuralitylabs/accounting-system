@@ -11,7 +11,7 @@ import { notifyError, notifySuccess, toErrorMessage } from "@/app/utils/notify";
 import { CLOSED_MONTH_LOCK_MESSAGE } from "@/app/utils/profitLossClosing";
 
 type Props = {
-  month: string;
+  month: string; // "YYYY-MM"
   hasExistingEntries: boolean;
   isClosed: boolean;
 };

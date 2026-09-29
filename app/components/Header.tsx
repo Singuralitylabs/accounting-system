@@ -64,7 +64,7 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      // Do not run async work while auth-js holds its lock. session.user is for display only; authorization is done by middleware / RLS.
+      // Do not run async work while auth-js holds its lock. Header is never remounted, so this callback's session.user is the only thing that refreshes the display after login/logout; authorization is done by middleware / RLS.
       const timerId = setTimeout(async () => {
         try {
           if (session?.user) {

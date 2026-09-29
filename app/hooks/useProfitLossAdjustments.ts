@@ -18,7 +18,7 @@ export const useSaveProfitLossAdjustment = () => {
       reason,
     }: {
       target: AdjustmentTarget;
-      targetMonth: string;
+      targetMonth: string; // "YYYY-MM"
       actualAmount: number;
       reason: string;
     }) => {

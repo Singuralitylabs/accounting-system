@@ -249,7 +249,7 @@ export const recurringOverlapEndFilter = (bounds: ReportRangeBounds): string =>
 
 // Input of buildMonthReport (profitLossClosing.ts); an object avoids mixing up the boolean flags.
 export type MonthlyReportInput = {
-  month: string;
+  month: string; // "YYYY-MM"
   businessRows: BusinessRow[];
   costRows: CostRow[];
   recurringCosts: RecurringCostType[];
@@ -636,7 +636,7 @@ export const buildCategoryBreakdown = (
 };
 
 export type AggregateInput = {
-  month: string;
+  month: string; // "YYYY-MM"
   lines: PLMonthLines;
   isTeamLeader: boolean;
   includeTeamBreakdown: boolean;
