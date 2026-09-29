@@ -415,6 +415,7 @@ jobs:
           # そのため URL にパスワードが含まれている（旧形式の Secret）場合は実行しない。
           # 判定: :// の後に @ があり、最初の @ より前（ユーザー部分）が空でなく : を含まないこと
           # （パスワードにエンコードされていない / や ? があっても、最初の @ で区切るため取りこぼさない）。
+          # クエリパラメータでのパスワード指定（?password=...、大文字小文字を問わない）も不正とする。
           DB_URL_OK=false
           case "$SUPABASE_READONLY_DB_URL" in
             *://*@*)
@@ -426,8 +427,13 @@ jobs:
               esac
               ;;
           esac
+          if [[ "${SUPABASE_READONLY_DB_URL,,}" == *password=* ]]; then
+            DB_URL_OK=false
+          fi
           if [ "$DB_URL_OK" != "true" ]; then
-            fallback "Secret SUPABASE_READONLY_DB_URL の形式が不正。パスワードを含めない postgresql://<ユーザー>@<ホスト>:5432/postgres の形で登録し、パスワードは SUPABASE_READONLY_DB_PASSWORD に分ける。docs/release.md 参照"
+            # 案内文に URL の例（scheme://...@）を書かない。PR 作成ステップの本文チェックに一致して、
+            # 案内のはずが PR 作成の失敗になるため
+            fallback "Secret SUPABASE_READONLY_DB_URL の形式が不正。URL にパスワードを含めず、パスワードは SUPABASE_READONLY_DB_PASSWORD に分けて登録する。docs/release.md の「読み取り専用ロール」参照"
             exit 0
           fi
 

@@ -34,7 +34,7 @@ GitHub の **Settings > Environments** で以下を設定する。
 
 `release-pr.yml` が本番の `migration list` を読むための専用ロール。ロールと権限は migration 36（`supabase/migrations/20260929000000_36_migration_reader_role.sql`、`docs/database.md` 5.16）で作る（`supabase_migrations.schema_migrations` の SELECT のみ。接続情報が漏れても業務データは読めない）。パスワードだけはマイグレーションに書かず、手動で設定する。
 
-1. 手元の `psql`（`postgres` ロールで本番に接続）から `\password migration_reader` でパスワードを設定する。`\password` はクライアント側で SCRAM-SHA-256 のハッシュにしてから送るため、平文が SQL Editor の履歴や Postgres のログに残らない（SQL Editor で `ALTER ROLE ... PASSWORD '<平文>'` を実行しない。やむを得ず実行した場合は、実行後に SQL Editor の該当クエリ・スニペットを削除する）。パスワードは `openssl rand -hex 32` で作る（英数字だけにして、エスケープやシェル展開の問題を避ける）。
+1. 先に migration 36 を本番に適用してロールを作っておく（新しい環境の場合。`\password` はロールが存在しないと失敗する）。そのうえで、手元の `psql`（`postgres` ロールで本番に接続）から `\password migration_reader` でパスワードを設定する。`\password` はクライアント側で SCRAM-SHA-256 のハッシュにしてから送るため、平文が SQL Editor の履歴や Postgres のログに残らない（SQL Editor で `ALTER ROLE ... PASSWORD '<平文>'` を実行しない。やむを得ず実行した場合は、実行後に SQL Editor の該当クエリ・スニペットを削除する）。パスワードは `openssl rand -hex 32` で作る（英数字だけにして、エスケープやシェル展開の問題を避ける）。
 2. ダッシュボードの **Connect > Session pooler** に表示される接続文字列をコピーし、ユーザー部分を `migration_reader.<project-ref>` に置き換え、`:[YOUR-PASSWORD]` の部分を**削除**する（`postgresql://migration_reader.<project-ref>@<pooler のホスト>:5432/postgres`。pooler のホスト名は `aws-0-...` / `aws-1-...` などプロジェクトによって異なるため、手で組み立てない）。これを `SUPABASE_READONLY_DB_URL` に、パスワードを `SUPABASE_READONLY_DB_PASSWORD` に登録する。
 
 - パスワードを URL と分けるのは、コマンドライン（argv）に載せないため。ワークフローはパスワードを環境変数 `PGPASSWORD` で CLI に渡す。URL にパスワードが含まれている（`://ユーザー:パスワード@` の形）場合は CLI を実行せず「形式が不正」の案内を出す（Issue #195）。
