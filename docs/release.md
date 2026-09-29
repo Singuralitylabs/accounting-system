@@ -28,7 +28,32 @@
 GitHub の **Settings > Environments** で以下を設定する。
 
 - Environment `production-release` に **Required reviewers** を設定する（本番動作確認を終えた人が承認する）。未設定だと `create-release.yml` がフェイルオープン防止のため失敗する。
-- Environment `production-db-readonly` に Secret `SUPABASE_READONLY_DB_URL` を登録する（任意）。読み取り専用ロールの Session pooler 接続文字列。未設定や DB Pause 時はリリース PR 本文に「手元で確認」の案内が出る（失敗にはならない）。
+- Environment `production-db-readonly` に Secret `SUPABASE_READONLY_DB_URL`（読み取り専用ロールの Session pooler 接続文字列。**パスワードを含めない**）と `SUPABASE_READONLY_DB_PASSWORD`（そのパスワード）を登録する（任意）。作り方は下記「読み取り専用ロール」。未設定・形式不正・DB Pause 時はリリース PR 本文に「手元で確認」の案内が出る（失敗にはならない）。
+
+### 読み取り専用ロール（`migration_reader`）
+
+`release-pr.yml` が本番の `migration list` を読むための専用ロール。ロールと権限は migration 36（`supabase/migrations/20260929000000_36_migration_reader_role.sql`、`docs/database.md` 5.16）で作る（`supabase_migrations.schema_migrations` の SELECT のみ。接続情報が漏れても業務データは読めない）。パスワードだけはマイグレーションに書かず、手動で設定する。
+
+1. 先に migration 36 を本番に適用してロールを作っておく（新しい環境の場合。`\password` はロールが存在しないと失敗する）。そのうえで、手元の `psql`（`postgres` ロールで本番に接続）から `\password migration_reader` でパスワードを設定する。`\password` はクライアント側で SCRAM-SHA-256 のハッシュにしてから送るため、平文が SQL Editor の履歴や Postgres のログに残らない（SQL Editor で `ALTER ROLE ... PASSWORD '<平文>'` を実行しない。やむを得ず実行した場合は、実行後に SQL Editor の該当クエリ・スニペットを削除する）。パスワードは `openssl rand -hex 32` で作る（英数字だけにして、エスケープやシェル展開の問題を避ける）。
+2. ダッシュボードの **Connect > Session pooler** に表示される接続文字列をコピーし、ユーザー部分を `migration_reader.<project-ref>` に置き換え、`:[YOUR-PASSWORD]` の部分を**削除**する（`postgresql://migration_reader.<project-ref>@<pooler のホスト>:5432/postgres`。pooler のホスト名は `aws-0-...` / `aws-1-...` などプロジェクトによって異なるため、手で組み立てない）。これを `SUPABASE_READONLY_DB_URL` に、パスワードを `SUPABASE_READONLY_DB_PASSWORD` に登録する。
+
+- パスワードを URL と分けるのは、コマンドライン（argv）に載せないため。ワークフローはパスワードを環境変数 `PGPASSWORD` で CLI に渡す。URL にパスワードが含まれている（`://ユーザー:パスワード@` の形）場合は CLI を実行せず「形式が不正」の案内を出す（Issue #195）。
+- 業務テーブルが読める権限（`pg_read_all_data` への所属、`BYPASSRLS` など）を付けないこと。付与状況は `pg_roles` / `pg_auth_members` / `information_schema.role_table_grants` で確認できる。
+- 手元でこのロールを使って確認するときも、パスワードは URL に入れず `PGPASSWORD` で渡す。`yarn supabase ...` は使わない（yarn v1 がコマンド行を表示する）。
+
+  ```bash
+  read -rs PGPASSWORD && export PGPASSWORD   # パスワードを入力（画面・シェル履歴に残らない）
+  npx supabase migration list --db-url "postgresql://migration_reader.<project-ref>@<pooler のホスト>:5432/postgres"
+  unset PGPASSWORD
+  ```
+
+#### パスワードのローテーション（漏洩時・定期）
+
+1. `openssl rand -hex 32` で新しいパスワードを作る。
+2. 手元の `psql`（`postgres` ロールで本番に接続）から `\password migration_reader` で新しいパスワードを設定する（上記 1 と同じく SQL Editor に平文を書かない）。続けて `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = 'migration_reader';` で既存の接続を切る。
+3. **Settings > Environments > `production-db-readonly`** の `SUPABASE_READONLY_DB_PASSWORD` を更新する（URL 側は変わらない）。
+4. 手元で新しいパスワードの `migration list` が通り、古いパスワードが `password authentication failed` になることを確認する（上記の `PGPASSWORD` の手順）。Session pooler（Supavisor）がロールの認証情報をキャッシュするため、**変更直後は新しいパスワードが拒否され、古いパスワードが通ることがある**。数分おいてから確認し直す。
+5. 漏洩時は、Supabase の **Logs > Postgres** で `migration_reader` の接続元を確認する（GitHub Actions のランナーと手元以外が無いこと）。漏洩元が PR 本文などの場合は、本文から削除し、「edited」の履歴からも該当リビジョンを削除する（履歴は公開されたまま残るため、ローテーションは省略しない）。
 
 ## 手順
 
@@ -100,7 +125,9 @@ Vercel の本番デプロイ後に動作確認し、問題がなければ `creat
   - `HTTP 200`（「Required reviewers が設定されていません」）: Environment はあるが承認者が未設定。メッセージに設定済みの保護ルール（`wait_timer` など）が出る。Required reviewers を設定して再実行する。
   - それ以外の HTTP ステータス（5xx など）や「HTTP 応答なし」: GitHub 側の一時的な障害やネットワーク障害の可能性がある。時間をおいて再実行する。
 - `create-release.yml` の手動実行が「マージ済みのリリース PR のマージコミットではありません」「指定バージョン X.Y.Z のリリース PR ではありません」で失敗する: リリース PR のマージ前に実行したか、`version` が違う。リリース PR をマージしてから、正しい `version` で実行する（上記「手動実行はマージ後の再実行専用」を参照）。
-- `migration list` が「自動確認できませんでした」になる: Secret 未設定または DB Pause。手元で `yarn supabase migration list` を実行して確認する（リリース自体はブロックされない）。
+- `migration list` が「自動確認できませんでした」になる: Secret 未設定、Secret の形式不正（`SUPABASE_READONLY_DB_URL` にパスワードが含まれている等。上記「読み取り専用ロール」の形に直す）、または DB Pause。手元で `npx supabase migration list`（本番プロジェクトに link 済みの状態で実行）を実行して確認する（リリース自体はブロックされない）。`--db-url` を渡す場合も `yarn supabase ...` は使わない（上記「読み取り専用ロール」参照）。
+  - ローテーション直後の場合は、Session pooler のキャッシュで一時的に認証に失敗していることがある。数分おいて再実行する。
+- `release-pr.yml` が「PR 本文に認証情報付きの URL が含まれている」または「migration list の出力にパスワードが含まれている」で失敗する: 本文（サマリー等の入力値を含む）や `migration list` の出力に認証情報が混入している（PR は作成されない。公開リポジトリの PR 本文は編集履歴に残るため、フェイルクローズにしている）。混入元を取り除いてから再実行する。パスワードが出力に出た場合はローテーションも行う（Issue #195）。
 - タグ重複で失敗する: バージョン番号を変える。部分失敗後の再実行で同名タグが同一 SHA を指している場合は正常系として続行される。
 
 ## 既存タグの扱い

@@ -388,22 +388,62 @@ jobs:
       - name: 本番DBの migration list を取得
         id: migration-list
         env:
+          # 接続文字列（パスワードを含めない）とパスワードは別の Secret にする（Issue #195）
           SUPABASE_READONLY_DB_URL: ${{ secrets.SUPABASE_READONLY_DB_URL }}
+          SUPABASE_READONLY_DB_PASSWORD: ${{ secrets.SUPABASE_READONLY_DB_PASSWORD }}
         run: |
           set -euo pipefail
-          # 接続文字列をログに出さない。set -x / -v は使わない。
-          if [ -z "${SUPABASE_READONLY_DB_URL:-}" ]; then
+          # 接続情報をログに出さない。set -x / -v は使わない。
+          # 手元確認の案内は supabase link 済みのプロジェクト向け（--db-url にパスワード入りの URL を渡して
+          # yarn 経由で実行すると、yarn v1 がコマンド行ごと表示するため、npx で案内する。Issue #195）
+          MANUAL_CHECK="手元で \`npx supabase migration list\`（\`supabase link\` 済みの本番プロジェクト）を実行して確認してください。"
+          fallback() {
             {
               echo "body<<MIGRATION_LIST_EOF"
-              echo "自動確認できませんでした（Secret 未設定）。手元で \`yarn supabase migration list\` を実行して確認してください。"
+              echo "自動確認できませんでした（$1）。${MANUAL_CHECK}"
               echo "MIGRATION_LIST_EOF"
               echo "confirmed=false"
             } >> "$GITHUB_OUTPUT"
+          }
+          if [ -z "${SUPABASE_READONLY_DB_URL:-}" ] || [ -z "${SUPABASE_READONLY_DB_PASSWORD:-}" ]; then
+            fallback "Secret 未設定"
             exit 0
           fi
+
+          # パスワードはコマンドライン（argv）に載せず、PGPASSWORD（環境変数）で CLI に渡す。argv に載ると、
+          # yarn などのラッパーが表示するコマンド行が OUTPUT 経由で PR 本文に出る（Issue #195）。
+          # そのため URL にパスワードが含まれている（旧形式の Secret）場合は実行しない。
+          # 判定: :// の後に @ があり、最初の @ より前（ユーザー部分）が空でなく : を含まないこと
+          # （パスワードにエンコードされていない / や ? があっても、最初の @ で区切るため取りこぼさない）。
+          # クエリパラメータでのパスワード指定（?password=...、大文字小文字を問わない）も不正とする。
+          DB_URL_OK=false
+          case "$SUPABASE_READONLY_DB_URL" in
+            *://*@*)
+              DB_URL_USER="${SUPABASE_READONLY_DB_URL#*://}"
+              DB_URL_USER="${DB_URL_USER%%@*}"
+              case "$DB_URL_USER" in
+                '' | *:*) ;;
+                *) DB_URL_OK=true ;;
+              esac
+              ;;
+          esac
+          if [[ "${SUPABASE_READONLY_DB_URL,,}" == *password=* ]]; then
+            DB_URL_OK=false
+          fi
+          if [ "$DB_URL_OK" != "true" ]; then
+            # 案内文に URL の例（scheme://...@）を書かない。PR 作成ステップの本文チェックに一致して、
+            # 案内のはずが PR 作成の失敗になるため
+            fallback "Secret SUPABASE_READONLY_DB_URL の形式が不正。URL にパスワードを含めず、パスワードは SUPABASE_READONLY_DB_PASSWORD に分けて登録する。docs/release.md の「読み取り専用ロール」参照"
+            exit 0
+          fi
+
           # Session Pooler の接続文字列を使うこと（直接接続は IPv6 のみで到達できない場合がある）。
-          # --db-url は環境変数経由で渡し、コマンドライン展開をログに出さない。
-          if OUTPUT=$(yarn supabase migration list --db-url "$SUPABASE_READONLY_DB_URL" 2>&1); then
+          if OUTPUT=$(PGPASSWORD="$SUPABASE_READONLY_DB_PASSWORD" ./node_modules/.bin/supabase migration list --db-url "$SUPABASE_READONLY_DB_URL" 2>&1); then
+            # 念のため、出力にパスワードが含まれていたら PR を作らずに失敗させる（フェイルクローズ）
+            if [[ "$OUTPUT" == *"$SUPABASE_READONLY_DB_PASSWORD"* ]]; then
+              echo "::error::migration list の出力にパスワードが含まれているため中断します（Issue #195）。"
+              exit 1
+            fi
             {
               echo "body<<MIGRATION_LIST_EOF"
               echo '```'
@@ -413,12 +453,7 @@ jobs:
               echo "confirmed=true"
             } >> "$GITHUB_OUTPUT"
           else
-            {
-              echo "body<<MIGRATION_LIST_EOF"
-              echo "自動確認できませんでした（DB Pause 等の可能性あり）。手元で \`yarn supabase migration list\` を実行して確認してください。"
-              echo "MIGRATION_LIST_EOF"
-              echo "confirmed=false"
-            } >> "$GITHUB_OUTPUT"
+            fallback "DB Pause 等の可能性あり"
           fi
 
       # 既存の main→release オープン PR の有無は validate-input で先に確認済み
@@ -462,7 +497,7 @@ jobs:
           fi
 
           if [ "$MIGRATION_CONFIRMED" != "true" ]; then
-            MIGRATION_NOTICE="> ⚠️ 本番DBへの自動接続ができなかったため、手元で \`yarn supabase migration list\` を実行して未適用分を確認してください。"
+            MIGRATION_NOTICE="> ⚠️ 本番DBへの自動接続ができなかったため、手元で \`npx supabase migration list\`（\`supabase link\` 済みの本番プロジェクト。\`yarn\` 経由で \`--db-url\` を渡さない）を実行して未適用分を確認してください。"
           else
             MIGRATION_NOTICE=""
           fi
@@ -536,6 +571,17 @@ jobs:
             exit 1
           fi
           BODY=$(printf '%s\n' "$TEMPLATE" | envsubst "$BODY_VARS")
+
+          # 認証情報（userinfo）付きの URL が本文に含まれていたら PR を作らずに失敗させる
+          # （公開リポジトリの PR 本文は編集履歴にも残るため、フェイルクローズにする。Issue #195）。
+          # - scheme://<userinfo>@ : user が空（://:pw@）やトークンだけ（https://ghp_xxx@）の形も対象
+          # - postgres(ql)://...@  : パスワードにエンコードされていない / などがあっても取りこぼさない
+          # 一致した内容はログに出さない。パイプにしない（pipefail 下で grep -q が先に終わると
+          # printf が SIGPIPE になり、一致しても偽になる）。
+          if grep -qiE '[a-z][a-z0-9+.-]*://[^[:space:]/?#@]+@|postgres(ql)?://[^[:space:]]*@' <<<"$BODY"; then
+            echo "::error::PR 本文に認証情報付きの URL が含まれているため、PR を作成せずに中断します（Issue #195）。"
+            exit 1
+          fi
 
           # Draft で作成する（マイグレーション適用前の誤マージ防止）。
           gh pr create \

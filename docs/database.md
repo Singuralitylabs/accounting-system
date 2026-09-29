@@ -1878,6 +1878,21 @@ GRANT SELECT ON TABLE profit_loss_closing_dismissals TO authenticated;
 - `undo_profit_loss_closing_dismissals(p_target_month date, p_keys jsonb)`: 見送りの取り消し（見送り記録を削除して未処理の差分に戻す）
 - `save_profit_loss_closing`（5.14）は migration 28 で見送り記録の全削除を加えている（確定直後の取り直しではそれまでの見送りを破棄する。新規の確定では見送り記録は存在せず、確定解除では CASCADE で消える）
 
+### 5.16 リリース用の読み取り専用ロール（migration_reader。migration 36）
+
+> リリース PR 作成ワークフロー（`.github/workflows/release-pr.yml`）が本番 DB の `supabase migration list` を読むための専用ロール（Issue #195）。アプリ（PostgREST / RLS）からは使わない。
+
+```sql
+-- ロールが無い場合だけ作る（本番では先に手動作成していたため冪等にしている）
+CREATE ROLE migration_reader LOGIN;   -- パスワードは設定しない
+GRANT USAGE ON SCHEMA supabase_migrations TO migration_reader;
+GRANT SELECT ON supabase_migrations.schema_migrations TO migration_reader;
+```
+
+- 権限はマイグレーション履歴テーブルの SELECT のみ。public スキーマの業務テーブルには権限が無く、接続情報が漏れても業務データは読めない。`pg_read_all_data` への所属や `BYPASSRLS` などは付けない。
+- パスワードはマイグレーションに書かない（平文を残さない）。本番では `psql` の `\password migration_reader` で設定する。パスワード未設定のロールはパスワード認証でログインできないため、ローカル（`supabase db reset`）ではロールと権限だけが再現され、接続には使えない。
+- 接続情報の登録（Secret）とローテーション手順は `docs/release.md` の「読み取り専用ロール」を参照。
+
 ## 6. トリガー
 
 ### 6.1 updated_at 更新トリガー
