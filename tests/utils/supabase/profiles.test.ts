@@ -8,8 +8,8 @@ const { createServerSupabase, getCachedProfileInfo } = vi.hoisted(() => ({
 vi.mock("@/app/utils/supabase/clients", () => ({
   createServerSupabase,
 }));
-// bulkUpdateProfiles は保存する人のプロフィール（getProfileInfo → getCachedProfileInfo）で
-// 権限を確認する。requestCache 経由の react cache をテスト環境に持ち込まないためモックする
+// bulkUpdateProfiles checks permission via the saver's profile (getProfileInfo -> getCachedProfileInfo).
+// Mocked to keep React cache via requestCache out of the test environment.
 vi.mock("@/app/utils/supabase/requestCache", () => ({
   getCachedProfileInfo,
   getCachedProfileInfoById: vi.fn(),
@@ -57,7 +57,7 @@ describe("getAllUserInfo", () => {
 
     const { userInfoList, error } = await getAllUserInfo();
 
-    // 取得失敗を「0 件」と区別できるよう、error をそのまま伝播する
+    // Propagate error as-is so a fetch failure is distinguishable from 0 rows.
     expect(error).toBe(dbError);
     expect(userInfoList).toBeNull();
   });
@@ -105,11 +105,9 @@ describe("bulkUpdateProfiles", () => {
         .spyOn(console, "error")
         .mockImplementation(() => {});
 
-      // 自分の Slack ID だけの変更（RLS 上は admin 以外でも書き込める）も拒否する
       const ownSlackId = await bulkUpdateProfiles([
         { id: 5, name: "自分", class: "public", team: null, slack_id: "U5" },
       ]);
-      // 入力エラーのある内容でも、入力チェックのメッセージ（送った名前）を返さない
       const invalid = await bulkUpdateProfiles([{ ...updates[0], team: null }]);
 
       for (const result of [ownSlackId, invalid]) {
@@ -117,7 +115,6 @@ describe("bulkUpdateProfiles", () => {
         expect(result.error?.message).toContain("保存する権限がありません");
         expect(result.error?.message).not.toContain("山田");
       }
-      // ログも閲覧ではなく保存の権限エラーとして残す
       expect(consoleError).toHaveBeenCalledWith(
         expect.stringContaining("保存する権限がありません"),
       );
@@ -151,7 +148,6 @@ describe("bulkUpdateProfiles", () => {
     expect(result).toEqual({});
     expect(rpc).toHaveBeenCalledTimes(1);
     expect(rpc).toHaveBeenCalledWith("update_profiles", {
-      // name は書き込まない。空文字の Slack ID は未設定（null）にする
       p_updates: [
         { id: 1, class: "teamleader", team: "チームA", slack_id: "U1" },
         { id: 2, class: "public", team: null, slack_id: null },

@@ -11,8 +11,6 @@ vi.mock("@/app/utils/supabase/clients", () => ({
 import { DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS } from "@/app/utils/budgetDeclarationReminder";
 import { getBudgetDeclarationReminderTargetDays } from "@/app/utils/supabase/budgetDeclarationReminderData";
 
-// Issue #94 の受け入れ基準（DB 取得失敗時もフォールバックにより従来どおり動作する）を
-// 直接検証する。取得成功時は DB 値、失敗・行なしはデフォルト値にフォールバックすること。
 describe("getBudgetDeclarationReminderTargetDays", () => {
   const maybeSingle = vi.fn();
   const select = vi.fn(() => ({ maybeSingle }));

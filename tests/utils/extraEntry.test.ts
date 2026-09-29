@@ -160,7 +160,6 @@ describe("isExtraEntryUnchanged", () => {
 
   it("DB に書き込む項目がすべて同じなら未変更", () => {
     expect(isExtraEntryUnchanged(original, asRow())).toBe(true);
-    // updated_at など書き込まない項目の違いは無視する
     expect(isExtraEntryUnchanged(original, asRow({ updated_at: "x" }))).toBe(
       true,
     );
@@ -180,7 +179,7 @@ describe("isExtraEntryUnchanged", () => {
 });
 
 describe("resolveExtraEntryMonth", () => {
-  // 2026-09-15 00:00 JST（UTC 2026-09-14 15:00）
+  // 2026-09-15 00:00 JST (UTC 2026-09-14 15:00)
   const now = new Date(Date.UTC(2026, 8, 14, 15, 0, 0));
 
   it("有効な `?month=` はそのまま対象月にする", () => {
@@ -215,11 +214,11 @@ describe("selectChangedExtraEntries", () => {
 
   it("追加・削除・編集した行だけを選び、編集していない行と追加の取り消しは送らない", () => {
     const rows = [
-      asRow({ id: 1 }), // 未変更
-      asRow({ id: 2, billing_amount: 400000 }), // 編集
-      asRow({ id: 3 }, { isRemoved: true }), // 削除
-      asRow({ id: 10 }, { isNew: true }), // 追加
-      asRow({ id: 11 }, { isNew: true, isRemoved: true }), // 追加して取り消し
+      asRow({ id: 1 }),
+      asRow({ id: 2, billing_amount: 400000 }),
+      asRow({ id: 3 }, { isRemoved: true }),
+      asRow({ id: 10 }, { isNew: true }),
+      asRow({ id: 11 }, { isNew: true, isRemoved: true }),
     ];
     expect(
       selectChangedExtraEntries(rows, baseline).map((row) => row.id),
@@ -227,7 +226,7 @@ describe("selectChangedExtraEntries", () => {
   });
 
   it("読み込み時点の値と比べる（読み込み後に他の利用者が変えた行を上書きしない）", () => {
-    // 画面の行は読み込み時点のまま。DB 側が後から変わっていても送らない
+    // Screen rows stay as loaded; do not send them even if the DB row changed later.
     expect(selectChangedExtraEntries([asRow({ id: 1 })], baseline)).toEqual([]);
   });
 });

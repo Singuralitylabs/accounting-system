@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { readClassClaim } from "@/app/utils/authClaims";
 
-// テスト用: JWT ペイロードだけを base64url エンコードした「トークン」を組み立てる。
-// 署名検証はテスト対象外（呼び出し側で検証済みであることを前提とした関数のため）。
+// Build a "token" containing only a base64url-encoded JWT payload. Signature verification is out of scope
+// (the function assumes the caller already verified it).
 const fakeToken = (payload: unknown): string =>
   `header.${Buffer.from(JSON.stringify(payload)).toString("base64url")}.signature`;
 
@@ -16,9 +16,8 @@ describe("readClassClaim", () => {
   });
 
   it("user_class クレームが明示的に null の場合も null を返す（DB フォールバック要）", () => {
-    // OAuth コールバックはトークン発行後に profiles 行を作るため、新規ユーザーの
-    // 初回トークンは必ず user_class: null になる。フォールバックしないと、
-    // 直後のロール付与が最大約1時間反映されない。
+    // The OAuth callback creates the profiles row after token issuance, so a new user's first token always
+    // has user_class: null. Without the fallback, the role grant would take up to ~1h to apply.
     expect(readClassClaim(fakeToken({ user_class: null }))).toBeNull();
   });
 

@@ -47,7 +47,6 @@ describe("deleteMatterInfo", () => {
     const { status, error } = await deleteMatterInfo(1);
 
     expect(status).toBeNull();
-    // DB 障害と区別できるよう code を持たせる
     expect(error).toMatchObject({
       code: NO_ROWS_DELETED,
       message: "案件ID : 1の削除対象が見つかりませんでした。",

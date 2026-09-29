@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 const { redirect } = vi.hoisted(() => ({
-  // 実際の redirect() と同じく、呼ばれたら以降を実行しない（throw する）
+  // Like the real redirect(), stop execution by throwing.
   redirect: vi.fn((url: string) => {
     throw new Error(`NEXT_REDIRECT:${url}`);
   }),

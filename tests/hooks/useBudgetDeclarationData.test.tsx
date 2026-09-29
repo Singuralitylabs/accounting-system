@@ -23,11 +23,9 @@ import {
 } from "@/app/hooks/useBudgetDeclarationData";
 import { notifyError, notifySuccess } from "@/app/utils/notify";
 
-// 削除失敗時に一覧・詳細のキャッシュが実状態に合わなくなるサイレント障害
-// （Issue #104）を固定する。既存のコンポーネントテストは
-// useDeleteBudgetDeclaration をモックしているため、この挙動はここでしか
-// 実行されない（docs/testing.md 2.5「サイレント障害につながる
-// エラーハンドリングはテスト対象」）。
+// Pins a silent failure where list/detail caches diverge from the real state after a delete failure.
+// Component tests mock useDeleteBudgetDeclaration, so only this test exercises it
+// (docs/testing.md 2.5).
 describe("useDeleteBudgetDeclaration", () => {
   let queryClient: QueryClient;
 
@@ -37,7 +35,7 @@ describe("useDeleteBudgetDeclaration", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // フックの onError は console.error でログする。テスト出力を汚さない
+    // The hook's onError logs via console.error; silence it to keep test output clean.
     vi.spyOn(console, "error").mockImplementation(() => {});
     queryClient = new QueryClient({
       defaultOptions: {
@@ -72,8 +70,8 @@ describe("useDeleteBudgetDeclaration", () => {
       result.current.mutateAsync({ declarationId: 7, team: "Aチーム" }),
     ).rejects.toThrow();
 
-    // list は ["budgetDeclarations", "list"] の前方一致で無効化されるため、
-    // 実キー（月付き）が無効化されることを確認する
+    // list is invalidated by prefix match on ["budgetDeclarations", "list"]; check that the real key
+    // (which includes the month) is invalidated.
     await waitFor(() => {
       expect(
         queryClient.getQueryState(["budgetDeclarations", "detail", 7])

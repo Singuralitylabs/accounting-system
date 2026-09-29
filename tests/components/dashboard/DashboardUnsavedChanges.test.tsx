@@ -56,7 +56,6 @@ const categoryOptions = [
   { id: 11, value: "開発", display_order: 1, is_active: true },
 ];
 
-// DashboardNav の代わりに、Provider がまとめた「未保存の変更あり」を表示する
 const Probe = () => (
   <p data-testid="probe">
     {useDashboardHasUnsavedChanges() ? "未保存あり" : "未保存なし"}
@@ -152,7 +151,7 @@ describe("管理画面の未保存の変更の共有（DashboardUnsavedChangesPr
 
     fireEvent.click(screen.getAllByRole("button", { name: "更新" })[1]);
     await waitFor(() => expect(refresh).toHaveBeenCalled());
-    // 警告の解除は Provider の effect で行うため、反映を待つ
+    // The warning is cleared in the Provider's effect; wait for it.
     await waitFor(() => expect(fireBeforeUnload()).toBe(false));
   });
 
@@ -169,11 +168,9 @@ describe("管理画面の未保存の変更の共有（DashboardUnsavedChangesPr
         .length;
     expect(beforeUnloadRegistrations()).toBe(1);
 
-    // UserList だけ元に戻しても、分類のカードが未保存のため警告する
     fireEvent.change(slackIdInput(), { target: { value: "U000001" } });
     expect(fireBeforeUnload()).toBe(true);
 
-    // 画面ごと外れたら（Provider のアンマウント）警告しない
     unmount();
     expect(fireBeforeUnload()).toBe(false);
     addEventListener.mockRestore();
@@ -188,11 +185,9 @@ describe("管理画面の未保存の変更の共有（DashboardUnsavedChangesPr
     });
     expect(probe()).toBe("未保存あり");
 
-    // UserList だけ元に戻しても、分類のカードが未保存のまま
     fireEvent.change(slackIdInput(), { target: { value: "U000001" } });
     expect(probe()).toBe("未保存あり");
 
-    // 分類のカードが画面から外れたら、未保存の報告元が無くなる
     rerender(tree({ category: false }));
     expect(probe()).toBe("未保存なし");
   });

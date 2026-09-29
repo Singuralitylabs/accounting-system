@@ -9,9 +9,9 @@ import { notifyError, notifySuccess } from "@/app/utils/notify";
 import { CLOSED_MONTH_LOCK_MESSAGE } from "@/app/utils/profitLossClosing";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
 
-// 前月コピーの結果（登録件数・スキップ件数）に応じた通知を、実フックと実 QueryClient で確かめる。
-// 同じ月を同時にコピーした後のほう（copy_extra_entries が先のコピーの登録を待ってから確認する）は
-// 「登録 0 件・スキップ N 件」になり、全件スキップの案内が出る
+// Verify notifications per copy result with the real hook and QueryClient. A concurrent second copy
+// (copy_extra_entries waits for the first copy's inserts) yields 0 inserted / N skipped, which shows
+// the all-skipped notice.
 const { getPreviousMonthExtraEntries, copyExtraEntriesFromPreviousMonth } =
   vi.hoisted(() => ({
     getPreviousMonthExtraEntries: vi.fn(),
@@ -74,7 +74,6 @@ const clickCopy = async () => {
   const button = screen.getByRole("button", {
     name: "前月の経理追加収支をコピー",
   });
-  // 前月分の取得が終わるとボタンが押せるようになる
   await vi.waitFor(() => expect(button).toHaveProperty("disabled", false));
   fireEvent.click(button);
 };
@@ -172,7 +171,6 @@ describe("CopyPreviousExtraEntriesButton の件数表示", () => {
     await clickCopy();
 
     await vi.waitFor(() => expect(notifyError).toHaveBeenCalled());
-    // 前月分の一覧（["extraEntries", ...]）が無効化され、表示中のため取り直される
     await vi.waitFor(() =>
       expect(getPreviousMonthExtraEntries).toHaveBeenCalledTimes(2),
     );

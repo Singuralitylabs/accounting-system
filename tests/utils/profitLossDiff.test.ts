@@ -29,8 +29,6 @@ import {
   RecurringCostType,
 } from "@/app/types/types";
 
-// ===== フィクスチャ =====
-
 type MatterOverride = Partial<BusinessRow["matters"]>;
 
 const matter = (id: number, override: MatterOverride = {}) => ({
@@ -101,7 +99,6 @@ const linesOf = (
     adjustments: [],
   });
 
-// 確定時点（8 月）: 案件 1 の売上 100,000・費用 30,000、案件 2 の売上 50,000、定期費用 1
 const closedBusinesses = [business(1, 100000, 1), business(2, 50000, 2)];
 const closedCosts = [cost(1, 30000, 1)];
 const closedLines: ClosingLineInput[] = monthLinesToClosingRows(
@@ -136,8 +133,6 @@ const diff = (
     dismissals,
   });
 
-// ===== テスト =====
-
 describe("diffClosingLines（Issue #149）", () => {
   it("確定後に変更が無ければ差分なし（定期費用の変更・名称だけの変更も差分にしない）", () => {
     const renamed = [
@@ -151,21 +146,15 @@ describe("diffClosingLines（Issue #149）", () => {
       renamed,
       closedCosts,
       [],
-      [
-        { ...recurring, price: 999999 }, // 定期費用マスタの変更は検知の対象外
-      ],
+      [{ ...recurring, price: 999999 }],
     );
     expect(result).toEqual({ pending: [], dismissed: [] });
   });
 
   it("追加・削除・金額変更・区分変更を検知する", () => {
     const result = diff(
-      [
-        business(1, 120000, 1), // 金額変更
-        // 案件 2 は削除（明細なし）
-        business(3, 70000, 3), // 追加（確定後に経理申請された案件）
-      ],
-      [cost(1, 30000, 1, { team: "SDGs", category: "イベント" })], // 区分変更
+      [business(1, 120000, 1), business(3, 70000, 3)],
+      [cost(1, 30000, 1, { team: "SDGs", category: "イベント" })],
     );
     expect(
       result.pending.map((d) => ({
@@ -222,7 +211,7 @@ describe("diffClosingLines（Issue #149）", () => {
     const changed = result.pending.find((d) => d.key === "business:1")!;
     expect(changed.matterTitle).toBe("経理用案件名");
     const removed = result.pending.find((d) => d.key === "business:2")!;
-    expect(removed.name).toBe("取引先2"); // 確定時点の名称
+    expect(removed.name).toBe("取引先2");
   });
 
   describe("見送り", () => {
@@ -251,7 +240,7 @@ describe("diffClosingLines（Issue #149）", () => {
         dismissal({
           source_type: "business",
           source_id: 1,
-          live_actual_amount: 110000, // 見送った時点は 110,000
+          live_actual_amount: 110000,
           live_team: "シンラボ",
           live_category: "受託案件",
         }),
@@ -293,7 +282,6 @@ describe("diffClosingLines（Issue #149）", () => {
   });
 
   it("案件開始日の変更で確定済みの月 A → B に移ると、A は削除・B は追加として相手側の月を併記する", () => {
-    // 案件 2 の開始日を 8 月 → 9 月へ変更
     const moved = business(2, 50000, 2, { start_date: "2026-09-05" });
     const augustResult = annotateDiffMoves(
       diff([business(1, 100000, 1), moved], closedCosts),
@@ -315,7 +303,6 @@ describe("diffClosingLines（Issue #149）", () => {
       },
     ]);
 
-    // 9 月（確定済み・案件 2 を含まない確定明細）側は追加の差分
     const septemberResult = annotateDiffMoves(
       diffClosingLines({
         liveLines: linesOf("2026-09", [moved], []),
@@ -339,17 +326,14 @@ describe("diffClosingLines（Issue #149）", () => {
   });
 
   it("削除の理由（下書きに戻された / 削除された / 開始日が未入力）を付ける", () => {
-    const result = annotateDiffMoves(
-      diff([], []), // 確定明細の案件の売上・費用がすべてライブから消えた
-      {
-        liveLocations: new Map([
-          ["business:1", { month: "2026-08", isDraft: true }],
-          ["cost:1", { month: null, isDraft: false }],
-        ]),
-        otherClosedMonths: new Map(),
-        closedMonths: new Set(["2026-08"]),
-      },
-    );
+    const result = annotateDiffMoves(diff([], []), {
+      liveLocations: new Map([
+        ["business:1", { month: "2026-08", isDraft: true }],
+        ["cost:1", { month: null, isDraft: false }],
+      ]),
+      otherClosedMonths: new Map(),
+      closedMonths: new Set(["2026-08"]),
+    });
     expect(
       result.pending.map((d) => [d.key, d.removedReason, d.movedMonth]),
     ).toEqual([
@@ -370,13 +354,13 @@ describe("反映・見送りの入力（Issue #149）", () => {
   it("選択した明細のうち、ライブにあるものは最新の値で upsert、無いものは delete する", () => {
     const payload = buildApplyPayload(live, [
       { sourceType: "business", sourceId: 1 },
-      { sourceType: "business", sourceId: 2 }, // ライブに無い（削除）
+      { sourceType: "business", sourceId: 2 },
       { sourceType: "business", sourceId: 3 },
     ]);
     expect(payload.upsertLines.businesses.map((l) => l.businessId)).toEqual([
       1, 3,
     ]);
-    expect(payload.upsertLines.costs).toEqual([]); // 選ばなかった明細は含めない
+    expect(payload.upsertLines.costs).toEqual([]);
     expect(payload.upsertLines.recurringCosts).toEqual([]);
     expect(payload.deleteKeys).toEqual([
       { source_type: "business", source_id: 2 },
@@ -533,7 +517,7 @@ describe("反映・見送りの選択と表示後の変更の検出（Issue #149
       ]),
     ).toEqual([
       { sourceType: "business", sourceId: 1 },
-      { sourceType: "cost", sourceId: 1 }, // ライブから消えた
+      { sourceType: "cost", sourceId: 1 },
     ]);
   });
 
@@ -583,9 +567,9 @@ describe("closingDiffSummaryStartMonth（確定後の変更の件数集計の対
   });
 
   it("前年度（7月〜翌6月）の全月を常に含む", () => {
-    // 年度末（6月）: 前年度の期首は 23 ヶ月前でちょうど含まれる
+    // Fiscal year end (June): the prior fiscal year start is exactly 23 months back (included).
     expect(closingDiffSummaryStartMonth("2026-06")).toBe("2024-07");
-    // 年度初め（7月）: 開始月は 23 ヶ月前で、前年度の期首（12 ヶ月前）より前
+    // Fiscal year start (July): the start month is 23 months back, before the prior year start (12 months back).
     expect(closingDiffSummaryStartMonth("2026-07")).toBe("2024-08");
   });
 });

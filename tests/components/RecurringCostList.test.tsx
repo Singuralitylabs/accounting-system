@@ -12,9 +12,9 @@ import { RecurringCostType } from "@/app/types/types";
 import { notifyError, notifySuccess } from "@/app/utils/notify";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
 
-// 定期費用の保存は追加・更新・削除を並列に送るため、失敗しても一部だけ反映されている
-// （または応答だけ失われて反映済みの）可能性がある。そのまま押し直すと新規行が二重に
-// 登録されうるため、一覧を取り直すまで編集・保存を止めることを実 QueryClient で確かめる
+// Recurring-cost save sends add/update/delete in parallel, so a failure may be partially applied
+// (or applied with only the response lost). Resubmitting could double-insert new rows, so editing/saving
+// stays blocked until refetch; verified with a real QueryClient.
 const { getRecurringCostList, bulkUpsertRecurringCost } = vi.hoisted(() => ({
   getRecurringCostList: vi.fn(),
   bulkUpsertRecurringCost: vi.fn(),
@@ -74,7 +74,7 @@ const cost = (overrides: Partial<RecurringCostType>): RecurringCostType => ({
 const createQueryClient = () =>
   new QueryClient({
     defaultOptions: {
-      // QueryProvider と同じく refetchOnMount: false（待ち時間は 0）
+      // Same as QueryProvider: refetchOnMount: false (zero wait).
       queries: { retry: 2, retryDelay: 0, refetchOnMount: false },
       mutations: { retry: 0 },
     },
@@ -170,7 +170,7 @@ describe("RecurringCostList の保存失敗後の扱い", { timeout: 15000 }, ()
       error: null,
     });
     renderList([cost({ id: 1 })]);
-    // 保存の失敗と同時に通信が切れた状態にする（再取得は paused になる）
+    // The network drops together with the save failure (the refetch becomes paused).
     bulkUpsertRecurringCost.mockImplementation(async () => {
       onlineManager.setOnline(false);
       throw new Error("定期費用情報の更新に失敗しました");
@@ -223,7 +223,6 @@ describe(
           "保存は完了しましたが、最新の定期費用情報を取得できませんでした",
         ),
       ).toBeTruthy();
-      // 保存した内容を表示したまま（保存前の「サーバ代」に戻らない）
       expect(screen.getByDisplayValue("サーバ代（改定）")).toBeTruthy();
       expect(screen.queryByDisplayValue("サーバ代")).toBeNull();
       expect(screen.getByRole("button", { name: "保存" })).toHaveProperty(
@@ -259,7 +258,6 @@ describe(
       );
     });
 
-    // 保存後の取り直しに失敗し、「保存は完了しましたが…」が出たまま画面を離れる
     const saveThenLeave = async (queryClient: QueryClient) => {
       getRecurringCostList.mockResolvedValue({
         recurringCostList: null,
@@ -281,16 +279,15 @@ describe(
       const queryClient = createQueryClient();
       await saveThenLeave(queryClient);
 
-      // 別のページから戻る。サーバからは保存済みの行を含む最新の initialData が届くが、
-      // キャッシュ（保存前の一覧・無効化済み）が残っているため useQuery はキャッシュを使う
+      // Returning from another page: the server sends fresh initialData including saved rows, but the stale
+      // invalidated cache remains, so useQuery uses the cache.
       renderList([cost({ id: 1, name: "サーバ代（改定）" })], queryClient);
 
-      // 開き直したときに取り直す（QueryProvider の既定 refetchOnMount: false でも）
+      // Refetch on reopen (even with QueryProvider's default refetchOnMount: false).
       await vi.waitFor(() => expect(getRecurringCostList).toHaveBeenCalled());
       expect(
         await screen.findByText("最新の定期費用情報を取得できませんでした"),
       ).toBeTruthy();
-      // 保存前のキャッシュ（「サーバ代」）で上書きせず、最新の initialData を表示したまま
       expect(screen.getByDisplayValue("サーバ代（改定）")).toBeTruthy();
       expect(screen.queryByDisplayValue("サーバ代")).toBeNull();
       expect(screen.getByRole("button", { name: "保存" })).toHaveProperty(

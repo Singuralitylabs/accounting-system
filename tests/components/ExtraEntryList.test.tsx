@@ -10,8 +10,7 @@ import { confirmAction } from "@/app/utils/confirmAction";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
 
 const mutateAsync = vi.fn();
-// テストごとにクエリの状態（取得失敗・確定済み月の取得中など）を変えられるよう、
-// モックの戻り値の一部を上書きできるようにする
+// Let tests override parts of the mock return value (fetch failure, closed months loading, etc.).
 const extraEntryListOverrides = vi.hoisted(() => ({
   value: {} as {
     data?: ExtraEntryType[] | null;
@@ -73,7 +72,7 @@ vi.mock("@/app/utils/notify", () => ({
   notifySuccess: vi.fn(),
   notifyError: vi.fn(),
 }));
-// 月切替の操作を fireEvent で行えるよう、月ピッカーは素朴な input に置き換える
+// Replace the month picker with a plain input so fireEvent can change months.
 vi.mock("@/app/components/CustomMonthPicker", () => ({
   CustomMonthPicker: ({
     value,
@@ -89,7 +88,7 @@ vi.mock("@/app/components/CustomMonthPicker", () => ({
     />
   ),
 }));
-// 新規行の日付初期値を表示値で検証できるよう、日付ピッカーも素朴な input に置き換える
+// Replace the date picker with a plain input so the default date of a new row can be asserted.
 vi.mock("@/app/components/CustomDatePicker", () => ({
   CustomDatePicker: ({
     value,
@@ -150,7 +149,7 @@ const renderList = (initialData: ExtraEntryType[], initialMonth = "2026-09") =>
   renderWithMantine(listElement(initialData, initialMonth));
 
 const resetMocks = () => {
-  // 実際のフックは保存の成功時（onSuccess）に一覧を無効化する
+  // The real hook invalidates the list on save success (onSuccess).
   mutateAsync.mockReset().mockImplementation(async () => {
     extraEntryListOverrides.value = {
       ...extraEntryListOverrides.value,
@@ -172,7 +171,7 @@ describe("ExtraEntryList の一括保存", () => {
 
   it("編集した行だけを送り、必須チェックも送る行に限る（確定済みの月でロックされた既存行の値で保存が止まらない）", async () => {
     renderList([
-      // 確定済みの月の行（画面では編集できない）。内容が空のまま保存されている
+      // Closed-month row (not editable in the UI), saved with empty content.
       entry({ id: 1, entry_date: "2026-08-10", description: "" }),
       entry({ id: 2, description: "9月協賛" }),
     ]);
@@ -239,7 +238,6 @@ describe("ExtraEntryList の月別表示（Issue #157）", () => {
       target: { value: "9月協賛（編集中）" },
     });
 
-    // キャンセルしたら月が変わらず編集内容が残る
     vi.mocked(confirmAction).mockResolvedValueOnce(false);
     fireEvent.change(screen.getByLabelText("対象月"), {
       target: { value: "2026-10" },
@@ -254,7 +252,6 @@ describe("ExtraEntryList の月別表示（Issue #157）", () => {
     );
     expect(screen.getByDisplayValue("9月協賛（編集中）")).toBeTruthy();
 
-    // 確認したら対象月が切り替わる
     vi.mocked(confirmAction).mockResolvedValueOnce(true);
     fireEvent.change(screen.getByLabelText("対象月"), {
       target: { value: "2026-10" },
@@ -331,15 +328,15 @@ describe("ExtraEntryList の取得失敗時の表示（レビュー指摘）", (
   });
 });
 
-// 保存・再描画を繰り返すため、負荷の高い環境でも既定の 5 秒に掛からないようにする
+// Repeated save/re-render; stay clear of the default 5s timeout on slow machines.
 describe(
   "ExtraEntryList の保存後の再取得（Issue #170）",
   { timeout: 15000 },
   () => {
     beforeEach(resetMocks);
 
-    // 保存 → 再取得中 → 再取得の失敗、の順に一覧の状態を進める。
-    // 一覧（data）は保存前のキャッシュのまま（無効化も解けない）
+    // Advance list state: save -> refetching -> refetch fails. data stays the pre-save cache
+    // (invalidation is not cleared).
     const saveThenFailRefetch = async (initialData: ExtraEntryType[]) => {
       const view = renderList(initialData);
       fireEvent.change(screen.getByDisplayValue("9月協賛"), {
@@ -369,7 +366,7 @@ describe(
           "保存は完了しましたが、最新の経理追加収支情報を取得できませんでした",
         ),
       ).toBeTruthy();
-      // 保存済みの行を再度送ると二重登録になるため、保存・追加・編集はできない
+      // Resending saved rows would double-register, so save/add/edit are disabled.
       expect(screen.getByRole("button", { name: "保存" })).toHaveProperty(
         "disabled",
         true,
@@ -470,12 +467,11 @@ describe(
         "disabled",
         true,
       );
-      // 再取得中は取得失敗の案内を出さない
       expect(screen.queryByText("再読み込み")).toBeNull();
     });
 
     it("通信の失敗などで保存できたか分からないときは、一覧を取り直すまで編集・保存を止める（押し直しによる二重登録を防ぐ）", async () => {
-      // 実際のフックは、保存できたか分からない失敗（通信エラー）のとき一覧を無効化する
+      // The real hook invalidates the list when a failure leaves the save outcome unknown (network error).
       mutateAsync.mockImplementationOnce(async () => {
         extraEntryListOverrides.value = { isInvalidated: true };
         throw new TypeError("Failed to fetch");
@@ -497,7 +493,6 @@ describe(
         true,
       );
 
-      // 取り直しも失敗したら、保存結果が分からない旨の案内と「再読み込み」を出す
       extraEntryListOverrides.value = { isError: true, isInvalidated: true };
       view.rerender(listElement(initialData));
       expect(
@@ -506,7 +501,6 @@ describe(
         ),
       ).toBeTruthy();
 
-      // 取り直せたら実際の保存結果に同期し、編集を再開できる
       extraEntryListOverrides.value = {
         data: [entry({ id: 2, description: "9月協賛（修正）" })],
         dataUpdatedAt: 2,
@@ -561,7 +555,6 @@ describe(
       expect(
         screen.queryByText("最新の経理追加収支情報を取得できませんでした"),
       ).toBeNull();
-      // 再取得中はオーバーレイでロックしているため、赤い警告も出さない
       expect(
         screen.queryByText("最新の経理追加収支情報の取得に失敗しました"),
       ).toBeNull();

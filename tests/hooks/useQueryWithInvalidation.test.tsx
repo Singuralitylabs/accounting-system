@@ -5,8 +5,8 @@ import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useQueryWithInvalidation } from "@/app/hooks/useQueryWithInvalidation";
 
-// isInvalidated は queryCache を購読して返す（Issue #189）。再取得を伴わない無効化
-// （refetchType: "none"）でも再描画されることを固定する
+// isInvalidated subscribes to queryCache, so it re-renders even for an invalidation without refetch
+// (refetchType: "none").
 describe("useQueryWithInvalidation", () => {
   let queryClient: QueryClient;
   const queryFn = vi.fn();

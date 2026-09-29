@@ -8,17 +8,15 @@ afterEach(() => {
   }
 });
 
-// jsdom 環境（コンポーネントテスト）でのみ必要なブラウザ API スタブ。
-// デフォルトの node 環境では window が無いので何もしない。
+// Browser API stubs needed only in the jsdom environment; no-op in the default node environment (no window).
 if (typeof window !== "undefined") {
   Object.defineProperty(window, "matchMedia", {
     writable: true,
     value: vi.fn().mockImplementation((query: string) => ({
-      // Mantine が渡す reduced-motion のクエリだけ一致させる（完全一致。否定形などは一致させない）。
-      // renderWithMantine の respectReducedMotion と組み合わせて Transition の長さを 0 にする。
-      // このスタブは jsdom の全テストに効く（ModalBase のスクロールロック等、respectReducedMotion を
-      // 見ずに useReducedMotion を直接読む箇所は、独自の MantineProvider を使うテストでも挙動が変わる）。
-      // 理由は docs/testing.md「規約」の renderWithMantine の項を参照
+      // Match only Mantine's reduced-motion query (exact match). Combined with renderWithMantine's
+      // respectReducedMotion this zeroes Transition durations. The stub affects every jsdom test: code that
+      // reads useReducedMotion directly (e.g. ModalBase scroll lock) also changes behavior under a custom
+      // MantineProvider. Rationale: docs/testing.md (renderWithMantine in the conventions section).
       matches: query === "(prefers-reduced-motion: reduce)",
       media: query,
       onchange: null,
@@ -39,6 +37,6 @@ if (typeof window !== "undefined") {
 
   window.scrollTo = vi.fn();
 
-  // Mantine Combobox（Select 等）がオプションのフォーカス管理で呼ぶが、jsdom は未実装
+  // Called by Mantine Combobox for option focus management; not implemented in jsdom.
   window.HTMLElement.prototype.scrollIntoView = vi.fn();
 }

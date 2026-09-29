@@ -5,7 +5,7 @@ const { createServerSupabase } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/app/utils/supabase/clients", () => ({ createServerSupabase }));
-// bulkUpsertSelectOptions は参照しないが、react cache をテスト環境に持ち込まないためモックする
+// Not used by bulkUpsertSelectOptions, but mocked to keep React cache out of the test environment.
 vi.mock("@/app/utils/supabase/selectOptionsCache", () => ({
   getActiveSelectOptionsByType: vi.fn(),
 }));
@@ -14,10 +14,10 @@ import { bulkUpsertSelectOptions } from "@/app/utils/supabase/selectOptions";
 
 type Row = { id: number; value: string; is_active: boolean | null };
 
-// select_option_types の取得・select_options の INSERT（複数行を 1 回で）・既存行の取得・
-// UPDATE を記録する Supabase クライアントのモック。rows は DB にある行で、
-// UNIQUE(type_id, value) と同じく無効化済みの行を含めて項目名が重なる INSERT / UPDATE を
-// 23505 にする（一括 INSERT は 1 行でも重なれば全体が失敗し、何も追加されない）
+// Supabase client mock recording the select_option_types fetch, select_options INSERT (multiple rows at once),
+// existing-row fetch and UPDATE. rows are the rows in the DB; like UNIQUE(type_id, value), an INSERT / UPDATE
+// whose name collides (including with deactivated rows) fails with 23505
+// (a bulk INSERT fails as a whole if even one row collides, adding nothing).
 const createSupabaseMock = ({
   rows: initialRows = [],
   failInsertCall,
@@ -29,21 +29,21 @@ const createSupabaseMock = ({
   failFetchExisting = false,
 }: {
   rows?: Row[];
-  // 23505 以外のエラーにする INSERT 呼び出しの番号（0 始まり）
+  // Index (0-based) of the INSERT call that fails with an error other than 23505.
   failInsertCall?: number;
-  // INSERT は成功するが、RETURNING が最後の 1 行を返さない（戻り値の欠落の再現用）
+  // INSERT succeeds but RETURNING omits the last row (reproduces a missing return value).
   returnFewerRows?: boolean;
   failUpdate?: boolean;
-  // 23505 以外のエラーにする UPDATE の行の id
+  // Id of the UPDATE row that fails with an error other than 23505.
   failUpdateIds?: number[];
   failType?: boolean;
-  // 既存の行の取得（value IN (...)）を返した後に、他の管理者が追加した行（競合の再現用）
+  // After returning the existing-row fetch (value IN (...)), add a row as another admin would (reproduces a race).
   rowsAddedAfterFetch?: Row[];
   failFetchExisting?: boolean;
 } = {}) => {
   const rows: Row[] = initialRows.map((row) => ({ ...row }));
   const inserted: Record<string, unknown>[] = [];
-  // INSERT の呼び出しごとの行の項目名（一括 INSERT の回数・まとめ方の確認用）
+  // Row names per INSERT call (to check how many bulk INSERTs happen and how they are grouped).
   const insertCalls: string[][] = [];
   let insertCallCount = 0;
   const updated: { id: number; values: Record<string, unknown> }[] = [];
@@ -51,16 +51,16 @@ const createSupabaseMock = ({
     [];
   const operations: string[] = [];
   let nextId = 100;
-  // 同時に実行中の UPDATE の数（1 行ずつ順番に実行しているかの確認用）
+  // Number of UPDATEs in flight (to check they run one at a time).
   let updatesInFlight = 0;
   let maxUpdatesInFlight = 0;
-  // UPDATE を送った時点で実行中だった UPDATE の数（自分を含む）。行の id ごと・送った順
+  // Number of UPDATEs in flight when each UPDATE was sent (including itself), per row id, in send order.
   const inFlightAtStart: Record<number, number[]> = {};
   const uniqueViolation = { code: "23505", message: "duplicate key value" };
 
-  // update(...).eq(...)...（await で実行）。eq("id").select("id") は 1 行の UPDATE
-  // （DB に無い行は 0 行を返す）、eq("type_id").eq("value").not("is_active", "is", true)
-  // .select("id") は再有効化。UPDATE は次のタスクで実行し、同時実行数を記録する
+  // update(...).eq(...)... (executed on await). eq("id").select("id") is a single-row UPDATE (returns 0 rows for
+  // a row missing from the DB); eq("type_id").eq("value").not("is_active", "is", true).select("id") is a
+  // reactivation. UPDATEs run in the next task so the concurrency count can be recorded.
   const updateBuilder = (values: Record<string, unknown>) => {
     const filters: Record<string, unknown> = {};
     let onlyInactive = false;
@@ -157,7 +157,7 @@ const createSupabaseMock = ({
               value: v.value as string,
               is_active: v.is_active as boolean,
             });
-            // 戻り値の並び順は入力順と一致しない場合がある（逆順にして確認する）
+            // Return order may differ from input order (reversed here).
             return { id, value: v.value as string };
           });
           return {
@@ -168,7 +168,7 @@ const createSupabaseMock = ({
       }),
       select: () => ({
         eq: () => {
-          // fetchAllPages 用: .gt("id", afterId).order(...).limit(n)
+          // For fetchAllPages: .gt("id", afterId).order(...).limit(n)
           let afterId = 0;
           const query = {
             gt: (_column: string, value: number) => {
@@ -255,7 +255,6 @@ describe("bulkUpsertSelectOptions", () => {
       updatedIds: [1],
     });
     expect(inserted.map((row) => row.value)).toEqual(["チームB", "チームC"]);
-    // INSERT は 1 回だけ（戻り値の並びが入力順と逆でも、項目名で仮 id に対応付ける）
     expect(insertCalls).toEqual([["チームB", "チームC"]]);
     expect(inserted[0]).toMatchObject({ type_id: "type-team", is_active: true });
     expect(updated.map((row) => row.id)).toEqual([1]);
@@ -299,7 +298,6 @@ describe("bulkUpsertSelectOptions", () => {
       updatedIds: [1],
     });
     expect(inserted).toEqual([]);
-    // 表示順は追加した行の位置にする
     expect(reactivated).toEqual([
       {
         value: "広報",
@@ -347,7 +345,6 @@ describe("bulkUpsertSelectOptions", () => {
       option(-2, "チームA", { isNew: true }),
     ]);
 
-    // 重複は何かを書き込む前に見つけるため、他の追加行（チームB）も追加されない
     expect(result).toEqual({
       insertedIds: [],
       updatedIds: [1],
@@ -392,7 +389,6 @@ describe("bulkUpsertSelectOptions", () => {
       option(-4, "総務", { isNew: true }),
     ]);
 
-    // 仮 id と DB の id の対応は追加した順（新規行 → 再有効化した行の順に記録し、項目名で対応）
     expect(result.error).toBeUndefined();
     expect(result.insertedIds).toEqual(
       expect.arrayContaining([
@@ -403,7 +399,6 @@ describe("bulkUpsertSelectOptions", () => {
       ]),
     );
     expect(result.insertedIds).toHaveLength(4);
-    // 一括 INSERT（失敗）→ 既存の行の取得 → 新規だけまとめて INSERT → 再有効化
     expect(insertCalls).toEqual([
       ["チームB", "広報", "チームC", "総務"],
       ["チームB", "チームC"],
@@ -541,7 +536,6 @@ describe("bulkUpsertSelectOptions", () => {
       option(-2, "チームC", { isNew: true }),
     ]);
 
-    // 書き込まれた行のうち id が分かる行は画面が DB の id に置き換えられるようにする
     expect(inserted).toHaveLength(2);
     expect(result).toEqual({
       insertedIds: [{ tempId: -1, id: 100 }],
@@ -640,7 +634,6 @@ describe("bulkUpsertSelectOptions", () => {
     ]);
 
     expect(result).toEqual({ insertedIds: [], updatedIds: [2, 1] });
-    // P→Q は一意制約違反で後回しになり、Q→R の後に再び試す
     expect(operations).toEqual(["update:1", "update:2", "update:1"]);
     expect(rows.map((row) => row.value)).toEqual(["Q", "R"]);
   });
@@ -698,7 +691,6 @@ describe("bulkUpsertSelectOptions", () => {
 
   it("UPDATE で更新できた行が 0 行（RLS・他の管理者の削除）なら、更新できた行に含めずにエラーを返す", async () => {
     const { client, inserted } = createSupabaseMock({
-      // id: 2 は DB に無い
       rows: [{ id: 1, value: "チームA", is_active: true }],
     });
     createServerSupabase.mockReturnValue(client);
@@ -765,14 +757,13 @@ describe("bulkUpsertSelectOptions", () => {
     expect(operations).toEqual([
       "update:3",
       "update:4",
-      // 連鎖した名前の変更は 1 行ずつ（P→Q は後回しにして Q→R の後に再び試す）
       "update:1",
       "update:2",
       "update:1",
       "insert:チームE",
     ]);
-    // 3 と 4 は同時に送り（4 を送った時点で 3 が実行中）、名前を変えた行は他の UPDATE が
-    // 実行中でない時に 1 行ずつ送る
+    // Send 3 and 4 concurrently (3 is in flight when 4 is sent); renamed rows are sent one at a time
+    // when no other UPDATE is in flight.
     expect(inFlightAtStart[3]).toEqual([1]);
     expect(inFlightAtStart[4]).toEqual([2]);
     expect(inFlightAtStart[1]).toEqual([1, 1]);
@@ -788,7 +779,6 @@ describe("bulkUpsertSelectOptions", () => {
     });
     createServerSupabase.mockReturnValue(client);
 
-    // 名前を変えたのに valueChanged: false で送られた場合も、名前の変更は失わない
     const result = await bulkUpsertSelectOptions("team", [
       option(1, "Q", { valueChanged: false }),
       option(2, "R", { valueChanged: false }),
@@ -800,7 +790,6 @@ describe("bulkUpsertSelectOptions", () => {
 
   it("並行に UPDATE した行の一部が失敗したら、更新できた行を返してエラーにし、名前の変更・追加へ進まない", async () => {
     const { client, operations, inserted } = createSupabaseMock({
-      // id: 3 は DB に無い（0 行の UPDATE）
       rows: [
         { id: 1, value: "チームA", is_active: true },
         { id: 2, value: "チームB", is_active: true },
@@ -818,7 +807,6 @@ describe("bulkUpsertSelectOptions", () => {
       option(-1, "チームE", { isNew: true }),
     ]);
 
-    // 最初に失敗した行（送った順）のメッセージを返す
     expect(result).toEqual({
       insertedIds: [],
       updatedIds: [1],

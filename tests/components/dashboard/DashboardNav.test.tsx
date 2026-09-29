@@ -24,8 +24,8 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
 }));
 vi.mock("@/app/utils/confirmAction", () => ({ confirmAction }));
-// next/link は App Router のコンテキストが無いと遷移処理で失敗するため、クリックの
-// 既定動作（遷移）が止められたかを fireEvent の戻り値で確かめられる素の <a> にする
+// next/link fails to navigate without App Router context; use a plain <a> so fireEvent's return value
+// shows whether the default action (navigation) was prevented.
 vi.mock("next/link", () => ({
   default: forwardRef<HTMLAnchorElement, ComponentProps<"a">>(
     function MockLink(props, ref) {
@@ -34,7 +34,6 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-// 画面側（UserList 等）の代わりに未保存の変更の有無を知らせる
 const ReportUnsaved = ({ value }: { value: boolean }) => {
   useReportDashboardUnsavedChanges(value);
   return null;
@@ -55,8 +54,7 @@ const sideMenuLink = (name: string) =>
     }),
   ).getByRole("link", { name });
 
-// クリックし、画面側のハンドラが既定動作（リンクの遷移）を止めたかを返す。
-// jsdom は <a> の遷移を実装していないため、判定後は document で既定動作を止める
+// jsdom does not implement <a> navigation, so after the check the default action is prevented on document.
 const clickPrevented = (element: HTMLElement, init?: MouseEventInit) => {
   let prevented = false;
   const listener = (event: Event) => {
@@ -78,7 +76,6 @@ describe("findActiveDashboardMenu", () => {
   it.each([
     ["/dashboard/users", "/dashboard/users"],
     ["/dashboard/options", "/dashboard/options"],
-    // 配下にサブルートが増えても選択中のまま
     ["/dashboard/options/team", "/dashboard/options"],
   ])("%s ではメニュー %s を選択中とする", (pathname, expected) => {
     expect(findActiveDashboardMenu(pathname)?.href).toBe(expected);

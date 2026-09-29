@@ -15,10 +15,9 @@ const {
 vi.mock("@/app/utils/supabase/clients", () => ({ createServerSupabase }));
 vi.mock("@/app/utils/supabase/viewerAccess", () => ({ getAuthorizedViewer }));
 vi.mock("@/app/utils/supabase/profiles", () => ({ assertManagerIdsExist }));
-// budgetDeclarations.ts は getBudgetDeclarationList 用に selectOptions.ts も
-// import するが、その先（selectOptionsCache.ts）が React の cache()（RSC 用の
-// メモ化。Next.js のビルド下でのみ機能し、素の Vitest/Node 環境では未対応）を
-// モジュール評価時に呼ぶため、実体を読み込ませないようモックする
+// budgetDeclarations.ts also imports selectOptions.ts for getBudgetDeclarationList, and its dependency
+// (selectOptionsCache.ts) calls React's cache() at module evaluation (RSC memoization; only works under
+// Next.js builds, not plain Vitest/Node), so mock it to avoid loading the real module.
 vi.mock("@/app/utils/supabase/selectOptions", () => ({ getSelectOptions: vi.fn() }));
 vi.mock("@/app/utils/supabase/selectOptionsCache", () => ({
   getActiveSelectOptionsByType,

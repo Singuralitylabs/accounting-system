@@ -37,7 +37,7 @@ describe("saveProfitLossAdjustment の確定済みの月（Issue #148 / #171）"
   };
 
   it("DB 関数の先頭の判定・保存の途中の確定（書き込みのトリガー）の MONTH_CLOSED を確定済みのエラーにする", async () => {
-    // 関数の先頭の判定は message のみ、トリガーは SQLSTATE 42501 付き
+    // The function's own check only sets message; the trigger carries SQLSTATE 42501.
     for (const error of [
       { message: "MONTH_CLOSED" },
       { message: "MONTH_CLOSED", code: "42501" },

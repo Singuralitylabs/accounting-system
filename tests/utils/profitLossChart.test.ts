@@ -5,7 +5,7 @@ import {
 } from "@/app/utils/profitLossChart";
 import { AnnualTrendType, PLReportType } from "@/app/types/types";
 
-// 月ごとに値を変えた損益（index で値をずらし、系列・月の取り違えを検出できるようにする）
+// Vary values per month (shifted by index) so series/month mix-ups are detected.
 const monthReport = (month: string, index: number): PLReportType => ({
   month,
   revenueTotal: 1000000 + index,
@@ -24,7 +24,6 @@ const monthReport = (month: string, index: number): PLReportType => ({
   closing: null,
 });
 
-// 2026 年度（2026/7〜2027/6）の 12 か月
 const FISCAL_2026_MONTHS = [
   "2026-07",
   "2026-08",

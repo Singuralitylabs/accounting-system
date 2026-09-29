@@ -10,7 +10,7 @@ const base = {
   isPaused: false,
 };
 
-// 経理追加収支・定期費用の両画面が共有するロック条件（Issue #190）
+// Lock condition shared by the extra-entry and recurring-cost screens.
 describe("useSaveRefreshLock", () => {
   it("無効化されていなければロックしない", () => {
     const { result } = renderHook(() => useSaveRefreshLock(base));
@@ -57,14 +57,14 @@ describe("useSaveRefreshLock", () => {
       { initialProps: base as P },
     );
 
-    // 実際の画面では、保存フックの onSuccess が一覧を無効化してから保存結果を記録する
+    // In the real screens, the save hook's onSuccess invalidates the list, then records the save result.
     rerender({ ...base, isInvalidated: true });
     act(() => result.current.markSaved("saved"));
     expect(result.current.outcome).toBe("saved");
 
     rerender({ ...base, isInvalidated: false });
     expect(result.current.outcome).toBeNull();
-    // 待ち状態は終わっているので、後の別の無効化を保存後の待ちと取り違えない
+    // Pending state is over, so a later unrelated invalidation is not mistaken for post-save waiting.
     rerender({ ...base, isInvalidated: true });
     expect(result.current.outcome).toBeNull();
   });
@@ -88,7 +88,6 @@ describe("useSaveRefreshLock", () => {
 
     rerender({ ...invalidated, scope: "2026-10" });
     expect(result.current.outcome).toBeNull();
-    // 対象が違っても、無効化されている間のロック自体は変わらない
     expect(result.current.locked).toBe(true);
   });
 

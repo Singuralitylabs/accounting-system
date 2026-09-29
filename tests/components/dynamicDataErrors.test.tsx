@@ -27,7 +27,6 @@ vi.mock("@/app/utils/supabase/recurringCosts", () => ({
 vi.mock("@/app/utils/supabase/profiles", () => ({ getAllUserInfo }));
 vi.mock("@/app/utils/supabase/selectOptions", () => ({ getSelectOptions }));
 
-// 子コンポーネント（クライアントコンポーネント）は描画しないためスタブ化する
 vi.mock("@/app/components/extraEntries/ExtraEntryList", () => ({
   default: () => null,
 }));
@@ -65,7 +64,6 @@ describe("Dynamic* サーバコンポーネントの取得エラー", () => {
   });
 
   afterEach(() => {
-    // console.error の spyOn を戻す
     vi.restoreAllMocks();
   });
 

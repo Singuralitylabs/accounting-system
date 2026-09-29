@@ -15,7 +15,7 @@ import {
   toMonthString,
 } from "@/app/utils/formatter";
 
-// vitest.config.ts で TZ=Asia/Tokyo に固定している（JST 前提のアプリのため）
+// TZ is pinned to Asia/Tokyo in vitest.config.ts (the app assumes JST).
 
 describe("addMonths", () => {
   it("同一年内で加算する", () => {
@@ -47,8 +47,7 @@ describe("toMonthString", () => {
   });
 
   it("JST の月初日が UTC 変換で前月にずれない（toISOString のズレ回帰）", () => {
-    // 2025-05-01 00:00 JST は UTC では 2025-04-30 15:00。
-    // toISOString ベースの実装だと "2025-04" になってしまう。
+    // 2025-05-01 00:00 JST is 2025-04-30 15:00 in UTC; a toISOString-based implementation would give "2025-04".
     expect(toMonthString(new Date("2025-05-01T00:00:00+09:00"))).toBe(
       "2025-05",
     );
@@ -111,15 +110,14 @@ describe("formatDateToJp", () => {
 
 describe("formatTimeToJp", () => {
   it("日時文字列を日本語ロケールの日時表記にする（JST）", () => {
-    // 2025-01-05T00:00:00Z は JST では 2025/1/5 9:00:00
+    // 2025-01-05T00:00:00Z is 2025/1/5 9:00:00 in JST
     expect(formatTimeToJp("2025-01-05T00:00:00Z")).toBe("2025/1/5 9:00:00");
   });
 
   it("実行環境の TZ に依存せず JST で表示する（SSR ハイドレーション不一致の回帰）", () => {
-    // Intl の timeZone 指定が無いと、UTC のサーバでは "2025/1/5 0:00:00" になり、
-    // JST のブラウザと 9 時間ズレてハイドレーションエラーになる。
-    // TZ 環境変数はプロセス起動時に固定されるため、ここでは Intl 側の
-    // タイムゾーンを直接比較して指定漏れを検知する。
+    // Without an Intl timeZone, a UTC server renders "2025/1/5 0:00:00", 9 hours off from a JST browser, causing a
+    // hydration error. The TZ env var is fixed at process start, so compare Intl's time zone directly to catch
+    // a missing setting.
     const utcRendering = new Date("2025-01-05T00:00:00Z").toLocaleDateString(
       "ja-JP",
       {
@@ -206,8 +204,7 @@ describe("parseDateString / toDateString", () => {
   });
 
   it("JST 深夜でも toISOString の UTC ズレで前日にならない（回帰）", () => {
-    // 2025-05-01 00:00 JST は UTC では 2025-04-30 15:00。
-    // toISOString ベースだと "2025-04-30" にずれてしまう。
+    // 2025-05-01 00:00 JST is 2025-04-30 15:00 in UTC; toISOString-based code would shift to "2025-04-30".
     expect(toDateString(new Date("2025-05-01T00:00:00+09:00"))).toBe(
       "2025-05-01",
     );

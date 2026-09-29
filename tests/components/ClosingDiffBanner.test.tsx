@@ -23,7 +23,6 @@ describe("ClosingDiffBanner（Issue #149 / #172）", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "2026年9月（1件）" }));
     expect(onSelectMonth).toHaveBeenCalledWith("2026-09");
-    // 対象範囲より前の確定済みの月が無ければ（scopeFromMonth なし）注記しない
     expect(screen.queryByText(/確定後の変更の目印は/)).not.toBeInTheDocument();
   });
 
@@ -60,13 +59,11 @@ describe("isBeforeDiffScope / isClosedMonthBeforeDiffScope（目印の対象範�
     expect(isBeforeDiffScope("2024-09", "2024-10")).toBe(true);
     expect(isBeforeDiffScope("2024-10", "2024-10")).toBe(false);
     expect(isBeforeDiffScope("2024-11", "2024-10")).toBe(false);
-    // 年をまたいでも "YYYY-MM" の文字列比較で判定できる
     expect(isBeforeDiffScope("2023-12", "2024-01")).toBe(true);
   });
 
   it("isClosedMonthBeforeDiffScope: 確定済みで、対象の開始月より前の月だけ true", () => {
     expect(isClosedMonthBeforeDiffScope("2024-09", true, "2024-10")).toBe(true);
-    // 開始月そのもの・未確定の月は対象外
     expect(isClosedMonthBeforeDiffScope("2024-10", true, "2024-10")).toBe(
       false,
     );

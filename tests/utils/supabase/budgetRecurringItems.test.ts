@@ -118,13 +118,12 @@ describe("bulkSaveBudgetRecurringItems の display_order 採番（Issue #136）"
     ...baseRow,
     id,
     team,
-    // 渡された display_order は採番し直されるため、わざと崩した値を入れる
+    // The passed display_order is renumbered, so deliberately scramble it.
     display_order: 99,
     ...override,
   });
 
   it("display_order をチームごとに 0 から採番し、触っていないチームの行を UPDATE しない", async () => {
-    // DB の現在値（チームごとに 0, 1 で採番済み。B チームの id=4 のみ金額が古い）
     const currentRows = [
       {
         id: 1,
@@ -175,12 +174,10 @@ describe("bulkSaveBudgetRecurringItems の display_order 採番（Issue #136）"
         display_order: 1,
       },
     ];
-    // id=2 は説明文で区別する（display_order の差分だけを検証するため、内容は DB と一致させる）
     const rows = [
       teamRow(1, "Aチーム"),
       teamRow(2, "Aチーム", { description: "△△保守契約" }),
       teamRow(3, "Bチーム"),
-      // B チームの 1 行だけ金額を変更
       teamRow(4, "Bチーム", { amount: 200000 }),
     ];
 
@@ -206,8 +203,8 @@ describe("bulkSaveBudgetRecurringItems の display_order 採番（Issue #136）"
     const result = await bulkSaveBudgetRecurringItems(rows);
 
     expect(result).toEqual({});
-    // 全チーム通し（0,1,2,3）で採番すると B チームの 2 行が display_order 差分で
-    // UPDATE 対象になる。チームごと（A:0,1 B:0,1）なら変更した 1 行だけになる
+    // Numbering across all teams (0,1,2,3) would make team B's two rows display_order UPDATE targets;
+    // per-team numbering (A:0,1 B:0,1) leaves only the changed row.
     expect(updates.map((update) => update.id)).toEqual([4]);
     expect(updates[0].row).toMatchObject({ display_order: 1, amount: 200000 });
   });
