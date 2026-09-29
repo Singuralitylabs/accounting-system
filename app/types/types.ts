@@ -304,6 +304,18 @@ type BudgetDeclarationItemsTable =
   Database["public"]["Tables"]["budget_declaration_items"];
 export type BudgetDeclarationItemType = BudgetDeclarationItemsTable["Row"];
 
+export type BudgetClosingInfo = {
+  month: string; // "YYYY-MM"
+  closedAt: string;
+  closedByName: string;
+};
+
+export type BudgetClosingsResult =
+  | { closings: BudgetClosingInfo[]; error?: undefined }
+  | { closings?: undefined; error: AccessFailure };
+
+export type BudgetClosingWriteResult = { error?: AccessFailure };
+
 export type BudgetSummaryType = {
   incomeTotal: number;
   expenseTotal: number;

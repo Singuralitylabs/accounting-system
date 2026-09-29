@@ -48,6 +48,10 @@ export const PL_LABEL_WRITE_CLASSES: Role[] = ["accounting", "admin"];
 // profit_loss_closing_lines RLS (write: accounting / admin).
 export const PL_CLOSING_WRITE_CLASSES: Role[] = ["accounting", "admin"];
 
+// Closing/reopening a month of budget declarations. Matches budget_declaration_closings RLS
+// (write: accounting / admin); teamleaders may only view the closing state.
+export const BUDGET_CLOSING_WRITE_CLASSES: Role[] = ["accounting", "admin"];
+
 // Roles that may bulk-save the user list (bulkUpdateProfiles). Granting roles is privilege
 // escalation, so this is separate from ROUTE_PERMISSIONS["/dashboard"]. Matches profiles UPDATE RLS
 // (others' rows: admin only; migration 13) and update_profiles (migration 33). Every role that can

@@ -4,9 +4,22 @@ import { renderHook, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { deleteBudgetDeclaration, saveBudgetDeclaration } = vi.hoisted(() => ({
+const {
+  deleteBudgetDeclaration,
+  saveBudgetDeclaration,
+  closeBudgetDeclarationMonth,
+  reopenBudgetDeclarationMonth,
+} = vi.hoisted(() => ({
   deleteBudgetDeclaration: vi.fn(),
   saveBudgetDeclaration: vi.fn(),
+  closeBudgetDeclarationMonth: vi.fn(),
+  reopenBudgetDeclarationMonth: vi.fn(),
+}));
+
+vi.mock("@/app/utils/supabase/budgetDeclarationClosings", () => ({
+  closeBudgetDeclarationMonth,
+  reopenBudgetDeclarationMonth,
+  getBudgetDeclarationClosings: vi.fn(),
 }));
 
 vi.mock("@/app/utils/supabase/budgetDeclarations", () => ({
@@ -18,6 +31,8 @@ vi.mock("@/app/utils/notify", () =>
 );
 
 import {
+  useCloseBudgetDeclarationMonth,
+  useReopenBudgetDeclarationMonth,
   useDeleteBudgetDeclaration,
   useSaveBudgetDeclaration,
 } from "@/app/hooks/useBudgetDeclarationData";
@@ -182,6 +197,82 @@ describe("useSaveBudgetDeclaration", () => {
     ).toBeUndefined();
     expect(notifyError).toHaveBeenCalledWith(
       "同じ対象月・チームの事前収支申告が既に存在します。",
+    );
+  });
+});
+
+describe("useCloseBudgetDeclarationMonth / useReopenBudgetDeclarationMonth", () => {
+  let queryClient: QueryClient;
+
+  const wrapper = ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("確定に成功すると申告関連のキャッシュをすべて無効化する", async () => {
+    closeBudgetDeclarationMonth.mockResolvedValue({});
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useCloseBudgetDeclarationMonth(), {
+      wrapper,
+    });
+
+    await result.current.mutateAsync("2026-10");
+
+    expect(closeBudgetDeclarationMonth).toHaveBeenCalledWith("2026-10");
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ["budgetDeclarations"],
+    });
+  });
+
+  it("確定に失敗（他の経理が確定済み等）しても再取得のためキャッシュを無効化し、エラーを投げる", async () => {
+    closeBudgetDeclarationMonth.mockResolvedValue({
+      error: { kind: "validationFailed", message: "既に確定されています" },
+    });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useCloseBudgetDeclarationMonth(), {
+      wrapper,
+    });
+
+    await expect(result.current.mutateAsync("2026-10")).rejects.toThrow(
+      "既に確定されています",
+    );
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: ["budgetDeclarations"],
+      }),
+    );
+  });
+
+  it("確定解除に失敗してもキャッシュを無効化する", async () => {
+    reopenBudgetDeclarationMonth.mockResolvedValue({
+      error: { kind: "fetchFailed", message: "解除に失敗しました" },
+    });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useReopenBudgetDeclarationMonth(), {
+      wrapper,
+    });
+
+    await expect(result.current.mutateAsync("2026-10")).rejects.toThrow(
+      "解除に失敗しました",
+    );
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: ["budgetDeclarations"],
+      }),
     );
   });
 });

@@ -30,6 +30,8 @@ import { useActiveBudgetRecurringItems } from "@/app/hooks/useBudgetRecurringIte
 import { BudgetDeclarationItemInput } from "@/app/types/types";
 import { confirmAction } from "@/app/utils/confirmAction";
 import {
+  budgetAmountColor,
+  budgetEntryRowStyle,
   categoryOptionsFor,
   isCategoryUnregistered,
   previousItemsToFormRows,
@@ -438,7 +440,10 @@ const BudgetDeclarationForm = ({
             </Table.Thead>
             <Table.Tbody>
               {items.map((item) => (
-                <Table.Tr key={item.key}>
+                <Table.Tr
+                  key={item.key}
+                  style={budgetEntryRowStyle(item.entry_type)}
+                >
                   <Table.Td>
                     {item.fromRecurring && (
                       <Tooltip label="定期明細から自動で追加された行です">
@@ -505,6 +510,9 @@ const BudgetDeclarationForm = ({
                       step={1000}
                       thousandSeparator=","
                       prefix="¥"
+                      styles={{
+                        input: { color: budgetAmountColor(item.entry_type) },
+                      }}
                       onChange={(value) =>
                         handleUpdateItem(item.key, {
                           amount: typeof value === "number" ? value : 0,

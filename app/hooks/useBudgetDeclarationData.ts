@@ -5,6 +5,12 @@ import {
   useQueryClient,
   type QueryClient,
 } from "@tanstack/react-query";
+import { useMemo } from "react";
+import {
+  closeBudgetDeclarationMonth,
+  getBudgetDeclarationClosings,
+  reopenBudgetDeclarationMonth,
+} from "../utils/supabase/budgetDeclarationClosings";
 import {
   deleteBudgetDeclaration,
   getBudgetDeclarationDetail,
@@ -13,6 +19,7 @@ import {
   saveBudgetDeclaration,
 } from "../utils/supabase/budgetDeclarations";
 import {
+  BudgetClosingInfo,
   BudgetDeclarationDetailType,
   BudgetDeclarationPreviousItem,
   BudgetDeclarationSaveInput,
@@ -178,6 +185,78 @@ export const useDeleteBudgetDeclaration = () => {
       // Zero-row deletes error on double click or delete in another tab; cache may be stale either way, so always invalidate (as in useDeleteMatter).
       invalidateBudgetDeclarationQueries(queryClient, variables.declarationId);
       notifyError(toErrorMessage(error, "事前収支申告の削除に失敗しました。"));
+    },
+  });
+};
+
+const budgetClosingsQueryKey = ["budgetDeclarations", "closings"] as const;
+
+// Closed months (all teams). Month keys are "YYYY-MM"; closedMonths feeds CustomMonthPicker's indicator.
+export const useBudgetClosings = (
+  initialData?: BudgetClosingInfo[],
+  initialDataUpdatedAt?: number,
+) => {
+  const query = useQuery({
+    queryKey: budgetClosingsQueryKey,
+    queryFn: async () => {
+      const { closings, error } = await getBudgetDeclarationClosings();
+      if (error) {
+        throw new BudgetDeclarationError(error);
+      }
+      return closings;
+    },
+    initialData,
+    initialDataUpdatedAt: initialData ? initialDataUpdatedAt : undefined,
+    staleTime: 60 * 1000,
+    retry: retryUnlessForbidden,
+  });
+  const closingByMonth = useMemo(
+    () =>
+      new Map((query.data ?? []).map((closing) => [closing.month, closing])),
+    [query.data],
+  );
+  return { ...query, closingByMonth };
+};
+
+const useInvalidateAfterBudgetClosing = () => {
+  const queryClient = useQueryClient();
+  // Prefix match also refreshes lists and details opened under the new lock.
+  return () =>
+    queryClient.invalidateQueries({ queryKey: ["budgetDeclarations"] });
+};
+
+export const useCloseBudgetDeclarationMonth = () => {
+  const invalidate = useInvalidateAfterBudgetClosing();
+  return useMutation({
+    // No automatic retry; the user re-operates.
+    retry: 0,
+    mutationFn: async (month: string) => {
+      const { error } = await closeBudgetDeclarationMonth(month);
+      if (error) {
+        throw new BudgetDeclarationError(error);
+      }
+    },
+    // Also on failure: another accountant may have already closed it.
+    onSettled: invalidate,
+    onError: (error) => {
+      console.error("事前収支申告の確定エラー:", error);
+    },
+  });
+};
+
+export const useReopenBudgetDeclarationMonth = () => {
+  const invalidate = useInvalidateAfterBudgetClosing();
+  return useMutation({
+    retry: 0,
+    mutationFn: async (month: string) => {
+      const { error } = await reopenBudgetDeclarationMonth(month);
+      if (error) {
+        throw new BudgetDeclarationError(error);
+      }
+    },
+    onSettled: invalidate,
+    onError: (error) => {
+      console.error("事前収支申告の確定解除エラー:", error);
     },
   });
 };

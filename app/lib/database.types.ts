@@ -34,6 +34,38 @@ export type Database = {
   }
   public: {
     Tables: {
+      budget_declaration_closings: {
+        Row: {
+          closed_at: string
+          closed_by: number
+          closed_by_name: string
+          id: number
+          target_month: string
+        }
+        Insert: {
+          closed_at?: string
+          closed_by: number
+          closed_by_name: string
+          id?: never
+          target_month: string
+        }
+        Update: {
+          closed_at?: string
+          closed_by?: number
+          closed_by_name?: string
+          id?: never
+          target_month?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "budget_declaration_closings_closed_by_fkey"
+            columns: ["closed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       budget_declaration_items: {
         Row: {
           amount: number

@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
-  BUDGET_ALL_TEAMS_CLASSES,
+  BUDGET_WRITE_ALL_TEAMS_CLASSES,
   BUDGET_DECLARATION_ALLOWED_CLASSES,
   BudgetDeclarationError,
   BudgetDeclarationWithItems,
   buildBudgetDeclarationStatusList,
+  budgetAmountColor,
+  budgetEntryRowStyle,
+  canViewAllBudgetTeams,
+  canWriteAllBudgetTeams,
   canWriteBudgetTeam,
   categoryOptionsFor,
   defaultTargetMonth,
@@ -91,37 +95,56 @@ describe("visibleBudgetTeams", () => {
   const teamList = ["Aチーム", "Bチーム", "Cチーム"];
 
   it("経理・管理者は全チームを表示する", () => {
-    expect(visibleBudgetTeams("accounting", null, teamList)).toEqual(teamList);
-    expect(visibleBudgetTeams("admin", "Aチーム", teamList)).toEqual(teamList);
+    expect(visibleBudgetTeams("accounting", teamList)).toEqual(teamList);
+    expect(visibleBudgetTeams("admin", teamList)).toEqual(teamList);
   });
 
-  it("チームリーダーは自チームのみ表示する", () => {
-    expect(visibleBudgetTeams("teamleader", "Bチーム", teamList)).toEqual([
-      "Bチーム",
-    ]);
-  });
-
-  it("チーム未設定のチームリーダーは表示対象なし", () => {
-    expect(visibleBudgetTeams("teamleader", null, teamList)).toEqual([]);
-    expect(visibleBudgetTeams("teamleader", "", teamList)).toEqual([]);
+  it("チームリーダーも全チームを表示する（閲覧のみ）", () => {
+    expect(visibleBudgetTeams("teamleader", teamList)).toEqual(teamList);
   });
 
   it("public・ロール未設定は表示対象なし", () => {
-    expect(visibleBudgetTeams("public", "Aチーム", teamList)).toEqual([]);
-    expect(visibleBudgetTeams(null, "Aチーム", teamList)).toEqual([]);
-  });
-
-  it("マスタに無いチームを持つチームリーダーでも自チームを表示する", () => {
-    // Own team's declaration status must remain checkable after the team is deactivated in the master.
-    expect(visibleBudgetTeams("teamleader", "旧チーム", teamList)).toEqual([
-      "旧チーム",
-    ]);
+    expect(visibleBudgetTeams("public", teamList)).toEqual([]);
+    expect(visibleBudgetTeams(null, teamList)).toEqual([]);
   });
 
   it("返り値は引数のチーム配列と独立している（呼び出し元の変更が波及しない）", () => {
-    const result = visibleBudgetTeams("admin", null, teamList);
+    const result = visibleBudgetTeams("admin", teamList);
     result.push("Dチーム");
     expect(teamList).toEqual(["Aチーム", "Bチーム", "Cチーム"]);
+  });
+});
+
+describe("canViewAllBudgetTeams / canWriteAllBudgetTeams", () => {
+  it("経理・管理者・チームリーダーは全チームを閲覧できる", () => {
+    expect(canViewAllBudgetTeams("accounting")).toBe(true);
+    expect(canViewAllBudgetTeams("admin")).toBe(true);
+    expect(canViewAllBudgetTeams("teamleader")).toBe(true);
+  });
+
+  it("public・ロール未設定は閲覧できない", () => {
+    expect(canViewAllBudgetTeams("public")).toBe(false);
+    expect(canViewAllBudgetTeams(null)).toBe(false);
+  });
+
+  it("全チームへ書き込めるのは経理・管理者のみ", () => {
+    expect(canWriteAllBudgetTeams("accounting")).toBe(true);
+    expect(canWriteAllBudgetTeams("admin")).toBe(true);
+    expect(canWriteAllBudgetTeams("teamleader")).toBe(false);
+    expect(canWriteAllBudgetTeams("public")).toBe(false);
+  });
+});
+
+describe("budgetEntryRowStyle / budgetAmountColor", () => {
+  it("収入と支出で行の背景色が異なる", () => {
+    expect(budgetEntryRowStyle("income").backgroundColor).not.toBe(
+      budgetEntryRowStyle("expense").backgroundColor,
+    );
+  });
+
+  it("支出の金額のみ赤字にする", () => {
+    expect(budgetAmountColor("expense")).toContain("red");
+    expect(budgetAmountColor("income")).toBeUndefined();
   });
 });
 
@@ -286,14 +309,14 @@ describe("閲覧ロールの定義", () => {
     );
   });
 
-  it("全チーム閲覧ロールは、閲覧可ロールから自チーム限定ロールを除いたもの", () => {
+  it("全チーム書き込みロールは、閲覧可ロールから自チーム限定ロールを除いたもの", () => {
     // Regression: the list's visible scope follows when a role is added to ROUTE_PERMISSIONS.
-    expect(BUDGET_ALL_TEAMS_CLASSES).toEqual(
+    expect(BUDGET_WRITE_ALL_TEAMS_CLASSES).toEqual(
       BUDGET_DECLARATION_ALLOWED_CLASSES.filter(
         (role) => role !== "teamleader",
       ),
     );
-    expect(BUDGET_ALL_TEAMS_CLASSES).toEqual(["accounting", "admin"]);
+    expect(BUDGET_WRITE_ALL_TEAMS_CLASSES).toEqual(["accounting", "admin"]);
   });
 });
 

@@ -11,3 +11,6 @@ export const UNIQUE_VIOLATION = "23505";
 export const NO_DATA_FOUND = "P0002";
 
 export const FOREIGN_KEY_VIOLATION = "23503";
+
+// Raised by save_budget_declaration and the closed-month write trigger (migration 38, SQLSTATE 42501).
+export const MONTH_CLOSED = "MONTH_CLOSED";

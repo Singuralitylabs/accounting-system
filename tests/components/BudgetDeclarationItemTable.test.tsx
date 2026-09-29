@@ -73,4 +73,35 @@ describe("BudgetDeclarationItemTable", () => {
 
     expect(screen.getByText("-")).toBeInTheDocument();
   });
+
+  it("収入行と支出行で背景色が異なり、支出の金額のみ赤字で表示する", () => {
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: {
+        comment: null,
+        items: [
+          item({ id: 1, entry_type: "income", description: "収入の明細" }),
+          item({
+            id: 2,
+            entry_type: "expense",
+            description: "支出の明細",
+            amount: 55000,
+          }),
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    });
+
+    renderWithMantine(<BudgetDeclarationItemTable declarationId={7} />);
+
+    const incomeRow = screen.getByText("収入の明細").closest("tr");
+    const expenseRow = screen.getByText("支出の明細").closest("tr");
+    expect(incomeRow?.style.backgroundColor).toBeTruthy();
+    expect(expenseRow?.style.backgroundColor).toBeTruthy();
+    expect(incomeRow?.style.backgroundColor).not.toBe(
+      expenseRow?.style.backgroundColor,
+    );
+    expect(screen.getByText("￥55,000").style.color).toContain("red");
+    expect(screen.getByText("￥100,000").style.color).toBe("");
+  });
 });

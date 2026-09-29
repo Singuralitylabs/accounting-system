@@ -11,9 +11,15 @@ const {
   useBudgetDeclarationList,
   useBudgetDeclarationDetail,
   usePreviousBudgetDeclarationItems,
+  useBudgetClosings,
   saveMutation,
   deleteMutation,
+  closeMutation,
+  reopenMutation,
 } = vi.hoisted(() => ({
+  useBudgetClosings: vi.fn(),
+  closeMutation: { mutateAsync: vi.fn(), isPending: false },
+  reopenMutation: { mutateAsync: vi.fn(), isPending: false },
   useBudgetDeclarationList: vi.fn(),
   useBudgetDeclarationDetail: vi.fn(() => ({
     data: undefined,
@@ -36,6 +42,9 @@ vi.mock("@/app/hooks/useBudgetDeclarationData", () => ({
   usePreviousBudgetDeclarationItems,
   useSaveBudgetDeclaration: () => saveMutation,
   useDeleteBudgetDeclaration: () => deleteMutation,
+  useBudgetClosings,
+  useCloseBudgetDeclarationMonth: () => closeMutation,
+  useReopenBudgetDeclarationMonth: () => reopenMutation,
 }));
 
 // Server Action used by BudgetDeclarationForm to auto-insert recurring items. Via "use server" it pulls in
@@ -76,16 +85,31 @@ const row = (
   ...overrides,
 });
 
+const closing = (month: string) => ({
+  month,
+  closedAt: "2026-09-21T10:00:00+09:00",
+  closedByName: "経理太郎",
+});
+
+const setClosings = (closings: ReturnType<typeof closing>[] = []) => {
+  useBudgetClosings.mockReturnValue({
+    closingByMonth: new Map(closings.map((c) => [c.month, c])),
+  });
+};
+
 const renderList = (
   rows: BudgetDeclarationStatusType[],
   {
     isPlaceholderData = false,
+    closings = [],
     props,
   }: {
     isPlaceholderData?: boolean;
+    closings?: ReturnType<typeof closing>[];
     props?: Partial<ComponentProps<typeof BudgetDeclarationList>>;
   } = {},
 ) => {
+  setClosings(closings);
   useBudgetDeclarationList.mockReturnValue({
     data: rows,
     isLoading: false,
@@ -323,5 +347,80 @@ describe("BudgetDeclarationList", () => {
       screen.getByRole("button", { name: "リマインド設定" }),
     ).toBeInTheDocument();
     expect(screen.getByText("リマインド無効")).toBeInTheDocument();
+  });
+
+  it("画面上部に全チーム合計（収入・支出・収支）を表示し、テーブルのフッター合計は無い", () => {
+    renderList([
+      row({
+        team: "開発チーム",
+        declarationId: 1,
+        summary: { incomeTotal: 300000, expenseTotal: 100000, balance: 200000 },
+      }),
+      row({
+        team: "広報チーム",
+        declarationId: 2,
+        summary: { incomeTotal: 0, expenseTotal: 500000, balance: -500000 },
+      }),
+    ]);
+
+    expect(screen.getByTestId("budget-total-income")).toHaveTextContent(
+      "300,000",
+    );
+    expect(screen.getByTestId("budget-total-expense")).toHaveTextContent(
+      "600,000",
+    );
+    expect(screen.getByTestId("budget-total-balance")).toHaveTextContent(
+      "300,000",
+    );
+    expect(screen.queryByText("合計")).not.toBeInTheDocument();
+  });
+
+  it("収支がマイナスのときは赤字で表示する", () => {
+    renderList([
+      row({
+        summary: { incomeTotal: 0, expenseTotal: 500000, balance: -500000 },
+      }),
+    ]);
+
+    expect(
+      screen.getByTestId("budget-total-balance").getAttribute("style"),
+    ).toContain("red");
+  });
+
+  it("チームリーダー: 他チーム行は「明細を表示」のみで、編集ボタンは自チーム行だけに出る", () => {
+    renderList(
+      [
+        row({ team: "開発チーム", declarationId: 1 }),
+        row({ team: "広報チーム", declarationId: 2 }),
+      ],
+      { props: { canEditAllTeams: false, ownTeam: "開発チーム" } },
+    );
+
+    expect(screen.getAllByRole("button", { name: "明細を表示" })).toHaveLength(
+      2,
+    );
+    expect(screen.getAllByRole("button", { name: "編集する" })).toHaveLength(1);
+    expect(screen.getByText("閲覧のみ")).toBeInTheDocument();
+  });
+
+  it("確定済みの月は確定情報を表示し、全ロールで編集ボタンを無効化する", () => {
+    renderList([row()], { closings: [closing("2026-10")] });
+
+    expect(screen.getByText("確定済み")).toBeInTheDocument();
+    expect(screen.getByText(/経理太郎/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "編集する" })).toBeDisabled();
+    expect(
+      screen.getAllByText(/確定済みのため、作成・編集・削除できません/).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("未確定の月は確定スイッチを経理・管理者（canCloseMonth）にだけ表示する", () => {
+    renderList([row()], { props: { canCloseMonth: true } });
+    expect(screen.getByRole("switch", { name: "確定済み" })).not.toBeChecked();
+  });
+
+  it("チームリーダー（canCloseMonth=false）には確定スイッチを表示しない", () => {
+    renderList([row()], { closings: [closing("2026-10")] });
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
   });
 });

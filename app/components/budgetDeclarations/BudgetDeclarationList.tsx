@@ -1,17 +1,25 @@
 "use client";
 
-import { Alert, Badge, Button, Group, Table } from "@mantine/core";
+import { Alert, Badge, Button, Group, Paper, Table, Text } from "@mantine/core";
 import Link from "next/link";
 import { Fragment, useState } from "react";
-import { BudgetDeclarationStatusType } from "@/app/types/types";
-import { useBudgetDeclarationList } from "@/app/hooks/useBudgetDeclarationData";
 import {
+  BudgetClosingInfo,
+  BudgetDeclarationStatusType,
+} from "@/app/types/types";
+import {
+  useBudgetClosings,
+  useBudgetDeclarationList,
+} from "@/app/hooks/useBudgetDeclarationData";
+import {
+  BUDGET_MONTH_CLOSED_MESSAGE,
   isForbiddenError,
   totalBudgetSummary,
 } from "@/app/utils/budgetDeclaration";
 import { formatCurrency, formatTimeToJp } from "@/app/utils/formatter";
 import { CustomMonthPicker } from "../CustomMonthPicker";
 import { LoadingSpinner } from "../LoadingSpinner";
+import BudgetClosingControl from "./BudgetClosingControl";
 import BudgetDeclarationForm from "./BudgetDeclarationForm";
 import BudgetDeclarationItemTable from "./BudgetDeclarationItemTable";
 import BudgetDeclarationReminderSettings from "./BudgetDeclarationReminderSettings";
@@ -20,8 +28,13 @@ type Props = {
   initialMonth: string; // "YYYY-MM"
   initialData: BudgetDeclarationStatusType[] | null;
   initialDataUpdatedAt: number;
-  // Role that can create/edit all teams (accounting/admin); otherwise teamleader's own team only (rows are already own-team only, so this affects the select UI only).
+  // Role that can create/edit all teams (accounting/admin); a teamleader writes only ownTeam and only views the other teams.
   canEditAllTeams: boolean;
+  // The viewer's own team (teamleader); null for roles without a team.
+  ownTeam?: string | null;
+  // Role that can close/reopen a month (accounting/admin). Others see the state only.
+  canCloseMonth?: boolean;
+  initialClosings?: BudgetClosingInfo[] | null;
   // Role that can show the reminder settings button (admin / accounting). Defaults to false.
   canManageReminderSettings?: boolean;
   // null when fetch failed, even if canManageReminderSettings.
@@ -43,6 +56,9 @@ const BudgetDeclarationList = ({
   initialData,
   initialDataUpdatedAt,
   canEditAllTeams,
+  ownTeam = null,
+  canCloseMonth = false,
+  initialClosings = null,
   canManageReminderSettings = false,
   initialReminderTargetDays = null,
   memberList,
@@ -75,6 +91,16 @@ const BudgetDeclarationList = ({
     );
   // Right after a month switch keepPreviousData still shows the previous month's rows (isLoading stays false); disable row actions or they would pass the previous month's declarationId.
   const isSwitchingMonth = isPlaceholderData;
+
+  const { closingByMonth } = useBudgetClosings(
+    initialClosings ?? undefined,
+    initialDataUpdatedAt,
+  );
+  const closing = closingByMonth.get(month) ?? null;
+  // Closed months lock every role; the DB rejects writes as well.
+  const isClosed = closing !== null;
+  const canWriteTeam = (team: string) =>
+    canEditAllTeams || (ownTeam !== null && team === ownTeam);
 
   const rows = data ?? [];
   const total = totalBudgetSummary(rows);
@@ -115,8 +141,53 @@ const BudgetDeclarationList = ({
               setExpandedDeclarations(new Set());
             }
           }}
+          getMonthIndicator={(m) => (closingByMonth.has(m) ? "closed" : null)}
         />
       </div>
+
+      <Paper withBorder radius="md" p="sm" className="mb-4">
+        <Group gap="xl" wrap="wrap" className="mb-2">
+          <div>
+            <Text size="xs" c="dimmed">
+              収入合計（全チーム）
+            </Text>
+            <Text fw={700} data-testid="budget-total-income">
+              {formatCurrency(total.incomeTotal)}
+            </Text>
+          </div>
+          <div>
+            <Text size="xs" c="dimmed">
+              支出合計（全チーム）
+            </Text>
+            <Text fw={700} data-testid="budget-total-expense">
+              {formatCurrency(total.expenseTotal)}
+            </Text>
+          </div>
+          <div>
+            <Text size="xs" c="dimmed">
+              収支
+            </Text>
+            <Text
+              fw={700}
+              c={total.balance < 0 ? "red" : undefined}
+              data-testid="budget-total-balance"
+            >
+              {formatCurrency(total.balance)}
+            </Text>
+          </div>
+        </Group>
+        <BudgetClosingControl
+          month={month}
+          closing={closing}
+          canClose={canCloseMonth}
+          disabled={isSwitchingMonth}
+        />
+        {isClosed && (
+          <Text size="xs" c="dimmed" mt="xs">
+            {BUDGET_MONTH_CLOSED_MESSAGE}
+          </Text>
+        )}
+      </Paper>
 
       {isError ? (
         // Insufficient permission is not fixed by reloading; use a separate message.
@@ -229,20 +300,31 @@ const BudgetDeclarationList = ({
                           </Button>
                         </Table.Td>
                         <Table.Td>
-                          <Button
-                            size="xs"
-                            variant="outline"
-                            disabled={isSwitchingMonth}
-                            onClick={() =>
-                              setFormTarget({
-                                team: row.team,
-                                declarationId: row.declarationId,
-                                targetMonth: month,
-                              })
-                            }
-                          >
-                            {row.isDeclared ? "編集する" : "申告する"}
-                          </Button>
+                          {canWriteTeam(row.team) ? (
+                            <Button
+                              size="xs"
+                              variant="outline"
+                              disabled={isSwitchingMonth || isClosed}
+                              title={
+                                isClosed
+                                  ? BUDGET_MONTH_CLOSED_MESSAGE
+                                  : undefined
+                              }
+                              onClick={() =>
+                                setFormTarget({
+                                  team: row.team,
+                                  declarationId: row.declarationId,
+                                  targetMonth: month,
+                                })
+                              }
+                            >
+                              {row.isDeclared ? "編集する" : "申告する"}
+                            </Button>
+                          ) : (
+                            <Text size="xs" c="dimmed">
+                              閲覧のみ
+                            </Text>
+                          )}
                         </Table.Td>
                       </Table.Tr>
                       {isExpanded && row.declarationId !== null && (
@@ -258,21 +340,6 @@ const BudgetDeclarationList = ({
                   );
                 })}
               </Table.Tbody>
-              <Table.Tfoot>
-                <Table.Tr>
-                  <Table.Th colSpan={2}>合計</Table.Th>
-                  <Table.Th className="text-right">
-                    {formatCurrency(total.incomeTotal)}
-                  </Table.Th>
-                  <Table.Th className="text-right">
-                    {formatCurrency(total.expenseTotal)}
-                  </Table.Th>
-                  <Table.Th className="text-right">
-                    {formatCurrency(total.balance)}
-                  </Table.Th>
-                  <Table.Th colSpan={4} />
-                </Table.Tr>
-              </Table.Tfoot>
             </Table>
           </div>
         </>

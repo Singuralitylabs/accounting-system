@@ -2,6 +2,10 @@
 
 import { Alert, Table } from "@mantine/core";
 import { useBudgetDeclarationDetail } from "@/app/hooks/useBudgetDeclarationData";
+import {
+  budgetAmountColor,
+  budgetEntryRowStyle,
+} from "@/app/utils/budgetDeclaration";
 import { formatEntryType } from "@/app/utils/extraEntry";
 import { formatCurrency } from "@/app/utils/formatter";
 import { LoadingSpinner } from "../LoadingSpinner";
@@ -72,11 +76,17 @@ const BudgetDeclarationItemTable = ({ declarationId }: Props) => {
         </Table.Thead>
         <Table.Tbody>
           {detail.items.map((item) => (
-            <Table.Tr key={item.id}>
+            <Table.Tr
+              key={item.id}
+              style={budgetEntryRowStyle(item.entry_type)}
+            >
               <Table.Td>{formatEntryType(item.entry_type)}</Table.Td>
               <Table.Td>{item.category}</Table.Td>
               <Table.Td>{item.description}</Table.Td>
-              <Table.Td className="text-right">
+              <Table.Td
+                className="text-right"
+                style={{ color: budgetAmountColor(item.entry_type) }}
+              >
                 {formatCurrency(item.amount)}
               </Table.Td>
               <Table.Td>{item.managerName ?? "-"}</Table.Td>

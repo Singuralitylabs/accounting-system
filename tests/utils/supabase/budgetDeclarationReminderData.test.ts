@@ -9,7 +9,10 @@ vi.mock("@/app/utils/supabase/clients", () => ({
 }));
 
 import { DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS } from "@/app/utils/budgetDeclarationReminder";
-import { getBudgetDeclarationReminderTargetDays } from "@/app/utils/supabase/budgetDeclarationReminderData";
+import {
+  getBudgetDeclarationReminderTargetDays,
+  isBudgetMonthClosed,
+} from "@/app/utils/supabase/budgetDeclarationReminderData";
 
 describe("getBudgetDeclarationReminderTargetDays", () => {
   const maybeSingle = vi.fn();
@@ -69,5 +72,51 @@ describe("getBudgetDeclarationReminderTargetDays", () => {
     expect(await getBudgetDeclarationReminderTargetDays()).toEqual(
       DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS,
     );
+  });
+});
+
+describe("isBudgetMonthClosed", () => {
+  const maybeSingle = vi.fn();
+  const eq = vi.fn(() => ({ maybeSingle }));
+  const select = vi.fn(() => ({ eq }));
+  const from = vi.fn(() => ({ select }));
+
+  beforeEach(() => {
+    maybeSingle.mockReset();
+    from.mockClear();
+    eq.mockClear();
+    createServiceRoleSupabase.mockReset();
+    createServiceRoleSupabase.mockReturnValue({ from });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  it("確定行があれば closed: true（リマインドを送らない判定）", async () => {
+    maybeSingle.mockResolvedValue({ data: { id: 1 }, error: null });
+
+    expect(await isBudgetMonthClosed("2026-10-01")).toEqual({
+      closed: true,
+      error: null,
+    });
+    expect(from).toHaveBeenCalledWith("budget_declaration_closings");
+    expect(eq).toHaveBeenCalledWith("target_month", "2026-10-01");
+  });
+
+  it("確定行が無ければ closed: false", async () => {
+    maybeSingle.mockResolvedValue({ data: null, error: null });
+
+    expect(await isBudgetMonthClosed("2026-10-01")).toEqual({
+      closed: false,
+      error: null,
+    });
+  });
+
+  it("DB エラーはエラーとして返す（呼び出し側で 500 にする）", async () => {
+    const dbError = { message: "boom" };
+    maybeSingle.mockResolvedValue({ data: null, error: dbError });
+
+    expect(await isBudgetMonthClosed("2026-10-01")).toEqual({
+      closed: false,
+      error: dbError,
+    });
   });
 });

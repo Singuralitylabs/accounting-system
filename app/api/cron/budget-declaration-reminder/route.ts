@@ -13,6 +13,7 @@ import {
   getBudgetDeclarationReminderTargetDays,
   getDeclaredBudgetTeams,
   getTeamLeaderSlackContacts,
+  isBudgetMonthClosed,
 } from "@/app/utils/supabase/budgetDeclarationReminderData";
 
 // Runs only from Vercel Cron; force-dynamic disables caching (matches app/layout.tsx).
@@ -41,6 +42,14 @@ export async function GET(request: NextRequest) {
   }
 
   const targetMonth = defaultTargetMonth(now);
+
+  const closedResult = await isBudgetMonthClosed(toFirstOfMonth(targetMonth));
+  if (closedResult.error) {
+    return NextResponse.json({ error: "internal-error" }, { status: 500 });
+  }
+  if (closedResult.closed) {
+    return NextResponse.json({ skipped: true, reason: "month-closed" });
+  }
 
   const [teamsResult, declaredResult] = await Promise.all([
     getActiveBudgetTeams(),
