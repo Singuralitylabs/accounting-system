@@ -44,14 +44,13 @@ describe("closeBudgetDeclarationMonth", () => {
     expect(BUDGET_CLOSING_WRITE_CLASSES).toEqual(["accounting", "admin"]);
   });
 
-  it("月初日・確定者の ID と氏名で INSERT する", async () => {
+  it("月初日と確定者の ID で INSERT する（氏名は送らず DB が profiles から採用する）", async () => {
     insert.mockResolvedValue({ error: null });
 
     expect(await closeBudgetDeclarationMonth("2026-10")).toEqual({});
     expect(insert).toHaveBeenCalledWith({
       target_month: "2026-10-01",
       closed_by: 9,
-      closed_by_name: "経理太郎",
     });
   });
 

@@ -14,3 +14,9 @@ export const FOREIGN_KEY_VIOLATION = "23503";
 
 // Raised by save_budget_declaration and the closed-month write trigger (migration 38, SQLSTATE 42501).
 export const MONTH_CLOSED = "MONTH_CLOSED";
+
+// Matched by message, not code: 42501 is shared with plain RLS denials, so the code alone cannot
+// tell a closed month from a permission error.
+export const isMonthClosedError = (
+  error: { message: string } | null | undefined,
+): boolean => !!error?.message.includes(MONTH_CLOSED);

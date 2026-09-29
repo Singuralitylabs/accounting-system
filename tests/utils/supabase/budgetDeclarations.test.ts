@@ -444,4 +444,57 @@ describe("getBudgetDeclarationList", () => {
     expect(result.rows?.map((r) => r.team)).toEqual(["Aチーム", "Bチーム"]);
     expect(result.rows?.[0].summary.incomeTotal).toBe(1000);
   });
+
+  it("マスタから外れたチームのリーダーは、未申告でも自チームの行を持つ（申告できなくならない）", async () => {
+    const { getSelectOptions } = await import(
+      "@/app/utils/supabase/selectOptions"
+    );
+    vi.mocked(getSelectOptions).mockResolvedValue({
+      options: [{ value: "Aチーム" }],
+      error: null,
+    } as never);
+    getAuthorizedViewer.mockResolvedValue({
+      profileInfo: { id: 2, class: "teamleader", team: "旧チーム" },
+    });
+    createServerSupabase.mockReturnValue({
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            order: vi.fn().mockResolvedValue({ data: [], error: null }),
+          }),
+        }),
+      }),
+    });
+
+    const result = await getBudgetDeclarationList("2026-10");
+
+    expect(result.rows?.map((r) => r.team)).toEqual(["Aチーム", "旧チーム"]);
+    expect(result.rows?.[1].isDeclared).toBe(false);
+  });
+
+  it("経理・管理者にはマスタ外の未申告チーム行を追加しない", async () => {
+    const { getSelectOptions } = await import(
+      "@/app/utils/supabase/selectOptions"
+    );
+    vi.mocked(getSelectOptions).mockResolvedValue({
+      options: [{ value: "Aチーム" }],
+      error: null,
+    } as never);
+    getAuthorizedViewer.mockResolvedValue({
+      profileInfo: { id: 1, class: "accounting", team: "旧チーム" },
+    });
+    createServerSupabase.mockReturnValue({
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            order: vi.fn().mockResolvedValue({ data: [], error: null }),
+          }),
+        }),
+      }),
+    });
+
+    const result = await getBudgetDeclarationList("2026-10");
+
+    expect(result.rows?.map((r) => r.team)).toEqual(["Aチーム"]);
+  });
 });

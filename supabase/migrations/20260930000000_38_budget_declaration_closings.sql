@@ -15,8 +15,9 @@ CREATE TABLE budget_declaration_closings (
   id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   target_month   date NOT NULL,
   closed_by      bigint NOT NULL REFERENCES profiles (id),
-  -- Name at closing time: teamleaders cannot read other teams' profiles but still see who closed
-  closed_by_name text NOT NULL,
+  -- Name at closing time: teamleaders cannot read other teams' profiles but still see who closed.
+  -- Always overwritten from profiles by lock_budget_closing_insert, so callers need not send it.
+  closed_by_name text NOT NULL DEFAULT '',
   closed_at      timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT budget_declaration_closings_target_month_check
     CHECK (target_month = date_trunc('month', target_month)::date),

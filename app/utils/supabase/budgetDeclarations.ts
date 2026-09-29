@@ -15,6 +15,7 @@ import {
   buildBudgetDeclarationStatusList,
   BUDGET_MONTH_CLOSED_MESSAGE,
   canWriteBudgetTeam,
+  ownBudgetTeams,
 } from "../budgetDeclaration";
 import {
   DUPLICATE_DECLARATION_MESSAGE,
@@ -24,7 +25,11 @@ import {
 } from "../budgetDeclarationValidation";
 import { toFirstOfMonth } from "../formatter";
 import { createServerSupabase } from "./clients";
-import { FOREIGN_KEY_VIOLATION, MONTH_CLOSED, NO_DATA_FOUND } from "./errorCodes";
+import {
+  FOREIGN_KEY_VIOLATION,
+  NO_DATA_FOUND,
+  isMonthClosedError,
+} from "./errorCodes";
 import { assertManagerIdsExist } from "./profiles";
 import { getSelectOptions } from "./selectOptions";
 import { getActiveSelectOptionsByType } from "./selectOptionsCache";
@@ -47,7 +52,7 @@ const DECLARATION_LIST_SELECT = `
 export const getBudgetDeclarationList = async (
   month: string,
 ): Promise<BudgetDeclarationListResult> => {
-  const { error: accessError } = await getAuthorizedViewer(
+  const { profileInfo, error: accessError } = await getAuthorizedViewer(
     BUDGET_DECLARATION_ALLOWED_CLASSES,
     SUBJECT,
   );
@@ -79,7 +84,14 @@ export const getBudgetDeclarationList = async (
     };
   }
 
+  // A teamleader whose team was disabled/renamed in the master must still get a row for their own
+  // team, or they could never declare it (RLS still allows the write).
   const teams = teamResult.options.map((option) => option.value);
+  for (const ownTeam of ownBudgetTeams(profileInfo.class, profileInfo.team)) {
+    if (!teams.includes(ownTeam)) {
+      teams.push(ownTeam);
+    }
+  }
 
   return {
     rows: buildBudgetDeclarationStatusList(
@@ -312,7 +324,7 @@ export const saveBudgetDeclaration = async (
     console.error(`${SUBJECT}の保存に失敗しました:`, rpcError);
     // save_budget_declaration raises MONTH_CLOSED (SQLSTATE 42501) for a closed month (migration 38);
     // a plain RLS denial is also 42501, hence the message check.
-    if (rpcError.message.includes(MONTH_CLOSED)) {
+    if (isMonthClosedError(rpcError)) {
       return {
         error: { kind: "validationFailed", message: BUDGET_MONTH_CLOSED_MESSAGE },
       };
@@ -392,7 +404,7 @@ export const deleteBudgetDeclaration = async (
 
   if (error) {
     console.error(`${SUBJECT}の削除に失敗しました:`, error);
-    if (error.message.includes(MONTH_CLOSED)) {
+    if (isMonthClosedError(error)) {
       return {
         error: { kind: "validationFailed", message: BUDGET_MONTH_CLOSED_MESSAGE },
       };

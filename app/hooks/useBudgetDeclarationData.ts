@@ -216,10 +216,11 @@ export const useBudgetClosings = (
     [query.data],
   );
   // Not spread: returning the whole query result would opt out of tracked-props re-render
-  // optimization. isUnknown = the closing state could not be loaded at all (do not treat as "open").
+  // optimization. isUnknown = no closing state yet (still loading, or failed with nothing cached);
+  // callers must not treat it as "open".
   return {
     closingByMonth,
-    isUnknown: query.isError && query.data === undefined,
+    isUnknown: query.data === undefined,
   };
 };
 

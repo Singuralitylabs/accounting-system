@@ -58,7 +58,7 @@ export const closeBudgetDeclarationMonth = async (
   }
   const { profileInfo, error } = await getAuthorizedViewer(
     BUDGET_CLOSING_WRITE_CLASSES,
-    "事前収支申告の月次確定",
+    SUBJECT,
   );
   if (!profileInfo) {
     return { error };
@@ -70,7 +70,6 @@ export const closeBudgetDeclarationMonth = async (
     .insert({
       target_month: toFirstOfMonth(month),
       closed_by: profileInfo.id,
-      closed_by_name: profileInfo.name,
     });
 
   if (insertError) {

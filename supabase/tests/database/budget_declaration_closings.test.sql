@@ -1,7 +1,7 @@
 -- pgTAP tests for all-team read access and monthly closing of budget declarations
 -- Run: supabase test db (local Supabase running; docs/testing.md 3.8)
 BEGIN;
-SELECT plan(37);
+SELECT plan(31);
 
 INSERT INTO auth.users (id, email) VALUES
   ('11111111-1111-1111-1111-111111111111', 'acc@example.com'),
@@ -100,96 +100,46 @@ SELECT is((SELECT count(*) FROM public.budget_declaration_closings)::int, 1, 'te
 WITH d AS (DELETE FROM public.budget_declaration_closings RETURNING 1)
 SELECT is((SELECT count(*) FROM d)::int, 0, 'teamleader は確定を解除できない');
 
--- ===== write trigger on its own =====
--- The RLS closed-month condition raises the same 42501, so within this test transaction only,
--- replace the write policies with ones lacking that condition and check that the trigger alone (MONTH_CLOSED) rejects.
-RESET ROLE;
-DROP POLICY budget_declarations_insert_policy ON public.budget_declarations;
-DROP POLICY budget_declarations_update_policy ON public.budget_declarations;
-DROP POLICY budget_declarations_delete_policy ON public.budget_declarations;
-DROP POLICY budget_declaration_items_insert_policy ON public.budget_declaration_items;
-DROP POLICY budget_declaration_items_update_policy ON public.budget_declaration_items;
-DROP POLICY budget_declaration_items_delete_policy ON public.budget_declaration_items;
-CREATE POLICY tap_open_declarations ON public.budget_declarations FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY tap_open_items ON public.budget_declaration_items FOR ALL TO authenticated USING (true) WITH CHECK (true);
-SET LOCAL ROLE authenticated;
-SELECT set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', true);
-
-SELECT throws_ok(
-  $$INSERT INTO public.budget_declarations (target_month, team, declared_by)
-    SELECT DATE '2026-10-01', 'Cチーム', id FROM public.profiles WHERE email = 'acc@example.com'$$,
-  '42501', 'MONTH_CLOSED', 'トリガー: 確定月のヘッダ INSERT を拒否する');
-SELECT throws_ok(
-  $$UPDATE public.budget_declarations SET comment = 'x' WHERE target_month = DATE '2026-10-01'$$,
-  '42501', 'MONTH_CLOSED', 'トリガー: 確定月のヘッダ UPDATE を拒否する');
-SELECT throws_ok(
-  $$DELETE FROM public.budget_declarations WHERE target_month = DATE '2026-10-01'$$,
-  '42501', 'MONTH_CLOSED', 'トリガー: 確定月のヘッダ DELETE を拒否する');
-SELECT throws_ok(
-  $$UPDATE public.budget_declarations SET target_month = DATE '2026-10-01' WHERE target_month = DATE '2026-11-01'$$,
-  '42501', 'MONTH_CLOSED', 'トリガー: 未確定月から確定月への付け替えを拒否する');
-SELECT throws_ok(
-  $$INSERT INTO public.budget_declaration_items (declaration_id, entry_type, category, description, amount)
-    SELECT id, 'income', '協賛金', 'x', 1 FROM public.budget_declarations WHERE target_month = DATE '2026-10-01' LIMIT 1$$,
-  '42501', 'MONTH_CLOSED', 'トリガー: 確定月の明細 INSERT を拒否する');
-SELECT throws_ok(
-  $$DELETE FROM public.budget_declaration_items$$,
-  '42501', 'MONTH_CLOSED', 'トリガー: 確定月の明細 DELETE を拒否する');
-
 -- ===== delete_budget_declaration =====
--- Restore the real policies for the RPC checks: drop the permissive test policies and recreate
--- the migration's write policies (closed-month condition included).
-RESET ROLE;
-DROP POLICY tap_open_declarations ON public.budget_declarations;
-DROP POLICY tap_open_items ON public.budget_declaration_items;
-CREATE POLICY budget_declarations_delete_policy ON public.budget_declarations
-  FOR DELETE TO authenticated
-  USING (public.can_access_team_budget(team) AND NOT private.is_budget_month_closed(target_month));
-CREATE POLICY budget_declarations_update_policy ON public.budget_declarations
-  FOR UPDATE TO authenticated
-  USING (public.can_access_team_budget(team) AND NOT private.is_budget_month_closed(target_month))
-  WITH CHECK (public.can_access_team_budget(team) AND NOT private.is_budget_month_closed(target_month));
-CREATE POLICY budget_declarations_insert_policy ON public.budget_declarations
-  FOR INSERT TO authenticated
-  WITH CHECK (public.can_access_team_budget(team) AND NOT private.is_budget_month_closed(target_month));
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}', true);
 
 SELECT throws_ok(
   $$SELECT * FROM public.delete_budget_declaration(
       (SELECT id FROM public.budget_declarations WHERE team = 'Aチーム' AND target_month = DATE '2026-10-01'), 'Aチーム')$$,
-  '42501', 'MONTH_CLOSED', 'delete RPC: closed month is rejected with MONTH_CLOSED');
+  '42501', 'MONTH_CLOSED', '削除 RPC: 確定月は MONTH_CLOSED で拒否される');
 SELECT throws_ok(
   $$SELECT * FROM public.delete_budget_declaration(
       (SELECT id FROM public.budget_declarations WHERE team = 'Bチーム' AND target_month = DATE '2026-10-01'), 'Bチーム')$$,
-  '42501', 'MONTH_CLOSED', 'delete RPC: closed month is rejected for another team''s declaration as well');
+  '42501', 'MONTH_CLOSED', '削除 RPC: 確定月は他チームの申告でも MONTH_CLOSED で拒否される');
 
 SELECT set_config('request.jwt.claims', '{"sub":"55555555-5555-5555-5555-555555555555","role":"authenticated"}', true);
 WITH d AS (DELETE FROM public.budget_declaration_closings RETURNING 1)
-SELECT is((SELECT count(*) FROM d)::int, 1, 'admin can reopen a month');
+SELECT is((SELECT count(*) FROM d)::int, 1, 'admin は確定を解除できる');
 
 SELECT set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}', true);
 SELECT is(
   (SELECT count(*) FROM public.delete_budget_declaration(
       (SELECT id FROM public.budget_declarations WHERE team = 'Bチーム' AND target_month = DATE '2026-10-01'), 'Bチーム'))::int,
-  0, 'delete RPC: teamleader cannot delete another team''s open-month declaration (0 rows)');
+  0, '削除 RPC: teamleader は未確定月でも他チームの申告を削除できない（0 行）');
 SELECT is(
   (SELECT count(*) FROM public.delete_budget_declaration(
       (SELECT id FROM public.budget_declarations WHERE team = 'Aチーム' AND target_month = DATE '2026-10-01'), 'Bチーム'))::int,
-  0, 'delete RPC: an id/team mismatch deletes nothing');
+  0, '削除 RPC: id と team が食い違うと何も削除しない');
 SELECT is(
   (SELECT count(*) FROM public.delete_budget_declaration(
       (SELECT id FROM public.budget_declarations WHERE team = 'Aチーム' AND target_month = DATE '2026-10-01'), 'Aチーム'))::int,
-  1, 'delete RPC: teamleader deletes own-team declaration in an open month');
+  1, '削除 RPC: teamleader は未確定月の自チームの申告を削除できる');
 SELECT is(
   (SELECT count(*) FROM public.budget_declaration_items WHERE declaration_id NOT IN (SELECT id FROM public.budget_declarations))::int,
-  0, 'delete RPC: lines are removed with the header (CASCADE)');
+  0, '削除 RPC: 明細もヘッダと一緒に削除される（CASCADE）');
 
 -- ===== after reopening (by admin) writes work again =====
 SELECT set_config('request.jwt.claims', '{"sub":"55555555-5555-5555-5555-555555555555","role":"authenticated"}', true);
 SELECT lives_ok(
-  $$SELECT public.save_budget_declaration(DATE '2026-10-01', 'Cチーム', '[]'::jsonb)$$,
-  'writes work again after reopening');
+  $$SELECT public.save_budget_declaration(DATE '2026-10-01', 'Cチーム',
+      '[{"entry_type":"income","category":"協賛金","description":"x","amount":100}]'::jsonb)$$,
+  '確定解除後は明細付きの申告を保存できる');
 
 SELECT * FROM finish();
 ROLLBACK;

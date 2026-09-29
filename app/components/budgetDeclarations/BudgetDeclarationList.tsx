@@ -13,6 +13,8 @@ import {
 } from "@/app/hooks/useBudgetDeclarationData";
 import {
   BUDGET_MONTH_CLOSED_MESSAGE,
+  canWriteAllBudgetTeams,
+  canWriteBudgetTeam,
   isForbiddenError,
   totalBudgetSummary,
 } from "@/app/utils/budgetDeclaration";
@@ -28,10 +30,9 @@ type Props = {
   initialMonth: string; // "YYYY-MM"
   initialData: BudgetDeclarationStatusType[] | null;
   initialDataUpdatedAt: number;
-  // Role that can create/edit all teams (accounting/admin); a teamleader writes only ownTeam and only views the other teams.
-  canEditAllTeams: boolean;
-  // The viewer's own team (teamleader); null for roles without a team.
-  ownTeam?: string | null;
+  // Viewer's role / team: writes follow canWriteBudgetTeam (accounting/admin all teams, teamleader own team only); other teams are view-only.
+  profileClass: string | null;
+  profileTeam?: string | null;
   // Role that can close/reopen a month (accounting/admin). Others see the state only.
   canCloseMonth?: boolean;
   initialClosings?: BudgetClosingInfo[] | null;
@@ -55,8 +56,8 @@ const BudgetDeclarationList = ({
   initialMonth,
   initialData,
   initialDataUpdatedAt,
-  canEditAllTeams,
-  ownTeam = null,
+  profileClass,
+  profileTeam = null,
   canCloseMonth = false,
   initialClosings = null,
   canManageReminderSettings = false,
@@ -102,7 +103,7 @@ const BudgetDeclarationList = ({
   // A failed closing lookup is neither "open" nor "closed": block edits until it loads.
   const editLocked = isClosed || closingUnknown;
   const canWriteTeam = (team: string) =>
-    canEditAllTeams || (ownTeam !== null && team === ownTeam);
+    canWriteBudgetTeam(profileClass, profileTeam, team);
 
   const rows = data ?? [];
   const total = totalBudgetSummary(rows);
@@ -216,7 +217,7 @@ const BudgetDeclarationList = ({
         <LoadingSpinner />
       ) : rows.length === 0 ? (
         <Alert color="gray" title="表示できるチームがありません">
-          チームマスタが未登録か、所属チームが設定されていない可能性があります。
+          チームマスタが未登録の可能性があります。管理者にお問い合わせください。
         </Alert>
       ) : (
         <>
@@ -361,7 +362,7 @@ const BudgetDeclarationList = ({
           targetMonth={formTarget.targetMonth}
           team={formTarget.team}
           declarationId={formTarget.declarationId}
-          teamLocked={!canEditAllTeams}
+          teamLocked={!canWriteAllBudgetTeams(profileClass)}
           memberList={memberList}
           memberListError={memberListError}
         />

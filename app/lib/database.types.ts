@@ -45,7 +45,7 @@ export type Database = {
         Insert: {
           closed_at?: string
           closed_by: number
-          closed_by_name: string
+          closed_by_name?: string
           id?: never
           target_month: string
         }

@@ -18,7 +18,7 @@ import {
 import { fetchClosedMonthKeys } from "./closedMonthsQuery";
 import { fetchAllByIds } from "./paging";
 import { createServerSupabase } from "./clients";
-import { MONTH_CLOSED } from "./errorCodes";
+import { isMonthClosedError } from "./errorCodes";
 
 // Fetches entries for the target month plus month-undetermined (NULL entry_date) rows, the same
 // range as the P&L selected month. RLS returns only permitted rows.
@@ -268,7 +268,7 @@ export const copyExtraEntriesFromPreviousMonth = async (
 
   // A month closed after the check above (closed-month write / serialization with closing) is
   // reported as a copy into a closed month.
-  if (copyError?.message.includes(MONTH_CLOSED)) {
+  if (isMonthClosedError(copyError)) {
     return {
       insertedCount: 0,
       skippedCount: 0,

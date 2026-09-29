@@ -9,7 +9,9 @@ const {
   saveBudgetDeclaration,
   closeBudgetDeclarationMonth,
   reopenBudgetDeclarationMonth,
+  getBudgetDeclarationClosings,
 } = vi.hoisted(() => ({
+  getBudgetDeclarationClosings: vi.fn(),
   deleteBudgetDeclaration: vi.fn(),
   saveBudgetDeclaration: vi.fn(),
   closeBudgetDeclarationMonth: vi.fn(),
@@ -19,7 +21,7 @@ const {
 vi.mock("@/app/utils/supabase/budgetDeclarationClosings", () => ({
   closeBudgetDeclarationMonth,
   reopenBudgetDeclarationMonth,
-  getBudgetDeclarationClosings: vi.fn(),
+  getBudgetDeclarationClosings,
 }));
 
 vi.mock("@/app/utils/supabase/budgetDeclarations", () => ({
@@ -31,6 +33,7 @@ vi.mock("@/app/utils/notify", () =>
 );
 
 import {
+  useBudgetClosings,
   useCloseBudgetDeclarationMonth,
   useReopenBudgetDeclarationMonth,
   useDeleteBudgetDeclaration,
@@ -274,5 +277,70 @@ describe("useCloseBudgetDeclarationMonth / useReopenBudgetDeclarationMonth", () 
         queryKey: ["budgetDeclarations"],
       }),
     );
+  });
+});
+
+describe("useBudgetClosings", () => {
+  const wrapper = ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      {children}
+    </QueryClientProvider>
+  );
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("取得中は確定状態が不明（isUnknown）で、取得後は月ごとの確定情報を返す", async () => {
+    getBudgetDeclarationClosings.mockResolvedValue({
+      closings: [
+        {
+          month: "2026-10",
+          closedAt: "2026-09-21T01:00:00Z",
+          closedByName: "経理",
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => useBudgetClosings(), { wrapper });
+
+    expect(result.current.isUnknown).toBe(true);
+    await waitFor(() => expect(result.current.isUnknown).toBe(false));
+    expect(result.current.closingByMonth.get("2026-10")?.closedByName).toBe(
+      "経理",
+    );
+  });
+
+  it("取得に失敗して何も持たないときも isUnknown のまま（未確定扱いにしない）", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    getBudgetDeclarationClosings.mockResolvedValue({
+      error: { kind: "fetchFailed", message: "失敗" },
+    });
+
+    const { result } = renderHook(() => useBudgetClosings(), { wrapper });
+
+    await waitFor(() =>
+      expect(getBudgetDeclarationClosings).toHaveBeenCalled(),
+    );
+    await waitFor(() => expect(result.current.closingByMonth.size).toBe(0));
+    expect(result.current.isUnknown).toBe(true);
+  });
+
+  it("seed（initialData）があれば最初から確定状態を判定できる", () => {
+    const { result } = renderHook(
+      () =>
+        useBudgetClosings(
+          [{ month: "2026-10", closedAt: "x", closedByName: "経理" }],
+          Date.now(),
+        ),
+      { wrapper },
+    );
+
+    expect(result.current.isUnknown).toBe(false);
+    expect(result.current.closingByMonth.has("2026-10")).toBe(true);
   });
 });

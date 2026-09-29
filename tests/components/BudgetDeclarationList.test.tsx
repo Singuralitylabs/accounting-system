@@ -129,7 +129,7 @@ const renderList = (
       initialMonth="2026-10"
       initialData={null}
       initialDataUpdatedAt={Date.now()}
-      canEditAllTeams
+      profileClass="accounting"
       memberList={[]}
       {...props}
     />,
@@ -282,7 +282,7 @@ describe("BudgetDeclarationList", () => {
         initialMonth="2026-10"
         initialData={null}
         initialDataUpdatedAt={Date.now()}
-        canEditAllTeams
+        profileClass="accounting"
         memberList={[]}
       />,
     );
@@ -303,7 +303,7 @@ describe("BudgetDeclarationList", () => {
         initialMonth="2026-10"
         initialData={null}
         initialDataUpdatedAt={Date.now()}
-        canEditAllTeams
+        profileClass="accounting"
         memberList={[]}
       />,
     );
@@ -399,7 +399,7 @@ describe("BudgetDeclarationList", () => {
         row({ team: "開発チーム", declarationId: 1 }),
         row({ team: "広報チーム", declarationId: 2 }),
       ],
-      { props: { canEditAllTeams: false, ownTeam: "開発チーム" } },
+      { props: { profileClass: "teamleader", profileTeam: "開発チーム" } },
     );
 
     expect(screen.getAllByRole("button", { name: "明細を表示" })).toHaveLength(

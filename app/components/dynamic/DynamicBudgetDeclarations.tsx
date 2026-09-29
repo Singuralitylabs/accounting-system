@@ -4,10 +4,7 @@ import {
   getMemberOptions,
   getProfileInfo,
 } from "@/app/utils/supabase/profiles";
-import {
-  canWriteAllBudgetTeams,
-  defaultTargetMonth,
-} from "@/app/utils/budgetDeclaration";
+import { defaultTargetMonth } from "@/app/utils/budgetDeclaration";
 import {
   BUDGET_CLOSING_WRITE_CLASSES,
   hasClassAccess,
@@ -45,7 +42,7 @@ const DynamicBudgetDeclarations = async () => {
     );
   }
 
-  // On failure canEditAllTeams falls back to false (team fixed); still log the cause.
+  // On failure the role is null, so no team is writable (view-only); still log the cause.
   if (profileError) {
     console.error(
       "事前収支申告フォームの権限判定用プロフィール取得に失敗しました:",
@@ -75,8 +72,8 @@ const DynamicBudgetDeclarations = async () => {
       initialData={rows ?? null}
       // Without the seed time TanStack Query treats initialData as fetched now and shows stale data after GC without refetching.
       initialDataUpdatedAt={Date.now()}
-      canEditAllTeams={canWriteAllBudgetTeams(profileInfo?.class)}
-      ownTeam={profileInfo?.team ?? null}
+      profileClass={profileInfo?.class ?? null}
+      profileTeam={profileInfo?.team ?? null}
       canCloseMonth={hasClassAccess(
         BUDGET_CLOSING_WRITE_CLASSES,
         profileInfo?.class,
