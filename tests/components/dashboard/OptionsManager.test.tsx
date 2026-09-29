@@ -65,7 +65,7 @@ describe("OptionsManager", () => {
     expect(within(nav()).getByText("決済方法")).toBeInTheDocument();
     expect(
       within(nav()).getByRole("button", { name: /^チーム/ }),
-    ).toHaveAttribute("aria-current", "page");
+    ).toHaveAttribute("aria-current", "true");
     expect(screen.getByDisplayValue("チームの項目")).toBeVisible();
     expect(screen.queryByDisplayValue("品目の項目")).not.toBeVisible();
   });

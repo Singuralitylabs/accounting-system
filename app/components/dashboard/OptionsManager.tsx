@@ -117,7 +117,7 @@ const OptionsManager = ({
                   <UnstyledButton
                     key={optionClass}
                     type="button"
-                    aria-current={isSelected ? "page" : undefined}
+                    aria-current={isSelected ? "true" : undefined}
                     onClick={() => handleSelect(optionClass)}
                     className={`flex w-full items-center justify-between rounded px-2 py-2 text-sm ${
                       isSelected

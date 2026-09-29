@@ -589,7 +589,7 @@ describe("SelectOptionList", () => {
     ]);
   });
 
-  it("未保存の変更が無い間は「更新」を押せない", () => {
+  it("未保存の変更が無い間は「保存」を押せない", () => {
     renderWithMantine(
       <SelectOptionList optionClass="team" optionList={optionList} />,
     );
