@@ -549,30 +549,6 @@ const appendMatterLabels = async (
   rows.labels.push(...(labelResult.data ?? []));
 };
 
-// 取得済みの rows に、補完取得（欠けている対象行と、その案件の表示タイトル）を順に行う。
-// 月次レポート本体は fetchReportSourceRows の supplement で表示タイトルの取得と並列に
-// 行うため、本番コードからは呼ばれない。並列版との結果の同値性を確かめるテスト・互換用
-export const supplementAdjustmentTargets = async (
-  month: string,
-  rows: ReportSourceRows,
-  options?: Omit<AdjustmentSupplementOptions, "month">,
-): Promise<void> => {
-  const missingIds = planAdjustmentSupplement(month, rows, options);
-  if (!missingIds) {
-    return;
-  }
-  const supplemented = await fetchAdjustmentTargetRows(missingIds);
-  if (!supplemented) {
-    return;
-  }
-  const newMatterIds = applyAdjustmentSupplement(
-    rows,
-    supplemented,
-    new Set(collectLabelTargetIds(rows).matterIds),
-  );
-  await appendMatterLabels(rows, newMatterIds);
-};
-
 // 確定後の差分（Issue #149）の追加・削除に付ける、他の月との移動の情報を取得する。
 // - 削除の差分: 明細の現在の所在（案件開始日の月・下書きか。行が無ければ削除済み）
 // - 追加の差分: その明細を確定明細に持つ他の確定済みの月（移動元）

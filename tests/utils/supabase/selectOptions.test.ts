@@ -21,6 +21,7 @@ type Row = { id: number; value: string; is_active: boolean | null };
 const createSupabaseMock = ({
   rows: initialRows = [],
   failInsertCall,
+  returnFewerRows = false,
   failUpdate = false,
   failUpdateIds = [],
   failType = false,
@@ -30,6 +31,8 @@ const createSupabaseMock = ({
   rows?: Row[];
   // 23505 以外のエラーにする INSERT 呼び出しの番号（0 始まり）
   failInsertCall?: number;
+  // INSERT は成功するが、RETURNING が最後の 1 行を返さない（戻り値の欠落の再現用）
+  returnFewerRows?: boolean;
   failUpdate?: boolean;
   // 23505 以外のエラーにする UPDATE の行の id
   failUpdateIds?: number[];
@@ -157,7 +160,10 @@ const createSupabaseMock = ({
             // 戻り値の並び順は入力順と一致しない場合がある（逆順にして確認する）
             return { id, value: v.value as string };
           });
-          return { data: data.reverse(), error: null };
+          return {
+            data: (returnFewerRows ? data.slice(0, -1) : data).reverse(),
+            error: null,
+          };
         },
       }),
       select: () => ({
@@ -508,6 +514,24 @@ describe("bulkUpsertSelectOptions", () => {
     });
     expect(inserted).toEqual([]);
     expect(updated.map((row) => row.id)).toEqual([1]);
+  });
+
+  it("一括 INSERT は成功したが戻り値が入力より少ないときは、返ってきた行を insertedIds に入れてエラーを返す", async () => {
+    const { client, inserted } = createSupabaseMock({ returnFewerRows: true });
+    createServerSupabase.mockReturnValue(client);
+
+    const result = await bulkUpsertSelectOptions("team", [
+      option(-1, "チームB", { isNew: true }),
+      option(-2, "チームC", { isNew: true }),
+    ]);
+
+    // 書き込まれた行のうち id が分かる行は画面が DB の id に置き換えられるようにする
+    expect(inserted).toHaveLength(2);
+    expect(result).toEqual({
+      insertedIds: [{ tempId: -1, id: 100 }],
+      updatedIds: [],
+      error: "項目の追加に失敗しました。",
+    });
   });
 
   it("UPDATE に失敗したら、追加へ進まずにエラーを返す", async () => {

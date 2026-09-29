@@ -282,9 +282,18 @@ export const bulkUpsertSelectOptions = async (
       .insert(newOptions.map(toInsertRow))
       .select("id, value");
 
-    if (!bulkError && bulkData && bulkData.length === newOptions.length) {
+    if (!bulkError && bulkData) {
+      // INSERT は成功している。返ってきた行は必ず insertedIds に入れる（入れないと画面が
+      // 仮 id のままになり、再保存で同じ名前を再び追加して重複エラーになる）
       recordInserted(bulkData, newOptions);
-      return { insertedIds, updatedIds };
+      if (bulkData.length === newOptions.length) {
+        return { insertedIds, updatedIds };
+      }
+      console.error("一括 INSERT の戻り値が追加した行数より少ない", {
+        expected: newOptions.length,
+        actual: bulkData.length,
+      });
+      return addFailed();
     }
     if (bulkError?.code !== UNIQUE_VIOLATION) {
       console.error("選択肢の追加に失敗しました", bulkError);
