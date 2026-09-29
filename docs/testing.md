@@ -647,8 +647,10 @@ DB Types 整合性チェックのワークフローを実行するために、Gi
 - テストファイル名は「対象 + 期待する振る舞い」が想像できる名前にする。
 - コンポーネントテストはファイル先頭に `// @vitest-environment jsdom` を付ける。デフォルト環境は `node` のままにする。
 - 描画は `tests/testUtils/renderWithMantine.tsx`（`MantineProvider` + `DatesLocaleProvider`）経由で行う。
-  - このラッパーは Mantine のトランジション（Menu / Popover / Modal / Collapse 等）を無効にしている（`respectReducedMotion` + `tests/setup.ts` の `matchMedia` スタブで `prefers-reduced-motion` を一致させる）。開閉は同期で反映されるため、閉じたことの確認は `waitForElementToBeRemoved` ではなく `waitFor` + `not.toBeInTheDocument()` で書く。
-  - 無効にしている理由: Mantine 7 の Transition は開いている途中に閉じると、予約済みの rAF が取り消されず、アンマウント後も消えないタイマーが残る。jsdom の破棄後にそれが発火すると `window is not defined` の未処理エラーになり、全テストが成功していても `yarn test` が失敗扱いになる（断続的）。ラッパーを使わず独自に `MantineProvider` を描画する場合も、開閉を伴うなら同様にトランジションを無効にする（例: `tests/utils/confirmAction.test.tsx` の `transitionProps: { duration: 0 }`）。
+  - このラッパーは Mantine の `Transition`（`useTransition`。Menu / Popover / Modal など）の長さを 0 にしている（テーマの `respectReducedMotion` + `tests/setup.ts` の `matchMedia` スタブで `(prefers-reduced-motion: reduce)` だけを一致させる）。開閉は同期で反映され、rAF・タイマーは作られない。閉じたことは待たずに同期で `expect(...).not.toBeInTheDocument()` と書く（`waitForElementToBeRemoved` は待ち始めに要素が無いと失敗し、`waitFor` は無効化が外れても通ってしまい回帰に気付けない）。
+  - 理由: Mantine 7.13 の `useTransition` は、開いている途中（2 段目の rAF 待ち）に閉じると予約済みの rAF を取り消さないため、アンマウントしても消えない 150ms のタイマーが残る。jsdom の破棄後にそれが発火すると `window is not defined` の未処理エラーになり、全テストが成功していても `yarn test` が失敗扱いになる（タイミング次第で断続的）。
+  - 対象外: `Collapse` は長さ 0 でも開閉は同期になるが、内部の `useCollapse` が開閉のたびに rAF を予約する（アンマウント時に取り消さない）ため、開閉直後にアンマウントすると rAF が残る。`@mantine/notifications` は reduced-motion でも 1ms のタイマーを使う（現状は `mockNotify` で描画しない）。これらを描画するテストを書くときは、開閉後に待ってから終える等の対応を別途検討する。
+  - `matchMedia` スタブは jsdom の全テストに効く（`ModalBase` のスクロールロック等、`respectReducedMotion` を見ずに `useReducedMotion` を直接読む箇所は、独自の `MantineProvider` を使うテストでも挙動が変わる）。ラッパーを使わず独自に `MantineProvider` を描画して開閉を伴う場合は、同様にトランジションを無効にする（例: `tests/utils/confirmAction.test.tsx` の `transitionProps: { duration: 0 }`）。
 - `@/app/utils/notify` をモックするときは `tests/testUtils/mockNotify.ts` の `mockNotify()` を共有する。`toErrorMessage` は実装をそのまま使い、通知関数だけ `vi.fn` に差し替える。ファクトリは `import("@/tests/testUtils/mockNotify")` で読み、相対パスにしない。手書きの `vi.mock("@/app/utils/notify", …)` を増やさない。
 
 ### テストの検証対象

@@ -14,9 +14,12 @@ if (typeof window !== "undefined") {
   Object.defineProperty(window, "matchMedia", {
     writable: true,
     value: vi.fn().mockImplementation((query: string) => ({
-      // prefers-reduced-motion だけ一致させる（renderWithMantine の respectReducedMotion と
-      // 組み合わせて Mantine のトランジションを無効にする。理由は renderWithMantine.tsx 参照）
-      matches: query.includes("prefers-reduced-motion: reduce"),
+      // Mantine が渡す reduced-motion のクエリだけ一致させる（完全一致。否定形などは一致させない）。
+      // renderWithMantine の respectReducedMotion と組み合わせて Transition の長さを 0 にする。
+      // このスタブは jsdom の全テストに効く（ModalBase のスクロールロック等、respectReducedMotion を
+      // 見ずに useReducedMotion を直接読む箇所は、独自の MantineProvider を使うテストでも挙動が変わる）。
+      // 理由は docs/testing.md「規約」の renderWithMantine の項を参照
+      matches: query === "(prefers-reduced-motion: reduce)",
       media: query,
       onchange: null,
       addListener: vi.fn(),
