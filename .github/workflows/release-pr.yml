@@ -402,8 +402,21 @@ jobs:
             exit 0
           fi
           # Session Pooler の接続文字列を使うこと（直接接続は IPv6 のみで到達できない場合がある）。
-          # --db-url は環境変数経由で渡し、コマンドライン展開をログに出さない。
-          if OUTPUT=$(yarn supabase migration list --db-url "$SUPABASE_READONLY_DB_URL" 2>&1); then
+          # yarn 経由で実行しない。yarn v1 は実行するコマンド行（展開後の --db-url の値＝パスワード入り）を
+          # 出力し、OUTPUT 経由で PR 本文に載ってしまう（Actions の secret マスクはログにしか効かない。Issue #195）。
+          if OUTPUT=$(./node_modules/.bin/supabase migration list --db-url "$SUPABASE_READONLY_DB_URL" 2>&1); then
+            # 念のため、接続文字列・パスワードが出力に紛れていたら伏せる（文字どおりの一致と URL 形式の両方）
+            DB_USERINFO="${SUPABASE_READONLY_DB_URL#*://}"
+            DB_USERINFO="${DB_USERINFO%@*}"
+            DB_PASSWORD=""
+            if [ "$DB_USERINFO" != "${DB_USERINFO#*:}" ]; then
+              DB_PASSWORD="${DB_USERINFO#*:}"
+            fi
+            OUTPUT="${OUTPUT//"$SUPABASE_READONLY_DB_URL"/<redacted>}"
+            if [ -n "$DB_PASSWORD" ]; then
+              OUTPUT="${OUTPUT//"$DB_PASSWORD"/<redacted>}"
+            fi
+            OUTPUT=$(printf '%s\n' "$OUTPUT" | sed -E 's#(postgres(ql)?://)[^[:space:]]*@#\1<redacted>@#g')
             {
               echo "body<<MIGRATION_LIST_EOF"
               echo '```'
@@ -536,6 +549,14 @@ jobs:
             exit 1
           fi
           BODY=$(printf '%s\n' "$TEMPLATE" | envsubst "$BODY_VARS")
+
+          # 認証情報付きの接続文字列（scheme://user:password@host）が本文に残っていたら PR を作らずに失敗させる
+          # （公開リポジトリの PR 本文は編集履歴にも残るため、フェイルクローズにする。Issue #195）。
+          # 伏せ字（<redacted>）は通す。一致した内容はログにも出さない。
+          if printf '%s\n' "$BODY" | grep -qiE '[a-z][a-z0-9+.-]*://[^[:space:]/@<>]+:[^[:space:]/@<>]+@'; then
+            echo "::error::PR 本文に認証情報付きの接続文字列が含まれているため、PR を作成せずに中断します（Issue #195）。"
+            exit 1
+          fi
 
           # Draft で作成する（マイグレーション適用前の誤マージ防止）。
           gh pr create \
