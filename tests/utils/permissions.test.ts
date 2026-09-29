@@ -184,9 +184,12 @@ describe("ロール一覧（ROLES）の整合（Issue #192）", () => {
     expect(definitions.length).toBeGreaterThan(0);
     const sql = definitions[definitions.length - 1];
     const match = sql.match(
-      /\(e\.elem\s*->>\s*'class'\)\s+NOT\s+IN\s*\(([^)]*)\)/i,
+      /\(\s*e\.elem\s*->>\s*'class'\s*\)\s*NOT\s+IN\s*\(([^)]*)\)/i,
     );
-    expect(match).not.toBeNull();
+    expect(
+      match,
+      "update_profiles の class の許可値を抽出できません（SQL の書式を変えた場合は、このテストの正規表現も更新してください）",
+    ).not.toBeNull();
     const allowed = Array.from(match![1].matchAll(/'([^']+)'/g), (m) => m[1]);
     expect(new Set(allowed).size).toBe(allowed.length);
     expect([...allowed].sort()).toEqual([...ROLES].sort());
