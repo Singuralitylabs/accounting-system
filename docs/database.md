@@ -365,7 +365,7 @@ RLS の `is_pl_month_closed` は文のスナップショットで評価される
 
 ## 7. 認証フック（Custom Access Token Hook）
 
-`public.custom_access_token_hook(event jsonb)` は Supabase Auth がトークン発行/リフレッシュ時に呼ぶフック。`profiles.class` を JWT の `user_class` クレームに載せ、`middleware.ts` が制限ルートのロール判定を DB クエリなしで行えるようにする（middleware 側の挙動・フォールバック・503 判定は `CLAUDE.md` の「認可（`middleware.ts`）」が正本）。定義は migration 15 を migration 16 で是正したもの。
+`public.custom_access_token_hook(event jsonb)` は Supabase Auth がトークン発行/リフレッシュ時に呼ぶフック。`profiles.class` を JWT の `user_class` クレームに載せ、`middleware.ts` が制限ルートのロール判定を DB クエリなしで行えるようにする（middleware 側の挙動・フォールバック・503 判定は `CLAUDE.md` の「Authorization (`middleware.ts`)」が正本）。定義は migration 15 を migration 16 で是正したもの。
 
 - フェイルセーフ: `claims` が object でない場合や、uuid 不正・権限ドリフトなど想定外の例外では、`RAISE WARNING` のうえクレーム付与を諦めて `event` をそのまま返す（トークン発行自体は失敗させない）。
 - 実行は `supabase_auth_admin` のみ（`REVOKE ... FROM PUBLIC, authenticated, anon`）。`profiles.class` を読むため `supabase_auth_admin` 向けの SELECT ポリシーを追加し、テーブル権限は `SELECT (user_id, class)` の**列単位 GRANT** に絞る（RLS の `USING (true)` は行スコープの制御であり、email / slack_id / team などの PII 列は列単位 GRANT で読めないようにしている）。

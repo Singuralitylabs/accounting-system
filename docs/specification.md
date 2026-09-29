@@ -28,7 +28,7 @@
 
 - 保護ルートの判定は middleware（`ROUTE_PERMISSIONS`）。データ側は RLS が最終防御で、UI の表示制御は補助
 - `/matters` 自体はロール制限なし（ログイン必須）。`/matters/team`（teamleader・admin）・`/matters/accounting`（accounting・admin）・`/dashboard` 配下（admin）・`/profit-loss`（teamleader 以上）・`/recurring-costs` `/extra-entries`（accounting・admin）・`/budget-declarations`（teamleader 以上）にはロール制限がある。旧 URL `/team` `/accounting` は新 URL へのリダイレクト用で、リダイレクト前のロール保護のため同じ制限を持つ
-- Supabase Auth 側の一時的障害（到達不能・5xx）では `/login` へ飛ばさず 503（`Retry-After: 2`）を返す。タイムアウトの設計は `CLAUDE.md`「認可」を参照
+- Supabase Auth 側の一時的障害（到達不能・5xx）では `/login` へ飛ばさず 503（`Retry-After: 2`）を返す。タイムアウトの設計は `CLAUDE.md` の「Authorization」を参照
 - 既知の制約: Auth が落ちているのではなく遅い場合（Pause 解除直後の初回応答など）、期限切れトークンのリフレッシュ応答がタイムアウトすると 503 になる。サーバ側でローテーション済みの旧リフレッシュトークンは再利用猶予（約 10 秒）後に失効するため、猶予を過ぎて再読込すると 400 でセッション破棄 → `/login` になる。`Retry-After` に従って速やかに再試行すれば再ログインは不要なことが多い
 
 ## 4. 機能詳細
@@ -107,7 +107,7 @@ admin のみ。画面は [5.3.9](#539-管理画面)。
 - 保存の Server Action（`bulkUpdateProfiles`）は RLS に加えて呼び出し元が admin であることを確認する（多層防御）。admin 以外は入力チェック・書き込みの前に権限エラーを返し、何も保存しない（RLS 上は書き込める自分の Slack ID もこの経路では変更できない）
 - 編集中は他の管理者の更新で画面を黙って上書きしない（未保存の変更が無くなった時点で最新の値に同期する）
 - 既知の制約
-  - 権限を変更しても、middleware が参照する JWT の `user_class` クレームには、対象ユーザーのトークンが更新される（最大約 1 時間後）か再ログインするまで反映されない（`CLAUDE.md`「認可」参照）
+  - 権限を変更しても、middleware が参照する JWT の `user_class` クレームには、対象ユーザーのトークンが更新される（最大約 1 時間後）か再ログインするまで反映されない（`CLAUDE.md` の「Authorization」参照）
   - 未保存の変更の警告は、リロード・タブを閉じる操作（beforeunload）と、管理画面のサイドメニュー / タブ（ユーザー管理 ⇄ 項目管理）の切り替えだけが対象。ヘッダー・トップページのリンクやブラウザの「戻る」では確認せず、未保存の変更は破棄される
 
 ### 4.15 マスタデータ管理 (F016)
