@@ -3,6 +3,7 @@
 import { getActiveSelectOptionsByType } from "./selectOptionsCache";
 import { createServerSupabase } from "./clients";
 import { UNIQUE_VIOLATION } from "./errorCodes";
+import { fetchAllPages } from "./paging";
 
 // 有効な選択肢の取得。実装は getActiveSelectOptionsByType（join による1クエリ＋
 // リクエスト内キャッシュ）に一本化しており、これはその種類別ラッパー。
@@ -105,6 +106,10 @@ export type SelectOptionToSave = {
 // 項目名の一意制約 UNIQUE(type_id, value) は削除済み（無効化済み）の行にもかかる
 const DUPLICATE_VALUE_MESSAGE = (value: string) =>
   `「${value}」と同じ名前の項目が既にあります（削除済みの項目を含む）。名前を変えるか、既存の項目を使ってください。`;
+
+// 追加の途中で、他の管理者が同じ名前の項目を同時に追加した場合
+const CONCURRENT_INSERT_MESSAGE =
+  "同じ名前の項目が同時に追加された可能性があります。画面を再読み込みして、もう一度保存してください。";
 
 // UPDATE で更新できた行が 0 行だった場合（RLS で弾かれた、他の管理者が行を削除した等）
 const NOT_UPDATED_MESSAGE =
@@ -303,12 +308,19 @@ export const bulkUpsertSelectOptions = async (
     // 一意制約違反（23505）: 同じ名前の行が既にある（削除済みの行を含む）。この種類の既存の
     // 行を 1 回で取得し、新規 INSERT・削除済みの行の再有効化・重複エラーに振り分ける。
     // 項目名で絞る（IN (...)）と、項目名に含まれる " や \ が PostgREST のフィルタで
-    // エスケープされず取りこぼすため、種類（type_id）で絞って項目名は JS 側で照合する
-    // （項目マスタは種類ごとの件数が少ない）
-    const { data: existingRows, error: existingError } = await supabase
-      .from("select_options")
-      .select("id, value, is_active")
-      .eq("type_id", typeData.id);
+    // エスケープされず取りこぼすため、種類（type_id）で絞って項目名は JS 側で照合する。
+    // 種類ごとの件数は少ないが、max_rows で打ち切られて取りこぼさないよう id のキーセット方式で
+    // ページングする（fetchAllPages）
+    const { data: existingRows, error: existingError } = await fetchAllPages(
+      (afterId, limit) =>
+        supabase
+          .from("select_options")
+          .select("id, value, is_active")
+          .eq("type_id", typeData.id)
+          .gt("id", afterId)
+          .order("id", { ascending: true })
+          .limit(limit)
+    );
     if (existingError || !existingRows) {
       console.error("既存の選択肢の取得に失敗しました", existingError);
       return addFailed();
@@ -339,9 +351,12 @@ export const bulkUpsertSelectOptions = async (
         .from("select_options")
         .insert(toInsert.map(toInsertRow))
         .select("id, value");
+      if (insertError?.code === UNIQUE_VIOLATION) {
+        // 既存の行の取得後に、他の管理者が同じ名前の項目を追加した（どの名前かは分からない）
+        console.error("選択肢の追加が他の管理者の追加と競合しました", insertError);
+        return { insertedIds, updatedIds, error: CONCURRENT_INSERT_MESSAGE };
+      }
       if (insertError || !insertedRows) {
-        // 取得後に他の管理者が同じ名前を追加した場合の一意制約違反も含む（画面の再読み込み後に
-        // 保存し直すと、重複として案内される）
         console.error("選択肢の追加に失敗しました", insertError);
         return addFailed();
       }

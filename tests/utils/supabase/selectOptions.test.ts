@@ -167,14 +167,29 @@ const createSupabaseMock = ({
         },
       }),
       select: () => ({
-        eq: async () => {
-          operations.push("fetch");
-          if (failFetchExisting) {
-            return { data: null, error: { message: "fetch failed" } };
-          }
-          const data = rows.map((r) => ({ ...r }));
-          rows.push(...rowsAddedAfterFetch.map((r) => ({ ...r })));
-          return { data, error: null };
+        eq: () => {
+          // fetchAllPages 用: .gt("id", afterId).order(...).limit(n)
+          let afterId = 0;
+          const query = {
+            gt: (_column: string, value: number) => {
+              afterId = value;
+              return query;
+            },
+            order: () => query,
+            limit: async (limit: number) => {
+              operations.push("fetch");
+              if (failFetchExisting) {
+                return { data: null, error: { message: "fetch failed" } };
+              }
+              const data = rows
+                .filter((r) => r.id > afterId)
+                .slice(0, limit)
+                .map((r) => ({ ...r }));
+              rows.push(...rowsAddedAfterFetch.map((r) => ({ ...r })));
+              return { data, error: null };
+            },
+          };
+          return query;
         },
       }),
       update: updateBuilder,
@@ -414,7 +429,8 @@ describe("bulkUpsertSelectOptions", () => {
     expect(result).toEqual({
       insertedIds: [],
       updatedIds: [],
-      error: "項目の追加に失敗しました。",
+      error:
+        "同じ名前の項目が同時に追加された可能性があります。画面を再読み込みして、もう一度保存してください。",
     });
   });
 

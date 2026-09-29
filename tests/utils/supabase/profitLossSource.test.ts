@@ -798,13 +798,14 @@ describe("fetchReportSourceRows の調整対象行の補完取得（supplement�
       return query;
     });
 
-    const timeout = new Promise<"timeout">((resolve) =>
-      setTimeout(() => resolve("timeout"), 1000),
-    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<"timeout">((resolve) => {
+      timer = setTimeout(() => resolve("timeout"), 1000);
+    });
     const result = await Promise.race([
       fetchReportSourceRows(period, { supplement }),
       timeout,
-    ]);
+    ]).finally(() => clearTimeout(timer));
 
     expect(result).not.toBe("timeout");
     expect((result as ReportSourceRows).businessRows.map((r) => r.id)).toEqual([

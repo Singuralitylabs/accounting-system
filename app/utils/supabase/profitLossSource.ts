@@ -374,7 +374,7 @@ export const fetchReportSourceRows = async (
   }
   const includeLabels = options?.includeLabels !== false;
   const missingIds = options?.supplement
-    ? planAdjustmentSupplement(options.supplement.month, sourceRows, options.supplement)
+    ? planAdjustmentSupplement(sourceRows, options.supplement)
     : null;
   if (!includeLabels && !missingIds) {
     return { ...sourceRows, labels: [] };
@@ -421,20 +421,19 @@ type MissingAdjustmentTargetIds = ReturnType<
 // needsMonthlyAdjustmentDetails で判定する。
 // 以下は補完取得が必要な対象行の ID。不要（スキップ対象のロール・欠けが無い）なら null
 const planAdjustmentSupplement = (
-  month: string,
-  rows: ReportSourceRows | ClosingSourceRows,
-  options?: Omit<AdjustmentSupplementOptions, "month">,
+  rows: ClosingSourceRows,
+  options: AdjustmentSupplementOptions,
 ): MissingAdjustmentTargetIds | null => {
   if (
     !needsMonthlyAdjustmentDetails({
-      includeTeamBreakdown: options?.includeTeamBreakdown ?? true,
-      includeMonthlyDetails: options?.includeMonthlyDetails ?? true,
+      includeTeamBreakdown: options.includeTeamBreakdown ?? true,
+      includeMonthlyDetails: options.includeMonthlyDetails ?? true,
     })
   ) {
     return null;
   }
   const missingIds = collectMissingAdjustmentTargetIds(
-    month,
+    options.month,
     rows.adjustments,
     new Set(rows.businessRows.map((row) => row.id)),
     new Set(rows.costRows.map((row) => row.id)),
