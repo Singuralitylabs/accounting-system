@@ -18,6 +18,7 @@
    - [3.5 コード品質テスト](#35-コード品質テスト)
    - [3.6 E2Eテスト（未実装・リリース前のみ）](#36-e2eテスト未実装リリース前のみ)
    - [3.7 手動確認（RLS・権限クラス別）](#37-手動確認rls権限クラス別)
+   - [3.8 DB 関数のテスト（pgTAP）](#38-db-関数のテストpgtap)
 4. [CI / ツール構成](#4-ci--ツール構成)
    - [4.1 導入フェーズとロードマップ](#41-導入フェーズとロードマップ)
    - [4.2 GitHub Actions ワークフロー計画](#42-github-actions-ワークフロー計画)
@@ -567,6 +568,17 @@ WHERE entry_date >= '2026-10-01' GROUP BY 1, 2 ORDER BY 1, 2;
 
 後片付け: `supabase db reset` で DB を初期状態に戻す（準備で作った auth.users 2 件・profiles 2 件・経理追加収支がすべて消える）。
 
+### 3.8 DB 関数のテスト（pgTAP）
+
+SQL 関数（RPC）に移した業務ロジックは、Vitest では RPC をモックするだけになり判定そのものを検証できない。判定ロジックを持つ関数は pgTAP（`supabase test db`）で検証する。
+
+- 配置: `supabase/tests/database/<対象>.test.sql`。1 ファイル = 1 トランザクション（`BEGIN; SELECT plan(N); ... SELECT * FROM finish(); ROLLBACK;`）で、テストデータは ROLLBACK で残らない
+- 実行: ローカル Supabase を起動した状態で `supabase test db`。CI は `.github/workflows/db-test.yml`（`supabase/**` の変更時に `supabase start` → `supabase test db`）
+- 権限つきの関数は `SET LOCAL ROLE authenticated` と `set_config('request.jwt.claims', ...)` で呼び出しユーザーを切り替えて検証する（RLS・FORBIDDEN の確認を含む）
+- 対象: `copy_extra_entries`（前月コピーの重複判定。`copy_extra_entries.test.sql`）。全列一致のスキップ、1 列ずつ異なる行の登録、NULL 同士の一致、対象月の範囲外の行を重複とみなさないこと、戻り値の件数、空配列（0 / 0）、不正な入力（配列でない・要素がオブジェクトでない・`entry_date` が対象月外 / NULL → `INVALID_INPUT`）、FORBIDDEN。NOT NULL 列の NULL 同士の一致（`= ` への退行）は、テストのトランザクション内だけ `ALTER TABLE ... DROP NOT NULL` して確認する
+- `db-test.yml` は `supabase/**` を変更する PR / `main` への push で実行する。リリース PR の品質ゲート（`release-pr.yml`）には含めない（DB の変更は `main` に入る PR の時点で検証済みで、`release` は `main` のある時点と一致するため）
+- 関数の判定条件を変えたら、対応するテストも更新する。同時実行（排他ロック）は pgTAP では扱えないため、引き続き 3.7「前月コピーの同時実行の再現手順」で確認する
+
 ## 4. CI / ツール構成
 
 ### 4.1 導入フェーズとロードマップ
@@ -583,14 +595,15 @@ WHERE entry_date >= '2026-10-01' GROUP BY 1, 2 ORDER BY 1, 2;
 
 CI/CD の実行基盤には GitHub Actions を利用する（`release` ブランチ運用に集約する）。
 
-| Workflow（予定）               | 目的                         | 主な実行内容                                          | 導入フェーズ | 前提                                                   |
-| ------------------------------ | ---------------------------- | ----------------------------------------------------- | ------------ | ------------------------------------------------------ |
-| TypeScript Type Check          | 型安全性と静的品質の早期検出 | `tsc --noEmit` + ESLint                               | Phase 1      | `typecheck` スクリプト追加                             |
-| Build Test                     | 本番相当のビルド成立性を検証 | 依存関係インストール + `next build`                   | Phase 1      | ―                                                      |
-| Unit Tests                     | ユニットテスト実行           | Vitest                                                | Phase 1      | Vitest 導入                                            |
-| Check console.log and debugger | デバッグ用出力の混入を防止   | `console.log` / `console.info` / `debugger` 検査      | Phase 1      | 現状 0 件のため即導入可                                |
-| Format Check                   | コード整形の統一性を担保     | `prettier --check`                                    | Phase 1      | `format:check` スクリプト追加                          |
-| Supabase DB Types Consistency  | DB 型定義の整合性監視        | 型生成 + `app/lib/database.types.ts` との差分チェック | Phase 2      | [4.5](#45-supabase-db-types-チェックの前提設定) の設定 |
+| Workflow（予定）               | 目的                               | 主な実行内容                                                                            | 導入フェーズ | 前提                                                   |
+| ------------------------------ | ---------------------------------- | --------------------------------------------------------------------------------------- | ------------ | ------------------------------------------------------ |
+| TypeScript Type Check          | 型安全性と静的品質の早期検出       | `tsc --noEmit` + ESLint                                                                 | Phase 1      | `typecheck` スクリプト追加                             |
+| Build Test                     | 本番相当のビルド成立性を検証       | 依存関係インストール + `next build`                                                     | Phase 1      | ―                                                      |
+| Unit Tests                     | ユニットテスト実行                 | Vitest                                                                                  | Phase 1      | Vitest 導入                                            |
+| Check console.log and debugger | デバッグ用出力の混入を防止         | `console.log` / `console.info` / `debugger` 検査                                        | Phase 1      | 現状 0 件のため即導入可                                |
+| Format Check                   | コード整形の統一性を担保           | `prettier --check`                                                                      | Phase 1      | `format:check` スクリプト追加                          |
+| DB Tests（pgTAP）              | DB 関数（RPC）の判定ロジックの検証 | `supabase start` + `supabase test db`（`db-test.yml`。[3.8](#38-db-関数のテストpgtap)） | ―            | `supabase/tests/database/`                             |
+| Supabase DB Types Consistency  | DB 型定義の整合性監視              | 型生成 + `app/lib/database.types.ts` との差分チェック                                   | Phase 2      | [4.5](#45-supabase-db-types-チェックの前提設定) の設定 |
 
 - トリガーはいずれも `pull_request` / `push`（対象パスで絞り込み）+ `workflow_dispatch` を基本とする。
 - ジョブは観点ごとに分離し、失敗時にどの観点が壊れたか一目で分かるようにする（[2.4 可観測性](#24-可観測性)）。
