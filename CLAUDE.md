@@ -1,97 +1,85 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code in this repository. Product: accounting system of 未来技術推進協会 (Japanese UI, JST, JPY).
 
-## コマンド
+## Language policy
+
+- `CLAUDE.md` is English (read only by AI). `docs/` and `README.md` stay Japanese (humans read them). Issue / PR templates stay Japanese.
+- UI text, user-facing error messages and test names (`describe` / `it`) stay Japanese.
+- Code comments are English (see Comment policy).
+
+## Commands
 
 ```bash
-yarn dev              # 開発サーバ起動
-yarn build            # 本番ビルド
-yarn lint             # ESLint（no-console / no-debugger 検知を含む）
-yarn typecheck        # tsc --noEmit
-yarn test             # Vitest（ユニットテスト）
-yarn test:watch       # Vitest watch モード
-yarn format           # Prettier 適用
-yarn format:check     # Prettier チェック
-
-yarn db:types         # 本番 Supabase からの型生成（.env.local の PROJECT_ID を参照）
-yarn db:types-local   # ローカル Supabase からの型生成
-
-supabase start | stop | reset   # ローカル Supabase の起動・停止・リセット（reset で supabase/migrations/ を再適用）
+yarn dev | build | lint | typecheck | test | test:watch | format | format:check
+yarn db:types          # generate types from production Supabase (PROJECT_ID in .env.local)
+yarn db:types-local    # generate types from local Supabase
+supabase start | stop | reset   # local Supabase (reset re-applies supabase/migrations/)
 ```
 
-- スキーマ変更後は `yarn db:types-local` を必ず実行し `app/lib/database.types.ts` を更新する。
-- スキーマ変更（テーブル / RLS / トリガー / enum / 初期データなど）は **必ず `supabase/migrations/` に SQL ファイルとして追加する**。命名は `YYYYMMDDHHMMSS_<snake_case_name>.sql`。リモートに直接当てた変更も後追いで同形式のファイルを追加し、ローカルから `supabase db reset` で同じ状態を再現できる状態を維持する。
-- マイグレーションを足したら同じ PR で `docs/database.md` も更新する（テーブル定義 / RLS / トリガーの記載と実物を一致させる）。
-- テストは Vitest（`tests/` 配下。純粋関数は `*.test.ts`、コンポーネントは `*.test.tsx` + jsdom。TZ=Asia/Tokyo 固定）。方針・対象・規約は `docs/testing.md` を参照。テスト済みコードを修正したら対応するテストも更新する。
-- CI は GitHub Actions（`.github/workflows/`: typecheck+lint / test / build / format-check）。同ディレクトリの `supabase-keepalive.yml` は CI ではなく Supabase 無料プランの自動 Pause 防止用（毎日 1 回 REST で SELECT。`docs/setup.md` 参照）。リリース用の `release-pr.yml` / `create-release.yml` も同ディレクトリにあり、手順は `docs/release.md` を参照。
+- After any schema change run `yarn db:types-local` and update `app/lib/database.types.ts`.
+- Schema changes (tables / RLS / triggers / enums / seed data) **must** be added as `supabase/migrations/YYYYMMDDHHMMSS_<snake_case_name>.sql`. Changes applied directly to a remote must be back-filled as a migration so `supabase db reset` reproduces the same state.
+- Update `docs/database.md` in the same PR only when a table's role, an RLS intent, or a trigger / function purpose changes (no column lists or SQL there).
+- Tests are Vitest under `tests/` (`*.test.ts` pure functions, `*.test.tsx` components with jsdom, TZ=Asia/Tokyo). See `docs/testing.md` for policy; update tests when you change tested code.
+- CI is GitHub Actions in `.github/workflows/` (typecheck+lint / test / build / format-check). `supabase-keepalive.yml` only prevents the free-plan auto-pause (see `docs/setup.md`). Releases: `release-pr.yml` / `create-release.yml`, procedure in `docs/release.md`.
 
-## 作業ルール
+## Working rules
 
-- 作業ブランチへの commit / push は確認不要。ただし **push 前に `yarn typecheck && yarn lint && yarn test && yarn build && yarn format:check` をローカルで通すこと**。
-- `main` へ直接 push しない。変更は作業ブランチ＋PR を経由する。
-- **`release`（本番）への反映は必ず `main` を経由する。** PR のマージ先は原則 `main` であり、作業ブランチから `release` へ直接 PR を作らない。`release` へ入るのは `main` → `release` のリリースカットのみ。本番ホットフィックスも同様に `main` に入れてからカットする（この運用により `release` のツリーは常に `main` のある時点と一致する）。
-- **PR のマージは禁止。** `gh pr merge`、GitHub MCP の merge、`main` への merge / push をエージェントが実行してはならない。マージはユーザーだけが行う。担当範囲は CI green ＋レビュー完了まで。
-- 本番リリースは `docs/release.md` の手順に従う。リリース PR 作成・タグ作成は GitHub Actions（`release-pr.yml` / `create-release.yml`）で行い、本番 DB へのマイグレーション適用（`supabase db push`）は手動で行う（ワークフローは実行しない）。
+- Committing / pushing to a working branch needs no confirmation, but run `yarn typecheck && yarn lint && yarn test && yarn build && yarn format:check` locally **before every push**.
+- Never push directly to `main`; go through a working branch + PR.
+- **`release` (production) is reached only via `main`.** PRs target `main`; never open a PR from a working branch to `release`. Only the `main` → `release` release cut updates `release` (production hotfixes also land on `main` first).
+- **Never merge PRs** (`gh pr merge`, GitHub MCP merge, merge / push to `main`). Only the user merges. Your scope ends at green CI + completed review.
+- Production release follows `docs/release.md`. The release PR and tag are created by GitHub Actions; applying migrations to the production DB (`supabase db push`) is manual (never run that workflow).
 
-## アーキテクチャ
+## Comment policy
 
-- Next.js 14 (App Router) / TypeScript / Mantine + Tailwind
-- 認証は Supabase Auth + Google OAuth。`@future-tech-association.org` ドメイン限定。
-- 認証・DB アクセスは `@supabase/ssr`（`createServerClient` / `createBrowserClient`）を使う。生成は `app/utils/supabase/clients.ts` の `createServerSupabase()` と `SupabaseProvider` の `createBrowserClient` に集約する。middleware は同じ `@supabase/ssr` の `createServerClient` と request cookies。**`@supabase/auth-helpers-nextjs` は使用禁止**（ESLint `no-restricted-imports`）。Cookie 形式が異なるため、旧 auth-helpers クライアントを混在させるとセッションを読めず、RLS で全クエリが 0 行になる（エラーは出ない）。
-- **`onAuthStateChange` のコールバック内で `supabase.auth.*`（`getUser()` / `getSession()` 等）を await してはならない**。auth-js の `initializePromise` と循環待ちになり、Web Lock が解放されず認証が永久に停止する。コールバック内の非同期処理は `setTimeout(..., 0)` で 1 tick 遅延させ、表示用には `session.user` を直接使う（認可は middleware / RLS が担う）。
-- `app/layout.tsx` で `export const dynamic = "force-dynamic"` を指定しており、ページは静的キャッシュされない。
+- **Delete**: explanations the code already shows; history (issue numbers, past implementations, "previously ...", investigation logs — git log / PRs have it); JSDoc that only restates a type or function name.
+- **Keep (concise English)**: the why; invariants that break if violated (ordering, timing, concurrency); library pitfalls; security reasons.
+- Applied migrations under `supabase/migrations/` are history: don't edit their SQL comments. New migrations use English comments.
+- Docs: keep only what code can't tell (business rules, permission intent, operating procedures, pitfalls). Put each fact in one canonical place and link to it elsewhere.
 
-### Provider スタック（`app/layout.tsx`）
+### Glossary (Japanese → English; match existing identifiers)
 
-`SupabaseProvider` → `QueryProvider` → `MantineProvider` → `DatesLocaleProvider` → `AuthProvider`
+案件 = matter / 経理申請 = accounting request / 経理確認完了 = accounting confirmed / 差し戻し = sent back (edited after accounting request) / 事前収支申告 = budget declaration / 経理追加収支 = extra entry / 損益計算書 = profit and loss statement / 月次収支確定 = monthly closing / 定期費用 = recurring cost / 権限クラス = role (`profiles.class`)
 
-（日付 UI は `@mantine/dates`。ロケールは `DatesLocaleProvider`、入力は `CustomDatePicker` / `CustomMonthPicker` 経由。layout に日付ピッカー本体を置かない）
+## Architecture
 
-### 状態管理
+- Next.js 14 (App Router) / TypeScript / Mantine + Tailwind. `app/layout.tsx` sets `dynamic = "force-dynamic"` (no static caching).
+- Auth: Supabase Auth + Google OAuth, restricted to the `@future-tech-association.org` domain.
+- Use `@supabase/ssr` (`createServerClient` / `createBrowserClient`) only. Clients are created in `createServerSupabase()` (`app/utils/supabase/clients.ts`) and `SupabaseProvider`; middleware uses `createServerClient` with request cookies. **`@supabase/auth-helpers-nextjs` is forbidden** (ESLint `no-restricted-imports`): its cookie format differs, so mixing it makes the session unreadable and RLS silently returns 0 rows for every query.
+- **Never `await` `supabase.auth.*` (`getUser()` / `getSession()` …) inside an `onAuthStateChange` callback.** It deadlocks with auth-js `initializePromise`, the Web Lock is never released and auth hangs forever. Defer async work with `setTimeout(..., 0)` and use `session.user` directly for display (authorization is middleware / RLS).
+- Provider stack (`app/layout.tsx`): `SupabaseProvider` → `QueryProvider` → `MantineProvider` → `DatesLocaleProvider` → `AuthProvider`. Date UI is `@mantine/dates` via `CustomDatePicker` / `CustomMonthPicker`; never put a date picker in the layout.
 
-- **マスタデータ**: `app/atoms/optionsAtom.ts`（Jotai）。`InitialOptionalLoader` が初回にハイドレート。
-- **サーバ状態**: `app/hooks/useMatterData.ts` の TanStack Query フック（`useUserMatterList` / `useAllMatterList` / `useMatterDetail` ＋ ミューテーション）。Server Component から `initialData` でキャッシュを温める。
-- **フォーム**: `@mantine/form`。
+### State and data access
 
-### データアクセス
+- Master data: Jotai `app/atoms/optionsAtom.ts`, hydrated by `InitialOptionalLoader`. Server state: TanStack Query hooks in `app/hooks/useMatterData.ts` (Server Components warm the cache via `initialData`). Forms: `@mantine/form`.
+- DB helpers live in `app/utils/supabase/*`; call them from Server Components or via the query hooks. `app/actions/` holds Server Actions (currently only re-exports Slack notifications); add new Server Actions there.
+- RLS is enabled: write every DB operation assuming RLS.
 
-- DB ヘルパは `app/utils/supabase/*`（`addMatterInfo` / `editMatterInfo` / `deleteMatter` / `checkMatterInfoList` / `profiles`（`bulkUpdateProfiles`）/ `matters` / `costs` / `businesses` / `selectOptions` など）。Server Component から直接呼ぶか、TanStack Query フック経由で呼ぶ。
-- `app/actions/` は現状 Slack 通知アクションを再エクスポートしているだけ。新規 Server Action を足すならここ。
-- RLS が有効なので、すべての DB 操作は RLS を前提に書く。
+### Authorization (`middleware.ts`)
 
-### 認可（`middleware.ts`）
+- Roles are `profiles.class`: `public` / `teamleader` / `accounting` / `admin`.
+- `ROUTE_PERMISSIONS` in `app/utils/permissions.ts` is the single definition of role-restricted routes. `/` and `/matters` need login only; sub-routes under `/matters` are restricted. Old `/team` and `/accounting` remain as redirect pages and stay in `ROUTE_PERMISSIONS` so roles are checked before the redirect (looks duplicated — don't remove). Manual role × page checks: `docs/testing.md` 3.7.
+- Authentication uses `getUser()` (server-verified token). Never use `getSession()` for auth decisions: it returns the unverified cookie value (forgeable).
+- The role comes from the `user_class` claim of the same verified JWT (set by `public.custom_access_token_hook`, see `docs/database.md`), avoiding a `profiles` query. If the claim is not a valid non-empty string (missing / `null` / empty / non-string), fall back to querying `profiles` (fail-safe, works even if the hook is disabled). **Enable the hook in the production Supabase dashboard only after the migration is applied** (enabling earlier locks every user out). A new user's first token always has `user_class: null`; the fallback applies it immediately.
+- A role change reaches the JWT only on token refresh (up to ~1 hour) or re-login, and only when the role is already in the JWT. Don't rely on middleware alone where immediate effect is needed.
+- Transient Supabase Auth failure (fetch failure or 5xx) → middleware returns 503, not a redirect to `/login`, so outages aren't confused with forged tokens. `isAuthRetryableFetchError` covers only 502/503/504 (500 becomes `AuthApiError`), hence `isTransientAuthError` in `app/utils/routeGuard.ts` also treats 5xx `AuthApiError` as transient.
+- Timeouts (must stay under the 25 s Edge limit): one Supabase request 5 s (`AUTH_FETCH_TIMEOUT_MS`), whole `getUser()` 6 s (`AUTH_GET_USER_TIMEOUT_MS`), `profiles` fetch inner 5 s / outer 6 s (`AUTH_PROFILES_TIMEOUT_MS`); all fall to 503 with `Retry-After: 2`. The outer must be larger than the inner (same delay fires the outer first). Details live in `app/utils/routeGuard.ts` and `middleware.ts` (`serviceUnavailable`).
 
-ロールは `profiles.class` カラムに格納：`public` / `teamleader` / `accounting` / `admin`。
+## Business logic
 
-ルートごとの閲覧許可ロールは `app/utils/permissions.ts` の `ROUTE_PERMISSIONS` が単一の定義（`/matters/team` / `/matters/accounting` / `/team` / `/accounting` / `/profit-loss` / `/recurring-costs` / `/extra-entries` / `/budget-declarations` / `/dashboard`）。`/`, `/matters` 自体はロール制限なし（ログイン必須）だが、`/matters` 配下のサブルート（`/matters/team`, `/matters/accounting`）にはロール制限がある。旧 URL の `/team` / `/accounting` は新 URL へのリダイレクト用ページとして残っており、リダイレクト前のロール保護のため `ROUTE_PERMISSIONS` にも引き続き存在する（重複に見えても消さないこと）。権限クラス×ページの手動確認表は `docs/testing.md` の「3.7 手動確認（RLS・権限クラス別）」を参照。
+- Matter lifecycle: draft → accounting requested → accounting confirmed → done.
+- Amounts: `business` (revenue) and `costs` (expenses) are linked per matter.
+- Team leaders can view all matters of their team.
+- A matter edited after its accounting request is highlighted on the accounting side (sent back).
+- Matter owners are notified via Slack.
 
-- middleware は `getUser()`（Supabase Auth サーバでアクセストークンの署名・有効性を検証する）で認証を確認する。`getSession()` はローカル Cookie の値をそのまま返すだけで署名検証を行わないため、認証の可否判定には使わない（偽造 Cookie による認証バイパスを防ぐ）。
-- 制限ルートのロールは、`getUser()` で検証済みの同一アクセストークンから読む JWT の `user_class` クレームを使う（`profiles` への DB クエリを排除）。`user_class` は Custom Access Token Hook（`public.custom_access_token_hook`、`docs/database.md` 参照）が付与する。クレームは同じ検証済みトークンの一部であるため、改ざんされていればトークンの署名検証自体が失敗し `getUser()` がエラーになる。
-- `user_class` クレームが有効な文字列でない場合（クレームキー自体が無い / 値が明示的に `null` / 空文字 / 文字列以外）は `profiles` への DB クエリにフォールバックするため、フック未有効化でも動作する（フェイルセーフ）。**本番では Supabase ダッシュボードでフックを有効化する必要がある**（マイグレーション適用後に有効化すること。適用前に有効化すると全ユーザーがログインできなくなる）。新規ユーザーはトークン発行後にプロフィールが作成されるため初回トークンは必ず `user_class: null` になるが、この場合もフォールバックするため直後のロール付与は即座に反映される。
-- ロール変更は対象ユーザーのトークンリフレッシュ（既定で最大約1時間）または再ログインまで JWT に反映されない（JWT にロールが既に載っている場合のみ）。即時反映が必要な用途では middleware だけに依存しないこと。
-- `getUser()` が Supabase Auth 側の一時的障害（fetch 自体の失敗、またはステータス 5xx）を返した場合、middleware はログイン中ユーザーを一律 `/login` に飛ばさず 503 を返す（一時的障害と偽造トークンを区別する）。auth-js の `isAuthRetryableFetchError` は 502/503/504 しか拾わず 500 は `AuthApiError` になるため、判定には 5xx の `AuthApiError` も含める必要がある（`app/utils/routeGuard.ts` の `isTransientAuthError`）。
-- Supabase 到達不能時の再試行ループで Edge の 25 秒制限に掛からないよう、Supabase への 1 リクエストは 5 秒（`AUTH_FETCH_TIMEOUT_MS`）、`getUser()` 全体は 6 秒（`AUTH_GET_USER_TIMEOUT_MS`）で打ち切り、どちらも 503（`Retry-After: 2` 付き）に落とす（実装は `app/utils/routeGuard.ts` の `createTimeoutFetch` / `withAuthTimeout` と `middleware.ts` の `serviceUnavailable`）。`profiles` 取得は内側 5 秒でヘッダ待ちを打ち切り（postgrest-js が `{ error }` の戻り値に包むため `isProfilesTimeoutError` で判定して 503）、外側は 6 秒（`AUTH_PROFILES_TIMEOUT_MS` = 内側 + マージン。同一遅延では外側が先に登録・発火するため順序明示に必要）でボディ停滞を打ち切り、超過時は 503（それ以外の取得失敗は既存どおり `/` へ）。
+## Key files
 
-## 業務ロジック
-
-未来技術推進協会の経理システム（日本語 UI、JST、円表記）。
-
-- **案件ライフサイクル**: 下書き → 経理申請中 → 経理確認完了 → 完了
-- **金額**: `business`（売上）と `costs`（費用）を案件ごとに紐付け
-- **チーム**: チームリーダーは自チームの全案件を閲覧可
-- **差し戻し検知**: 経理申請後に編集されると経理側でハイライト表示
-- **通知**: 案件担当者に Slack で通知
-
-## 主要ファイル
-
-- `middleware.ts` — ルート保護 & ロール判定（判定ロジックは `app/utils/routeGuard.ts`。`matchesRoute` は `permissions.ts`）
-- `app/layout.tsx` — Provider スタック / `force-dynamic`
+- `middleware.ts` — route protection and role check (logic in `app/utils/routeGuard.ts`; `matchesRoute` in `permissions.ts`)
 - `app/components/providers/` — `SupabaseProvider`, `QueryProvider`, `DatesLocaleProvider`, `InitialOptionalLoader`
-- `app/utils/matterCalc.ts` / `app/utils/matterValidation.ts` — 案件の金額集計と必須・日付バリデーション
-- `app/utils/profitLossLogic.ts` / `profitLossClosing.ts` / `profitLossDiff.ts` — 損益計算書の集計・月次収支確定・確定後の変更検知（純粋関数）。取得は `app/utils/supabase/profitLossSource.ts`（Server Action として公開しない）
-- `app/utils/supabase/editMatterInfo.ts` — 案件 CRUD のコア
-- `app/utils/supabase/profiles.ts` / `matters.ts` / `costs.ts` / `businesses.ts` / `selectOptions.ts` — ドメイン別 DB ヘルパ
-- `app/hooks/useMatterData.ts` — TanStack Query フック群
-- `app/actions/slack/` — Slack 通知 Server Action
-- `docs/setup.md` / `docs/specification.md` / `docs/database.md` / `docs/testing.md` — セットアップ・仕様・DB 設計・テスト設計（手動確認の手順は testing.md 3.7）
+- `app/utils/matterCalc.ts` / `matterValidation.ts` — matter totals and required / date validation
+- `app/utils/profitLossLogic.ts` / `profitLossClosing.ts` / `profitLossDiff.ts` — pure functions for P&L aggregation, monthly closing, post-closing change detection. Fetching is `app/utils/supabase/profitLossSource.ts` (never expose as a Server Action)
+- `app/utils/supabase/editMatterInfo.ts` — matter CRUD core; `profiles.ts` / `matters.ts` / `costs.ts` / `businesses.ts` / `selectOptions.ts` — per-domain DB helpers
+- `app/actions/slack/` — Slack notification Server Actions
+- Docs (Japanese): `docs/setup.md` / `specification.md` / `database.md` / `testing.md`
