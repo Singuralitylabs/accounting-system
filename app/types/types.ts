@@ -322,10 +322,14 @@ export type BudgetSummaryType = {
   balance: number;
 };
 
+// notDeclared: no header row; inProgress: header row without completion; declared: completed_at is set.
+export type BudgetDeclarationStatus = "notDeclared" | "inProgress" | "declared";
+
 export type BudgetDeclarationStatusType = {
   team: string;
   declarationId: number | null;
-  isDeclared: boolean;
+  status: BudgetDeclarationStatus;
+  itemCount: number;
   declaredByName: string | null; // null when profiles RLS hides the row
   updatedAt: string | null;
   summary: BudgetSummaryType;
@@ -337,6 +341,7 @@ export type BudgetDeclarationItemWithManagerName = BudgetDeclarationItemType & {
 
 export type BudgetDeclarationDetailType = {
   comment: string | null;
+  completed: boolean;
   items: BudgetDeclarationItemWithManagerName[];
 };
 
@@ -377,6 +382,7 @@ export type BudgetDeclarationSaveInput = {
   targetMonth: string; // "YYYY-MM"
   team: string;
   comment: string | null;
+  completed: boolean;
   items: BudgetDeclarationItemInput[];
 };
 

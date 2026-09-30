@@ -6,6 +6,7 @@ import {
   AccessFailureKind,
   BudgetDeclarationItemInput,
   BudgetDeclarationPreviousItem,
+  BudgetDeclarationStatus,
   BudgetDeclarationStatusType,
   BudgetSummaryType,
 } from "../types/types";
@@ -103,9 +104,20 @@ export type BudgetDeclarationWithItems = {
   id: number;
   team: string;
   updated_at: string | null;
+  completed_at: string | null;
   declared_by_name: string | null;
   items: BudgetItemAmount[];
 };
+
+// Declared only when completed_at is set; a header row alone is "in progress".
+export const budgetDeclarationStatus = (
+  declaration: { completed_at: string | null } | undefined,
+): BudgetDeclarationStatus =>
+  !declaration
+    ? "notDeclared"
+    : declaration.completed_at !== null
+      ? "declared"
+      : "inProgress";
 
 // Declarations for teams missing from the master (disabled/renamed) are appended so none are dropped.
 export const buildBudgetDeclarationStatusList = (
@@ -122,7 +134,8 @@ export const buildBudgetDeclarationStatusList = (
   ): BudgetDeclarationStatusType => ({
     team,
     declarationId: declaration?.id ?? null,
-    isDeclared: !!declaration,
+    status: budgetDeclarationStatus(declaration),
+    itemCount: declaration?.items.length ?? 0,
     declaredByName: declaration?.declared_by_name ?? null,
     updatedAt: declaration?.updated_at ?? null,
     summary: summarizeBudgetItems(declaration?.items ?? []),

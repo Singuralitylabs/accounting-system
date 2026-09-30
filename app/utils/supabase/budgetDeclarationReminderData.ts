@@ -64,6 +64,7 @@ export const getActiveBudgetTeams = async (): Promise<{
   return { teams, error: null };
 };
 
+// Only completed declarations count: teams with no header row or an in-progress one still get reminded.
 export const getDeclaredBudgetTeams = async (
   targetMonth: string,
 ): Promise<{ teams: string[]; error: unknown }> => {
@@ -72,7 +73,8 @@ export const getDeclaredBudgetTeams = async (
   const { data, error } = await supabase
     .from("budget_declarations")
     .select("team")
-    .eq("target_month", targetMonth);
+    .eq("target_month", targetMonth)
+    .not("completed_at", "is", null);
 
   if (error) {
     console.error("事前収支申告リマインドの申告済みチーム取得に失敗しました:", error);

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Fragment, useState } from "react";
 import {
   BudgetClosingInfo,
+  BudgetDeclarationStatus,
   BudgetDeclarationStatusType,
 } from "@/app/types/types";
 import {
@@ -44,6 +45,19 @@ type Props = {
   // Manager Select is disabled while true (see BudgetDeclarationForm).
   memberListError?: boolean;
 };
+
+const STATUS_BADGE: Record<
+  BudgetDeclarationStatus,
+  { label: string; color: string }
+> = {
+  notDeclared: { label: "未申告", color: "gray" },
+  inProgress: { label: "入力中", color: "yellow" },
+  declared: { label: "申告済み", color: "teal" },
+};
+
+// A header row exists (in progress or declared): amounts and lines are shown and the action is "edit".
+const hasDeclaration = (row: BudgetDeclarationStatusType) =>
+  row.status !== "notDeclared";
 
 type FormTarget = {
   team: string;
@@ -278,28 +292,33 @@ const BudgetDeclarationList = ({
                       <Table.Tr>
                         <Table.Td>{row.team}</Table.Td>
                         <Table.Td>
-                          <Badge color={row.isDeclared ? "teal" : "gray"}>
-                            {row.isDeclared ? "申告済み" : "未申告"}
+                          <Badge color={STATUS_BADGE[row.status].color}>
+                            {STATUS_BADGE[row.status].label}
                           </Badge>
+                          {row.status === "declared" && row.itemCount === 0 && (
+                            <Text size="xs" c="dimmed">
+                              明細なし
+                            </Text>
+                          )}
                         </Table.Td>
                         <Table.Td className="text-right">
-                          {row.isDeclared
+                          {hasDeclaration(row)
                             ? formatCurrency(row.summary.incomeTotal)
                             : "-"}
                         </Table.Td>
                         <Table.Td className="text-right">
-                          {row.isDeclared
+                          {hasDeclaration(row)
                             ? formatCurrency(row.summary.expenseTotal)
                             : "-"}
                         </Table.Td>
                         <Table.Td
                           className={`text-right ${
-                            row.isDeclared && row.summary.balance < 0
+                            hasDeclaration(row) && row.summary.balance < 0
                               ? "text-red-600"
                               : ""
                           }`}
                         >
-                          {row.isDeclared
+                          {hasDeclaration(row)
                             ? formatCurrency(row.summary.balance)
                             : "-"}
                         </Table.Td>
@@ -311,7 +330,7 @@ const BudgetDeclarationList = ({
                           <Button
                             size="xs"
                             variant="subtle"
-                            disabled={!row.isDeclared || isSwitchingMonth}
+                            disabled={!hasDeclaration(row) || isSwitchingMonth}
                             onClick={() => {
                               if (row.declarationId !== null) {
                                 toggleDeclaration(row.declarationId);
@@ -340,7 +359,7 @@ const BudgetDeclarationList = ({
                                 })
                               }
                             >
-                              {row.isDeclared ? "編集する" : "申告する"}
+                              {hasDeclaration(row) ? "編集する" : "申告する"}
                             </Button>
                           ) : (
                             <Text size="xs" c="dimmed">

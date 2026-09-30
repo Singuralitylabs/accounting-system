@@ -78,7 +78,8 @@ const row = (
 ): BudgetDeclarationStatusType => ({
   team: "開発チーム",
   declarationId: 1,
-  isDeclared: true,
+  status: "declared",
+  itemCount: 1,
   declaredByName: "山田",
   updatedAt: "2026-08-20T10:00:00+09:00",
   summary: { incomeTotal: 100000, expenseTotal: 0, balance: 100000 },
@@ -188,7 +189,8 @@ describe("BudgetDeclarationList", () => {
       row({
         team: "未申告チーム",
         declarationId: null,
-        isDeclared: false,
+        status: "notDeclared",
+        itemCount: 0,
         declaredByName: null,
         updatedAt: null,
         summary: { incomeTotal: 0, expenseTotal: 0, balance: 0 },
@@ -205,7 +207,8 @@ describe("BudgetDeclarationList", () => {
       row({
         team: "未申告チーム",
         declarationId: null,
-        isDeclared: false,
+        status: "notDeclared",
+        itemCount: 0,
         declaredByName: null,
         updatedAt: null,
         summary: { incomeTotal: 0, expenseTotal: 0, balance: 0 },
@@ -270,7 +273,8 @@ describe("BudgetDeclarationList", () => {
         row({
           team: "開発チーム",
           declarationId: null,
-          isDeclared: false,
+          status: "notDeclared",
+          itemCount: 0,
           declaredByName: null,
           updatedAt: null,
           summary: { incomeTotal: 0, expenseTotal: 0, balance: 0 },
@@ -383,6 +387,49 @@ describe("BudgetDeclarationList", () => {
       "300,000",
     );
     expect(screen.queryByText("合計")).not.toBeInTheDocument();
+  });
+
+  it("状態バッジは 未申告 / 入力中 / 申告済み を区別し、入力中の金額も表示する", () => {
+    renderList([
+      row({ team: "開発チーム", status: "declared" }),
+      row({
+        team: "広報チーム",
+        declarationId: 2,
+        status: "inProgress",
+        summary: { incomeTotal: 30000, expenseTotal: 0, balance: 30000 },
+      }),
+      row({
+        team: "営業チーム",
+        declarationId: null,
+        status: "notDeclared",
+        itemCount: 0,
+        declaredByName: null,
+        updatedAt: null,
+        summary: { incomeTotal: 0, expenseTotal: 0, balance: 0 },
+      }),
+    ]);
+
+    expect(screen.getByText("申告済み")).toBeInTheDocument();
+    expect(screen.getByText("入力中")).toBeInTheDocument();
+    expect(screen.getByText("未申告")).toBeInTheDocument();
+    expect(screen.getAllByText(/30,000/).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "編集する" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "申告する" })).toHaveLength(1);
+  });
+
+  it("明細 0 件で申告済みにした行は「明細なし」と表示する", () => {
+    renderList([
+      row({
+        team: "広報チーム",
+        declarationId: 2,
+        status: "declared",
+        itemCount: 0,
+        summary: { incomeTotal: 0, expenseTotal: 0, balance: 0 },
+      }),
+      row({ team: "開発チーム", status: "declared", itemCount: 2 }),
+    ]);
+
+    expect(screen.getAllByText("明細なし")).toHaveLength(1);
   });
 
   it("収支がマイナスのときは赤字で表示する", () => {
