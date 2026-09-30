@@ -1,7 +1,9 @@
 "use client";
 
+import { Group } from "@mantine/core";
 import { MonthPickerInput } from "@mantine/dates";
-import { toMonthString } from "../utils/formatter";
+import { addMonths, formatMonthLabel, toMonthString } from "../utils/formatter";
+import { StepArrowButton } from "./StepArrowButton";
 
 interface CustomMonthPickerProps {
   label?: string;
@@ -14,6 +16,8 @@ interface CustomMonthPickerProps {
   isClearable?: boolean;
   // Marker per month ("YYYY-MM"): "alert" highlights, "closed" underlines.
   getMonthIndicator?: (month: string) => "alert" | "closed" | null;
+  // Opt-in prev/next month buttons for target-month switching (not for form inputs).
+  withNavigation?: boolean;
 }
 
 export const CustomMonthPicker = ({
@@ -26,10 +30,11 @@ export const CustomMonthPicker = ({
   className = "",
   isClearable = false,
   getMonthIndicator,
+  withNavigation = false,
 }: CustomMonthPickerProps) => {
-  return (
+  const picker = (
     <MonthPickerInput
-      className={className}
+      className={withNavigation ? "flex-1 min-w-0" : className}
       label={label}
       required={required}
       placeholder={placeholder}
@@ -62,5 +67,34 @@ export const CustomMonthPicker = ({
           : undefined
       }
     />
+  );
+
+  if (!withNavigation) {
+    return picker;
+  }
+
+  // Arrows only call onChange so each screen's own guard (discard confirm, reset) still applies.
+  const navDisabled = disabled || !value;
+  const prevMonth = value ? addMonths(value, -1) : null;
+  const nextMonth = value ? addMonths(value, 1) : null;
+
+  return (
+    <Group gap="xs" align="flex-end" wrap="nowrap" className={className}>
+      <StepArrowButton
+        direction="prev"
+        label="前月"
+        title={prevMonth ? formatMonthLabel(prevMonth) : undefined}
+        disabled={navDisabled}
+        onClick={() => prevMonth && onChange(prevMonth)}
+      />
+      {picker}
+      <StepArrowButton
+        direction="next"
+        label="翌月"
+        title={nextMonth ? formatMonthLabel(nextMonth) : undefined}
+        disabled={navDisabled}
+        onClick={() => nextMonth && onChange(nextMonth)}
+      />
+    </Group>
   );
 };

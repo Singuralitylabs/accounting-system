@@ -6,20 +6,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AnnualTrendType } from "@/app/types/types";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
 
-const { chartMounts, chartUnmounts } = vi.hoisted(() => ({
-  chartMounts: { count: 0 },
-  chartUnmounts: { count: 0 },
-}));
+const { chartMounts, chartUnmounts, reportMonths, trendYears } = vi.hoisted(
+  () => ({
+    chartMounts: { count: 0 },
+    chartUnmounts: { count: 0 },
+    reportMonths: [] as string[],
+    trendYears: [] as number[],
+  }),
+);
 
 const trend: AnnualTrendType = { fiscalYear: 2026, months: [] };
 
 vi.mock("@/app/hooks/useProfitLossData", () => ({
-  useProfitLossReport: () => ({
-    data: null,
-    isLoading: false,
-    isError: false,
-  }),
-  useAnnualTrend: () => ({ data: trend, isLoading: false, isError: false }),
+  useProfitLossReport: (month: string) => {
+    reportMonths.push(month);
+    return { data: null, isLoading: false, isError: false };
+  },
+  useAnnualTrend: (fiscalYear: number) => {
+    trendYears.push(fiscalYear);
+    return { data: trend, isLoading: false, isError: false };
+  },
 }));
 vi.mock("@/app/hooks/useProfitLossClosing", () => ({
   useClosedMonths: () => ({ closedMonths: new Set<string>() }),
@@ -101,5 +107,42 @@ describe("ProfitLossView の年間推移グラフ（Issue #177）", () => {
     });
     expect(screen.getByTestId("annual-trend-chart")).toBeInTheDocument();
     expect(chartMounts.count).toBe(2);
+  });
+});
+
+describe("ProfitLossView の前後ボタン（Issue #229）", () => {
+  beforeEach(() => {
+    reportMonths.length = 0;
+    trendYears.length = 0;
+  });
+
+  it("月次タブで前月・翌月ボタンを押すと該当月のレポートを取得する", () => {
+    renderView();
+    expect(reportMonths.at(-1)).toBe("2026-09");
+
+    fireEvent.click(screen.getByRole("button", { name: "前月" }));
+    expect(reportMonths.at(-1)).toBe("2026-08");
+
+    fireEvent.click(screen.getByRole("button", { name: "翌月" }));
+    fireEvent.click(screen.getByRole("button", { name: "翌月" }));
+    expect(reportMonths.at(-1)).toBe("2026-10");
+  });
+
+  it("年間推移タブで前年度・翌年度ボタンを押すと年度が切り替わり、選択肢の端では無効になる", () => {
+    renderView();
+    fireEvent.click(screen.getByRole("tab", { name: "年間推移" }));
+
+    // Options run from current fiscal year + 1 (2027) down to 5 years back (2022).
+    fireEvent.click(screen.getByRole("button", { name: "翌年度" }));
+    expect(trendYears.at(-1)).toBe(2027);
+    expect(screen.getByRole("button", { name: "翌年度" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "前年度" }));
+    expect(trendYears.at(-1)).toBe(2026);
+    for (let i = 0; i < 4; i += 1) {
+      fireEvent.click(screen.getByRole("button", { name: "前年度" }));
+    }
+    expect(trendYears.at(-1)).toBe(2022);
+    expect(screen.getByRole("button", { name: "前年度" })).toBeDisabled();
   });
 });

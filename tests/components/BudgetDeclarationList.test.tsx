@@ -64,12 +64,21 @@ vi.mock("@/app/utils/supabase/budgetDeclarationReminderSettings", () => ({
 vi.mock("@/app/components/CustomMonthPicker", () => ({
   CustomMonthPicker: ({
     onChange,
+    withNavigation,
   }: {
     onChange: (month: string | null) => void;
+    withNavigation?: boolean;
   }) => (
-    <button type="button" onClick={() => onChange("2026-11")}>
-      月を変更
-    </button>
+    <>
+      <button type="button" onClick={() => onChange("2026-11")}>
+        月を変更
+      </button>
+      {withNavigation && (
+        <button type="button" onClick={() => onChange("2026-11")}>
+          翌月
+        </button>
+      )}
+    </>
   ),
 }));
 
@@ -256,6 +265,17 @@ describe("BudgetDeclarationList", () => {
     expect(
       screen.getByRole("button", { name: "明細を表示" }),
     ).toBeInTheDocument();
+  });
+
+  it("翌月ボタンで月を切り替えても開閉状態がリセットされる", () => {
+    renderList([row({ team: "開発チーム", declarationId: 1 })]);
+
+    fireEvent.click(screen.getByRole("button", { name: "明細を表示" }));
+    expect(screen.getByText("申告が見つかりません")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "翌月" }));
+
+    expect(screen.queryByText("申告が見つかりません")).not.toBeInTheDocument();
   });
 
   it("申告を削除して同じチームを再申告しても、別 ID の明細パネルが勝手に開かない", () => {

@@ -445,6 +445,7 @@ const ExtraEntryList = ({
       <CustomMonthPicker
         label="対象月"
         placeholder="対象月を選択"
+        withNavigation
         value={month}
         onChange={handleChangeMonth}
         getMonthIndicator={(m) => (closedMonths.has(m) ? "closed" : null)}

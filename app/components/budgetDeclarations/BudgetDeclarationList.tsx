@@ -152,6 +152,7 @@ const BudgetDeclarationList = ({
         <CustomMonthPicker
           label="対象月"
           placeholder="対象月を選択"
+          withNavigation
           value={month}
           onChange={(selected) => {
             if (selected) {
