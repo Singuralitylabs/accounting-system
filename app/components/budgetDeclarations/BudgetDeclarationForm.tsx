@@ -4,6 +4,7 @@ import {
   Alert,
   Badge,
   Button,
+  Checkbox,
   Group,
   LoadingOverlay,
   Modal,
@@ -79,6 +80,7 @@ type Props = {
 type HeaderFormValues = {
   team: string;
   comment: string;
+  completed: boolean;
 };
 
 const BudgetDeclarationForm = ({
@@ -108,7 +110,7 @@ const BudgetDeclarationForm = ({
   const isSaving = saveMutation.isPending || deleteMutation.isPending;
 
   const form = useForm<HeaderFormValues>({
-    initialValues: { team, comment: "" },
+    initialValues: { team, comment: "", completed: false },
   });
 
   // Previous month's items for "copy previous"; enabled only for new declarations (editing waits on detail, so it is excluded) and refetched on team change and on every mount (stale after save/delete).
@@ -164,7 +166,7 @@ const BudgetDeclarationForm = ({
   // Reset to initial values on every open (including target row change); when editing, wait for detail so existing data is not overwritten with empty.
   useEffect(() => {
     if (!opened) return;
-    form.setValues({ team, comment: "" });
+    form.setValues({ team, comment: "", completed: false });
     nextKeyRef.current = 0;
     setItems([]);
     populatedForIdRef.current = null;
@@ -201,7 +203,11 @@ const BudgetDeclarationForm = ({
     if (isDetailFetching) return;
     if (populatedForIdRef.current === declarationId) return;
     populatedForIdRef.current = declarationId;
-    form.setValues({ team, comment: detail.comment ?? "" });
+    form.setValues({
+      team,
+      comment: detail.comment ?? "",
+      completed: detail.completed,
+    });
     setItems(
       detail.items.map((item) => ({
         key: nextKeyRef.current++,
@@ -294,6 +300,7 @@ const BudgetDeclarationForm = ({
         targetMonth,
         team: currentTeam,
         comment: form.getValues().comment || null,
+        completed: form.getValues().completed,
         items: items.map(
           ({ entry_type, category, description, amount, manager_id }) => ({
             entry_type,
@@ -415,6 +422,14 @@ const BudgetDeclarationForm = ({
           placeholder="補足があればご記入ください。"
           key={form.key("comment")}
           {...form.getInputProps("comment")}
+        />
+
+        <Checkbox
+          className="mt-4"
+          label="申告を完了する（申告済みにする）"
+          description="チェックを入れて保存したときだけ「申告済み」になります。入力の途中で保存する場合は外したままにしてください。明細が無い場合も、チェックを入れれば申告済みになります。"
+          key={form.key("completed")}
+          {...form.getInputProps("completed", { type: "checkbox" })}
         />
 
         {!isEditMode && (

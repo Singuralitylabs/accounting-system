@@ -11,6 +11,7 @@ vi.mock("@/app/utils/supabase/clients", () => ({
 import { DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS } from "@/app/utils/budgetDeclarationReminder";
 import {
   getBudgetDeclarationReminderTargetDays,
+  getDeclaredBudgetTeams,
   isBudgetMonthClosed,
 } from "@/app/utils/supabase/budgetDeclarationReminderData";
 
@@ -117,6 +118,44 @@ describe("isBudgetMonthClosed", () => {
     expect(await isBudgetMonthClosed("2026-10-01")).toEqual({
       closed: false,
       error: dbError,
+    });
+  });
+});
+
+describe("getDeclaredBudgetTeams", () => {
+  const not = vi.fn();
+  const eq = vi.fn(() => ({ not }));
+  const select = vi.fn(() => ({ eq }));
+  const from = vi.fn(() => ({ select }));
+
+  beforeEach(() => {
+    not.mockReset();
+    from.mockClear();
+    eq.mockClear();
+    createServiceRoleSupabase.mockReset();
+    createServiceRoleSupabase.mockReturnValue({ from });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  it("完了済み（completed_at あり）の申告だけを申告済みチームとして返す（入力中はリマインド対象に残る）", async () => {
+    not.mockResolvedValue({ data: [{ team: "Aチーム" }], error: null });
+
+    expect(await getDeclaredBudgetTeams("2026-10-01")).toEqual({
+      teams: ["Aチーム"],
+      error: null,
+    });
+    expect(from).toHaveBeenCalledWith("budget_declarations");
+    expect(eq).toHaveBeenCalledWith("target_month", "2026-10-01");
+    expect(not).toHaveBeenCalledWith("completed_at", "is", null);
+  });
+
+  it("DB エラーはエラーとして返す（呼び出し側で 500 にする）", async () => {
+    const error = { message: "boom" };
+    not.mockResolvedValue({ data: null, error });
+
+    expect(await getDeclaredBudgetTeams("2026-10-01")).toEqual({
+      teams: [],
+      error,
     });
   });
 });

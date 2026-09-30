@@ -71,6 +71,7 @@ describe("useDeleteBudgetDeclaration", () => {
     queryClient.setQueryData(["budgetDeclarations", "list", "2026-10"], []);
     queryClient.setQueryData(["budgetDeclarations", "detail", 7], {
       comment: null,
+      completed: false,
       items: [],
     });
     deleteBudgetDeclaration.mockResolvedValue({
@@ -136,6 +137,7 @@ describe("useDeleteBudgetDeclaration", () => {
     queryClient.setQueryData(["budgetDeclarations", "list", "2026-10"], []);
     queryClient.setQueryData(["budgetDeclarations", "detail", 7], {
       comment: null,
+      completed: false,
       items: [],
     });
     deleteBudgetDeclaration.mockResolvedValue({});
@@ -185,6 +187,7 @@ describe("useSaveBudgetDeclaration", () => {
     queryClient.setQueryData(["budgetDeclarations", "list", "2026-10"], []);
     queryClient.setQueryData(["budgetDeclarations", "detail", 7], {
       comment: null,
+      completed: false,
       items: [],
     });
     saveBudgetDeclaration.mockResolvedValue({
@@ -204,6 +207,7 @@ describe("useSaveBudgetDeclaration", () => {
         targetMonth: "2026-10",
         team: "Aチーム",
         comment: null,
+        completed: false,
         items: [],
       }),
     ).rejects.toThrow();
@@ -242,6 +246,7 @@ describe("useSaveBudgetDeclaration", () => {
       targetMonth: "2026-10",
       team: "Aチーム",
       comment: null,
+      completed: false,
       items: [],
     });
 
@@ -272,6 +277,7 @@ describe("useSaveBudgetDeclaration", () => {
         targetMonth: "2026-10",
         team: "Aチーム",
         comment: null,
+        completed: false,
         items: [],
       }),
     ).rejects.toThrow();

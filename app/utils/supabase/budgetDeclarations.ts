@@ -44,6 +44,7 @@ const DECLARATION_LIST_SELECT = `
   id,
   team,
   updated_at,
+  completed_at,
   declared_by,
   profiles!budget_declarations_declared_by_fkey (name),
   budget_declaration_items (entry_type, amount)
@@ -123,7 +124,7 @@ export const getBudgetDeclarationDetail = async (
     supabase
       .from("budget_declarations")
       .select(
-        "comment, budget_declaration_items (*, profiles!budget_declaration_items_manager_id_fkey (name))",
+        "comment, completed_at, budget_declaration_items (*, profiles!budget_declaration_items_manager_id_fkey (name))",
       )
       .eq("id", declarationId)
       // maybeSingle so 0 rows (including RLS-hidden) is not an error.
@@ -145,6 +146,7 @@ export const getBudgetDeclarationDetail = async (
   return {
     detail: {
       comment: data.comment,
+      completed: data.completed_at !== null,
       // Stable order independent of the DB.
       items: [...(data.budget_declaration_items ?? [])]
         .sort((a, b) => a.display_order - b.display_order || a.id - b.id)
@@ -319,6 +321,8 @@ export const saveBudgetDeclaration = async (
       p_target_month: targetMonth,
       p_team: input.team,
       p_comment: input.comment ?? undefined,
+      // completed_by is resolved from auth.uid() in the function, never sent by the client.
+      p_completed: input.completed,
       p_items: input.items.map((item) => ({
         // entry_type is under the DB CHECK, so a value with surrounding whitespace would fail it.
         entry_type: item.entry_type.trim(),
@@ -455,6 +459,7 @@ type DeclarationListRow = {
   id: number;
   team: string;
   updated_at: string | null;
+  completed_at: string | null;
   declared_by: number;
   profiles: { name: string | null } | null;
   budget_declaration_items: { entry_type: string; amount: number }[] | null;
@@ -468,6 +473,7 @@ const toDeclarations = (
     id: row.id,
     team: row.team,
     updated_at: row.updated_at,
+    completed_at: row.completed_at,
     declared_by_name:
       row.profiles?.name ?? memberNames.get(row.declared_by) ?? null,
     items: row.budget_declaration_items ?? [],

@@ -55,6 +55,7 @@ const baseInput: BudgetDeclarationSaveInput = {
   targetMonth: "2026-10",
   team: "Aチーム",
   comment: null,
+  completed: false,
   items: [
     {
       entry_type: " income ",
@@ -129,6 +130,18 @@ describe("saveBudgetDeclaration", () => {
         p_comment: undefined,
       }),
     );
+  });
+
+  it("completed をそのまま p_completed に渡す（completed_by は送らない）", async () => {
+    single.mockResolvedValue({ data: { id: 7 }, error: null });
+
+    await saveBudgetDeclaration({ ...baseInput, completed: true });
+    await saveBudgetDeclaration({ ...baseInput, completed: false });
+
+    const calls = rpc.mock.calls as unknown as [string, Record<string, unknown>][];
+    expect(calls[0][1].p_completed).toBe(true);
+    expect(calls[1][1].p_completed).toBe(false);
+    expect(calls[0][1]).not.toHaveProperty("p_completed_by");
   });
 
   it("declarationId / comment が値を持つ場合はそのまま渡す", async () => {
@@ -480,7 +493,7 @@ describe("getBudgetDeclarationList", () => {
     const result = await getBudgetDeclarationList("2026-10");
 
     expect(result.rows?.map((r) => r.team)).toEqual(["Aチーム", "旧チーム"]);
-    expect(result.rows?.[1].isDeclared).toBe(false);
+    expect(result.rows?.[1].status).toBe("notDeclared");
   });
 
   it("経理・管理者にはマスタ外の未申告チーム行を追加しない", async () => {
@@ -611,6 +624,7 @@ describe("getBudgetDeclarationDetail", () => {
             maybeSingle: vi.fn().mockResolvedValue({
               data: {
                 comment: null,
+                completed_at: "2026-09-01T00:00:00+09:00",
                 budget_declaration_items: [
                   { id: 1, display_order: 0, manager_id: 10, profiles: null },
                   { id: 2, display_order: 1, manager_id: null, profiles: null },
@@ -629,5 +643,6 @@ describe("getBudgetDeclarationDetail", () => {
       "他チームの山田",
       null,
     ]);
+    expect(result.detail?.completed).toBe(true);
   });
 });

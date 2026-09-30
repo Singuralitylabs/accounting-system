@@ -70,7 +70,7 @@ export const buildBudgetDeclarationReminderMessage = (
   });
 
   return [
-    `【事前収支申告リマインド】${formatMonthLabel(targetMonth)}分が未申告のチームがあります。`,
+    `【事前収支申告リマインド】${formatMonthLabel(targetMonth)}分の事前収支申告が未申告・未完了のチームがあります。`,
     ...lines,
     `期限: 毎月${BUDGET_DECLARATION_DEADLINE_DAY}日`,
     declarationUrl,

@@ -25,6 +25,7 @@ const declaration = (
 ): BudgetDeclarationWithItems => ({
   id: 1,
   updated_at: "2026-08-20T10:00:00+09:00",
+  completed_at: "2026-08-20T10:00:00+09:00",
   declared_by_name: "山田",
   items: [],
   ...overrides,
@@ -150,7 +151,8 @@ describe("buildBudgetDeclarationStatusList", () => {
       {
         team: "Aチーム",
         declarationId: 7,
-        isDeclared: true,
+        status: "declared",
+        itemCount: 2,
         declaredByName: "山田",
         updatedAt: "2026-08-20T10:00:00+09:00",
         summary: {
@@ -172,7 +174,8 @@ describe("buildBudgetDeclarationStatusList", () => {
     expect(rows[1]).toMatchObject({
       team: "Bチーム",
       declarationId: null,
-      isDeclared: false,
+      status: "notDeclared",
+      itemCount: 0,
       declaredByName: null,
       summary: { incomeTotal: 0, expenseTotal: 0, balance: 0 },
     });
@@ -205,7 +208,7 @@ describe("buildBudgetDeclarationStatusList", () => {
     );
 
     expect(rows.map((row) => row.team)).toEqual(["Aチーム", "旧チーム"]);
-    expect(rows[1].isDeclared).toBe(true);
+    expect(rows[1].status).toBe("declared");
     expect(rows[1].summary.incomeTotal).toBe(1000);
   });
 
@@ -213,7 +216,7 @@ describe("buildBudgetDeclarationStatusList", () => {
     const rows = buildBudgetDeclarationStatusList(["Aチーム", "Bチーム"], []);
 
     expect(rows).toHaveLength(2);
-    expect(rows.every((row) => !row.isDeclared)).toBe(true);
+    expect(rows.every((row) => row.status === "notDeclared")).toBe(true);
   });
 
   it("申告者名が読めない（profiles の RLS 対象外）場合は null になる", () => {
@@ -223,7 +226,45 @@ describe("buildBudgetDeclarationStatusList", () => {
     );
 
     expect(rows[0].declaredByName).toBeNull();
-    expect(rows[0].isDeclared).toBe(true);
+    expect(rows[0].status).toBe("declared");
+  });
+
+  it("ヘッダ行があっても completed_at が無ければ入力中（申告済みにしない）", () => {
+    const rows = buildBudgetDeclarationStatusList(
+      ["Aチーム", "Bチーム", "Cチーム"],
+      [
+        declaration({
+          team: "Aチーム",
+          completed_at: null,
+          items: [{ entry_type: "income", amount: 500 }],
+        }),
+        declaration({ id: 2, team: "Bチーム" }),
+      ],
+    );
+
+    expect(rows.map((row) => row.status)).toEqual([
+      "inProgress",
+      "declared",
+      "notDeclared",
+    ]);
+  });
+
+  it("入力中の金額も合計に含め、明細 0 件の申告済みは itemCount 0 で区別できる", () => {
+    const rows = buildBudgetDeclarationStatusList(
+      ["Aチーム", "Bチーム"],
+      [
+        declaration({
+          team: "Aチーム",
+          completed_at: null,
+          items: [{ entry_type: "income", amount: 500 }],
+        }),
+        declaration({ id: 2, team: "Bチーム" }),
+      ],
+    );
+
+    expect(rows[0].itemCount).toBe(1);
+    expect(rows[1].itemCount).toBe(0);
+    expect(totalBudgetSummary(rows).incomeTotal).toBe(500);
   });
 });
 
