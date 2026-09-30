@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 import BudgetDeclarationList from "@/app/components/budgetDeclarations/BudgetDeclarationList";
@@ -95,6 +95,10 @@ const row = (
   ...overrides,
 });
 
+// Table and card layouts are both in the DOM (CSS picks one); the tests target the desktop table.
+const desk = () => within(screen.getByRole("table"));
+const cards = () => within(screen.getByTestId("budget-card-list"));
+
 const closing = (month: string) => ({
   month,
   closedAt: "2026-09-21T10:00:00+09:00",
@@ -154,8 +158,8 @@ describe("BudgetDeclarationList", () => {
   it("月切替直後（isPlaceholderData）は行の操作ボタンを無効化する", () => {
     renderList([row()], { isPlaceholderData: true });
 
-    expect(screen.getByRole("button", { name: "明細を表示" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "編集する" })).toBeDisabled();
+    expect(desk().getByRole("button", { name: "明細を表示" })).toBeDisabled();
+    expect(desk().getByRole("button", { name: "編集する" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "すべて開く" })).toBeDisabled();
   });
 
@@ -163,15 +167,46 @@ describe("BudgetDeclarationList", () => {
     renderList([row()]);
 
     expect(
-      screen.getByRole("button", { name: "明細を表示" }),
+      desk().getByRole("button", { name: "明細を表示" }),
     ).not.toBeDisabled();
-    expect(screen.getByRole("button", { name: "編集する" })).not.toBeDisabled();
+    expect(desk().getByRole("button", { name: "編集する" })).not.toBeDisabled();
+  });
+
+  it("モバイル用のカードにチーム・状況・金額・申告者と操作ボタンを表示する", () => {
+    renderList([
+      row({
+        team: "開発チーム",
+        status: "declared",
+        declaredByName: "山田太郎",
+        summary: { incomeTotal: 100000, expenseTotal: 130000, balance: -30000 },
+      }),
+    ]);
+
+    const card = cards();
+    expect(card.getByText("開発チーム")).toBeInTheDocument();
+    expect(card.getByText("申告済み")).toBeInTheDocument();
+    expect(card.getByText("￥100,000")).toBeInTheDocument();
+    expect(card.getByText("￥130,000")).toBeInTheDocument();
+    expect(card.getByText("-￥30,000").className).toContain("text-red-600");
+    expect(card.getByText(/山田太郎/)).toBeInTheDocument();
+    expect(card.getByRole("button", { name: "明細を表示" })).toBeEnabled();
+    expect(card.getByRole("button", { name: "編集する" })).toBeEnabled();
+  });
+
+  it("モバイル用のカードでも明細の開閉ができる", () => {
+    renderList([row({ team: "開発チーム", declarationId: 1 })]);
+
+    fireEvent.click(cards().getByRole("button", { name: "明細を表示" }));
+    expect(cards().getByText("申告が見つかりません")).toBeInTheDocument();
+
+    fireEvent.click(cards().getByRole("button", { name: "閉じる" }));
+    expect(cards().queryByText("申告が見つかりません")).not.toBeInTheDocument();
   });
 
   it("フォームを開いた後に月を変えても、開いているフォームの対象月は変わらない", () => {
     renderList([row()]);
 
-    fireEvent.click(screen.getByRole("button", { name: "編集する" }));
+    fireEvent.click(desk().getByRole("button", { name: "編集する" }));
     expect(screen.getByDisplayValue("2026年10月")).toBeInTheDocument();
 
     // Mantine sets aria-hidden on the background while the modal is open, so query with hidden: true
@@ -224,16 +259,16 @@ describe("BudgetDeclarationList", () => {
       }),
     ]);
 
-    expect(screen.queryByText("申告が見つかりません")).not.toBeInTheDocument();
+    expect(desk().queryByText("申告が見つかりません")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "すべて開く" }));
-    expect(screen.getAllByText("申告が見つかりません")).toHaveLength(2);
+    expect(desk().getAllByText("申告が見つかりません")).toHaveLength(2);
     expect(
-      screen.getByRole("button", { name: "明細を表示" }),
+      desk().getByRole("button", { name: "明細を表示" }),
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "すべて閉じる" }));
-    expect(screen.queryByText("申告が見つかりません")).not.toBeInTheDocument();
+    expect(desk().queryByText("申告が見つかりません")).not.toBeInTheDocument();
   });
 
   it("個別の「明細を表示 / 閉じる」で複数チームを個別に開いたままにできる", () => {
@@ -242,40 +277,40 @@ describe("BudgetDeclarationList", () => {
       row({ team: "広報チーム", declarationId: 2 }),
     ]);
 
-    const showButtons = screen.getAllByRole("button", { name: "明細を表示" });
+    const showButtons = desk().getAllByRole("button", { name: "明細を表示" });
     fireEvent.click(showButtons[0]);
-    expect(screen.getAllByText("申告が見つかりません")).toHaveLength(1);
+    expect(desk().getAllByText("申告が見つかりません")).toHaveLength(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "明細を表示" }));
-    expect(screen.getAllByText("申告が見つかりません")).toHaveLength(2);
+    fireEvent.click(desk().getByRole("button", { name: "明細を表示" }));
+    expect(desk().getAllByText("申告が見つかりません")).toHaveLength(2);
 
-    fireEvent.click(screen.getAllByRole("button", { name: "閉じる" })[0]);
-    expect(screen.getAllByText("申告が見つかりません")).toHaveLength(1);
+    fireEvent.click(desk().getAllByRole("button", { name: "閉じる" })[0]);
+    expect(desk().getAllByText("申告が見つかりません")).toHaveLength(1);
   });
 
   it("月を切り替えると開閉状態がリセットされる", () => {
     renderList([row({ team: "開発チーム", declarationId: 1 })]);
 
-    fireEvent.click(screen.getByRole("button", { name: "明細を表示" }));
-    expect(screen.getByText("申告が見つかりません")).toBeInTheDocument();
+    fireEvent.click(desk().getByRole("button", { name: "明細を表示" }));
+    expect(desk().getByText("申告が見つかりません")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "月を変更" }));
 
-    expect(screen.queryByText("申告が見つかりません")).not.toBeInTheDocument();
+    expect(desk().queryByText("申告が見つかりません")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "明細を表示" }),
+      desk().getByRole("button", { name: "明細を表示" }),
     ).toBeInTheDocument();
   });
 
   it("翌月ボタンで月を切り替えても開閉状態がリセットされる", () => {
     renderList([row({ team: "開発チーム", declarationId: 1 })]);
 
-    fireEvent.click(screen.getByRole("button", { name: "明細を表示" }));
-    expect(screen.getByText("申告が見つかりません")).toBeInTheDocument();
+    fireEvent.click(desk().getByRole("button", { name: "明細を表示" }));
+    expect(desk().getByText("申告が見つかりません")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "翌月" }));
 
-    expect(screen.queryByText("申告が見つかりません")).not.toBeInTheDocument();
+    expect(desk().queryByText("申告が見つかりません")).not.toBeInTheDocument();
   });
 
   it("申告を削除して同じチームを再申告しても、別 ID の明細パネルが勝手に開かない", () => {
@@ -285,8 +320,8 @@ describe("BudgetDeclarationList", () => {
       row({ team: "開発チーム", declarationId: 1 }),
     ]);
 
-    fireEvent.click(screen.getByRole("button", { name: "明細を表示" }));
-    expect(screen.getByText("申告が見つかりません")).toBeInTheDocument();
+    fireEvent.click(desk().getByRole("button", { name: "明細を表示" }));
+    expect(desk().getByText("申告が見つかりません")).toBeInTheDocument();
 
     useBudgetDeclarationList.mockReturnValue({
       data: [
@@ -315,8 +350,8 @@ describe("BudgetDeclarationList", () => {
       />,
     );
 
-    expect(screen.queryByText("申告が見つかりません")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "明細を表示" })).toBeDisabled();
+    expect(desk().queryByText("申告が見つかりません")).not.toBeInTheDocument();
+    expect(desk().getByRole("button", { name: "明細を表示" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "すべて閉じる" })).toBeDisabled();
 
     useBudgetDeclarationList.mockReturnValue({
@@ -336,9 +371,9 @@ describe("BudgetDeclarationList", () => {
       />,
     );
 
-    expect(screen.queryByText("申告が見つかりません")).not.toBeInTheDocument();
+    expect(desk().queryByText("申告が見つかりません")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "明細を表示" }),
+      desk().getByRole("button", { name: "明細を表示" }),
     ).toBeInTheDocument();
   });
 
@@ -429,12 +464,12 @@ describe("BudgetDeclarationList", () => {
       }),
     ]);
 
-    expect(screen.getByText("申告済み")).toBeInTheDocument();
-    expect(screen.getByText("入力中")).toBeInTheDocument();
-    expect(screen.getByText("未申告")).toBeInTheDocument();
+    expect(desk().getByText("申告済み")).toBeInTheDocument();
+    expect(desk().getByText("入力中")).toBeInTheDocument();
+    expect(desk().getByText("未申告")).toBeInTheDocument();
     expect(screen.getAllByText(/30,000/).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("button", { name: "編集する" })).toHaveLength(2);
-    expect(screen.getAllByRole("button", { name: "申告する" })).toHaveLength(1);
+    expect(desk().getAllByRole("button", { name: "編集する" })).toHaveLength(2);
+    expect(desk().getAllByRole("button", { name: "申告する" })).toHaveLength(1);
   });
 
   it("明細 0 件で申告済みにした行は「明細なし」と表示する", () => {
@@ -449,7 +484,7 @@ describe("BudgetDeclarationList", () => {
       row({ team: "開発チーム", status: "declared", itemCount: 2 }),
     ]);
 
-    expect(screen.getAllByText("明細なし")).toHaveLength(1);
+    expect(desk().getAllByText("明細なし")).toHaveLength(1);
   });
 
   it("収支がマイナスのときは赤字で表示する", () => {
@@ -473,11 +508,11 @@ describe("BudgetDeclarationList", () => {
       { props: { profileClass: "teamleader", profileTeam: "開発チーム" } },
     );
 
-    expect(screen.getAllByRole("button", { name: "明細を表示" })).toHaveLength(
+    expect(desk().getAllByRole("button", { name: "明細を表示" })).toHaveLength(
       2,
     );
-    expect(screen.getAllByRole("button", { name: "編集する" })).toHaveLength(1);
-    expect(screen.getByText("閲覧のみ")).toBeInTheDocument();
+    expect(desk().getAllByRole("button", { name: "編集する" })).toHaveLength(1);
+    expect(desk().getByText("閲覧のみ")).toBeInTheDocument();
   });
 
   it("確定済みの月は確定情報を表示し、全ロールで編集ボタンを無効化する", () => {
@@ -485,7 +520,7 @@ describe("BudgetDeclarationList", () => {
 
     expect(screen.getByText("確定済み")).toBeInTheDocument();
     expect(screen.getByText(/経理太郎/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "編集する" })).toBeDisabled();
+    expect(desk().getByRole("button", { name: "編集する" })).toBeDisabled();
     expect(
       screen.getAllByText(/確定済みのため、作成・編集・削除できません/).length,
     ).toBeGreaterThan(0);
@@ -512,7 +547,7 @@ describe("BudgetDeclarationList", () => {
       screen.getByText("確定状態を取得できませんでした"),
     ).toBeInTheDocument();
     expect(screen.queryByText("この月は未確定です。")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "編集する" })).toBeDisabled();
+    expect(desk().getByRole("button", { name: "編集する" })).toBeDisabled();
     expect(screen.queryByRole("switch")).not.toBeInTheDocument();
   });
 
@@ -527,7 +562,7 @@ describe("BudgetDeclarationList", () => {
     expect(
       screen.queryByText("確定状態を取得できませんでした"),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "編集する" })).toBeDisabled();
+    expect(desk().getByRole("button", { name: "編集する" })).toBeDisabled();
   });
 
   it("所属チーム未設定のチームリーダーには、編集できない理由を案内する", () => {
@@ -537,7 +572,7 @@ describe("BudgetDeclarationList", () => {
 
     expect(screen.getByText("所属チームが未設定です")).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "編集する" }),
+      desk().queryByRole("button", { name: "編集する" }),
     ).not.toBeInTheDocument();
   });
 
@@ -554,7 +589,7 @@ describe("BudgetDeclarationList", () => {
   it("フォームを開いたまま月が確定されたら、開いているフォームを保存・削除できなくする", () => {
     const { rerender } = renderList([row()]);
 
-    fireEvent.click(screen.getByRole("button", { name: "編集する" }));
+    fireEvent.click(desk().getByRole("button", { name: "編集する" }));
     expect(
       screen.queryByText("この月は編集できません"),
     ).not.toBeInTheDocument();
