@@ -276,23 +276,49 @@ describe("ProfitLossStatement のサマリーカードと損益計算書（Issue
     ).not.toBeInTheDocument();
   });
 
-  it("「すべて開く」「すべて閉じる」で損益計算書の内訳をまとめて開閉する", () => {
+  // The bulk toggle is rendered twice (table header from md up, above the table below md).
+  it.each([
+    ["テーブル見出し（md 以上）", 0],
+    ["テーブル上部（モバイル）", 1],
+  ])(
+    "「すべて開く」「すべて閉じる」で損益計算書の内訳をまとめて開閉する: %s",
+    (_label, index) => {
+      renderWithMantine(<Controlled withTeamBreakdown />);
+      expect(screen.queryByText("回線")).not.toBeInTheDocument();
+      const openButtons = screen.getAllByRole("button", {
+        name: "損益計算書の内訳をすべて開く",
+      });
+      expect(openButtons).toHaveLength(2);
+      fireEvent.click(openButtons[index]);
+      expect(screen.getByText("回線")).toBeInTheDocument();
+      expect(screen.getByText("講演謝礼")).toBeInTheDocument();
+      expect(screen.getByText("出張旅費")).toBeInTheDocument();
+      fireEvent.click(
+        screen.getAllByRole("button", {
+          name: "損益計算書の内訳をすべて閉じる",
+        })[index],
+      );
+      expect(screen.queryByText("回線")).not.toBeInTheDocument();
+      expect(screen.queryByText("講演謝礼")).not.toBeInTheDocument();
+      expect(screen.queryByText("出張旅費")).not.toBeInTheDocument();
+      const plTable = screen.getAllByRole("table")[0];
+      expect(within(plTable).queryByText("受託案件")).not.toBeInTheDocument();
+    },
+  );
+
+  it("元データ・調整の列は md 未満で隠す（実績は常に表示する）", () => {
     renderWithMantine(<Controlled withTeamBreakdown />);
-    expect(screen.queryByText("回線")).not.toBeInTheDocument();
-    fireEvent.click(
-      screen.getByRole("button", { name: "損益計算書の内訳をすべて開く" }),
+    const header = within(screen.getAllByRole("table")[0]).getByRole(
+      "columnheader",
+      { name: "元データ" },
     );
-    expect(screen.getByText("回線")).toBeInTheDocument();
-    expect(screen.getByText("講演謝礼")).toBeInTheDocument();
-    expect(screen.getByText("出張旅費")).toBeInTheDocument();
-    fireEvent.click(
-      screen.getByRole("button", { name: "損益計算書の内訳をすべて閉じる" }),
+    expect(header.className).toContain("hidden");
+    expect(header.className).toContain("md:table-cell");
+    const actual = within(screen.getAllByRole("table")[0]).getByRole(
+      "columnheader",
+      { name: "実績" },
     );
-    expect(screen.queryByText("回線")).not.toBeInTheDocument();
-    expect(screen.queryByText("講演謝礼")).not.toBeInTheDocument();
-    expect(screen.queryByText("出張旅費")).not.toBeInTheDocument();
-    const plTable = screen.getAllByRole("table")[0];
-    expect(within(plTable).queryByText("受託案件")).not.toBeInTheDocument();
+    expect(actual.className).not.toContain("hidden");
   });
 
   it("日付未入力の支出エントリは月未確定の注記に管理費として表示する", () => {
