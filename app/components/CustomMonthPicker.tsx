@@ -1,7 +1,7 @@
 "use client";
 
 import { Group } from "@mantine/core";
-import { MonthPickerInput } from "@mantine/dates";
+import { MonthPickerInput, type MonthPickerInputProps } from "@mantine/dates";
 import { addMonths, formatMonthLabel, toMonthString } from "../utils/formatter";
 import { StepArrowButton } from "./StepArrowButton";
 
@@ -18,6 +18,7 @@ interface CustomMonthPickerProps {
   getMonthIndicator?: (month: string) => "alert" | "closed" | null;
   // Opt-in prev/next month buttons for target-month switching (not for form inputs).
   withNavigation?: boolean;
+  classNames?: MonthPickerInputProps["classNames"];
 }
 
 export const CustomMonthPicker = ({
@@ -31,11 +32,13 @@ export const CustomMonthPicker = ({
   isClearable = false,
   getMonthIndicator,
   withNavigation = false,
+  classNames,
 }: CustomMonthPickerProps) => {
   const picker = (
     <MonthPickerInput
       className={withNavigation ? "flex-1 min-w-0" : className}
       label={label}
+      classNames={classNames}
       required={required}
       placeholder={placeholder}
       disabled={disabled}

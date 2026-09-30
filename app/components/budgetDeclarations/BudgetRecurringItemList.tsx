@@ -6,7 +6,6 @@ import {
   LoadingOverlay,
   NumberInput,
   Select,
-  Table,
   TextInput,
 } from "@mantine/core";
 import { useAtomValue } from "jotai";
@@ -45,6 +44,13 @@ type Props = {
   memberList: { value: string; label: string }[];
   memberListError?: boolean;
 };
+
+// Column widths from md up (same minimums as the former table); below md each row is a vertical block.
+const ROW_GRID =
+  "md:grid-cols-[minmax(9rem,1fr)_minmax(7rem,1fr)_minmax(9rem,1fr)_minmax(11rem,2fr)_minmax(9rem,1fr)_minmax(9rem,1fr)_minmax(9rem,1fr)_minmax(9rem,1fr)_3rem]";
+
+// The column header row replaces the input labels from md up.
+const MOBILE_ONLY_LABEL = { label: "md:!hidden" };
 
 const toListRows = (
   items: BudgetRecurringItemType[],
@@ -176,162 +182,165 @@ const BudgetRecurringItemList = ({
         </Alert>
       )}
       <div className="overflow-x-auto border border-gray-300 rounded bg-slate-50 p-4">
-        <Table verticalSpacing="sm" className="whitespace-nowrap">
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th className="min-w-36">チーム</Table.Th>
-              <Table.Th className="min-w-28">種別</Table.Th>
-              <Table.Th className="min-w-36">分類</Table.Th>
-              <Table.Th className="min-w-44">内容</Table.Th>
-              <Table.Th className="min-w-36">金額</Table.Th>
-              <Table.Th className="min-w-36">担当者</Table.Th>
-              <Table.Th className="min-w-36">適用開始月</Table.Th>
-              <Table.Th className="min-w-36">適用終了月</Table.Th>
-              <Table.Th className="w-12" />
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {visibleRows.map((row) => (
-              <Table.Tr key={row.id}>
-                <Table.Td>
-                  <Select
-                    value={row.team || null}
-                    // Keep a team removed from the master (disabled/renamed) displayable instead of blank (the saved value is unchanged; same as teamOptions in BudgetDeclarationForm).
-                    data={
-                      row.team && !teamList.includes(row.team)
-                        ? [row.team, ...teamList]
-                        : teamList
-                    }
-                    disabled={!canEditAllTeams}
-                    allowDeselect={false}
-                    placeholder="チームを選択"
-                    onChange={(selected) =>
-                      handleUpdateRow(row.id, { team: selected ?? row.team })
-                    }
-                  />
-                </Table.Td>
-                <Table.Td>
-                  <Select
-                    data={ENTRY_TYPE_OPTIONS}
-                    value={row.entry_type}
-                    allowDeselect={false}
-                    onChange={(value) =>
-                      handleUpdateRow(row.id, {
-                        entry_type: value ?? "income",
-                        // Category master depends on type, so re-entry is required.
-                        category: "",
-                      })
-                    }
-                  />
-                </Table.Td>
-                <Table.Td>
-                  <Select
-                    data={categoryOptionsFor(
-                      row.entry_type,
-                      row.category,
-                      categoryList,
-                      itemList,
-                    )}
-                    value={row.category || null}
-                    placeholder="分類を選択"
-                    error={
-                      isCategoryUnregistered(
-                        row.entry_type,
-                        row.category,
-                        categoryList,
-                        itemList,
-                      )
-                        ? "マスタ未登録のため選び直してください"
-                        : undefined
-                    }
-                    onChange={(value) =>
-                      handleUpdateRow(row.id, { category: value ?? "" })
-                    }
-                  />
-                </Table.Td>
-                <Table.Td>
-                  <TextInput
-                    value={row.description}
-                    placeholder="例: ○○保守契約"
-                    onChange={(event) =>
-                      handleUpdateRow(row.id, {
-                        description: event.target.value,
-                      })
-                    }
-                  />
-                </Table.Td>
-                <Table.Td>
-                  <NumberInput
-                    value={row.amount}
-                    min={0}
-                    step={1000}
-                    thousandSeparator=","
-                    prefix="¥"
-                    onChange={(value) =>
-                      handleUpdateRow(row.id, {
-                        amount: typeof value === "number" ? value : 0,
-                      })
-                    }
-                  />
-                </Table.Td>
-                <Table.Td>
-                  <Select
-                    data={memberList}
-                    value={
-                      row.manager_id !== null ? String(row.manager_id) : null
-                    }
-                    placeholder={
-                      memberListError
-                        ? "担当者一覧を取得できませんでした"
-                        : "担当者を選択"
-                    }
-                    disabled={memberListError}
-                    searchable
-                    clearable
-                    onChange={(value) =>
-                      handleUpdateRow(row.id, {
-                        manager_id: value ? parseInt(value, 10) : null,
-                      })
-                    }
-                  />
-                </Table.Td>
-                <Table.Td>
-                  <CustomMonthPicker
-                    placeholder="開始月"
-                    value={row.start_month ? row.start_month.slice(0, 7) : null}
-                    onChange={(month) =>
-                      handleUpdateRow(row.id, {
-                        start_month: month ? `${month}-01` : "",
-                      })
-                    }
-                  />
-                </Table.Td>
-                <Table.Td>
-                  <CustomMonthPicker
-                    placeholder="終了月（継続中は空欄）"
-                    value={row.end_month ? row.end_month.slice(0, 7) : null}
-                    onChange={(month) =>
-                      handleUpdateRow(row.id, {
-                        end_month: month ? `${month}-01` : null,
-                      })
-                    }
-                    isClearable
-                  />
-                </Table.Td>
-                <Table.Td>
-                  <button
-                    type="button"
-                    aria-label="削除"
-                    className="text-red-500 hover:text-red-700"
-                    onClick={() => handleRemoveRow(row.id)}
-                  >
-                    <RiDeleteBin6Line size="1.2rem" />
-                  </button>
-                </Table.Td>
-              </Table.Tr>
+        {/* One set of inputs: a labelled vertical block on mobile, a table-like grid row from md up. */}
+        <div className="md:min-w-[68rem]">
+          <div
+            className={`hidden gap-3 px-2 pb-2 text-sm font-bold md:grid ${ROW_GRID}`}
+          >
+            {[
+              "チーム",
+              "種別",
+              "分類",
+              "内容",
+              "金額",
+              "担当者",
+              "適用開始月",
+              "適用終了月",
+            ].map((label) => (
+              <span key={label}>{label}</span>
             ))}
-          </Table.Tbody>
-        </Table>
+            <span />
+          </div>
+          {visibleRows.map((row) => (
+            <div
+              key={row.id}
+              data-testid="budget-recurring-row"
+              className={`relative mb-3 grid gap-3 rounded border border-gray-200 bg-white p-3 max-md:pt-10 md:mb-0 md:items-center md:rounded-none md:border-0 md:bg-transparent md:px-2 md:py-2 ${ROW_GRID}`}
+            >
+              <Select
+                label="チーム"
+                classNames={MOBILE_ONLY_LABEL}
+                value={row.team || null}
+                // Keep a team removed from the master (disabled/renamed) displayable instead of blank (the saved value is unchanged; same as teamOptions in BudgetDeclarationForm).
+                data={
+                  row.team && !teamList.includes(row.team)
+                    ? [row.team, ...teamList]
+                    : teamList
+                }
+                disabled={!canEditAllTeams}
+                allowDeselect={false}
+                placeholder="チームを選択"
+                onChange={(selected) =>
+                  handleUpdateRow(row.id, { team: selected ?? row.team })
+                }
+              />
+              <Select
+                label="種別"
+                classNames={MOBILE_ONLY_LABEL}
+                data={ENTRY_TYPE_OPTIONS}
+                value={row.entry_type}
+                allowDeselect={false}
+                onChange={(value) =>
+                  handleUpdateRow(row.id, {
+                    entry_type: value ?? "income",
+                    // Category master depends on type, so re-entry is required.
+                    category: "",
+                  })
+                }
+              />
+              <Select
+                label="分類"
+                classNames={MOBILE_ONLY_LABEL}
+                data={categoryOptionsFor(
+                  row.entry_type,
+                  row.category,
+                  categoryList,
+                  itemList,
+                )}
+                value={row.category || null}
+                placeholder="分類を選択"
+                error={
+                  isCategoryUnregistered(
+                    row.entry_type,
+                    row.category,
+                    categoryList,
+                    itemList,
+                  )
+                    ? "マスタ未登録のため選び直してください"
+                    : undefined
+                }
+                onChange={(value) =>
+                  handleUpdateRow(row.id, { category: value ?? "" })
+                }
+              />
+              <TextInput
+                label="内容"
+                classNames={MOBILE_ONLY_LABEL}
+                value={row.description}
+                placeholder="例: ○○保守契約"
+                onChange={(event) =>
+                  handleUpdateRow(row.id, {
+                    description: event.target.value,
+                  })
+                }
+              />
+              <NumberInput
+                label="金額"
+                classNames={MOBILE_ONLY_LABEL}
+                value={row.amount}
+                min={0}
+                step={1000}
+                thousandSeparator=","
+                prefix="¥"
+                onChange={(value) =>
+                  handleUpdateRow(row.id, {
+                    amount: typeof value === "number" ? value : 0,
+                  })
+                }
+              />
+              <Select
+                label="担当者"
+                classNames={MOBILE_ONLY_LABEL}
+                data={memberList}
+                value={row.manager_id !== null ? String(row.manager_id) : null}
+                placeholder={
+                  memberListError
+                    ? "担当者一覧を取得できませんでした"
+                    : "担当者を選択"
+                }
+                disabled={memberListError}
+                searchable
+                clearable
+                onChange={(value) =>
+                  handleUpdateRow(row.id, {
+                    manager_id: value ? parseInt(value, 10) : null,
+                  })
+                }
+              />
+              <CustomMonthPicker
+                label="適用開始月"
+                classNames={MOBILE_ONLY_LABEL}
+                placeholder="開始月"
+                value={row.start_month ? row.start_month.slice(0, 7) : null}
+                onChange={(month) =>
+                  handleUpdateRow(row.id, {
+                    start_month: month ? `${month}-01` : "",
+                  })
+                }
+              />
+              <CustomMonthPicker
+                label="適用終了月"
+                classNames={MOBILE_ONLY_LABEL}
+                placeholder="終了月（継続中は空欄）"
+                value={row.end_month ? row.end_month.slice(0, 7) : null}
+                onChange={(month) =>
+                  handleUpdateRow(row.id, {
+                    end_month: month ? `${month}-01` : null,
+                  })
+                }
+                isClearable
+              />
+              <button
+                type="button"
+                aria-label="削除"
+                className="absolute right-3 top-2 text-red-500 hover:text-red-700 md:static"
+                onClick={() => handleRemoveRow(row.id)}
+              >
+                <RiDeleteBin6Line size="1.2rem" />
+              </button>
+            </div>
+          ))}
+        </div>
         {visibleRows.length === 0 && (
           <p className="text-center text-gray-500 py-6">
             定期明細が登録されていません。
