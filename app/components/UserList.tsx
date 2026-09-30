@@ -22,6 +22,7 @@ import {
   validateUserUpdates,
 } from "../utils/userList";
 import { sortUserList } from "../utils/userListSort";
+import { groupUsersByRole, teamRowColor } from "../utils/userListGroup";
 import { useViewportSize } from "@mantine/hooks";
 import { useReportDashboardUnsavedChanges } from "./dashboard/DashboardUnsavedChanges";
 import UserCard from "./UserCard";
@@ -72,6 +73,16 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
     [changedRows],
   );
   const hasChanges = changedRows.length > 0;
+  // A row whose role was edited stays in its saved section until the save succeeds (so it does not vanish while editing); baseline moves on save.
+  const sections = useMemo(
+    () =>
+      groupUsersByRole(rows, (user) => {
+        // Not `saved?.class ?? user.class`: a saved null role must stay in the "unset" section while edited.
+        const saved = baseline.get(user.id);
+        return saved ? saved.class : user.class;
+      }),
+    [rows, baseline],
+  );
   const validationErrors = useMemo(
     () => validateUserUpdates(changedRows),
     [changedRows],
@@ -233,39 +244,57 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
           </ul>
         </Alert>
       )}
-      {!isMobile ? (
-        // Even at PC widths the side menu narrows the table, so scroll horizontally when it does not fit (keeps Select and inputs from being squashed).
-        <Table.ScrollContainer minWidth={760}>
-          <Table>
-            <Table.Thead>{tableHeads}</Table.Thead>
-            <Table.Tbody>
-              {rows.map((user) => (
-                <UserTable
-                  key={user.id}
-                  userInfo={user}
-                  teamList={teamList}
-                  isChanged={changedIds.has(user.id)}
-                  errors={visibleErrors.get(user.id)}
-                  disabled={isSaving}
-                  onUpdateUserList={handleUpdateUserList}
-                />
-              ))}
-            </Table.Tbody>
-          </Table>
-        </Table.ScrollContainer>
-      ) : (
-        rows.map((user) => (
-          <UserCard
-            key={user.id}
-            userInfo={user}
-            teamList={teamList}
-            isChanged={changedIds.has(user.id)}
-            errors={visibleErrors.get(user.id)}
-            disabled={isSaving}
-            onUpdateUserList={handleUpdateUserList}
-          />
-        ))
-      )}
+      {sections.map((section) => (
+        <section
+          key={section.key}
+          className="pb-6"
+          aria-labelledby={`user-section-${section.key}`}
+        >
+          <Title
+            order={3}
+            size="h4"
+            className="pb-2"
+            id={`user-section-${section.key}`}
+          >
+            {`${section.label}（${section.users.length} 名）`}
+          </Title>
+          {!isMobile ? (
+            // Even at PC widths the side menu narrows the table, so scroll horizontally when it does not fit (keeps Select and inputs from being squashed).
+            <Table.ScrollContainer minWidth={760}>
+              <Table>
+                <Table.Thead>{tableHeads}</Table.Thead>
+                <Table.Tbody>
+                  {section.users.map((user) => (
+                    <UserTable
+                      key={user.id}
+                      userInfo={user}
+                      teamList={teamList}
+                      isChanged={changedIds.has(user.id)}
+                      teamColor={teamRowColor(user.team, teamList)}
+                      errors={visibleErrors.get(user.id)}
+                      disabled={isSaving}
+                      onUpdateUserList={handleUpdateUserList}
+                    />
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
+          ) : (
+            section.users.map((user) => (
+              <UserCard
+                key={user.id}
+                userInfo={user}
+                teamList={teamList}
+                isChanged={changedIds.has(user.id)}
+                teamColor={teamRowColor(user.team, teamList)}
+                errors={visibleErrors.get(user.id)}
+                disabled={isSaving}
+                onUpdateUserList={handleUpdateUserList}
+              />
+            ))
+          )}
+        </section>
+      ))}
       <LoadingOverlay visible={isSaving} />
     </div>
   );

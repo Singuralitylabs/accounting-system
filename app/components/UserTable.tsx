@@ -2,6 +2,7 @@ import { Badge, Select, Table, TextInput } from "@mantine/core";
 import { ProfilesType } from "../types/types";
 import { UserValidationErrors } from "../utils/userList";
 import { ROLES } from "@/app/utils/permissions";
+import { CHANGED_ROW_MARK_COLOR } from "../utils/userListGroup";
 import { teamOptionsFor } from "./UserList";
 
 type Props = {
@@ -9,6 +10,8 @@ type Props = {
   teamList: string[];
   // Whether role/team/Slack ID changed since load (highlights the row).
   isChanged: boolean;
+  // Row background by team (undefined = no color).
+  teamColor?: string;
   // Validation errors before save (passed only after a save attempt).
   errors?: UserValidationErrors;
   disabled?: boolean;
@@ -19,6 +22,7 @@ const UserTable = ({
   userInfo,
   teamList,
   isChanged,
+  teamColor,
   errors,
   disabled = false,
   onUpdateUserList,
@@ -27,9 +31,15 @@ const UserTable = ({
     <Table.Tr
       key={userInfo.id}
       data-changed={isChanged || undefined}
-      className={isChanged ? "bg-yellow-50" : undefined}
+      style={teamColor ? { backgroundColor: teamColor } : undefined}
     >
-      <Table.Td>
+      <Table.Td
+        style={
+          isChanged
+            ? { boxShadow: `inset 4px 0 0 0 ${CHANGED_ROW_MARK_COLOR}` }
+            : undefined
+        }
+      >
         <div className="flex items-center gap-2">
           <span>{userInfo.name}</span>
           {isChanged && (

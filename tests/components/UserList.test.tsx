@@ -4,6 +4,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import UserList from "@/app/components/UserList";
 import type { ProfilesType } from "@/app/types/types";
+import { teamRowColor } from "@/app/utils/userListGroup";
 import { notifyError, notifySuccess } from "@/app/utils/notify";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
 
@@ -149,12 +150,170 @@ describe("UserList", () => {
     expect(
       screen.queryByRole("button", { name: "保存" }),
     ).not.toBeInTheDocument();
-    const headerCells = screen.getAllByRole("columnheader").length;
-    const [, ...bodyRows] = screen.getAllByRole("row");
+    // One table per role section, each with the same header.
+    const sectionCount = 2; // teamleader / public
+    const headerCells =
+      screen.getAllByRole("columnheader").length / sectionCount;
+    const bodyRows = screen
+      .getAllByRole("row")
+      .filter((row) => within(row).queryAllByRole("cell").length > 0);
     expect(bodyRows).toHaveLength(editableUserList.length);
     bodyRows.forEach((row) =>
       expect(within(row).getAllByRole("cell")).toHaveLength(headerCells),
     );
+  });
+
+  describe.each([
+    ["PC（テーブル）", 1024],
+    ["モバイル（カード）", 375],
+  ])("%s: 権限ごとのセクションとチーム色", (_label, width) => {
+    const mixedUserList = [
+      makeUser({ id: 21, name: "一般 次郎", class: "public", team: null }),
+      makeUser({ id: 22, name: "管理 花子", class: "admin", team: null }),
+      makeUser({
+        id: 23,
+        name: "リーダー A",
+        class: "teamleader",
+        team: "チームA",
+      }),
+      makeUser({
+        id: 24,
+        name: "リーダー B",
+        class: "teamleader",
+        team: "チームB",
+      }),
+      makeUser({
+        id: 25,
+        name: "リーダー 旧",
+        class: "teamleader",
+        team: "旧チーム",
+      }),
+      makeUser({ id: 26, name: "不明 太郎", class: "unknown", team: null }),
+      makeUser({ id: 27, name: "未設定 花子", class: null, team: null }),
+    ];
+    const headings = () =>
+      screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+    // Row (PC) / card (mobile) container of a user, found via the Slack ID input.
+    const rowOf = (name: string) =>
+      inputByLabel(`${name}の Slack ID`).closest(
+        "tr, [data-changed], div.border-b",
+      ) as HTMLElement;
+
+    beforeEach(() => {
+      viewport.width = width;
+    });
+
+    it("権限ごとに人数付きの見出しで分け、admin → accounting → teamleader → public → 未設定の順に並べる（該当者のいない権限は出さない）", () => {
+      renderWithMantine(
+        <UserList userList={mixedUserList} teamList={teamList} />,
+      );
+
+      expect(headings()).toEqual([
+        "admin（1 名）",
+        "teamleader（3 名）",
+        "public（1 名）",
+        "未設定（2 名）",
+      ]);
+    });
+
+    it("チームの表示順に淡い色を割り当て、選択肢に無いチーム・チーム未設定には色を付けない", () => {
+      renderWithMantine(
+        <UserList userList={mixedUserList} teamList={teamList} />,
+      );
+
+      const colorOf = (name: string) => rowOf(name).style.backgroundColor;
+      // jsdom normalizes hex colors to rgb().
+      const normalized = (color: string | undefined) => {
+        const el = document.createElement("div");
+        el.style.backgroundColor = color ?? "";
+        return el.style.backgroundColor;
+      };
+      expect(colorOf("リーダー A")).toBe(
+        normalized(teamRowColor("チームA", teamList)),
+      );
+      expect(colorOf("リーダー B")).toBe(
+        normalized(teamRowColor("チームB", teamList)),
+      );
+      expect(colorOf("リーダー A")).not.toBe(colorOf("リーダー B"));
+      expect(colorOf("リーダー A")).not.toBe("");
+      expect(colorOf("リーダー 旧")).toBe("");
+      expect(colorOf("管理 花子")).toBe("");
+    });
+
+    it("変更した行は背景を変えず（黄色にしない）、変更ありバッジと左端のオレンジの線で示す", () => {
+      renderWithMantine(
+        <UserList userList={mixedUserList} teamList={teamList} />,
+      );
+
+      const before = rowOf("リーダー A").style.backgroundColor;
+      changeSlackId("リーダー A", "U777777");
+
+      const row = rowOf("リーダー A");
+      expect(row.className).not.toContain("bg-yellow-50");
+      expect(row.style.backgroundColor).toBe(before);
+      expect(within(row).getByText("変更あり")).toBeInTheDocument();
+      const orange = "rgb(249, 115, 22)";
+      const marked = [row, ...Array.from(row.querySelectorAll("td"))].some(
+        (el) =>
+          (el as HTMLElement).style.boxShadow.includes("#f97316") ||
+          (el as HTMLElement).style.borderLeftColor === orange,
+      );
+      expect(marked).toBe(true);
+      expect(rowOf("リーダー B").className).not.toContain("bg-yellow-50");
+      // Unchanged rows carry no marker or badge.
+      expect(within(rowOf("リーダー B")).queryByText("変更あり")).toBeNull();
+    });
+
+    it("編集中に権限を変えた行は元のセクションに残り、保存に成功したら新しいセクションへ移る", async () => {
+      renderWithMantine(
+        <UserList userList={mixedUserList} teamList={teamList} />,
+      );
+
+      await selectOption("一般 次郎の権限", "admin");
+      expect(headings()).toEqual([
+        "admin（1 名）",
+        "teamleader（3 名）",
+        "public（1 名）",
+        "未設定（2 名）",
+      ]);
+
+      fireEvent.click(saveButton());
+      await waitFor(() => expect(refresh).toHaveBeenCalled());
+
+      expect(headings()).toEqual([
+        "admin（2 名）",
+        "teamleader（3 名）",
+        "未設定（2 名）",
+      ]);
+    });
+
+    it("権限が未設定の行も、権限を選んだだけでは「未設定」セクションに残り、保存に成功したら移る", async () => {
+      renderWithMantine(
+        <UserList userList={mixedUserList} teamList={teamList} />,
+      );
+
+      await selectOption("未設定 花子の権限", "public");
+      expect(headings()).toContain("未設定（2 名）");
+      expect(headings()).toContain("public（1 名）");
+
+      fireEvent.click(saveButton());
+      await waitFor(() => expect(refresh).toHaveBeenCalled());
+
+      expect(headings()).toContain("public（2 名）");
+      expect(headings()).toContain("未設定（1 名）");
+    });
+
+    it("変更を破棄すると元のセクションのまま戻る", async () => {
+      renderWithMantine(
+        <UserList userList={mixedUserList} teamList={teamList} />,
+      );
+
+      await selectOption("一般 次郎の権限", "admin");
+      fireEvent.click(discardButton());
+
+      expect(headings()).toContain("public（1 名）");
+      expect(inputValue("一般 次郎の権限")).toBe("public");
+    });
   });
 
   describe.each([
