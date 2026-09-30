@@ -1432,8 +1432,8 @@ describe("buildMonthReport: 損益調整（実績額修正）", () => {
   it("includeAdjustmentDetails が false（teamleader）では orphanedAdjustments を返さない", () => {
     const report = buildMonthReport(
       buildInput({
-        includeAdjustmentDetails: true,
         includeTeamBreakdown: true,
+        includeAdjustmentDetails: false,
         adjustments: [
           adjustment({ id: 1, business_id: 99, target_month: "2026-07-01" }),
         ],
