@@ -94,10 +94,12 @@ const closing = (month: string) => ({
 const setClosings = (
   closings: ReturnType<typeof closing>[] = [],
   isUnknown = false,
+  isLoadFailed = false,
 ) => {
   useBudgetClosings.mockReturnValue({
     closingByMonth: new Map(closings.map((c) => [c.month, c])),
     isUnknown,
+    isLoadFailed,
   });
 };
 
@@ -107,15 +109,17 @@ const renderList = (
     isPlaceholderData = false,
     closings = [],
     closingUnknown = false,
+    closingLoadFailed = false,
     props,
   }: {
     isPlaceholderData?: boolean;
     closings?: ReturnType<typeof closing>[];
     closingUnknown?: boolean;
+    closingLoadFailed?: boolean;
     props?: Partial<ComponentProps<typeof BudgetDeclarationList>>;
   } = {},
 ) => {
-  setClosings(closings, closingUnknown);
+  setClosings(closings, closingUnknown, closingLoadFailed);
   useBudgetDeclarationList.mockReturnValue({
     data: rows,
     isLoading: false,
@@ -433,6 +437,7 @@ describe("BudgetDeclarationList", () => {
   it("確定状態を取得できないときは「未確定」と表示せず、警告を出して編集を無効化する", () => {
     renderList([row()], {
       closingUnknown: true,
+      closingLoadFailed: true,
       props: { canCloseMonth: true },
     });
 
@@ -442,5 +447,19 @@ describe("BudgetDeclarationList", () => {
     expect(screen.queryByText("この月は未確定です。")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "編集する" })).toBeDisabled();
     expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+  });
+
+  it("確定状態の取得中は失敗の警告を出さず「確認中」と表示し、編集は無効のままにする", () => {
+    renderList([row()], {
+      closingUnknown: true,
+      closingLoadFailed: false,
+      props: { canCloseMonth: true },
+    });
+
+    expect(screen.getByText("確定状態を確認中です…")).toBeInTheDocument();
+    expect(
+      screen.queryByText("確定状態を取得できませんでした"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "編集する" })).toBeDisabled();
   });
 });

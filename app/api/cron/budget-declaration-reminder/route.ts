@@ -43,21 +43,18 @@ export async function GET(request: NextRequest) {
 
   const targetMonth = defaultTargetMonth(now);
 
-  const closedResult = await isBudgetMonthClosed(toFirstOfMonth(targetMonth));
-  if (closedResult.error) {
-    return NextResponse.json({ error: "internal-error" }, { status: 500 });
-  }
-  if (closedResult.closed) {
-    return NextResponse.json({ skipped: true, reason: "month-closed" });
-  }
-
-  const [teamsResult, declaredResult] = await Promise.all([
+  const [closedResult, teamsResult, declaredResult] = await Promise.all([
+    isBudgetMonthClosed(toFirstOfMonth(targetMonth)),
     getActiveBudgetTeams(),
     getDeclaredBudgetTeams(toFirstOfMonth(targetMonth)),
   ]);
 
-  if (teamsResult.error || declaredResult.error) {
+  if (closedResult.error || teamsResult.error || declaredResult.error) {
     return NextResponse.json({ error: "internal-error" }, { status: 500 });
+  }
+  // No reminder for a closed month: nobody can declare any more.
+  if (closedResult.closed) {
+    return NextResponse.json({ skipped: true, reason: "month-closed" });
   }
 
   const undeclaredTeams = undeclaredBudgetTeams(

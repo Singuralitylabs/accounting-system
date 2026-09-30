@@ -101,7 +101,6 @@ WITH d AS (DELETE FROM public.budget_declaration_closings RETURNING 1)
 SELECT is((SELECT count(*) FROM d)::int, 0, 'teamleader は確定を解除できない');
 
 -- ===== delete_budget_declaration =====
-SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}', true);
 
 SELECT throws_ok(

@@ -93,10 +93,11 @@ const BudgetDeclarationList = ({
   // Right after a month switch keepPreviousData still shows the previous month's rows (isLoading stays false); disable row actions or they would pass the previous month's declarationId.
   const isSwitchingMonth = isPlaceholderData;
 
-  const { closingByMonth, isUnknown: closingUnknown } = useBudgetClosings(
-    initialClosings ?? undefined,
-    initialDataUpdatedAt,
-  );
+  const {
+    closingByMonth,
+    isUnknown: closingUnknown,
+    isLoadFailed: closingLoadFailed,
+  } = useBudgetClosings(initialClosings ?? undefined, initialDataUpdatedAt);
   const closing = closingByMonth.get(month) ?? null;
   // Closed months lock every role; the DB rejects writes as well.
   const isClosed = closing !== null;
@@ -187,7 +188,12 @@ const BudgetDeclarationList = ({
             disabled={isSwitchingMonth}
           />
         )}
-        {closingUnknown && (
+        {closingUnknown && !closingLoadFailed && (
+          <Text size="sm" c="dimmed">
+            確定状態を確認中です…
+          </Text>
+        )}
+        {closingLoadFailed && (
           <Alert color="yellow" mt="xs" title="確定状態を取得できませんでした">
             確定状態が不明なため、申告の作成・編集を一時的に無効にしています。ページを再読み込みしてください。
           </Alert>

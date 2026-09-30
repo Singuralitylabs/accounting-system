@@ -34,6 +34,8 @@ import { notifyError, notifySuccess, toErrorMessage } from "../utils/notify";
 // Share only the prefix so lists (keyed by month) can be invalidated together by prefix match.
 const budgetDeclarationListQueryKey = ["budgetDeclarations", "list"] as const;
 
+const budgetClosingsQueryKey = ["budgetDeclarations", "closings"] as const;
+
 const budgetDeclarationDetailQueryKey = (declarationId: number | null) =>
   ["budgetDeclarations", "detail", declarationId] as const;
 
@@ -45,6 +47,10 @@ const invalidateBudgetDeclarationQueries = (
   queryClient.invalidateQueries({
     queryKey: budgetDeclarationListQueryKey,
   });
+  // A write rejected with MONTH_CLOSED means the cached closing state is stale (another user closed
+  // the month); the closings query has no window-focus refetch, so refresh it here or the edit
+  // buttons would stay enabled until a reload.
+  queryClient.invalidateQueries({ queryKey: budgetClosingsQueryKey });
   if (declarationId === null) {
     return;
   }
@@ -189,8 +195,6 @@ export const useDeleteBudgetDeclaration = () => {
   });
 };
 
-const budgetClosingsQueryKey = ["budgetDeclarations", "closings"] as const;
-
 // Closed months (all teams). Month keys are "YYYY-MM"; closedMonths feeds CustomMonthPicker's indicator.
 export const useBudgetClosings = (
   initialData?: BudgetClosingInfo[],
@@ -216,11 +220,12 @@ export const useBudgetClosings = (
     [query.data],
   );
   // Not spread: returning the whole query result would opt out of tracked-props re-render
-  // optimization. isUnknown = no closing state yet (still loading, or failed with nothing cached);
-  // callers must not treat it as "open".
+  // optimization. isUnknown = no closing state yet (loading, or failed with nothing cached);
+  // callers must not treat it as "open". isLoadFailed separates the failure from plain loading.
   return {
     closingByMonth,
     isUnknown: query.data === undefined,
+    isLoadFailed: query.isError && query.data === undefined,
   };
 };
 

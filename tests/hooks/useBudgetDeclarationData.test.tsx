@@ -106,6 +106,32 @@ describe("useDeleteBudgetDeclaration", () => {
     );
   });
 
+  it("確定済みの月の削除が拒否されたら、確定状態のキャッシュも無効化する", async () => {
+    queryClient.setQueryData(["budgetDeclarations", "closings"], []);
+    deleteBudgetDeclaration.mockResolvedValue({
+      error: {
+        kind: "validationFailed",
+        message:
+          "この月の事前収支申告は確定済みのため、作成・編集・削除できません。",
+      },
+    });
+
+    const { result } = renderHook(() => useDeleteBudgetDeclaration(), {
+      wrapper,
+    });
+
+    await expect(
+      result.current.mutateAsync({ declarationId: 7, team: "Aチーム" }),
+    ).rejects.toThrow();
+
+    await waitFor(() => {
+      expect(
+        queryClient.getQueryState(["budgetDeclarations", "closings"])
+          ?.isInvalidated,
+      ).toBe(true);
+    });
+  });
+
   it("削除成功時は詳細を破棄し一覧を無効化する", async () => {
     queryClient.setQueryData(["budgetDeclarations", "list", "2026-10"], []);
     queryClient.setQueryData(["budgetDeclarations", "detail", 7], {
@@ -201,6 +227,38 @@ describe("useSaveBudgetDeclaration", () => {
     expect(notifyError).toHaveBeenCalledWith(
       "同じ対象月・チームの事前収支申告が既に存在します。",
     );
+  });
+
+  it("確定済みの月への保存が拒否されたら、確定状態のキャッシュも無効化する（画面を開いたまま確定された場合に編集ボタンが残らない）", async () => {
+    queryClient.setQueryData(["budgetDeclarations", "closings"], []);
+    saveBudgetDeclaration.mockResolvedValue({
+      error: {
+        kind: "validationFailed",
+        message:
+          "この月の事前収支申告は確定済みのため、作成・編集・削除できません。",
+      },
+    });
+
+    const { result } = renderHook(() => useSaveBudgetDeclaration(), {
+      wrapper,
+    });
+
+    await expect(
+      result.current.mutateAsync({
+        declarationId: 7,
+        targetMonth: "2026-10",
+        team: "Aチーム",
+        comment: null,
+        items: [],
+      }),
+    ).rejects.toThrow();
+
+    await waitFor(() => {
+      expect(
+        queryClient.getQueryState(["budgetDeclarations", "closings"])
+          ?.isInvalidated,
+      ).toBe(true);
+    });
   });
 });
 
