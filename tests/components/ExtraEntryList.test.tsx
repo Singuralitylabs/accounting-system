@@ -470,7 +470,8 @@ describe(
         extraEntryListOverrides.value = { isInvalidated: true };
         throw new ExtraEntryValidationError("他の利用者に変更されました", true);
       });
-      renderList([entry({ id: 2, description: "9月協賛" })]);
+      const initialData = [entry({ id: 2, description: "9月協賛" })];
+      const view = renderList(initialData);
       fireEvent.change(screen.getByDisplayValue("9月協賛"), {
         target: { value: "9月協賛（修正）" },
       });
@@ -485,6 +486,14 @@ describe(
           true,
         ),
       );
+
+      // If the refetch then fails, the alert must not claim the save outcome is unknown (nothing was written).
+      extraEntryListOverrides.value = { isError: true, isInvalidated: true };
+      view.rerender(listElement(initialData));
+      expect(
+        screen.getByText("最新の経理追加収支情報を取得できませんでした"),
+      ).toBeTruthy();
+      expect(screen.queryByText(/保存できたか確認できず/)).toBeNull();
     });
 
     it("無効化された一覧は、再取得中も取り直せるまで編集・保存を止める（定期費用と同じロック条件。Issue #190）", () => {

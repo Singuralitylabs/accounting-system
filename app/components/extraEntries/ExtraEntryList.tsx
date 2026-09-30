@@ -305,8 +305,7 @@ const ExtraEntryList = ({
       if (error instanceof ExtraEntryValidationError) {
         notifyError(error.message);
         if (error.staleList) {
-          // Conflict: nothing was written, but the list is stale. The hook invalidated it; block editing and sync to the latest.
-          markSaved("unknown");
+          // Conflict: nothing was written, but the list is stale. The hook invalidated it, which blocks editing until the refetch. No markSaved: the outcome is known, so a failed refetch shows the neutral alert instead of "unknown whether saved".
           setIsDirty(false);
         }
         return;
