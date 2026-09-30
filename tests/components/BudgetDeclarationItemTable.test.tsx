@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import BudgetDeclarationItemTable from "@/app/components/budgetDeclarations/BudgetDeclarationItemTable";
 import { BudgetDeclarationItemWithManagerName } from "@/app/types/types";
@@ -94,12 +94,62 @@ describe("BudgetDeclarationItemTable", () => {
 
     renderWithMantine(<BudgetDeclarationItemTable declarationId={7} />);
 
-    const incomeRow = screen.getByText("収入の明細").closest("tr");
-    const expenseRow = screen.getByText("支出の明細").closest("tr");
+    // Table and mobile list are both in the DOM (CSS picks one); check the table here.
+    const table = within(screen.getByRole("table"));
+    const incomeRow = table.getByText("収入の明細").closest("tr");
+    const expenseRow = table.getByText("支出の明細").closest("tr");
     // Mantine's `bg` prop is emitted as a `background` shorthand in the inline style.
     expect(incomeRow?.getAttribute("style")).toContain("blue-light");
     expect(expenseRow?.getAttribute("style")).toContain("red-light");
-    expect(screen.getByText("￥55,000").style.color).toContain("red");
-    expect(screen.getByText("￥100,000").style.color).toBe("");
+    expect(table.getByText("￥55,000").style.color).toContain("red");
+    expect(table.getByText("￥100,000").style.color).toBe("");
+  });
+
+  it("モバイル用の一覧に、内容・金額と種別・分類・担当者を 2 段で表示する", () => {
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: {
+        comment: "メモ",
+        items: [
+          item({ id: 1, entry_type: "income", description: "収入の明細" }),
+          item({
+            id: 2,
+            entry_type: "expense",
+            description: "支出の明細",
+            amount: 55000,
+            category: "備品",
+            manager_id: null,
+            managerName: null,
+          }),
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    });
+
+    renderWithMantine(<BudgetDeclarationItemTable declarationId={7} />);
+
+    const list = within(screen.getByTestId("budget-item-list-mobile"));
+    const [incomeItem, expenseItem] = list.getAllByRole("listitem");
+    expect(incomeItem).toHaveTextContent("収入の明細");
+    expect(incomeItem).toHaveTextContent("￥100,000");
+    expect(incomeItem).toHaveTextContent("収入・セミナー・山田太郎");
+    expect(incomeItem.getAttribute("style")).toContain("blue-light");
+    expect(expenseItem).toHaveTextContent("支出・備品・-");
+    expect(expenseItem.getAttribute("style")).toContain("red-light");
+    expect(within(expenseItem).getByText("￥55,000").style.color).toContain(
+      "red",
+    );
+  });
+
+  it("コメントはモバイル・デスクトップ共通で 1 回だけ表示する", () => {
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: { comment: "共通メモ", items: [item()] },
+      isLoading: false,
+      isError: false,
+    });
+
+    renderWithMantine(<BudgetDeclarationItemTable declarationId={7} />);
+
+    expect(screen.getAllByText(/共通メモ/)).toHaveLength(1);
   });
 });

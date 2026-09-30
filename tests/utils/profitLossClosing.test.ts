@@ -159,8 +159,8 @@ const baseInput = (
       source_amount_snapshot: 70000,
     }),
   ],
-  isTeamLeader: false,
   includeTeamBreakdown: true,
+  includeAdjustmentDetails: true,
   includeMonthlyDetails: true,
   ...override,
 });
@@ -175,17 +175,6 @@ const snapshotOf = (input: MonthlyReportInput): MonthClosingSnapshot => ({
   },
   lines: monthLinesToClosingRows(buildLiveMonthLines(input)),
   dismissals: [],
-});
-
-// Team leader reads the snapshot (RLS: only own-team and company-wide lines).
-const visibleToTeamLeader = (
-  snapshot: MonthClosingSnapshot,
-  team: string,
-): MonthClosingSnapshot => ({
-  ...snapshot,
-  lines: snapshot.lines.filter(
-    (line) => line.team === null || line.team === team,
-  ),
 });
 
 describe("確定明細への変換と再構成（Issue #148）", () => {
@@ -206,37 +195,18 @@ describe("確定明細への変換と再構成（Issue #148）", () => {
   });
 
   it.each([
-    ["経理担当者・管理者", false, null],
-    ["チームリーダー", true, "シンラボ"],
+    ["経理担当者・管理者", true],
+    ["チームリーダー", false],
   ] as const)(
     "%s: 確定直後はスナップショットから組み立てた損益計算書がライブ集計と一致する",
-    (_label, isTeamLeader, team) => {
+    (_label, includeAdjustmentDetails) => {
       const input = baseInput({
-        isTeamLeader,
-        includeTeamBreakdown: !isTeamLeader,
-        ...(team
-          ? {
-              businessRows: baseInput().businessRows.filter(
-                (row) => row.matters.team === team,
-              ),
-              costRows: baseInput().costRows.filter(
-                (row) => row.matters.team === team,
-              ),
-              recurringCosts: baseInput().recurringCosts.filter(
-                (rc) => rc.team === null || rc.team === team,
-              ),
-              extraEntries: baseInput().extraEntries.filter(
-                (entry) => entry.team === null || entry.team === team,
-              ),
-            }
-          : {}),
+        includeTeamBreakdown: true,
+        includeAdjustmentDetails,
       });
       const snapshot = snapshotOf(baseInput());
       const live = buildMonthReport(input);
-      const closed = buildMonthReport({
-        ...input,
-        closing: team ? visibleToTeamLeader(snapshot, team) : snapshot,
-      });
+      const closed = buildMonthReport({ ...input, closing: snapshot });
       const strip = (report: typeof live) => ({
         ...report,
         closing: undefined,
@@ -250,10 +220,6 @@ describe("確定明細への変換と再構成（Issue #148）", () => {
         recurringCostByItem: report.recurringCostByItem.map((item) => ({
           ...item,
           details: item.details.map((d) => ({ ...d, adjustment: null })),
-        })),
-        orgWideRecurringCosts: report.orgWideRecurringCosts?.map((d) => ({
-          ...d,
-          adjustment: null,
         })),
       });
       expect(strip(closed)).toEqual(strip(live));

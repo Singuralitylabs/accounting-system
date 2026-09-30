@@ -244,8 +244,8 @@ describe("orphanedAdjustments のラベル解決（補完取得）", () => {
       costRows: [] as CostRow[],
       recurringCosts: [] as RecurringCostType[],
       extraEntries: [] as ExtraEntryType[],
-      isTeamLeader: false,
       includeTeamBreakdown: true,
+      includeAdjustmentDetails: true,
       includeMonthlyDetails: true,
     };
     const withoutSupplement = buildMonthReport({
@@ -423,8 +423,8 @@ describe("期間絞り込みの前後で集計値が変わらない", () => {
     const base = {
       month: "2026-07",
       recurringCosts: [] as RecurringCostType[],
-      isTeamLeader: false,
       includeTeamBreakdown: true,
+      includeAdjustmentDetails: true,
       includeMonthlyDetails: true,
     };
     const full = buildMonthReport({
@@ -631,8 +631,8 @@ describe("期間絞り込みの前後で集計値が変わらない", () => {
     months.forEach((month) => {
       const base = {
         month,
-        isTeamLeader: false,
         includeTeamBreakdown: false,
+        includeAdjustmentDetails: false,
         includeMonthlyDetails: false,
       };
       expect(

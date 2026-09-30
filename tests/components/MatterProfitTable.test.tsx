@@ -98,8 +98,9 @@ describe("MatterProfitTable", () => {
     const matterRowX = screen.getByText("案件X").closest("tr")!;
     const matterRowY = screen.getByText("案件Y").closest("tr")!;
     expect(rows.indexOf(matterRowX)).toBeLessThan(rows.indexOf(matterRowY));
-    expect(within(matterRowX).getByText("シンラボ")).toBeInTheDocument();
-    expect(within(matterRowY).getByText("SDGs")).toBeInTheDocument();
+    // The team shows in its own column (md and up) and under the title (mobile).
+    expect(within(matterRowX).getAllByText("シンラボ")).toHaveLength(2);
+    expect(within(matterRowY).getAllByText("SDGs")).toHaveLength(2);
     expect(within(matterRowX).getByText("受託案件")).toBeInTheDocument();
     expect(within(matterRowX).getByText("#12")).toBeInTheDocument();
     expect(within(matterRowX).getByText("￥900,000")).toBeInTheDocument();
@@ -154,7 +155,7 @@ describe("MatterProfitTable", () => {
       />,
     );
     const matterRow = screen.getByText("案件X").closest("tr")!;
-    expect(within(matterRow).getByText("シンラボ / SDGs")).toBeInTheDocument();
+    expect(within(matterRow).getAllByText("シンラボ / SDGs")).toHaveLength(2);
     expect(
       within(matterRow).getByRole("img", {
         name: /明細によってチームが異なります/,
@@ -181,24 +182,53 @@ describe("MatterProfitTable", () => {
     ).toBeInTheDocument();
   });
 
-  it("「すべて開く」「すべて閉じる」で全案件の内訳をまとめて開閉する（Issue #152）", () => {
+  // The bulk toggle is rendered twice (table header from md up, above the table below md).
+  it.each([
+    ["テーブル見出し（md 以上）", 0],
+    ["テーブル上部（モバイル）", 1],
+  ])(
+    "「すべて開く」「すべて閉じる」で全案件の内訳をまとめて開閉する（Issue #152）: %s",
+    (_label, index) => {
+      renderTable();
+      expect(screen.queryByText("外注費用")).not.toBeInTheDocument();
+      expect(screen.queryByText("取引先B")).not.toBeInTheDocument();
+
+      const openButtons = screen.getAllByRole("button", {
+        name: "案件別収支をすべて開く",
+      });
+      expect(openButtons).toHaveLength(2);
+      fireEvent.click(openButtons[index]);
+      expect(screen.getByText("外注費用")).toBeInTheDocument();
+      expect(screen.getByText("取引先B")).toBeInTheDocument();
+      expect(matterToggle(12, "案件X")).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+      expect(matterToggle(15, "案件Y")).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+
+      fireEvent.click(
+        screen.getAllByRole("button", { name: "案件別収支をすべて閉じる" })[
+          index
+        ],
+      );
+      expect(screen.queryByText("外注費用")).not.toBeInTheDocument();
+      expect(screen.queryByText("取引先B")).not.toBeInTheDocument();
+    },
+  );
+
+  it("チーム列は md 未満で隠し、売上・案件費用・粗利の列は残す", () => {
     renderTable();
-    expect(screen.queryByText("外注費用")).not.toBeInTheDocument();
-    expect(screen.queryByText("取引先B")).not.toBeInTheDocument();
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "案件別収支をすべて開く" }),
-    );
-    expect(screen.getByText("外注費用")).toBeInTheDocument();
-    expect(screen.getByText("取引先B")).toBeInTheDocument();
-    expect(matterToggle(12, "案件X")).toHaveAttribute("aria-expanded", "true");
-    expect(matterToggle(15, "案件Y")).toHaveAttribute("aria-expanded", "true");
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "案件別収支をすべて閉じる" }),
-    );
-    expect(screen.queryByText("外注費用")).not.toBeInTheDocument();
-    expect(screen.queryByText("取引先B")).not.toBeInTheDocument();
+    const team = screen.getByRole("columnheader", { name: "チーム" });
+    expect(team.className).toContain("hidden");
+    expect(team.className).toContain("md:table-cell");
+    for (const name of ["売上", "案件費用", "粗利"]) {
+      expect(
+        screen.getByRole("columnheader", { name }).className,
+      ).not.toContain("hidden");
+    }
   });
 
   it("「案件を表示」「実績額を修正」で対象を呼び出し元へ渡す", () => {

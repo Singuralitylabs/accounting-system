@@ -130,6 +130,62 @@ const BudgetDeclarationList = ({
     expandedDeclarations.has(id),
   );
 
+  const renderDetailToggle = (
+    row: (typeof rows)[number],
+    isExpanded: boolean,
+  ) => (
+    <Button
+      size="xs"
+      variant="subtle"
+      className="max-md:h-10 max-md:flex-1"
+      disabled={!hasDeclaration(row) || isSwitchingMonth}
+      onClick={() => {
+        if (row.declarationId !== null) {
+          toggleDeclaration(row.declarationId);
+        }
+      }}
+    >
+      {isExpanded ? "閉じる" : "明細を表示"}
+    </Button>
+  );
+
+  const renderRowAction = (row: (typeof rows)[number]) =>
+    canWriteTeam(row.team) ? (
+      <Button
+        size="xs"
+        variant="outline"
+        className="max-md:h-10 max-md:flex-1"
+        disabled={isSwitchingMonth || editLocked}
+        title={isClosed ? BUDGET_MONTH_CLOSED_MESSAGE : undefined}
+        onClick={() =>
+          setFormTarget({
+            team: row.team,
+            declarationId: row.declarationId,
+            targetMonth: month,
+          })
+        }
+      >
+        {hasDeclaration(row) ? "編集する" : "申告する"}
+      </Button>
+    ) : (
+      <Text size="xs" c="dimmed">
+        閲覧のみ
+      </Text>
+    );
+
+  const renderStatus = (row: (typeof rows)[number]) => (
+    <>
+      <Badge color={STATUS_BADGE[row.status].color}>
+        {STATUS_BADGE[row.status].label}
+      </Badge>
+      {row.status === "declared" && row.itemCount === 0 && (
+        <Text size="xs" c="dimmed">
+          明細なし
+        </Text>
+      )}
+    </>
+  );
+
   return (
     <div className="mx-auto max-w-5xl px-4 pb-8">
       <Group justify="flex-end" className="mb-2">
@@ -152,6 +208,7 @@ const BudgetDeclarationList = ({
         <CustomMonthPicker
           label="対象月"
           placeholder="対象月を選択"
+          withNavigation
           value={month}
           onChange={(selected) => {
             if (selected) {
@@ -164,7 +221,7 @@ const BudgetDeclarationList = ({
       </div>
 
       <Paper withBorder radius="md" p="sm" className="mb-4">
-        <Group gap="xl" wrap="wrap" className="mb-2">
+        <Group gap="md" wrap="wrap" className="mb-2 sm:gap-8">
           <div>
             <Text size="xs" c="dimmed">
               収入合計（全チーム）
@@ -267,7 +324,7 @@ const BudgetDeclarationList = ({
               すべて閉じる
             </Button>
           </Group>
-          <div className="overflow-x-auto">
+          <div className="hidden overflow-x-auto md:block">
             <Table withTableBorder withColumnBorders striped>
               <Table.Thead>
                 <Table.Tr>
@@ -291,16 +348,7 @@ const BudgetDeclarationList = ({
                     <Fragment key={row.team}>
                       <Table.Tr>
                         <Table.Td>{row.team}</Table.Td>
-                        <Table.Td>
-                          <Badge color={STATUS_BADGE[row.status].color}>
-                            {STATUS_BADGE[row.status].label}
-                          </Badge>
-                          {row.status === "declared" && row.itemCount === 0 && (
-                            <Text size="xs" c="dimmed">
-                              明細なし
-                            </Text>
-                          )}
-                        </Table.Td>
+                        <Table.Td>{renderStatus(row)}</Table.Td>
                         <Table.Td className="text-right">
                           {hasDeclaration(row)
                             ? formatCurrency(row.summary.incomeTotal)
@@ -327,46 +375,9 @@ const BudgetDeclarationList = ({
                           {row.updatedAt ? formatTimeToJp(row.updatedAt) : "-"}
                         </Table.Td>
                         <Table.Td>
-                          <Button
-                            size="xs"
-                            variant="subtle"
-                            disabled={!hasDeclaration(row) || isSwitchingMonth}
-                            onClick={() => {
-                              if (row.declarationId !== null) {
-                                toggleDeclaration(row.declarationId);
-                              }
-                            }}
-                          >
-                            {isExpanded ? "閉じる" : "明細を表示"}
-                          </Button>
+                          {renderDetailToggle(row, isExpanded)}
                         </Table.Td>
-                        <Table.Td>
-                          {canWriteTeam(row.team) ? (
-                            <Button
-                              size="xs"
-                              variant="outline"
-                              disabled={isSwitchingMonth || editLocked}
-                              title={
-                                isClosed
-                                  ? BUDGET_MONTH_CLOSED_MESSAGE
-                                  : undefined
-                              }
-                              onClick={() =>
-                                setFormTarget({
-                                  team: row.team,
-                                  declarationId: row.declarationId,
-                                  targetMonth: month,
-                                })
-                              }
-                            >
-                              {hasDeclaration(row) ? "編集する" : "申告する"}
-                            </Button>
-                          ) : (
-                            <Text size="xs" c="dimmed">
-                              閲覧のみ
-                            </Text>
-                          )}
-                        </Table.Td>
+                        <Table.Td>{renderRowAction(row)}</Table.Td>
                       </Table.Tr>
                       {isExpanded && row.declarationId !== null && (
                         <Table.Tr>
@@ -382,6 +393,71 @@ const BudgetDeclarationList = ({
                 })}
               </Table.Tbody>
             </Table>
+          </div>
+          <div className="space-y-3 md:hidden" data-testid="budget-card-list">
+            {rows.map((row) => {
+              const isExpanded =
+                row.declarationId !== null &&
+                expandedDeclarations.has(row.declarationId);
+              const amountRows = [
+                { label: "収入合計", value: row.summary.incomeTotal },
+                { label: "支出合計", value: row.summary.expenseTotal },
+                { label: "差引", value: row.summary.balance },
+              ];
+              return (
+                <Paper key={row.team} withBorder radius="md" p="sm">
+                  <Group
+                    justify="space-between"
+                    align="flex-start"
+                    wrap="nowrap"
+                  >
+                    <Text fw={700} className="min-w-0 break-words">
+                      {row.team}
+                    </Text>
+                    <div className="shrink-0 text-right">
+                      {renderStatus(row)}
+                    </div>
+                  </Group>
+                  <dl className="my-2 space-y-1">
+                    {amountRows.map(({ label, value }) => (
+                      <div
+                        key={label}
+                        className="flex items-baseline justify-between text-sm"
+                      >
+                        <dt className="text-gray-600">{label}：</dt>
+                        <dd
+                          className={`m-0 font-semibold ${
+                            label === "差引" && hasDeclaration(row) && value < 0
+                              ? "text-red-600"
+                              : ""
+                          }`}
+                        >
+                          {hasDeclaration(row) ? formatCurrency(value) : "-"}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                  <Text size="xs" c="dimmed">
+                    申告者：{row.declaredByName ?? "-"}
+                  </Text>
+                  <Text size="xs" c="dimmed">
+                    最終更新：
+                    {row.updatedAt ? formatTimeToJp(row.updatedAt) : "-"}
+                  </Text>
+                  <Group gap="xs" mt="sm" wrap="nowrap">
+                    {renderDetailToggle(row, isExpanded)}
+                    {renderRowAction(row)}
+                  </Group>
+                  {isExpanded && row.declarationId !== null && (
+                    <div className="mt-3">
+                      <BudgetDeclarationItemTable
+                        declarationId={row.declarationId}
+                      />
+                    </div>
+                  )}
+                </Paper>
+              );
+            })}
           </div>
         </>
       )}

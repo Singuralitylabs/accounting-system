@@ -146,8 +146,8 @@ const buildInput = (
   recurringCosts: [],
   extraEntries: [],
   adjustments: [],
-  isTeamLeader: false,
   includeTeamBreakdown: false,
+  includeAdjustmentDetails: false,
   includeMonthlyDetails: true,
   ...override,
 });
@@ -167,7 +167,6 @@ const legacyOperatingProfit = ({
   costRows,
   recurringCosts,
   extraEntries,
-  isTeamLeader,
 }: MonthlyReportInput): number => {
   const toMonthKey = (dateStr: string | null) =>
     dateStr ? dateStr.slice(0, 7) : null;
@@ -175,9 +174,7 @@ const legacyOperatingProfit = ({
   const monthlyExtraEntries = extraEntries.filter(
     (entry) => toMonthKey(entry.entry_date) === month,
   );
-  const countedExtraEntries = isTeamLeader
-    ? monthlyExtraEntries.filter((entry) => entry.team !== null)
-    : monthlyExtraEntries;
+  const countedExtraEntries = monthlyExtraEntries;
 
   const revenueTotal =
     businessRows
@@ -211,7 +208,6 @@ const legacyOperatingProfit = ({
         (targetYear - startYear) * 12 + (targetMonthNumber - startMonthNumber);
       return diff % (LEGACY_CYCLE_MONTHS[rc.payment_cycle] ?? 1) === 0;
     })
-    .filter((rc) => (isTeamLeader ? rc.team !== null : true))
     .reduce((sum, rc) => sum + rc.price, 0);
 
   return revenueTotal - matterCostTotal - recurringCostTotal;
@@ -283,25 +279,26 @@ describe("fiscalYearMonths", () => {
 });
 
 describe("reportFlags", () => {
-  it("teamleader はチーム別内訳を持たない", () => {
+  it("teamleader はチーム別内訳を持つが、調整・差分の詳細は持たない", () => {
     expect(reportFlags("teamleader")).toEqual({
-      isTeamLeader: true,
-      includeTeamBreakdown: false,
+      includeTeamBreakdown: true,
+      includeAdjustmentDetails: false,
     });
   });
 
-  it("accounting / admin はチーム別内訳を持つ", () => {
-    expect(reportFlags("accounting")).toEqual({
-      isTeamLeader: false,
+  it("accounting / admin はチーム別内訳も調整・差分の詳細も持つ", () => {
+    const expected = {
       includeTeamBreakdown: true,
-    });
-    expect(reportFlags("admin").includeTeamBreakdown).toBe(true);
+      includeAdjustmentDetails: true,
+    };
+    expect(reportFlags("accounting")).toEqual(expected);
+    expect(reportFlags("admin")).toEqual(expected);
   });
 
   it("public / 未設定ロールはすべてのフラグが false になる", () => {
     const expected = {
-      isTeamLeader: false,
       includeTeamBreakdown: false,
+      includeAdjustmentDetails: false,
     };
     expect(reportFlags("public")).toEqual(expected);
     expect(reportFlags(null)).toEqual(expected);
@@ -311,28 +308,28 @@ describe("reportFlags", () => {
 });
 
 describe("needsMonthlyAdjustmentDetails（Issue #142）", () => {
-  it("月次表示かつチーム別内訳ありの場合のみ true", () => {
+  it("月次表示かつ調整詳細ありの場合のみ true", () => {
     expect(
       needsMonthlyAdjustmentDetails({
-        includeTeamBreakdown: true,
+        includeAdjustmentDetails: true,
         includeMonthlyDetails: true,
       }),
     ).toBe(true);
     expect(
       needsMonthlyAdjustmentDetails({
-        includeTeamBreakdown: false,
+        includeAdjustmentDetails: false,
         includeMonthlyDetails: true,
       }),
     ).toBe(false);
     expect(
       needsMonthlyAdjustmentDetails({
-        includeTeamBreakdown: true,
+        includeAdjustmentDetails: true,
         includeMonthlyDetails: false,
       }),
     ).toBe(false);
     expect(
       needsMonthlyAdjustmentDetails({
-        includeTeamBreakdown: false,
+        includeAdjustmentDetails: false,
         includeMonthlyDetails: false,
       }),
     ).toBe(false);
@@ -549,31 +546,6 @@ describe("buildMonthReport: 管理費の費目別集計", () => {
       "施設利用料",
     );
   });
-
-  it("teamleader では全体共通の管理費が費目別内訳に含まれない", () => {
-    const report = buildMonthReport(
-      buildInput({
-        isTeamLeader: true,
-        recurringCosts: [
-          recurringCost({ id: 1, item: "システム料", team: "チームA" }),
-          recurringCost({
-            id: 2,
-            item: "施設利用料",
-            team: null,
-            price: 50000,
-          }),
-        ],
-      }),
-    );
-
-    expect(report.recurringCostByItem.map((row) => row.item)).toEqual([
-      "システム料",
-    ]);
-    expect(report.recurringCostTotal).toBe(10000);
-    expect(
-      report.orgWideRecurringCosts?.map((detail) => detail.recurringCostId),
-    ).toEqual([2]);
-  });
 });
 
 describe("buildMonthReport: 経常利益", () => {
@@ -641,36 +613,6 @@ describe("buildMonthReport: 経常利益が刷新前の営業損益と一致す�
             billing_amount: null,
             expense_amount: 15000,
             payment_method: "銀行振込",
-          }),
-        ],
-      }),
-    },
-    {
-      name: "teamleader（全体共通の管理費・経理追加収支を算入しない）",
-      input: buildInput({
-        isTeamLeader: true,
-        businessRows: [business(400000, "2026-07-05", "研修・検定")],
-        costRows: [cost(90000, "2026-07-05", "メンバー報酬", "研修・検定")],
-        recurringCosts: [
-          recurringCost({ id: 1, price: 20000, team: "チームA" }),
-          recurringCost({ id: 2, price: 70000, team: null }),
-        ],
-        extraEntries: [
-          extraEntry({
-            id: 1,
-            entry_type: "expense",
-            category: "会議費",
-            billing_amount: null,
-            expense_amount: 8000,
-            team: null,
-            payment_method: "銀行振込",
-          }),
-          extraEntry({
-            id: 2,
-            entry_type: "income",
-            category: "協賛金",
-            billing_amount: 50000,
-            team: "チームA",
           }),
         ],
       }),
@@ -842,111 +784,78 @@ describe("buildMonthReport: チーム別内訳", () => {
     ]);
   });
 
-  it("teamleader ではチーム別内訳を返さない", () => {
-    const report = buildMonthReport(buildInput({ isTeamLeader: true }));
+  it("includeTeamBreakdown が false ではチーム別内訳を返さない", () => {
+    const report = buildMonthReport(
+      buildInput({ includeTeamBreakdown: false }),
+    );
     expect(report.byTeam).toBeUndefined();
   });
 });
 
-// Handling of company-wide rows (team IS NULL) differs by role (docs/specification.md 4.16.4).
-describe("buildMonthReport: ロール別の表示スコープ", () => {
-  const orgWideInput = (isTeamLeader: boolean) =>
-    buildInput({
-      isTeamLeader,
-      includeTeamBreakdown: !isTeamLeader,
-      businessRows: [business(300000, "2026-07-10", "受託案件")],
-      costRows: [cost(50000, "2026-07-10", "外注費", "受託案件")],
-      recurringCosts: [
-        recurringCost({ id: 1, item: "システム料", price: 10000 }),
-        recurringCost({
-          id: 2,
-          item: "施設利用料",
-          price: 70000,
-          team: null,
-        }),
-      ],
-      extraEntries: [
-        extraEntry({
-          id: 1,
-          entry_type: "income",
-          category: "協賛金",
-          billing_amount: 100000,
-          expense_amount: 40000,
-          team: null,
-        }),
-        extraEntry({
-          id: 2,
-          entry_type: "expense",
-          category: "交通費",
-          billing_amount: null,
-          expense_amount: 5000,
-          team: "チームA",
-          payment_method: "銀行振込",
-        }),
-      ],
-    });
+// Company-wide rows (team IS NULL) count for every role (teamleader included; docs/specification.md 4.16.4).
+describe("buildMonthReport: 全体共通（team IS NULL）の集計", () => {
+  const report = () =>
+    buildMonthReport(
+      buildInput({
+        includeTeamBreakdown: true,
+        businessRows: [business(300000, "2026-07-10", "受託案件")],
+        costRows: [cost(50000, "2026-07-10", "外注費", "受託案件")],
+        recurringCosts: [
+          recurringCost({ id: 1, item: "システム料", price: 10000 }),
+          recurringCost({
+            id: 2,
+            item: "施設利用料",
+            price: 70000,
+            team: null,
+          }),
+        ],
+        extraEntries: [
+          extraEntry({
+            id: 1,
+            entry_type: "income",
+            category: "協賛金",
+            billing_amount: 100000,
+            expense_amount: 40000,
+            team: null,
+          }),
+          extraEntry({
+            id: 2,
+            entry_type: "expense",
+            category: "交通費",
+            billing_amount: null,
+            expense_amount: 5000,
+            team: "チームA",
+            payment_method: "銀行振込",
+          }),
+        ],
+      }),
+    );
 
-  it("teamleader: 全体共通の経理追加収支を売上・粗利・費用内訳から除外し参考表示へ分離する", () => {
-    const report = buildMonthReport(orgWideInput(true));
+  it("全体共通の経理追加収支・管理費も損益に算入する", () => {
+    const result = report();
 
-    expect(report.extraIncome).toEqual({
-      revenue: 0,
-      cost: 0,
-      grossProfit: 0,
-      entries: [],
-    });
-    expect(report.revenueTotal).toBe(300000);
-
-    expect(report.matterCostTotal).toBe(50000);
-    expect(report.grossProfitTotal).toBe(250000);
-    expect(report.extraExpense.total).toBe(5000);
-
-    expect(
-      report.orgWideExtraEntries?.map((entry) => entry.extraEntryId),
-    ).toEqual([1]);
-    expect(
-      report.orgWideRecurringCosts?.map((detail) => detail.recurringCostId),
-    ).toEqual([2]);
-    expect(
-      report.extraExpense.entries.map((entry) => entry.extraEntryId),
-    ).toEqual([2]);
-
-    expect(report.recurringCostTotal).toBe(10000);
-    expect(report.adminCostTotal).toBe(15000);
-    expect(report.recurringCostByItem.map((row) => row.item)).toEqual([
-      "システム料",
-    ]);
-    expect(report.ordinaryProfit).toBe(235000);
-  });
-
-  it("accounting / admin: 全体共通も損益に算入し、参考表示セクションを持たない", () => {
-    const report = buildMonthReport(orgWideInput(false));
-
-    expect(report.revenueTotal).toBe(400000);
-    expect(report.extraIncome).toMatchObject({
+    expect(result.revenueTotal).toBe(400000);
+    expect(result.extraIncome).toMatchObject({
       revenue: 100000,
       cost: 40000,
       grossProfit: 60000,
     });
-    expect(report.matterCostTotal).toBe(90000);
-
-    expect(report.orgWideExtraEntries).toBeUndefined();
-    expect(report.orgWideRecurringCosts).toBeUndefined();
+    expect(result.matterCostTotal).toBe(90000);
     expect(
-      report.extraIncome.entries.map((entry) => entry.extraEntryId),
+      result.extraIncome.entries.map((entry) => entry.extraEntryId),
     ).toEqual([1]);
     expect(
-      report.extraExpense.entries.map((entry) => entry.extraEntryId),
+      result.extraExpense.entries.map((entry) => entry.extraEntryId),
     ).toEqual([2]);
 
-    expect(report.recurringCostTotal).toBe(80000);
-    expect(report.adminCostTotal).toBe(85000);
-    expect(report.recurringCostByItem.map((row) => row.item)).toEqual([
+    expect(result.recurringCostTotal).toBe(80000);
+    expect(result.adminCostTotal).toBe(85000);
+    expect(result.recurringCostByItem.map((row) => row.item)).toEqual([
       "施設利用料",
       "システム料",
     ]);
-    expect(report.ordinaryProfit).toBe(225000);
-    expect(report.byTeam).toBeDefined();
+    expect(result.ordinaryProfit).toBe(225000);
+    expect(result.byTeam).toBeDefined();
   });
 });
 
@@ -1273,46 +1182,39 @@ describe("buildMonthReport: 月未確定（日付未入力）", () => {
     expect(report.adminCostTotal).toBe(0);
   });
 
-  it("teamleader は全体共通（team IS NULL）の日付未入力エントリを月未確定に数えない（月次の集計と同じ範囲。Issue #164）", () => {
-    const extraEntries = [
-      extraEntry({
-        id: 1,
-        team: null,
-        entry_date: null,
-        billing_amount: 90000,
-        expense_amount: 8000,
+  it("全体共通（team IS NULL）の日付未入力エントリも月未確定に数える", () => {
+    const report = buildMonthReport(
+      buildInput({
+        extraEntries: [
+          extraEntry({
+            id: 1,
+            team: null,
+            entry_date: null,
+            billing_amount: 90000,
+            expense_amount: 8000,
+          }),
+          extraEntry({
+            id: 2,
+            team: null,
+            entry_type: "expense",
+            category: "交通費",
+            entry_date: null,
+            expense_amount: 4000,
+            payment_method: "現金",
+          }),
+          extraEntry({
+            id: 3,
+            team: "チームA",
+            entry_type: "expense",
+            category: "交通費",
+            entry_date: null,
+            expense_amount: 1000,
+            payment_method: "現金",
+          }),
+        ],
       }),
-      extraEntry({
-        id: 2,
-        team: null,
-        entry_type: "expense",
-        category: "交通費",
-        entry_date: null,
-        expense_amount: 4000,
-        payment_method: "現金",
-      }),
-      extraEntry({
-        id: 3,
-        team: "チームA",
-        entry_type: "expense",
-        category: "交通費",
-        entry_date: null,
-        expense_amount: 1000,
-        payment_method: "現金",
-      }),
-    ];
-    const teamLeader = buildMonthReport(
-      buildInput({ isTeamLeader: true, extraEntries }),
     );
-    expect(teamLeader.undated).toEqual({
-      revenue: 0,
-      matterCost: 0,
-      adminCost: 1000,
-    });
-    const accounting = buildMonthReport(
-      buildInput({ isTeamLeader: false, extraEntries }),
-    );
-    expect(accounting.undated).toEqual({
+    expect(report.undated).toEqual({
       revenue: 90000,
       matterCost: 8000,
       adminCost: 5000,
@@ -1485,7 +1387,7 @@ describe("buildMonthReport: 損益調整（実績額修正）", () => {
     // to another month, or it was sent back to draft) but was not deleted, so CASCADE does not remove it; the adjustment remains without a target row.
     const report = buildMonthReport(
       buildInput({
-        includeTeamBreakdown: true,
+        includeAdjustmentDetails: true,
         businessRows: [business(100000, "2026-08-01", "受託案件")],
         adjustments: [
           adjustment({
@@ -1510,7 +1412,7 @@ describe("buildMonthReport: 損益調整（実績額修正）", () => {
   it("cost / recurring_cost が対象の場合も対象種別が正しく判定される", () => {
     const report = buildMonthReport(
       buildInput({
-        includeTeamBreakdown: true,
+        includeAdjustmentDetails: true,
         adjustments: [
           adjustment({ id: 1, cost_id: 99, target_month: "2026-07-01" }),
           adjustment({
@@ -1527,10 +1429,11 @@ describe("buildMonthReport: 損益調整（実績額修正）", () => {
     );
   });
 
-  it("includeTeamBreakdown が false（teamleader）では orphanedAdjustments を返さない", () => {
+  it("includeAdjustmentDetails が false（teamleader）では orphanedAdjustments を返さない", () => {
     const report = buildMonthReport(
       buildInput({
-        includeTeamBreakdown: false,
+        includeTeamBreakdown: true,
+        includeAdjustmentDetails: false,
         adjustments: [
           adjustment({ id: 1, business_id: 99, target_month: "2026-07-01" }),
         ],
@@ -1543,7 +1446,7 @@ describe("buildMonthReport: 損益調整（実績額修正）", () => {
   it("includeMonthlyDetails が false（年間推移）では orphanedAdjustments を返さない", () => {
     const report = buildMonthReport(
       buildInput({
-        includeTeamBreakdown: true,
+        includeAdjustmentDetails: true,
         includeMonthlyDetails: false,
         businessRows: [business(100000, "2026-08-01", "受託案件")],
         adjustments: [
@@ -1565,7 +1468,7 @@ describe("buildMonthReport: 損益調整（実績額修正）", () => {
     const businessRow = business(100000, "2026-08-01", "受託案件");
     const report = buildMonthReport(
       buildInput({
-        includeTeamBreakdown: true,
+        includeAdjustmentDetails: true,
         businessRows: [businessRow],
         adjustments: [
           adjustment({
@@ -1726,7 +1629,7 @@ describe("buildMonthReport: 案件開始日基準の計上（Issue #146）", () 
       }),
     ];
     const july = buildMonthReport(
-      buildInput({ ...rows, adjustments, includeTeamBreakdown: true }),
+      buildInput({ ...rows, adjustments, includeAdjustmentDetails: true }),
     );
     expect(july.revenueTotal).toBe(0);
     expect(july.orphanedAdjustments?.map((o) => o.adjustment.id)).toEqual([1]);

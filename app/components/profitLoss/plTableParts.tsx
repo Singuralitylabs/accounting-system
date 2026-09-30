@@ -20,6 +20,12 @@ export const INDENT = {
   detail: { paddingLeft: "3.75rem" },
 } as const;
 
+// Below md the tables drop secondary columns (CSS only; a viewport hook would flash the wrong layout on first render).
+export const HIDE_ON_MOBILE = "hidden md:table-cell";
+
+// Keeps the label column visible while a wide table scrolls horizontally on mobile; pair with an opaque background.
+export const STICKY_LABEL = "max-md:sticky max-md:left-0 max-md:z-[1]";
+
 export const amountColor = (value: number) =>
   value < 0 ? "text-red-600" : "text-green-700";
 

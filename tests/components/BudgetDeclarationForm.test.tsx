@@ -684,7 +684,9 @@ describe("BudgetDeclarationForm", () => {
     );
 
     saveMutation.mutateAsync.mockClear();
-    const managerCell = managerInput.closest("td") as HTMLElement;
+    const managerCell = managerInput.closest(
+      ".mantine-InputWrapper-root",
+    ) as HTMLElement;
     fireEvent.click(within(managerCell).getByRole("button", { hidden: true }));
 
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
@@ -1448,11 +1450,61 @@ describe("BudgetDeclarationForm 収入 / 支出の色分け", () => {
       />,
     );
 
-    const incomeRow = screen.getByDisplayValue("incomeの明細").closest("tr");
-    const expenseRow = screen.getByDisplayValue("expenseの明細").closest("tr");
-    // Mantine's `bg` prop is emitted as a `background` shorthand in the inline style.
+    const incomeRow = screen
+      .getByDisplayValue("incomeの明細")
+      .closest('[data-testid="budget-form-item"]');
+    const expenseRow = screen
+      .getByDisplayValue("expenseの明細")
+      .closest('[data-testid="budget-form-item"]');
     expect(incomeRow?.getAttribute("style")).toContain("blue-light");
     expect(expenseRow?.getAttribute("style")).toContain("red-light");
+  });
+});
+
+describe("BudgetDeclarationForm モバイル表示", () => {
+  it("明細ごとに入力欄へラベルが付き、削除ボタンが同じブロック内にある", () => {
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: {
+        comment: "",
+        items: [
+          {
+            id: 1,
+            declaration_id: 7,
+            entry_type: "income",
+            category: "セミナー",
+            description: "○○受託案件",
+            amount: 500000,
+            manager_id: null,
+            display_order: 0,
+            inserted_at: "",
+            updated_at: "",
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+    });
+
+    renderWithMantine(
+      <BudgetDeclarationForm
+        opened
+        onClose={vi.fn()}
+        targetMonth="2026-10"
+        team="開発チーム"
+        declarationId={7}
+        teamLocked={false}
+        memberList={testMemberList}
+      />,
+    );
+
+    const block = within(screen.getByTestId("budget-form-item"));
+    for (const label of ["種別", "分類", "内容", "金額", "担当者"]) {
+      expect(block.getByLabelText(label)).toBeInTheDocument();
+    }
+    expect(
+      block.getByRole("button", { name: "明細を削除" }),
+    ).toBeInTheDocument();
   });
 });
 
