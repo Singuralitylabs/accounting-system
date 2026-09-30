@@ -14,7 +14,6 @@ import {
   formatDateToJp,
   formatMonthLabel,
 } from "@/app/utils/formatter";
-import { formatEntryType, isIncomeExtraEntry } from "@/app/utils/extraEntry";
 import { teamLabel } from "@/app/utils/constants";
 import {
   Alert,
@@ -173,37 +172,6 @@ type AdjustmentModalState = {
   sourceAmount: number;
   currentActualAmount: number;
   currentReason: string;
-};
-
-// Display rows for one extra-entry amount (org-wide reference section); an income entry splits into billing amount and optional expense (up to 2 rows).
-type ExtraEntryAmountLine = {
-  key: string;
-  description: string;
-  note: string;
-  amount: number;
-};
-
-const toExtraEntryAmountLines = (
-  entry: ExtraEntryLine,
-): ExtraEntryAmountLine[] => {
-  const lines: ExtraEntryAmountLine[] = [];
-  if (isIncomeExtraEntry(entry)) {
-    lines.push({
-      key: `extra-${entry.extraEntryId}-billing`,
-      description: entry.description,
-      note: `（${formatEntryType(entry.entryType)}・請求額 / ${entry.category}）`,
-      amount: entry.billingAmount ?? 0,
-    });
-  }
-  if (entry.expenseAmount !== null) {
-    lines.push({
-      key: `extra-${entry.extraEntryId}-expense`,
-      description: entry.description,
-      note: `（${formatEntryType(entry.entryType)}・経費 / ${entry.category}）`,
-      amount: entry.expenseAmount,
-    });
-  }
-  return lines;
 };
 
 const targetTypeLabel = {
@@ -719,57 +687,6 @@ const ProfitLossStatement = ({
             </Table.Tbody>
           </Table>
         </Alert>
-      )}
-
-      {/* Org-wide (reference): populated for teamleader only. */}
-      {((report.orgWideRecurringCosts &&
-        report.orgWideRecurringCosts.length > 0) ||
-        (report.orgWideExtraEntries &&
-          report.orgWideExtraEntries.length > 0)) && (
-        <Paper withBorder radius="md" className="overflow-x-auto mb-6 p-4">
-          <Text fw={700} className="mb-1">
-            全体共通の管理費・経理追加収支（参考）
-          </Text>
-          <Text size="xs" c="dimmed" className="mb-3">
-            チーム表示には全体共通の管理費・経理追加収支は含まれません。
-          </Text>
-          <Table verticalSpacing="xs">
-            <Table.Tbody>
-              {report.orgWideRecurringCosts?.map((detail) => (
-                <Table.Tr key={`orgwide-${detail.recurringCostId}`}>
-                  <Table.Td className="text-gray-700">
-                    <EditableTitle title={detail} originalTitle={detail.name} />
-                    <span className="text-xs text-gray-500 ml-2">
-                      {formatRecurringCostNote(detail, {
-                        includeItem: true,
-                        includeTeam: false,
-                      })}
-                    </span>
-                  </Table.Td>
-                  <Table.Td className="text-right w-44">
-                    {formatCurrency(detail.actualAmount)}
-                    <AdjustmentIndicators detail={detail} />
-                  </Table.Td>
-                </Table.Tr>
-              ))}
-              {report.orgWideExtraEntries
-                ?.flatMap(toExtraEntryAmountLines)
-                .map((line) => (
-                  <Table.Tr key={`orgwide-${line.key}`}>
-                    <Table.Td className="text-gray-700">
-                      {line.description}
-                      <span className="text-xs text-gray-500 ml-2">
-                        {line.note}
-                      </span>
-                    </Table.Td>
-                    <Table.Td className="text-right w-44">
-                      {formatCurrency(line.amount)}
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
-            </Table.Tbody>
-          </Table>
-        </Paper>
       )}
 
       {hasUndated && (

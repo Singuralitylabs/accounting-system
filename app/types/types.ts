@@ -243,20 +243,18 @@ export type PLReportType = {
   matterBreakdowns: MatterBreakdown[];
   matterTotals: MatterTotals;
   categoryBreakdown: GrossProfitBreakdown[];
-  // Extra entries are split into income/expense once here (the UI only displays). teamleader sees own team only.
+  // Extra entries are split into income/expense once here (the UI only displays).
   extraIncome: ExtraIncomeSection;
   recurringCostTotal: number;
   recurringCostByItem: RecurringCostItemBreakdown[];
   extraExpense: ExtraExpenseSection;
   // Precomputed here like revenue and profit totals.
   adminCostTotal: number;
-  orgWideRecurringCosts?: TitledRecurringCostLine[];
-  orgWideExtraEntries?: ExtraEntryLine[];
   ordinaryProfit: number;
   byTeam?: TeamBreakdown[];
   // Undated (start date missing; drafts excluded). adminCost is the expense of undated expense entries.
   undated: { revenue: number; matterCost: number; adminCost: number };
-  // Adjustments whose target row is absent from the month; accounting/admin only (same role check as includeTeamBreakdown).
+  // Adjustments whose target row is absent from the month; accounting/admin only (same role check as includeAdjustmentDetails).
   orphanedAdjustments?: OrphanedAdjustmentType[];
   // Closing info; closed months are aggregated from closing lines, open months are null (live).
   closing?: ClosingInfo | null;

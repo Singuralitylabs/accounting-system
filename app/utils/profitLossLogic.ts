@@ -106,9 +106,17 @@ export const isRecurringCostChargedInMonth = (
   return monthDiff(start, month) % cycleMonths === 0;
 };
 
+// Teamleaders read the same company-wide report as accounting (team breakdown, team-less rows);
+// only the adjustment / closing-diff details (actionable by accounting / admin) stay restricted.
 export const reportFlags = (profileClass: string | null | undefined) => ({
-  isTeamLeader: profileClass === "teamleader",
-  includeTeamBreakdown: hasClassAccess(["accounting", "admin"], profileClass),
+  includeTeamBreakdown: hasClassAccess(
+    ["teamleader", "accounting", "admin"],
+    profileClass,
+  ),
+  includeAdjustmentDetails: hasClassAccess(
+    ["accounting", "admin"],
+    profileClass,
+  ),
 });
 
 // Single definition shared by buildMonthReport (display) and planAdjustmentSupplement
@@ -116,9 +124,9 @@ export const reportFlags = (profileClass: string | null | undefined) => ({
 // orphanedAdjustments / closingDiffs. Change only here; otherwise needless fetches return or
 // labels stay unresolved.
 export const needsMonthlyAdjustmentDetails = (flags: {
-  includeTeamBreakdown: boolean;
+  includeAdjustmentDetails: boolean;
   includeMonthlyDetails: boolean;
-}): boolean => flags.includeTeamBreakdown && flags.includeMonthlyDetails;
+}): boolean => flags.includeAdjustmentDetails && flags.includeMonthlyDetails;
 
 // Inclusive month-key range. The annual trend passes the whole fiscal year to avoid 12 queries.
 export type ReportPeriod = {
@@ -255,8 +263,9 @@ export type MonthlyReportInput = {
   recurringCosts: RecurringCostType[];
   extraEntries: ExtraEntryType[];
   adjustments: ProfitLossAdjustmentType[];
-  isTeamLeader: boolean;
   includeTeamBreakdown: boolean;
+  // Orphaned adjustments / post-closing diffs (accounting / admin only).
+  includeAdjustmentDetails: boolean;
   // Details only shown in the monthly tab's single-month view. The annual trend passes false to
   // skip 12 months of wasted computation.
   includeMonthlyDetails: boolean;
@@ -638,7 +647,6 @@ export const buildCategoryBreakdown = (
 export type AggregateInput = {
   month: string; // "YYYY-MM"
   lines: PLMonthLines;
-  isTeamLeader: boolean;
   includeTeamBreakdown: boolean;
   labels?: ProfitLossLabelType[];
 };
@@ -647,28 +655,14 @@ export type AggregateInput = {
 export const aggregateMonthLines = ({
   month,
   lines,
-  isTeamLeader,
   includeTeamBreakdown,
   labels = [],
 }: AggregateInput): PLReportType => {
   const labelIndex = buildLabelIndex(labels);
-  // teamleader: team IS NULL extra entries / admin costs are reference-only, not counted
-  // (matters.team is NOT NULL, so matters always count).
-  const countedExtraEntries = isTeamLeader
-    ? lines.extraEntries.filter((entry) => entry.team !== null)
-    : lines.extraEntries;
-  const orgWideExtraEntries = isTeamLeader
-    ? lines.extraEntries.filter((entry) => entry.team === null)
-    : undefined;
-  const titledRecurringCosts = lines.recurringCosts.map((line) =>
+  const countedExtraEntries = lines.extraEntries;
+  const countedRecurringCosts = lines.recurringCosts.map((line) =>
     titledRecurringCostLine(line, labelIndex),
   );
-  const countedRecurringCosts = isTeamLeader
-    ? titledRecurringCosts.filter((line) => line.team !== null)
-    : titledRecurringCosts;
-  const orgWideRecurringCosts = isTeamLeader
-    ? titledRecurringCosts.filter((line) => line.team === null)
-    : undefined;
 
   // ===== Gross profit = matters (per category) + extra entries (income) =====
   const matterBreakdowns = buildMatterBreakdowns(
@@ -710,7 +704,7 @@ export const aggregateMonthLines = ({
   // Extra entry (expense) costs count as admin costs.
   const adminCostTotal = recurringCostTotal + extraExpense.total;
 
-  // ===== Team breakdown (accounting / admin only) =====
+  // ===== Team breakdown (teamleader / accounting / admin) =====
   let byTeam: TeamBreakdown[] | undefined;
   if (includeTeamBreakdown) {
     const teamMap = new Map<string, TeamBreakdown>();
@@ -768,8 +762,6 @@ export const aggregateMonthLines = ({
     recurringCostByItem,
     extraExpense,
     adminCostTotal,
-    orgWideRecurringCosts,
-    orgWideExtraEntries,
     ordinaryProfit: grossProfitTotal - adminCostTotal,
     byTeam,
     undated: { revenue: 0, matterCost: 0, adminCost: 0 },
@@ -780,20 +772,17 @@ export const aggregateMonthLines = ({
 };
 
 // Month-undetermined sales/costs, excluding drafts. Extra-entry expense counts as admin cost.
-// teamleader excludes team IS NULL extra entries like aggregateMonthLines (RLS still returns them).
 // Always live values, even for closed months.
 export const computeUndated = (
   businessRows: BusinessRow[],
   costRows: CostRow[],
   extraEntries: ExtraEntryType[],
-  isTeamLeader: boolean,
 ): PLReportType["undated"] => {
   const isUndatedMatter = (matter: MatterOfRow) =>
     !isDraftMatter(matter) && matter.start_date === null;
   const { extraIncome, extraExpense } = splitExtraEntries(
     extraEntries
       .filter((entry) => entry.entry_date === null)
-      .filter((entry) => !isTeamLeader || entry.team !== null)
       .map(toExtraEntryLine),
   );
   return {

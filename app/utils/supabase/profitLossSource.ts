@@ -149,8 +149,7 @@ export const fetchLiveSourceRows = async (
 
 // Closing snapshots: closed month -> header, closing lines, skip records. PostgREST max_rows also
 // applies to embedded arrays, so lines/skips are paged in separate queries (filtered by the
-// header month range via !inner) instead of embedded. RLS returns lines for a teamleader only for
-// own team + team-less (+ own matters), and skip records for accounting / admin only.
+// header month range via !inner) instead of embedded. RLS returns skip records for accounting / admin only.
 const fetchClosingSnapshots = async (
   period: ReportPeriod,
 ): Promise<Map<string, MonthClosingSnapshot> | null> => {
@@ -328,7 +327,7 @@ const fetchLabelsByTargetIds = async (
 
 export type AdjustmentSupplementOptions = {
   month: string; // "YYYY-MM"
-  includeTeamBreakdown?: boolean;
+  includeAdjustmentDetails?: boolean;
   includeMonthlyDetails?: boolean;
 };
 
@@ -401,7 +400,7 @@ const planAdjustmentSupplement = (
 ): MissingAdjustmentTargetIds | null => {
   if (
     !needsMonthlyAdjustmentDetails({
-      includeTeamBreakdown: options.includeTeamBreakdown ?? true,
+      includeAdjustmentDetails: options.includeAdjustmentDetails ?? true,
       includeMonthlyDetails: options.includeMonthlyDetails ?? true,
     })
   ) {

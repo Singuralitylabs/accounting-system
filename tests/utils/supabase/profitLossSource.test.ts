@@ -147,13 +147,13 @@ describe("調整対象行の補完取得のスキップ条件（Issue #142）", 
         call.args[0] === "id",
     );
 
-  it("includeTeamBreakdown が false なら補完クエリを発行しない", async () => {
+  it("includeAdjustmentDetails が false なら補完クエリを発行しない", async () => {
     const { calls } = fakeSupabase(tablesWithOrphan(), julyOnly);
 
     const rows = await fetchReportSourceRows(period, {
       supplement: {
         month: "2026-07",
-        includeTeamBreakdown: false,
+        includeAdjustmentDetails: false,
         includeMonthlyDetails: true,
       },
     });
@@ -168,7 +168,7 @@ describe("調整対象行の補完取得のスキップ条件（Issue #142）", 
     const rows = await fetchReportSourceRows(period, {
       supplement: {
         month: "2026-07",
-        includeTeamBreakdown: true,
+        includeAdjustmentDetails: true,
         includeMonthlyDetails: false,
       },
     });
@@ -812,7 +812,7 @@ describe("fetchReportSourceRows の調整対象行の補完取得（supplement�
     const { calls } = fakeSupabase(tablesWithMovedBusiness(), periodFilters);
 
     const rows = await fetchReportSourceRows(period, {
-      supplement: { ...supplement, includeTeamBreakdown: false },
+      supplement: { ...supplement, includeAdjustmentDetails: false },
     });
 
     expect(rows?.businessRows.map((row) => row.id)).toEqual([1]);
