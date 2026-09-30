@@ -77,7 +77,7 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
   const sections = useMemo(
     () =>
       groupUsersByRole(rows, (user) => {
-        // `has` rather than `??`: a saved null role must stay in the "unset" section while edited.
+        // Not `saved?.class ?? user.class`: a saved null role must stay in the "unset" section while edited.
         const saved = baseline.get(user.id);
         return saved ? saved.class : user.class;
       }),
