@@ -189,6 +189,7 @@ describe("bulkUpsertExtraEntry（確定済みの月の編集ロック・1 トラ
       const result = await bulkUpsertExtraEntry(entries);
       expect(result.error?.kind).toBe("validationFailed");
       expect(result.error?.message).toContain("確定済みの月です");
+      expect(result.staleList).toBe(true);
       expect(calls).toEqual([]);
     }
   });

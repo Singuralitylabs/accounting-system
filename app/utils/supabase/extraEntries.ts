@@ -121,7 +121,9 @@ export const bulkUpsertExtraEntry = async (
     closedMonths
   );
   if (violations.length > 0) {
+    // The client checked its own closed-month info, so reaching here means that info is stale.
     return {
+      staleList: true,
       error: {
         kind: "validationFailed",
         message: `${CLOSED_MONTH_LOCK_MESSAGE}（対象: ${violations.join("、")}）`,
