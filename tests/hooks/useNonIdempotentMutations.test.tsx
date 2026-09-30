@@ -81,6 +81,21 @@ describe("非冪等な一括保存のミューテーションは失敗しても�
     expect(bulkUpsertExtraEntry).toHaveBeenCalledTimes(1);
   });
 
+  it("経理追加収支: 競合（staleList）は ExtraEntryValidationError のまま一覧を無効化して再取得する", async () => {
+    bulkUpsertExtraEntry.mockResolvedValue({
+      staleList: true,
+      error: { kind: "validationFailed", message: "競合しました" },
+    });
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useUpsertExtraEntry(), { wrapper });
+
+    const error = await result.current.mutateAsync([]).catch((e) => e);
+    expect(error).toBeInstanceOf(ExtraEntryValidationError);
+    expect(error.staleList).toBe(true);
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["extraEntries"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["profitLoss"] });
+  });
+
   it("定期費用: 保存に失敗しても bulkUpsertRecurringCost は 1 回だけ呼ばれる", async () => {
     bulkUpsertRecurringCost.mockRejectedValue(
       new Error("定期費用情報の更新に失敗しました"),

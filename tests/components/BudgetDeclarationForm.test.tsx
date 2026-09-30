@@ -314,6 +314,7 @@ describe("BudgetDeclarationForm", () => {
     useBudgetDeclarationDetail.mockReturnValue({
       data: {
         comment: "既存コメント",
+        completed: false,
         items: [
           {
             id: 1,
@@ -353,6 +354,7 @@ describe("BudgetDeclarationForm", () => {
       targetMonth: "2026-10",
       team: "開発チーム",
       comment: "既存コメント",
+      completed: false,
       items: [
         {
           entry_type: "income",
@@ -365,6 +367,99 @@ describe("BudgetDeclarationForm", () => {
     });
     expect(notifyError).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  describe("申告済みチェック", () => {
+    const openEdit = (completed: boolean) => {
+      useBudgetDeclarationDetail.mockReturnValue({
+        data: {
+          comment: "",
+          completed,
+          items: [
+            {
+              id: 1,
+              declaration_id: 7,
+              entry_type: "income",
+              category: "セミナー",
+              description: "○○受託案件",
+              amount: 500000,
+              manager_id: null,
+              display_order: 0,
+              inserted_at: "",
+              updated_at: "",
+            },
+          ],
+        },
+        isLoading: false,
+        isError: false,
+      });
+      confirmAction.mockResolvedValue(true);
+      renderFormWithMasters({
+        opened: true,
+        onClose: vi.fn(),
+        targetMonth: "2026-10",
+        team: "開発チーム",
+        declarationId: 7,
+        teamLocked: false,
+        memberList: testMemberList,
+      });
+    };
+
+    const checkbox = () =>
+      screen.getByRole("checkbox", { name: /申告を完了する/ });
+
+    it("新規作成では未チェックで開き、チェックしないまま保存すると completed: false で送る", async () => {
+      renderFormWithMasters({
+        opened: true,
+        onClose: vi.fn(),
+        targetMonth: "2026-10",
+        team: "開発チーム",
+        declarationId: null,
+        teamLocked: false,
+        memberList: testMemberList,
+      });
+      expect(checkbox()).not.toBeChecked();
+    });
+
+    it("完了済みの申告を編集すると、チェックが入った状態で開き、外さずに保存すれば completed: true のまま", async () => {
+      openEdit(true);
+      expect(checkbox()).toBeChecked();
+
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
+      await vi.waitFor(() =>
+        expect(saveMutation.mutateAsync).toHaveBeenCalled(),
+      );
+      expect(saveMutation.mutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ declarationId: 7, completed: true }),
+      );
+    });
+
+    it("入力中の申告はチェックなしで開き、チェックを入れて保存すると completed: true を送る", async () => {
+      openEdit(false);
+      expect(checkbox()).not.toBeChecked();
+
+      fireEvent.click(checkbox());
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
+      await vi.waitFor(() =>
+        expect(saveMutation.mutateAsync).toHaveBeenCalled(),
+      );
+      expect(saveMutation.mutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ completed: true }),
+      );
+    });
+
+    it("完了済みの申告のチェックを外して保存すると completed: false（入力中に戻す）を送る", async () => {
+      openEdit(true);
+
+      fireEvent.click(checkbox());
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
+      await vi.waitFor(() =>
+        expect(saveMutation.mutateAsync).toHaveBeenCalled(),
+      );
+      expect(saveMutation.mutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ completed: false }),
+      );
+    });
   });
 
   it("編集中に detail が新しい参照で再取得されても、入力中の内容を上書きしない", () => {
@@ -589,7 +684,9 @@ describe("BudgetDeclarationForm", () => {
     );
 
     saveMutation.mutateAsync.mockClear();
-    const managerCell = managerInput.closest("td") as HTMLElement;
+    const managerCell = managerInput.closest(
+      ".mantine-InputWrapper-root",
+    ) as HTMLElement;
     fireEvent.click(within(managerCell).getByRole("button", { hidden: true }));
 
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
@@ -1316,5 +1413,151 @@ describe("BudgetDeclarationForm", () => {
       expect(saveMutation.mutateAsync).not.toHaveBeenCalled();
       expect(confirmAction).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("BudgetDeclarationForm 収入 / 支出の色分け", () => {
+  it("種別ごとに行の背景色が変わり、支出の金額入力は赤字になる", () => {
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: {
+        comment: "",
+        items: ["income", "expense"].map((entry_type, i) => ({
+          id: i + 1,
+          declaration_id: 7,
+          entry_type,
+          category: entry_type === "income" ? "セミナー" : "外注費",
+          description: `${entry_type}の明細`,
+          amount: 1000 * (i + 1),
+          manager_id: null,
+          display_order: i,
+          inserted_at: "",
+          updated_at: "",
+        })),
+      },
+      isLoading: false,
+      isError: false,
+    });
+
+    renderWithMantine(
+      <BudgetDeclarationForm
+        opened
+        onClose={vi.fn()}
+        targetMonth="2026-10"
+        team="開発チーム"
+        declarationId={7}
+        teamLocked={false}
+        memberList={testMemberList}
+      />,
+    );
+
+    const incomeRow = screen
+      .getByDisplayValue("incomeの明細")
+      .closest('[data-testid="budget-form-item"]');
+    const expenseRow = screen
+      .getByDisplayValue("expenseの明細")
+      .closest('[data-testid="budget-form-item"]');
+    expect(incomeRow?.getAttribute("style")).toContain("blue-light");
+    expect(expenseRow?.getAttribute("style")).toContain("red-light");
+  });
+});
+
+describe("BudgetDeclarationForm モバイル表示", () => {
+  it("明細ごとに入力欄へラベルが付き、削除ボタンが同じブロック内にある", () => {
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: {
+        comment: "",
+        items: [
+          {
+            id: 1,
+            declaration_id: 7,
+            entry_type: "income",
+            category: "セミナー",
+            description: "○○受託案件",
+            amount: 500000,
+            manager_id: null,
+            display_order: 0,
+            inserted_at: "",
+            updated_at: "",
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+    });
+
+    renderWithMantine(
+      <BudgetDeclarationForm
+        opened
+        onClose={vi.fn()}
+        targetMonth="2026-10"
+        team="開発チーム"
+        declarationId={7}
+        teamLocked={false}
+        memberList={testMemberList}
+      />,
+    );
+
+    const block = within(screen.getByTestId("budget-form-item"));
+    for (const label of ["種別", "分類", "内容", "金額", "担当者"]) {
+      expect(block.getByLabelText(label)).toBeInTheDocument();
+    }
+    expect(
+      block.getByRole("button", { name: "明細を削除" }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("BudgetDeclarationForm 確定月のロック", () => {
+  it("locked のとき（確定済み・確定状態不明）は保存と削除を無効化し、理由を表示する", () => {
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: { comment: "", items: [] },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+    });
+
+    renderWithMantine(
+      <BudgetDeclarationForm
+        opened
+        onClose={vi.fn()}
+        targetMonth="2026-10"
+        team="開発チーム"
+        declarationId={7}
+        teamLocked={false}
+        memberList={testMemberList}
+        locked
+      />,
+    );
+
+    expect(screen.getByText("この月は編集できません")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "削除" })).toBeDisabled();
+  });
+
+  it("locked でなければ警告は出ず、保存できる", () => {
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: { comment: "", items: [] },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+    });
+
+    renderWithMantine(
+      <BudgetDeclarationForm
+        opened
+        onClose={vi.fn()}
+        targetMonth="2026-10"
+        team="開発チーム"
+        declarationId={7}
+        teamLocked={false}
+        memberList={testMemberList}
+      />,
+    );
+
+    expect(
+      screen.queryByText("この月は編集できません"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存" })).not.toBeDisabled();
   });
 });

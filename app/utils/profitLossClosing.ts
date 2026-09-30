@@ -392,14 +392,13 @@ export const buildMonthReport = (
   const report = aggregateMonthLines({
     month: input.month,
     lines,
-    isTeamLeader: input.isTeamLeader,
     includeTeamBreakdown: input.includeTeamBreakdown,
     labels: input.labels,
   });
-  // Computed only for accounting/admin (includeTeamBreakdown) in the monthly single-month view,
+  // Computed only for accounting/admin (includeAdjustmentDetails) in the monthly single-month view,
   // using the same needsMonthlyAdjustmentDetails as planAdjustmentSupplement (profitLossSource.ts).
   const monthlyDetails = needsMonthlyAdjustmentDetails({
-    includeTeamBreakdown: input.includeTeamBreakdown,
+    includeAdjustmentDetails: input.includeAdjustmentDetails,
     includeMonthlyDetails: input.includeMonthlyDetails,
   });
   const labelIndex = monthlyDetails ? buildLabelIndex(input.labels) : undefined;
@@ -409,7 +408,6 @@ export const buildMonthReport = (
       input.businessRows,
       input.costRows,
       input.extraEntries,
-      input.isTeamLeader,
     ),
     orphanedAdjustments: labelIndex
       ? markIncludedInClosing(
@@ -426,7 +424,7 @@ export const buildMonthReport = (
         )
       : undefined,
     closing: input.closing ? toClosingInfo(input.closing.header) : null,
-    // Only for roles that can act on diffs (includeTeamBreakdown = accounting / admin).
+    // Only for roles that can act on diffs (includeAdjustmentDetails = accounting / admin).
     closingDiffs:
       input.closing && labelIndex
         ? diffClosingLines({

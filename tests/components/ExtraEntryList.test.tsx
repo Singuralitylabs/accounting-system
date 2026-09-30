@@ -6,6 +6,7 @@ import ExtraEntryList from "@/app/components/extraEntries/ExtraEntryList";
 import { ExtraEntryType } from "@/app/types/types";
 import type { ExtraEntrySuggestion } from "@/app/hooks/useExtraEntryData";
 import { notifyError, notifySuccess } from "@/app/utils/notify";
+import { addMonths } from "@/app/utils/formatter";
 import { confirmAction } from "@/app/utils/confirmAction";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
 
@@ -55,7 +56,14 @@ vi.mock("@/app/hooks/useExtraEntryData", () => ({
   }),
   useExtraEntrySuggestions: () => ({ data: suggestionsState.value }),
   useUpsertExtraEntry: () => ({ mutateAsync, isPending: false }),
-  ExtraEntryValidationError: class extends Error {},
+  ExtraEntryValidationError: class extends Error {
+    constructor(
+      message: string,
+      readonly staleList = false,
+    ) {
+      super(message);
+    }
+  },
 }));
 vi.mock("@/app/hooks/useClosedMonths", () => ({
   useClosedMonths: () => ({
@@ -77,15 +85,29 @@ vi.mock("@/app/components/CustomMonthPicker", () => ({
   CustomMonthPicker: ({
     value,
     onChange,
+    withNavigation,
   }: {
     value: string | null;
     onChange: (month: string | null) => void;
+    withNavigation?: boolean;
   }) => (
-    <input
-      aria-label="対象月"
-      value={value ?? ""}
-      onChange={(event) => onChange(event.target.value || null)}
-    />
+    <>
+      <input
+        aria-label="対象月"
+        value={value ?? ""}
+        onChange={(event) => onChange(event.target.value || null)}
+      />
+      {withNavigation && value && (
+        <>
+          <button type="button" onClick={() => onChange(addMonths(value, -1))}>
+            前月
+          </button>
+          <button type="button" onClick={() => onChange(addMonths(value, 1))}>
+            翌月
+          </button>
+        </>
+      )}
+    </>
   ),
 }));
 // Replace the date picker with a plain input so the default date of a new row can be asserted.
@@ -261,6 +283,25 @@ describe("ExtraEntryList の月別表示（Issue #157）", () => {
         "2026-10",
       ),
     );
+  });
+
+  it("未保存の編集がある状態で翌月ボタンを押しても確認が出て、キャンセルで月が変わらない", async () => {
+    renderList([entry({ id: 2, description: "9月協賛" })]);
+    fireEvent.change(screen.getByDisplayValue("9月協賛"), {
+      target: { value: "9月協賛（編集中）" },
+    });
+
+    vi.mocked(confirmAction).mockResolvedValueOnce(false);
+    fireEvent.click(screen.getByRole("button", { name: "翌月" }));
+    await vi.waitFor(() =>
+      expect(confirmAction).toHaveBeenCalledWith(
+        "未保存の変更があります。破棄して対象月を切り替えますか？",
+      ),
+    );
+    expect((screen.getByLabelText("対象月") as HTMLInputElement).value).toBe(
+      "2026-09",
+    );
+    expect(screen.getByDisplayValue("9月協賛（編集中）")).toBeTruthy();
   });
 
   it("確定済みの月の情報を取得中は、確定済みでない月でも追加ボタンが無効になる", () => {
@@ -453,6 +494,40 @@ describe(
         "disabled",
         false,
       );
+    });
+
+    it("競合（staleList）で保存が拒否されたときは、結果不明と同じ再取得待ちに入り編集を止める", async () => {
+      const { ExtraEntryValidationError } =
+        await import("@/app/hooks/useExtraEntryData");
+      // The real hook invalidates the list on a conflict.
+      mutateAsync.mockImplementationOnce(async () => {
+        extraEntryListOverrides.value = { isInvalidated: true };
+        throw new ExtraEntryValidationError("他の利用者に変更されました", true);
+      });
+      const initialData = [entry({ id: 2, description: "9月協賛" })];
+      const view = renderList(initialData);
+      fireEvent.change(screen.getByDisplayValue("9月協賛"), {
+        target: { value: "9月協賛（修正）" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
+      await vi.waitFor(() =>
+        expect(notifyError).toHaveBeenCalledWith("他の利用者に変更されました"),
+      );
+
+      await vi.waitFor(() =>
+        expect(screen.getByRole("button", { name: "保存" })).toHaveProperty(
+          "disabled",
+          true,
+        ),
+      );
+
+      // If the refetch then fails, the alert must not claim the save outcome is unknown (nothing was written).
+      extraEntryListOverrides.value = { isError: true, isInvalidated: true };
+      view.rerender(listElement(initialData));
+      expect(
+        screen.getByText("最新の経理追加収支情報を取得できませんでした"),
+      ).toBeTruthy();
+      expect(screen.queryByText(/保存できたか確認できず/)).toBeNull();
     });
 
     it("無効化された一覧は、再取得中も取り直せるまで編集・保存を止める（定期費用と同じロック条件。Issue #190）", () => {

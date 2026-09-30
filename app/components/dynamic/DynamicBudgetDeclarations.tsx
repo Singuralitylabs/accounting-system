@@ -4,10 +4,12 @@ import {
   getMemberOptions,
   getProfileInfo,
 } from "@/app/utils/supabase/profiles";
+import { defaultTargetMonth } from "@/app/utils/budgetDeclaration";
 import {
-  canViewAllBudgetTeams,
-  defaultTargetMonth,
-} from "@/app/utils/budgetDeclaration";
+  BUDGET_CLOSING_WRITE_CLASSES,
+  hasClassAccess,
+} from "@/app/utils/permissions";
+import { getBudgetDeclarationClosings } from "@/app/utils/supabase/budgetDeclarationClosings";
 import { canManageBudgetDeclarationReminderSettings } from "@/app/utils/budgetDeclarationReminder";
 import BudgetDeclarationList from "../budgetDeclarations/BudgetDeclarationList";
 
@@ -19,11 +21,18 @@ const DynamicBudgetDeclarations = async () => {
     { rows },
     { profileInfo, error: profileError },
     { memberOptions, error: memberOptionsError },
+    { closings, error: closingsError },
   ] = await Promise.all([
     getBudgetDeclarationList(initialMonth),
     getProfileInfo(),
     getMemberOptions(),
+    getBudgetDeclarationClosings(),
   ]);
+
+  // Closing state is fetched again on the client when the seed is missing.
+  if (closingsError) {
+    console.error("事前収支申告の確定状態の取得に失敗しました:", closingsError);
+  }
 
   // Members are auxiliary: on failure still show the list, but disable the form's manager Select (see memberListError; an empty memberList would render existing manager_id values as blank, looking cleared).
   if (memberOptionsError) {
@@ -33,7 +42,7 @@ const DynamicBudgetDeclarations = async () => {
     );
   }
 
-  // On failure canEditAllTeams falls back to false (team fixed); still log the cause.
+  // On failure the role is null, so no team is writable (view-only); still log the cause.
   if (profileError) {
     console.error(
       "事前収支申告フォームの権限判定用プロフィール取得に失敗しました:",
@@ -63,7 +72,13 @@ const DynamicBudgetDeclarations = async () => {
       initialData={rows ?? null}
       // Without the seed time TanStack Query treats initialData as fetched now and shows stale data after GC without refetching.
       initialDataUpdatedAt={Date.now()}
-      canEditAllTeams={canViewAllBudgetTeams(profileInfo?.class)}
+      profileClass={profileInfo?.class ?? null}
+      profileTeam={profileInfo?.team ?? null}
+      canCloseMonth={hasClassAccess(
+        BUDGET_CLOSING_WRITE_CLASSES,
+        profileInfo?.class,
+      )}
+      initialClosings={closings ?? null}
       canManageReminderSettings={canManageReminderSettings}
       initialReminderTargetDays={reminderSettings?.targetDays ?? null}
       memberList={(memberOptions ?? []).map((member) => ({

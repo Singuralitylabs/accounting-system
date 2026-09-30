@@ -6,6 +6,7 @@ import {
   AccessFailureKind,
   BudgetDeclarationItemInput,
   BudgetDeclarationPreviousItem,
+  BudgetDeclarationStatus,
   BudgetDeclarationStatusType,
   BudgetSummaryType,
 } from "../types/types";
@@ -19,12 +20,13 @@ export { addMonths };
 export const BUDGET_DECLARATION_ALLOWED_CLASSES =
   ROUTE_PERMISSIONS["/budget-declarations"];
 
-// Roles that see only their own team's declarations. Mirrors DB `public.can_access_team_budget`
-// (migration 19); change both together or the app and RLS diverge.
+// Roles that may write only their own team's declarations. Mirrors DB `public.can_access_team_budget`
+// (migration 19); change both together or the app and RLS diverge. Reading is open to every role
+// that can open the page (SELECT policies, migration 38).
 export const BUDGET_OWN_TEAM_ONLY_CLASSES: Role[] = ["teamleader"];
 
 // Derived from route permissions, so adding a role there widens the list automatically.
-export const BUDGET_ALL_TEAMS_CLASSES =
+export const BUDGET_WRITE_ALL_TEAMS_CLASSES =
   BUDGET_DECLARATION_ALLOWED_CLASSES.filter(
     (role) => !BUDGET_OWN_TEAM_ONLY_CLASSES.includes(role),
   );
@@ -60,10 +62,10 @@ export const summarizeBudgetItems = (
   };
 };
 
-// Lets the fetch side decide whether the team master and all-team RLS evaluation are needed.
-export const canViewAllBudgetTeams = (
+// Write access to every team (accounting / admin); teamleaders write only their own team.
+export const canWriteAllBudgetTeams = (
   profileClass: string | null | undefined,
-): boolean => hasClassAccess(BUDGET_ALL_TEAMS_CLASSES, profileClass);
+): boolean => hasClassAccess(BUDGET_WRITE_ALL_TEAMS_CLASSES, profileClass);
 
 // Empty when the role has no access or no team is set.
 export const ownBudgetTeams = (
@@ -74,33 +76,48 @@ export const ownBudgetTeams = (
     ? [profileTeam]
     : [];
 
-// RLS bounds visible rows, but showing "not declared" needs teams without declarations, so the
-// team master is also filtered by role.
-export const visibleBudgetTeams = (
-  profileClass: string | null | undefined,
-  profileTeam: string | null | undefined,
-  teamList: readonly string[],
-): string[] =>
-  canViewAllBudgetTeams(profileClass)
-    ? [...teamList]
-    : ownBudgetTeams(profileClass, profileTeam);
-
 // Mirrors DB `public.can_access_team_budget` (migration 19); change both together.
 export const canWriteBudgetTeam = (
   profileClass: string | null | undefined,
   profileTeam: string | null | undefined,
   targetTeam: string,
 ): boolean =>
-  canViewAllBudgetTeams(profileClass) ||
+  canWriteAllBudgetTeams(profileClass) ||
   ownBudgetTeams(profileClass, profileTeam).includes(targetTeam);
+
+// Row background per entry type (for the `bg` prop, as in AccountingTablebody). The `-light`
+// variables are translucent and theme-aware, so income / expense stay distinguishable in both light
+// and dark color schemes.
+export const budgetEntryRowBg = (entryType: string): string =>
+  entryType === "expense"
+    ? "var(--mantine-color-red-light)"
+    : "var(--mantine-color-blue-light)";
+
+// Expense amounts are shown in red (income keeps the default color).
+export const budgetAmountColor = (entryType: string): string | undefined =>
+  entryType === "expense" ? "var(--mantine-color-red-filled)" : undefined;
+
+export const BUDGET_MONTH_CLOSED_MESSAGE =
+  "この月の事前収支申告は確定済みのため、作成・編集・削除できません。";
 
 export type BudgetDeclarationWithItems = {
   id: number;
   team: string;
   updated_at: string | null;
+  completed_at: string | null;
   declared_by_name: string | null;
   items: BudgetItemAmount[];
 };
+
+// Declared only when completed_at is set; a header row alone is "in progress".
+export const budgetDeclarationStatus = (
+  declaration: { completed_at: string | null } | undefined,
+): BudgetDeclarationStatus =>
+  !declaration
+    ? "notDeclared"
+    : declaration.completed_at !== null
+      ? "declared"
+      : "inProgress";
 
 // Declarations for teams missing from the master (disabled/renamed) are appended so none are dropped.
 export const buildBudgetDeclarationStatusList = (
@@ -117,7 +134,8 @@ export const buildBudgetDeclarationStatusList = (
   ): BudgetDeclarationStatusType => ({
     team,
     declarationId: declaration?.id ?? null,
-    isDeclared: !!declaration,
+    status: budgetDeclarationStatus(declaration),
+    itemCount: declaration?.items.length ?? 0,
     declaredByName: declaration?.declared_by_name ?? null,
     updatedAt: declaration?.updated_at ?? null,
     summary: summarizeBudgetItems(declaration?.items ?? []),

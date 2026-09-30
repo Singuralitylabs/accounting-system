@@ -95,11 +95,15 @@ PostgreSQL（Supabase）/ スキーマ `public`（補助関数は `private`）�
 
 ### 3.9 budget_declarations テーブル
 
-事前収支申告のヘッダ。チームリーダーが翌月のチーム収支を申告する。`(target_month, team)` が UNIQUE（1 チーム × 1 対象月 = 1 行）。合計金額は非正規化せず明細から集計する。`declared_by` は最終更新者（表示・監査補助用。5.8 参照）。
+事前収支申告のヘッダ。チームリーダーが翌月のチーム収支を申告する。`(target_month, team)` が UNIQUE（1 チーム × 1 対象月 = 1 行）。合計金額は非正規化せず明細から集計する。`declared_by` は最終更新者（表示・監査補助用。5.8 参照）。`completed_at`（NULL = 入力中、値あり = 申告済み）と `completed_by` は申告の完了状態で、ヘッダ行が存在するだけでは申告済みとしない（migration 39。既存行は移行時にすべて申告済みへ設定済み）。確定済みの月（3.10a）のヘッダは書き込めない。
 
 ### 3.10 budget_declaration_items テーブル
 
 事前収支申告の明細（declaration_id への FK、ヘッダ削除時 CASCADE）。`amount` は正の値のみ、`manager_id` は任意（NULL 可）。
+
+### 3.10a budget_declaration_closings テーブル
+
+事前収支申告の月次確定。1 ヶ月 1 行（`target_month` は月初日で UNIQUE）で、行があればその月は確定済みで、全チームの申告（ヘッダ・明細）を作成・編集・削除できない。確定解除は行の削除。損益計算書の月次収支確定（3.15）とは独立で連動しない。`closed_by_name` は確定時点の氏名（profiles の RLS でチームリーダーが経理担当者の氏名を読めないため）。
 
 ### 3.11 budget_declaration_reminder_settings テーブル
 
@@ -193,14 +197,14 @@ RLS は行スコープのゲートで、テーブルへの `GRANT SELECT / INSER
 
 ### 5.2 matters テーブル
 
-- SELECT: 自分の案件 / 経理・管理者（全件）/ 同チームのチームリーダー。
+- SELECT: 自分の案件 / 経理・管理者・チームリーダー（全件。チームリーダーは損益計算書で他チームと比較するため全チームを許可する。migration 40。事前収支申告と同じく SELECT のみ広げ、書き込みは変えない）。画面上の案件一覧は `/matters`（`user_id`）・`/matters/team`（`team`）で明示的に絞る。
 - INSERT: 自分の案件のみ。
 - UPDATE: 自分の案件 / 経理・管理者（経理申請済みの案件も編集可。編集すると `has_updates` が立つ。6.2）。
 - DELETE: 自分の案件 / admin。
 
 ### 5.3 costs テーブル / 5.4 business テーブル
 
-案件（matter_id）経由で 5.2 と同じ権限構造。SELECT は自分の案件・経理・管理者・同チームのチームリーダー、INSERT は自分の案件のみ、UPDATE は自分の案件・経理・管理者、DELETE は自分の案件・admin。
+案件（matter_id）経由で 5.2 と同じ権限構造。SELECT は自分の案件・経理・管理者・チームリーダー（全チーム。migration 40）、INSERT は自分の案件のみ、UPDATE は自分の案件・経理・管理者、DELETE は自分の案件・admin。
 
 ### 5.5 select_option_types テーブル・select_options テーブル
 
@@ -210,11 +214,11 @@ RLS は行スコープのゲートで、テーブルへの `GRANT SELECT / INSER
 
 ### 5.6 recurring_costs テーブル
 
-書き込みは経理・管理者のみ。SELECT は経理・管理者が全行、チームリーダーは自チーム + 全体共通（team IS NULL）。全体共通を読ませるのは損益計算書に「全体共通（参考）」として表示するため（チーム損益への算入可否はアプリ層で制御）。
+書き込みは経理・管理者のみ。SELECT は経理・管理者・チームリーダーが全行（チームリーダーは損益計算書で他チームと比較・全体把握するため。migration 40）。
 
 ### 5.7 extra_entries テーブル
 
-recurring_costs と同じ方針（書き込みは経理・管理者のみ。SELECT は経理・管理者が全行、チームリーダーは自チーム + 全体共通）。
+recurring_costs と同じ方針（書き込みは経理・管理者のみ。SELECT は経理・管理者・チームリーダーが全行。migration 40）。
 
 確定済みの月の編集ロック（Issue #148、migration 27）: INSERT / UPDATE / DELETE のポリシーに `NOT private.is_pl_month_closed(entry_date)` が入る（UPDATE は変更前の月が USING、変更後の月が WITH CHECK）。詳細は 5.14。
 
@@ -237,10 +241,14 @@ recurring_costs と同じ方針（書き込みは経理・管理者のみ。SELE
 
 ### 5.8 budget_declarations テーブル
 
-recurring_costs / extra_entries と異なり、**チームリーダーに自チーム分の書き込みを許可する**（自分で入力するため）。経理・管理者は全行、チームリーダーは自チームの行のみ SELECT / INSERT / UPDATE / DELETE でき、public は不可。UPDATE は WITH CHECK でも team を制約し他チームへの付け替えを防ぐ。
+recurring_costs / extra_entries と異なり、**チームリーダーに自チーム分の書き込みを許可する**（自分で入力するため）。SELECT は経理・管理者・チームリーダーの**全チーム**に許可する（他チームとの比較・全体把握のため。migration 38）。INSERT / UPDATE / DELETE は経理・管理者は全行、チームリーダーは自チームの行のみで、public は全操作不可。UPDATE は WITH CHECK でも team を制約し他チームへの付け替えを防ぐ。
+
+#### 確定月の編集ロックと直列化（migration 38）
+
+書き込みポリシー（ヘッダ・明細の INSERT / UPDATE / DELETE）に `NOT private.is_budget_month_closed(target_month)` を加え、確定済みの月は全ロールで拒否する。RLS だけでは確定のコミットをまたいだ書き込みを防げないため、月単位の advisory lock（`private.lock_budget_month`。ロッククラス 222）で直列化する。書き込みトリガー（`guard_budget_closed_month_*`）と `save_budget_declaration` は共有ロックを取って確定済みを再確認し、確定（`budget_declaration_closings` の BEFORE INSERT トリガー）は排他ロックを取る。確定済みの月への書き込みは `MONTH_CLOSED`（SQLSTATE 42501）。削除は RLS の USING が確定月の行を隠して 0 行（エラーなし）になり「確定月」と「削除済み」を区別できないため、`delete_budget_declaration(p_declaration_id, p_team)`（SECURITY INVOKER。共有ロック → 確定判定 → DELETE、削除した行の id を返す。0 行 = 対象なし or 権限なし）を経由する。RLS が適用されない実行者（postgres / service_role）はトリガーの対象外。参考実装は損益計算書の月次収支確定（5.14。ロッククラス 148）。
 
 - 判定は `public.can_access_team_budget(text)`（`auth_user_class()` / `auth_user_team()` を呼ぶ）に切り出している。ヘッダ・明細で 10 箇所必要なため、逐語コピーだと将来ロール条件を変えたとき 1 箇所直し忘れて古いルールが残る（エラーにならない）RLS バグを踏みやすい。行ごとに評価されるが行数は小さいため許容している。
-- アプリ側にも同じ区分がある（`app/utils/budgetDeclaration.ts` の `BUDGET_ALL_TEAMS_CLASSES` / `BUDGET_OWN_TEAM_ONLY_CLASSES`。未申告チームを一覧に並べる必要があるため）。ロール条件を変えるときは **DB とアプリの両方**を直す（アプリ側は `ROUTE_PERMISSIONS["/budget-declarations"]` から導出しており、許可ロールの追加には自動追随する）。
+- アプリ側にも同じ区分がある（`app/utils/budgetDeclaration.ts` の `BUDGET_WRITE_ALL_TEAMS_CLASSES` / `BUDGET_OWN_TEAM_ONLY_CLASSES`。書き込み可否の判定 `canWriteBudgetTeam` のため。閲覧は全チームなので区分は不要）。ロール条件を変えるときは **DB とアプリの両方**を直す（アプリ側は `ROUTE_PERMISSIONS["/budget-declarations"]` から導出しており、許可ロールの追加には自動追随する）。
 
 #### declared_by の扱い（DB が保証する範囲）
 
@@ -248,17 +256,19 @@ INSERT の WITH CHECK に限り、チームリーダーには `declared_by` = �
 
 ### 5.9 budget_declaration_items テーブル
 
-親ヘッダへの EXISTS で 5.8 と同じ条件（`can_access_team_budget(d.team)`）を課す。4 コマンドの条件が同一なので `FOR ALL` 1 本（USING / WITH CHECK 両方。`declaration_id` の書き換えによる他チームへの付け替えを防ぐ）。
+SELECT は 5.8 と同じく経理・管理者・チームリーダーの全チームに許可する。書き込み（INSERT / UPDATE / DELETE）は親ヘッダへの EXISTS で 5.8 と同じ条件（`can_access_team_budget(d.team)` かつ確定月でないこと）を課す。SELECT が書き込みより広くなったため、以前の `FOR ALL` 1 本からコマンド別のポリシーに分けた（UPDATE / INSERT は WITH CHECK でも同条件を課し、`declaration_id` の書き換えによる他チームへの付け替えを防ぐ）。
 
 #### 申告の原子的な保存（`save_budget_declaration`）
 
 `saveBudgetDeclaration()`（`app/utils/supabase/budgetDeclarations.ts`）はこの関数を 1 回呼ぶだけで、ヘッダの作成/更新と明細の全削除・全登録を 1 トランザクションで行う（以前は別々の呼び出しで、全削除後の INSERT 失敗で明細が失われる不具合があった）。明細は「差し替え」方式（フォームの配列が最終形のため diff 追跡は不要）。
 
-- SECURITY INVOKER。書き込み可否は 5.8 / 5.9 の RLS がそのまま適用される。
+- SECURITY INVOKER。書き込み可否は 5.8 / 5.9 の RLS がそのまま適用される。対象月が確定済みなら先頭で `MONTH_CLOSED`（SQLSTATE 42501）を返し（共有ロックを取ってから判定）、RLS の汎用エラーと区別できる。
 - `declared_by` はクライアントから受け取らず `auth.uid()` から解決する。UPDATE 経路は RLS が `declared_by` を見ないため、なりすまし防止はこの関数内だけで担保している。
+- `p_completed`（migration 39）で完了状態を同じトランザクションで更新する。`true` は未完了なら `now()` / 保存者を設定し、**完了済みなら `completed_at` / `completed_by` を保持**、`false` は両方 NULL に戻す、`NULL`（省略）は変更しない。`completed_by` も `declared_by` と同様に `auth.uid()` から解決してクライアントからは受け取らない。ただし保証は**この関数を経由した場合に限る**: テーブルへの直接の書き込みは RLS が `completed_at` / `completed_by` の値を見ないため、書き込み権限のある利用者が PostgREST から値を設定できる（`declared_by` の UPDATE 経路と同じ制約。改ざん耐性のある監査が必要になった時点でトリガーでの強制を検討する）。`completed_at` と `completed_by` は CHECK で同時に NULL / 非 NULL。
 - `p_declaration_id` 指定時は `team` / `target_month` も一致する行のみ更新し、該当なしは `DECLARATION_NOT_FOUND`（SQLSTATE P0002）。
 - 存在しない `manager_id` は FK 違反（23503）で全体ロールバックされる（アプリは事前に `assertManagerIdsExist()` で確認）。
-- `p_declaration_id` / `p_comment` に `DEFAULT NULL` を付けているのは、`supabase gen types` が引数を DEFAULT の有無でしか区別せず、付けると生成型が省略可能（`?:`）になり呼び出し側が `undefined` を渡せるため。DEFAULT 付き引数は SQL 構文上末尾に置く。
+- 本番反映は **マイグレーションを先に適用してからアプリをデプロイ**する（新アプリが呼ぶ 6 引数の関数が無いと保存が失敗する）。`p_completed` は `DEFAULT NULL`（変更なし）のため、適用後に旧アプリが動いている間の保存もエラーにならず、完了状態は変わらない。旧 5 引数のシグネチャは DROP 済み。
+- `p_declaration_id` / `p_comment` / `p_completed` に `DEFAULT NULL` を付けているのは、`supabase gen types` が引数を DEFAULT の有無でしか区別せず、付けると生成型が省略可能（`?:`）になり呼び出し側が `undefined` を渡せるため。DEFAULT 付き引数は SQL 構文上末尾に置く。
 
 ### 5.10 budget_declaration_reminder_settings テーブル
 
@@ -270,12 +280,10 @@ admin / accounting のみ SELECT / UPDATE（`can_access_team_budget` と同じ�
 
 ### 5.12 profit_loss_adjustments テーブル
 
-書き込みは経理・管理者のみ。SELECT は経理・管理者が全行、チームリーダーは対象行のチームが自チーム / 全体共通（recurring_costs.team IS NULL）/ 自分が作成した案件（matters.user_id = 自分の profiles.id）の売上・費用の行のみ（作成者の分岐は migration 29。matters / business / costs の RLS でチームリーダーが読める範囲と揃える）。public は不可。INSERT / UPDATE の WITH CHECK は `adjusted_by` が呼び出し本人の profiles.id であることも要求する。
+書き込みは経理・管理者のみ。SELECT は経理・管理者・チームリーダーが全行（チームリーダーは他チームとの比較・全体把握のため。migration 40。判定は `private.can_view_pl_adjustment`）。public は不可。INSERT / UPDATE の WITH CHECK は `adjusted_by` が呼び出し本人の profiles.id であることも要求する。
 
-- 調整行に team 列が無いため、対象（business → matters.team / costs → matters.team / recurring_costs.team）を辿る判定をヘルパ `private.pl_adjustment_team` / `private.can_view_pl_adjustment` に切り出している。
-- `pl_adjustment_team` は SECURITY DEFINER にしている。matters 等の RLS に委ねると、他チームの対象は「見えない = NULL」となり `can_view_pl_adjustment` が「全体共通」と誤認して表示を許可してしまうため。
-- **両関数は `private` スキーマに置く。** 呼び出し側が渡した id の行のチームを返すため、`public` に置くと PostgREST の RPC から直接呼べて他チームの `matters.team` の漏えい経路になる（id の総当たりで存在有無も分かる）。`private` は `supabase/config.toml` の `[api].schemas` に含めず、PostgREST から直接ルーティングされない。
-- **本番の注意**: PostgREST の公開スキーマは Supabase ダッシュボード（Project Settings > API > Exposed schemas）の設定で決まり、マイグレーションからは変えられない。既定は `public, graphql_public` のみで安全だが、**`private` を追加しないこと**（追加すると上記の漏えい経路が復活する）。
+- 判定ヘルパ `private.can_view_pl_adjustment` は `private` スキーマに置く（`supabase/config.toml` の `[api].schemas` に含めず、PostgREST から直接ルーティングされない）。かつては対象行のチーム（`pl_adjustment_team`）を辿って絞っていたが、migration 40 で全チーム閲覧に広げたため、チーム解決のヘルパ（`pl_adjustment_team` / `pl_label_team` / `pl_label_matter_user`）は削除した。
+- **本番の注意**: PostgREST の公開スキーマは Supabase ダッシュボード（Project Settings > API > Exposed schemas）の設定で決まり、マイグレーションからは変えられない。既定は `public, graphql_public` のみで安全だが、`private` は追加しないこと。
 - 確定済みの月の編集ロック（migration 27）: INSERT / UPDATE / DELETE のポリシーに `NOT private.is_pl_month_closed(target_month)`。詳細は 5.14。
 
 #### 実績額修正の原子的な保存（`save_profit_loss_adjustment`）
@@ -290,9 +298,7 @@ admin / accounting のみ SELECT / UPDATE（`can_access_team_budget` と同じ�
 
 ### 5.13 profit_loss_labels テーブル
 
-書き込みは経理・管理者のみ（`updated_by` は呼び出し本人に限る）。SELECT は経理・管理者が全行、チームリーダーは対象のチームが自チーム / 全体共通 / 対象の案件を自分が作成した行（`private.pl_label_matter_user` = 自分の profiles.id。ライブ集計で見える範囲と揃える）（チームリーダーにも上書き後のタイトルを見せるため許可）。public は不可。
-
-対象のチーム解決は `private.pl_label_team`（SECURITY DEFINER）で、`pl_adjustment_team`（5.12）と同じ理由で RLS に委ねず `private` スキーマに置く。閲覧判定は `private.can_view_pl_label`。
+書き込みは経理・管理者のみ（`updated_by` は呼び出し本人に限る）。SELECT は経理・管理者・チームリーダーが全行（チームリーダーにも上書き後のタイトルを見せるため。migration 40）。public は不可。閲覧判定は `private.can_view_pl_label`（`private` スキーマ）。
 
 #### 表示タイトルの保存（`save_profit_loss_label`）
 
@@ -305,7 +311,7 @@ admin / accounting のみ SELECT / UPDATE（`can_access_team_budget` と同じ�
 - ヘッダの SELECT は全ログインユーザー（担当者の案件編集画面で「確定済みの月」の注意を出すため。金額を持たない）。DELETE（確定解除）は経理・管理者のみ。
 - **ヘッダ・明細の追加・更新はテーブル権限を authenticated に付与せず、RPC（`save_profit_loss_closing` / `apply_profit_loss_closing_diffs`。SECURITY DEFINER で関数内で経理・管理者を判定し、それ以外は `FORBIDDEN`）経由のみ。** 確定者・反映者（id と氏名）を `auth.uid()` から解決するため、他人名義や権限外の書き込みはできない。
 - **ただし RPC は public スキーマにあり、経理・管理者は PostgREST から直接呼べ、その場合の明細の値は検証しない**（集計し直した値を渡すのは Server Action の責務で、経理・管理者は信頼する前提。損益調整の記録を残さず確定値を変える操作まで防ぐなら、RPC の EXECUTE を authenticated から外し service_role で呼ぶ構成に変える必要がある）。
-- 明細の SELECT は経理・管理者が全行、チームリーダーは `team = 自チーム OR team IS NULL`、または自分が作成した案件の明細（`matter_user_id` = 自分の profiles.id）（ライブ集計時の RLS と同じ範囲で、確定の前後で表示範囲を変えない）。public は明細を読めない。anon は両テーブルとも権限なし。
+- 明細の SELECT は経理・管理者・チームリーダーが全行（ライブ集計時の RLS と同じ範囲で、確定の前後で表示範囲を変えない。migration 40）。public は明細を読めない。anon は両テーブルとも権限なし。
 
 #### 確定中の編集ロック（migration 27）
 

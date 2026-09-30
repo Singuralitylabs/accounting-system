@@ -60,11 +60,15 @@ export const useExtraEntrySuggestions = (
   });
 };
 
-// Server rejected or failed the save; nothing was written (single transaction). Distinguished from unknown outcomes (e.g. network) for UI messaging.
+// Server rejected or failed the save with a database-side error; nothing was written (single transaction). Distinguished from unknown outcomes (e.g. lost response) for UI messaging.
+// `staleList`: a conflict was detected, so the on-screen list must be refetched.
 export class ExtraEntryValidationError extends Error {
-  constructor(message: string) {
+  readonly staleList: boolean;
+
+  constructor(message: string, staleList = false) {
     super(message);
     this.name = "ExtraEntryValidationError";
+    this.staleList = staleList;
   }
 }
 
@@ -77,7 +81,10 @@ export const useUpsertExtraEntry = () => {
     mutationFn: async (extraEntries: ExtraEntryInListType[]) => {
       const result = await bulkUpsertExtraEntry(extraEntries);
       if (result.error) {
-        throw new ExtraEntryValidationError(result.error.message);
+        throw new ExtraEntryValidationError(
+          result.error.message,
+          result.staleList ?? false,
+        );
       }
     },
     onSuccess: () => {
@@ -87,8 +94,8 @@ export const useUpsertExtraEntry = () => {
     },
     onError: (error) => {
       console.error("経理追加収支更新エラー:", error);
-      if (!(error instanceof ExtraEntryValidationError)) {
-        // Outcome unknown (response may have been lost after commit); refetch to show the actual result (the UI blocks editing until then).
+      if (!(error instanceof ExtraEntryValidationError) || error.staleList) {
+        // Outcome unknown (response may have been lost after commit) or the list is stale (conflict); refetch to show the actual state (the UI blocks editing until then).
         queryClient.invalidateQueries({ queryKey: ["extraEntries"] });
         queryClient.invalidateQueries({ queryKey: ["profitLoss"] });
       }

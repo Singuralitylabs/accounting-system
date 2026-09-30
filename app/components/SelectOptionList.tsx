@@ -382,6 +382,8 @@ const SelectOptionList = ({
           );
           // As on success, do not revert the display to the held pre-save props.
           syncedOptionListRef.current = latestOptionListRef.current;
+          // Saved rows changed server-fetched props (e.g. team column of /dashboard/users), so refresh as on success.
+          router.refresh();
         }
         notifyError(
           `${optionTitle}情報の保存に失敗しました。${error}${

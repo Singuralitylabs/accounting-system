@@ -4,7 +4,7 @@ import {
   getProfileInfo,
 } from "@/app/utils/supabase/profiles";
 import { getSelectOptions } from "@/app/utils/supabase/selectOptions";
-import { canViewAllBudgetTeams } from "@/app/utils/budgetDeclaration";
+import { canWriteAllBudgetTeams } from "@/app/utils/budgetDeclaration";
 import BudgetRecurringItemList from "../budgetDeclarations/BudgetRecurringItemList";
 
 const DynamicBudgetRecurringItems = async () => {
@@ -44,7 +44,7 @@ const DynamicBudgetRecurringItems = async () => {
   return (
     <BudgetRecurringItemList
       initialData={items}
-      canEditAllTeams={canViewAllBudgetTeams(profileInfo?.class)}
+      canEditAllTeams={canWriteAllBudgetTeams(profileInfo?.class)}
       ownTeam={profileInfo?.team ?? null}
       teamList={teamResult.options.map((option) => option.value)}
       memberList={(memberOptions ?? []).map((member) => ({

@@ -10,6 +10,7 @@ import dynamic from "next/dynamic";
 import { useState } from "react";
 import { CustomMonthPicker } from "../CustomMonthPicker";
 import { LoadingSpinner } from "../LoadingSpinner";
+import { StepArrowButton } from "../StepArrowButton";
 import ProfitLossStatement, {
   BreakdownTab,
   DEFAULT_BREAKDOWN_TAB,
@@ -105,6 +106,19 @@ const ProfitLossView = ({
     };
   });
 
+  // Options descend from newest; neighbours are null at the ends of the range.
+  const fiscalYearIndex = fiscalYearOptions.findIndex(
+    (o) => o.value === String(fiscalYear),
+  );
+  const nextFiscalYear =
+    fiscalYearIndex > 0
+      ? parseInt(fiscalYearOptions[fiscalYearIndex - 1].value, 10)
+      : null;
+  const prevFiscalYear =
+    fiscalYearIndex >= 0 && fiscalYearIndex < fiscalYearOptions.length - 1
+      ? parseInt(fiscalYearOptions[fiscalYearIndex + 1].value, 10)
+      : null;
+
   return (
     <div className="px-4 pb-8 max-w-5xl mx-auto">
       <AccountingMasterActions
@@ -145,6 +159,7 @@ const ProfitLossView = ({
             <CustomMonthPicker
               label="対象月"
               placeholder="対象月を選択"
+              withNavigation
               value={month}
               onChange={(selected) => {
                 if (selected) {
@@ -220,8 +235,21 @@ const ProfitLossView = ({
         </Tabs.Panel>
 
         <Tabs.Panel value="annual" className="pt-4">
-          <div className="max-w-xs mb-4">
+          <Group
+            gap="xs"
+            align="flex-end"
+            wrap="nowrap"
+            className="max-w-xs mb-4"
+          >
+            <StepArrowButton
+              direction="prev"
+              label="前年度"
+              title={prevFiscalYear ? `${prevFiscalYear}年度` : undefined}
+              disabled={!prevFiscalYear}
+              onClick={() => prevFiscalYear && setFiscalYear(prevFiscalYear)}
+            />
             <Select
+              className="flex-1 min-w-0"
               label="年度"
               value={String(fiscalYear)}
               onChange={(selected) => {
@@ -232,7 +260,14 @@ const ProfitLossView = ({
               data={fiscalYearOptions}
               allowDeselect={false}
             />
-          </div>
+            <StepArrowButton
+              direction="next"
+              label="翌年度"
+              title={nextFiscalYear ? `${nextFiscalYear}年度` : undefined}
+              disabled={!nextFiscalYear}
+              onClick={() => nextFiscalYear && setFiscalYear(nextFiscalYear)}
+            />
+          </Group>
           {isTrendError ? (
             <Alert color="red" title="年間推移の取得に失敗しました">
               時間をおいてページを再読み込みしてください。

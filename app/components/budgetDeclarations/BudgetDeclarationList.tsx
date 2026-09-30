@@ -1,17 +1,28 @@
 "use client";
 
-import { Alert, Badge, Button, Group, Table } from "@mantine/core";
+import { Alert, Badge, Button, Group, Paper, Table, Text } from "@mantine/core";
 import Link from "next/link";
 import { Fragment, useState } from "react";
-import { BudgetDeclarationStatusType } from "@/app/types/types";
-import { useBudgetDeclarationList } from "@/app/hooks/useBudgetDeclarationData";
 import {
+  BudgetClosingInfo,
+  BudgetDeclarationStatus,
+  BudgetDeclarationStatusType,
+} from "@/app/types/types";
+import {
+  useBudgetClosings,
+  useBudgetDeclarationList,
+} from "@/app/hooks/useBudgetDeclarationData";
+import {
+  BUDGET_MONTH_CLOSED_MESSAGE,
+  canWriteAllBudgetTeams,
+  canWriteBudgetTeam,
   isForbiddenError,
   totalBudgetSummary,
 } from "@/app/utils/budgetDeclaration";
 import { formatCurrency, formatTimeToJp } from "@/app/utils/formatter";
 import { CustomMonthPicker } from "../CustomMonthPicker";
 import { LoadingSpinner } from "../LoadingSpinner";
+import BudgetClosingControl from "./BudgetClosingControl";
 import BudgetDeclarationForm from "./BudgetDeclarationForm";
 import BudgetDeclarationItemTable from "./BudgetDeclarationItemTable";
 import BudgetDeclarationReminderSettings from "./BudgetDeclarationReminderSettings";
@@ -20,8 +31,12 @@ type Props = {
   initialMonth: string; // "YYYY-MM"
   initialData: BudgetDeclarationStatusType[] | null;
   initialDataUpdatedAt: number;
-  // Role that can create/edit all teams (accounting/admin); otherwise teamleader's own team only (rows are already own-team only, so this affects the select UI only).
-  canEditAllTeams: boolean;
+  // Viewer's role / team: writes follow canWriteBudgetTeam (accounting/admin all teams, teamleader own team only); other teams are view-only.
+  profileClass: string | null;
+  profileTeam?: string | null;
+  // Role that can close/reopen a month (accounting/admin). Others see the state only.
+  canCloseMonth?: boolean;
+  initialClosings?: BudgetClosingInfo[] | null;
   // Role that can show the reminder settings button (admin / accounting). Defaults to false.
   canManageReminderSettings?: boolean;
   // null when fetch failed, even if canManageReminderSettings.
@@ -30,6 +45,19 @@ type Props = {
   // Manager Select is disabled while true (see BudgetDeclarationForm).
   memberListError?: boolean;
 };
+
+const STATUS_BADGE: Record<
+  BudgetDeclarationStatus,
+  { label: string; color: string }
+> = {
+  notDeclared: { label: "未申告", color: "gray" },
+  inProgress: { label: "入力中", color: "yellow" },
+  declared: { label: "申告済み", color: "teal" },
+};
+
+// A header row exists (in progress or declared): amounts and lines are shown and the action is "edit".
+const hasDeclaration = (row: BudgetDeclarationStatusType) =>
+  row.status !== "notDeclared";
 
 type FormTarget = {
   team: string;
@@ -42,7 +70,10 @@ const BudgetDeclarationList = ({
   initialMonth,
   initialData,
   initialDataUpdatedAt,
-  canEditAllTeams,
+  profileClass,
+  profileTeam = null,
+  canCloseMonth = false,
+  initialClosings = null,
   canManageReminderSettings = false,
   initialReminderTargetDays = null,
   memberList,
@@ -76,6 +107,19 @@ const BudgetDeclarationList = ({
   // Right after a month switch keepPreviousData still shows the previous month's rows (isLoading stays false); disable row actions or they would pass the previous month's declarationId.
   const isSwitchingMonth = isPlaceholderData;
 
+  const {
+    closingByMonth,
+    isUnknown: closingUnknown,
+    isLoadFailed: closingLoadFailed,
+  } = useBudgetClosings(initialClosings ?? undefined, initialDataUpdatedAt);
+  const closing = closingByMonth.get(month) ?? null;
+  // Closed months lock every role; the DB rejects writes as well.
+  const isClosed = closing !== null;
+  // A failed closing lookup is neither "open" nor "closed": block edits until it loads.
+  const editLocked = isClosed || closingUnknown;
+  const canWriteTeam = (team: string) =>
+    canWriteBudgetTeam(profileClass, profileTeam, team);
+
   const rows = data ?? [];
   const total = totalBudgetSummary(rows);
   const declaredDeclarationIds = rows.flatMap((row) =>
@@ -84,6 +128,62 @@ const BudgetDeclarationList = ({
   // expandedDeclarations may keep ids of removed rows; count only displayed rows.
   const openDeclarationIds = declaredDeclarationIds.filter((id) =>
     expandedDeclarations.has(id),
+  );
+
+  const renderDetailToggle = (
+    row: (typeof rows)[number],
+    isExpanded: boolean,
+  ) => (
+    <Button
+      size="xs"
+      variant="subtle"
+      className="max-md:h-10 max-md:flex-1"
+      disabled={!hasDeclaration(row) || isSwitchingMonth}
+      onClick={() => {
+        if (row.declarationId !== null) {
+          toggleDeclaration(row.declarationId);
+        }
+      }}
+    >
+      {isExpanded ? "閉じる" : "明細を表示"}
+    </Button>
+  );
+
+  const renderRowAction = (row: (typeof rows)[number]) =>
+    canWriteTeam(row.team) ? (
+      <Button
+        size="xs"
+        variant="outline"
+        className="max-md:h-10 max-md:flex-1"
+        disabled={isSwitchingMonth || editLocked}
+        title={isClosed ? BUDGET_MONTH_CLOSED_MESSAGE : undefined}
+        onClick={() =>
+          setFormTarget({
+            team: row.team,
+            declarationId: row.declarationId,
+            targetMonth: month,
+          })
+        }
+      >
+        {hasDeclaration(row) ? "編集する" : "申告する"}
+      </Button>
+    ) : (
+      <Text size="xs" c="dimmed">
+        閲覧のみ
+      </Text>
+    );
+
+  const renderStatus = (row: (typeof rows)[number]) => (
+    <>
+      <Badge color={STATUS_BADGE[row.status].color}>
+        {STATUS_BADGE[row.status].label}
+      </Badge>
+      {row.status === "declared" && row.itemCount === 0 && (
+        <Text size="xs" c="dimmed">
+          明細なし
+        </Text>
+      )}
+    </>
   );
 
   return (
@@ -108,6 +208,7 @@ const BudgetDeclarationList = ({
         <CustomMonthPicker
           label="対象月"
           placeholder="対象月を選択"
+          withNavigation
           value={month}
           onChange={(selected) => {
             if (selected) {
@@ -115,8 +216,71 @@ const BudgetDeclarationList = ({
               setExpandedDeclarations(new Set());
             }
           }}
+          getMonthIndicator={(m) => (closingByMonth.has(m) ? "closed" : null)}
         />
       </div>
+
+      <Paper withBorder radius="md" p="sm" className="mb-4">
+        <Group gap="md" wrap="wrap" className="mb-2 sm:gap-8">
+          <div>
+            <Text size="xs" c="dimmed">
+              収入合計（全チーム）
+            </Text>
+            <Text fw={700} data-testid="budget-total-income">
+              {formatCurrency(total.incomeTotal)}
+            </Text>
+          </div>
+          <div>
+            <Text size="xs" c="dimmed">
+              支出合計（全チーム）
+            </Text>
+            <Text fw={700} data-testid="budget-total-expense">
+              {formatCurrency(total.expenseTotal)}
+            </Text>
+          </div>
+          <div>
+            <Text size="xs" c="dimmed">
+              収支
+            </Text>
+            <Text
+              fw={700}
+              c={total.balance < 0 ? "red" : undefined}
+              data-testid="budget-total-balance"
+            >
+              {formatCurrency(total.balance)}
+            </Text>
+          </div>
+        </Group>
+        {!closingUnknown && (
+          <BudgetClosingControl
+            month={month}
+            closing={closing}
+            canClose={canCloseMonth}
+            disabled={isSwitchingMonth}
+          />
+        )}
+        {closingUnknown && !closingLoadFailed && (
+          <Text size="sm" c="dimmed">
+            確定状態を確認中です…
+          </Text>
+        )}
+        {closingLoadFailed && (
+          <Alert color="yellow" mt="xs" title="確定状態を取得できませんでした">
+            確定状態が不明なため、申告の作成・編集を一時的に無効にしています。ページを再読み込みしてください。
+          </Alert>
+        )}
+        {isClosed && (
+          <Text size="xs" c="dimmed" mt="xs">
+            {BUDGET_MONTH_CLOSED_MESSAGE}
+          </Text>
+        )}
+      </Paper>
+
+      {profileClass === "teamleader" && !profileTeam && (
+        <Alert color="yellow" className="mb-4" title="所属チームが未設定です">
+          所属チームが設定されていないため、申告の作成・編集はできません（全チームの閲覧のみ）。管理者にお問い合わせください。
+        </Alert>
+      )}
 
       {isError ? (
         // Insufficient permission is not fixed by reloading; use a separate message.
@@ -136,7 +300,7 @@ const BudgetDeclarationList = ({
         <LoadingSpinner />
       ) : rows.length === 0 ? (
         <Alert color="gray" title="表示できるチームがありません">
-          チームマスタが未登録か、所属チームが設定されていない可能性があります。
+          チームマスタが未登録の可能性があります。管理者にお問い合わせください。
         </Alert>
       ) : (
         <>
@@ -160,7 +324,7 @@ const BudgetDeclarationList = ({
               すべて閉じる
             </Button>
           </Group>
-          <div className="overflow-x-auto">
+          <div className="hidden overflow-x-auto md:block">
             <Table withTableBorder withColumnBorders striped>
               <Table.Thead>
                 <Table.Tr>
@@ -184,29 +348,25 @@ const BudgetDeclarationList = ({
                     <Fragment key={row.team}>
                       <Table.Tr>
                         <Table.Td>{row.team}</Table.Td>
-                        <Table.Td>
-                          <Badge color={row.isDeclared ? "teal" : "gray"}>
-                            {row.isDeclared ? "申告済み" : "未申告"}
-                          </Badge>
-                        </Table.Td>
+                        <Table.Td>{renderStatus(row)}</Table.Td>
                         <Table.Td className="text-right">
-                          {row.isDeclared
+                          {hasDeclaration(row)
                             ? formatCurrency(row.summary.incomeTotal)
                             : "-"}
                         </Table.Td>
                         <Table.Td className="text-right">
-                          {row.isDeclared
+                          {hasDeclaration(row)
                             ? formatCurrency(row.summary.expenseTotal)
                             : "-"}
                         </Table.Td>
                         <Table.Td
                           className={`text-right ${
-                            row.isDeclared && row.summary.balance < 0
+                            hasDeclaration(row) && row.summary.balance < 0
                               ? "text-red-600"
                               : ""
                           }`}
                         >
-                          {row.isDeclared
+                          {hasDeclaration(row)
                             ? formatCurrency(row.summary.balance)
                             : "-"}
                         </Table.Td>
@@ -215,35 +375,9 @@ const BudgetDeclarationList = ({
                           {row.updatedAt ? formatTimeToJp(row.updatedAt) : "-"}
                         </Table.Td>
                         <Table.Td>
-                          <Button
-                            size="xs"
-                            variant="subtle"
-                            disabled={!row.isDeclared || isSwitchingMonth}
-                            onClick={() => {
-                              if (row.declarationId !== null) {
-                                toggleDeclaration(row.declarationId);
-                              }
-                            }}
-                          >
-                            {isExpanded ? "閉じる" : "明細を表示"}
-                          </Button>
+                          {renderDetailToggle(row, isExpanded)}
                         </Table.Td>
-                        <Table.Td>
-                          <Button
-                            size="xs"
-                            variant="outline"
-                            disabled={isSwitchingMonth}
-                            onClick={() =>
-                              setFormTarget({
-                                team: row.team,
-                                declarationId: row.declarationId,
-                                targetMonth: month,
-                              })
-                            }
-                          >
-                            {row.isDeclared ? "編集する" : "申告する"}
-                          </Button>
-                        </Table.Td>
+                        <Table.Td>{renderRowAction(row)}</Table.Td>
                       </Table.Tr>
                       {isExpanded && row.declarationId !== null && (
                         <Table.Tr>
@@ -258,22 +392,72 @@ const BudgetDeclarationList = ({
                   );
                 })}
               </Table.Tbody>
-              <Table.Tfoot>
-                <Table.Tr>
-                  <Table.Th colSpan={2}>合計</Table.Th>
-                  <Table.Th className="text-right">
-                    {formatCurrency(total.incomeTotal)}
-                  </Table.Th>
-                  <Table.Th className="text-right">
-                    {formatCurrency(total.expenseTotal)}
-                  </Table.Th>
-                  <Table.Th className="text-right">
-                    {formatCurrency(total.balance)}
-                  </Table.Th>
-                  <Table.Th colSpan={4} />
-                </Table.Tr>
-              </Table.Tfoot>
             </Table>
+          </div>
+          <div className="space-y-3 md:hidden" data-testid="budget-card-list">
+            {rows.map((row) => {
+              const isExpanded =
+                row.declarationId !== null &&
+                expandedDeclarations.has(row.declarationId);
+              const amountRows = [
+                { label: "収入合計", value: row.summary.incomeTotal },
+                { label: "支出合計", value: row.summary.expenseTotal },
+                { label: "差引", value: row.summary.balance },
+              ];
+              return (
+                <Paper key={row.team} withBorder radius="md" p="sm">
+                  <Group
+                    justify="space-between"
+                    align="flex-start"
+                    wrap="nowrap"
+                  >
+                    <Text fw={700} className="min-w-0 break-words">
+                      {row.team}
+                    </Text>
+                    <div className="shrink-0 text-right">
+                      {renderStatus(row)}
+                    </div>
+                  </Group>
+                  <dl className="my-2 space-y-1">
+                    {amountRows.map(({ label, value }) => (
+                      <div
+                        key={label}
+                        className="flex items-baseline justify-between text-sm"
+                      >
+                        <dt className="text-gray-600">{label}：</dt>
+                        <dd
+                          className={`m-0 font-semibold ${
+                            label === "差引" && hasDeclaration(row) && value < 0
+                              ? "text-red-600"
+                              : ""
+                          }`}
+                        >
+                          {hasDeclaration(row) ? formatCurrency(value) : "-"}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                  <Text size="xs" c="dimmed">
+                    申告者：{row.declaredByName ?? "-"}
+                  </Text>
+                  <Text size="xs" c="dimmed">
+                    最終更新：
+                    {row.updatedAt ? formatTimeToJp(row.updatedAt) : "-"}
+                  </Text>
+                  <Group gap="xs" mt="sm" wrap="nowrap">
+                    {renderDetailToggle(row, isExpanded)}
+                    {renderRowAction(row)}
+                  </Group>
+                  {isExpanded && row.declarationId !== null && (
+                    <div className="mt-3">
+                      <BudgetDeclarationItemTable
+                        declarationId={row.declarationId}
+                      />
+                    </div>
+                  )}
+                </Paper>
+              );
+            })}
           </div>
         </>
       )}
@@ -285,9 +469,11 @@ const BudgetDeclarationList = ({
           targetMonth={formTarget.targetMonth}
           team={formTarget.team}
           declarationId={formTarget.declarationId}
-          teamLocked={!canEditAllTeams}
+          teamLocked={!canWriteAllBudgetTeams(profileClass)}
           memberList={memberList}
           memberListError={memberListError}
+          // Follows the live closing state of the form's own month, which can differ from the picker.
+          locked={closingUnknown || closingByMonth.has(formTarget.targetMonth)}
         />
       )}
     </div>

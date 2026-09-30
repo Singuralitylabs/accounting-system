@@ -14,7 +14,6 @@ import {
   formatDateToJp,
   formatMonthLabel,
 } from "@/app/utils/formatter";
-import { formatEntryType, isIncomeExtraEntry } from "@/app/utils/extraEntry";
 import { teamLabel } from "@/app/utils/constants";
 import {
   Alert,
@@ -38,6 +37,7 @@ import {
   AdjustmentButton,
   AdjustmentIndicators,
   EditableTitle,
+  HIDE_ON_MOBILE,
   ExpandAllButtons,
   ExpandToggle,
   INDENT,
@@ -109,12 +109,16 @@ const BreakdownHeadingRow = ({
       ) : (
         label
       )}
-      {note && <span className="text-xs text-gray-500 ml-2">{note}</span>}
+      {note && (
+        <span className="text-xs text-gray-500 ml-2 max-md:ml-0 max-md:block">
+          {note}
+        </span>
+      )}
     </Table.Td>
-    <Table.Td />
-    <Table.Td />
+    <Table.Td className={HIDE_ON_MOBILE} />
+    <Table.Td className={HIDE_ON_MOBILE} />
     <Table.Td
-      className={`text-right ${colorBySign ? amountColor(amount) : ""}`}
+      className={`text-right whitespace-nowrap ${colorBySign ? amountColor(amount) : ""}`}
     >
       {formatCurrency(amount)}
     </Table.Td>
@@ -136,12 +140,14 @@ const BreakdownDetailRow = ({
   <Table.Tr className="bg-gray-50">
     <Table.Td className="text-gray-600" style={INDENT.detail}>
       {label}
-      <span className="text-xs text-gray-500 ml-2">{note}</span>
+      <span className="text-xs text-gray-500 ml-2 max-md:ml-0 max-md:block">
+        {note}
+      </span>
     </Table.Td>
-    <Table.Td />
-    <Table.Td />
+    <Table.Td className={HIDE_ON_MOBILE} />
+    <Table.Td className={HIDE_ON_MOBILE} />
     <Table.Td
-      className={`text-right ${colorBySign ? amountColor(amount) : "text-gray-600"}`}
+      className={`text-right whitespace-nowrap ${colorBySign ? amountColor(amount) : "text-gray-600"}`}
     >
       {formatCurrency(amount)}
     </Table.Td>
@@ -173,37 +179,6 @@ type AdjustmentModalState = {
   sourceAmount: number;
   currentActualAmount: number;
   currentReason: string;
-};
-
-// Display rows for one extra-entry amount (org-wide reference section); an income entry splits into billing amount and optional expense (up to 2 rows).
-type ExtraEntryAmountLine = {
-  key: string;
-  description: string;
-  note: string;
-  amount: number;
-};
-
-const toExtraEntryAmountLines = (
-  entry: ExtraEntryLine,
-): ExtraEntryAmountLine[] => {
-  const lines: ExtraEntryAmountLine[] = [];
-  if (isIncomeExtraEntry(entry)) {
-    lines.push({
-      key: `extra-${entry.extraEntryId}-billing`,
-      description: entry.description,
-      note: `（${formatEntryType(entry.entryType)}・請求額 / ${entry.category}）`,
-      amount: entry.billingAmount ?? 0,
-    });
-  }
-  if (entry.expenseAmount !== null) {
-    lines.push({
-      key: `extra-${entry.extraEntryId}-expense`,
-      description: entry.description,
-      note: `（${formatEntryType(entry.entryType)}・経費 / ${entry.category}）`,
-      amount: entry.expenseAmount,
-    });
-  }
-  return lines;
 };
 
 const targetTypeLabel = {
@@ -238,6 +213,15 @@ const ProfitLossStatement = ({
     ),
     ...(hasExpenseExtra ? [ADMIN_EXTRA_KEY] : []),
   ];
+  // Rendered in the table header from md up and above the table below md.
+  const expandAllButtons = (
+    <ExpandAllButtons
+      label="損益計算書の内訳"
+      disabled={expandableKeys.length === 0}
+      onExpandAll={() => expandAll(expandableKeys)}
+      onCollapseAll={() => collapseAll(expandableKeys)}
+    />
+  );
   const [selectedMatter, setSelectedMatter] =
     useState<MatterInfoWithUserNameType | null>(null);
   const [isModalOpened, setIsModalOpened] = useState(false);
@@ -375,22 +359,25 @@ const ProfitLossStatement = ({
         ))}
       </SimpleGrid>
 
+      {/* Mobile: the bulk toggle sits above the table (the operation column is too narrow for it). */}
+      <div className="mb-2 flex justify-end md:hidden">{expandAllButtons}</div>
       <Paper withBorder radius="md" className="overflow-x-auto mb-6">
-        <Table verticalSpacing="sm" highlightOnHover>
+        <Table verticalSpacing="sm" highlightOnHover className="max-md:text-sm">
           <Table.Thead>
             <Table.Tr>
               <Table.Th>{formatMonthLabel(report.month)} 損益計算書</Table.Th>
-              <Table.Th className="text-right w-32">元データ</Table.Th>
-              <Table.Th className="text-right w-32">調整</Table.Th>
-              <Table.Th className="text-right w-32">実績</Table.Th>
+              <Table.Th className={`text-right w-32 ${HIDE_ON_MOBILE}`}>
+                元データ
+              </Table.Th>
+              <Table.Th className={`text-right w-32 ${HIDE_ON_MOBILE}`}>
+                調整
+              </Table.Th>
+              <Table.Th className="text-right whitespace-nowrap md:w-32">
+                実績
+              </Table.Th>
               {/* Column name is "操作" so the bulk-toggle button text is not read as the column name. */}
-              <Table.Th className="w-36" aria-label="操作">
-                <ExpandAllButtons
-                  label="損益計算書の内訳"
-                  disabled={expandableKeys.length === 0}
-                  onExpandAll={() => expandAll(expandableKeys)}
-                  onCollapseAll={() => collapseAll(expandableKeys)}
-                />
+              <Table.Th className="md:w-36" aria-label="操作">
+                <div className="hidden md:block">{expandAllButtons}</div>
               </Table.Th>
             </Table.Tr>
           </Table.Thead>
@@ -398,7 +385,7 @@ const ProfitLossStatement = ({
             <Table.Tr className="bg-slate-50">
               <Table.Td className="font-bold">
                 売上総利益（粗利）
-                <span className="text-xs text-gray-500 font-normal ml-2">
+                <span className="text-xs text-gray-500 font-normal ml-2 max-md:ml-0 max-md:block">
                   {revenueCostNote(
                     "売上",
                     report.revenueTotal,
@@ -407,8 +394,8 @@ const ProfitLossStatement = ({
                   )}
                 </span>
               </Table.Td>
-              <Table.Td />
-              <Table.Td />
+              <Table.Td className={HIDE_ON_MOBILE} />
+              <Table.Td className={HIDE_ON_MOBILE} />
               <Table.Td
                 className={`text-right font-bold ${amountColor(
                   report.grossProfitTotal,
@@ -483,15 +470,15 @@ const ProfitLossStatement = ({
               <Table.Td className="font-bold">
                 管理費合計
                 {hasExpenseExtra && (
-                  <span className="text-xs text-gray-500 font-normal ml-2">
+                  <span className="text-xs text-gray-500 font-normal ml-2 max-md:ml-0 max-md:block">
                     （定期費用 {formatCurrency(report.recurringCostTotal)} ＋
                     経理追加収支（支出）{" "}
                     {formatCurrency(report.extraExpense.total)}）
                   </span>
                 )}
               </Table.Td>
-              <Table.Td />
-              <Table.Td />
+              <Table.Td className={HIDE_ON_MOBILE} />
+              <Table.Td className={HIDE_ON_MOBILE} />
               <Table.Td className="text-right font-bold">
                 {formatCurrency(report.adminCostTotal)}
               </Table.Td>
@@ -537,17 +524,21 @@ const ProfitLossStatement = ({
                                 : undefined
                             }
                           />
-                          <span className="text-xs text-gray-500 ml-2">
+                          <span className="text-xs text-gray-500 ml-2 max-md:ml-0 max-md:block">
                             {formatRecurringCostNote(detail, {
                               includeItem: false,
                               includeTeam: true,
                             })}
                           </span>
                         </Table.Td>
-                        <Table.Td className="text-right text-gray-500">
+                        <Table.Td
+                          className={`text-right text-gray-500 ${HIDE_ON_MOBILE}`}
+                        >
                           {formatCurrency(detail.sourceAmount)}
                         </Table.Td>
-                        <Table.Td className="text-right text-gray-500">
+                        <Table.Td
+                          className={`text-right text-gray-500 ${HIDE_ON_MOBILE}`}
+                        >
                           {detail.adjustmentAmount === 0
                             ? "-"
                             : formatCurrency(detail.adjustmentAmount)}
@@ -601,8 +592,8 @@ const ProfitLossStatement = ({
 
             <Table.Tr className="bg-slate-100 border-t-2 border-gray-400">
               <Table.Td className="font-bold text-lg">経常利益</Table.Td>
-              <Table.Td />
-              <Table.Td />
+              <Table.Td className={HIDE_ON_MOBILE} />
+              <Table.Td className={HIDE_ON_MOBILE} />
               <Table.Td
                 className={`text-right font-bold text-lg ${amountColor(
                   report.ordinaryProfit,
@@ -682,7 +673,7 @@ const ProfitLossStatement = ({
                             : "確定値にも含まれていません"}
                         </Badge>
                       )}
-                      <span className="text-xs text-gray-500 ml-2">
+                      <span className="text-xs text-gray-500 ml-2 max-md:ml-0 max-md:block">
                         （{adjustment.reason} / 調整額{" "}
                         {formatCurrency(adjustment.adjustment_amount)}）
                       </span>
@@ -719,57 +710,6 @@ const ProfitLossStatement = ({
             </Table.Tbody>
           </Table>
         </Alert>
-      )}
-
-      {/* Org-wide (reference): populated for teamleader only. */}
-      {((report.orgWideRecurringCosts &&
-        report.orgWideRecurringCosts.length > 0) ||
-        (report.orgWideExtraEntries &&
-          report.orgWideExtraEntries.length > 0)) && (
-        <Paper withBorder radius="md" className="overflow-x-auto mb-6 p-4">
-          <Text fw={700} className="mb-1">
-            全体共通の管理費・経理追加収支（参考）
-          </Text>
-          <Text size="xs" c="dimmed" className="mb-3">
-            チーム表示には全体共通の管理費・経理追加収支は含まれません。
-          </Text>
-          <Table verticalSpacing="xs">
-            <Table.Tbody>
-              {report.orgWideRecurringCosts?.map((detail) => (
-                <Table.Tr key={`orgwide-${detail.recurringCostId}`}>
-                  <Table.Td className="text-gray-700">
-                    <EditableTitle title={detail} originalTitle={detail.name} />
-                    <span className="text-xs text-gray-500 ml-2">
-                      {formatRecurringCostNote(detail, {
-                        includeItem: true,
-                        includeTeam: false,
-                      })}
-                    </span>
-                  </Table.Td>
-                  <Table.Td className="text-right w-44">
-                    {formatCurrency(detail.actualAmount)}
-                    <AdjustmentIndicators detail={detail} />
-                  </Table.Td>
-                </Table.Tr>
-              ))}
-              {report.orgWideExtraEntries
-                ?.flatMap(toExtraEntryAmountLines)
-                .map((line) => (
-                  <Table.Tr key={`orgwide-${line.key}`}>
-                    <Table.Td className="text-gray-700">
-                      {line.description}
-                      <span className="text-xs text-gray-500 ml-2">
-                        {line.note}
-                      </span>
-                    </Table.Td>
-                    <Table.Td className="text-right w-44">
-                      {formatCurrency(line.amount)}
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
-            </Table.Tbody>
-          </Table>
-        </Paper>
       )}
 
       {hasUndated && (

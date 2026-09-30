@@ -243,20 +243,18 @@ export type PLReportType = {
   matterBreakdowns: MatterBreakdown[];
   matterTotals: MatterTotals;
   categoryBreakdown: GrossProfitBreakdown[];
-  // Extra entries are split into income/expense once here (the UI only displays). teamleader sees own team only.
+  // Extra entries are split into income/expense once here (the UI only displays).
   extraIncome: ExtraIncomeSection;
   recurringCostTotal: number;
   recurringCostByItem: RecurringCostItemBreakdown[];
   extraExpense: ExtraExpenseSection;
   // Precomputed here like revenue and profit totals.
   adminCostTotal: number;
-  orgWideRecurringCosts?: TitledRecurringCostLine[];
-  orgWideExtraEntries?: ExtraEntryLine[];
   ordinaryProfit: number;
   byTeam?: TeamBreakdown[];
   // Undated (start date missing; drafts excluded). adminCost is the expense of undated expense entries.
   undated: { revenue: number; matterCost: number; adminCost: number };
-  // Adjustments whose target row is absent from the month; accounting/admin only (same role check as includeTeamBreakdown).
+  // Adjustments whose target row is absent from the month; accounting/admin only (same role check as includeAdjustmentDetails).
   orphanedAdjustments?: OrphanedAdjustmentType[];
   // Closing info; closed months are aggregated from closing lines, open months are null (live).
   closing?: ClosingInfo | null;
@@ -304,16 +302,32 @@ type BudgetDeclarationItemsTable =
   Database["public"]["Tables"]["budget_declaration_items"];
 export type BudgetDeclarationItemType = BudgetDeclarationItemsTable["Row"];
 
+export type BudgetClosingInfo = {
+  month: string; // "YYYY-MM"
+  closedAt: string;
+  closedByName: string;
+};
+
+export type BudgetClosingsResult =
+  | { closings: BudgetClosingInfo[]; error?: undefined }
+  | { closings?: undefined; error: AccessFailure };
+
+export type BudgetClosingWriteResult = { error?: AccessFailure };
+
 export type BudgetSummaryType = {
   incomeTotal: number;
   expenseTotal: number;
   balance: number;
 };
 
+// notDeclared: no header row; inProgress: header row without completion; declared: completed_at is set.
+export type BudgetDeclarationStatus = "notDeclared" | "inProgress" | "declared";
+
 export type BudgetDeclarationStatusType = {
   team: string;
   declarationId: number | null;
-  isDeclared: boolean;
+  status: BudgetDeclarationStatus;
+  itemCount: number;
   declaredByName: string | null; // null when profiles RLS hides the row
   updatedAt: string | null;
   summary: BudgetSummaryType;
@@ -325,6 +339,7 @@ export type BudgetDeclarationItemWithManagerName = BudgetDeclarationItemType & {
 
 export type BudgetDeclarationDetailType = {
   comment: string | null;
+  completed: boolean;
   items: BudgetDeclarationItemWithManagerName[];
 };
 
@@ -365,6 +380,7 @@ export type BudgetDeclarationSaveInput = {
   targetMonth: string; // "YYYY-MM"
   team: string;
   comment: string | null;
+  completed: boolean;
   items: BudgetDeclarationItemInput[];
 };
 

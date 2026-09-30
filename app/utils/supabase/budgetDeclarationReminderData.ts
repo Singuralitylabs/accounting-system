@@ -64,6 +64,7 @@ export const getActiveBudgetTeams = async (): Promise<{
   return { teams, error: null };
 };
 
+// Only completed declarations count: teams with no header row or an in-progress one still get reminded.
 export const getDeclaredBudgetTeams = async (
   targetMonth: string,
 ): Promise<{ teams: string[]; error: unknown }> => {
@@ -72,7 +73,8 @@ export const getDeclaredBudgetTeams = async (
   const { data, error } = await supabase
     .from("budget_declarations")
     .select("team")
-    .eq("target_month", targetMonth);
+    .eq("target_month", targetMonth)
+    .not("completed_at", "is", null);
 
   if (error) {
     console.error("事前収支申告リマインドの申告済みチーム取得に失敗しました:", error);
@@ -105,4 +107,24 @@ export const getTeamLeaderSlackContacts = async (
   );
 
   return { contacts, error: null };
+};
+
+// Closed months get no reminder (nobody can declare any more). Service role bypasses RLS.
+export const isBudgetMonthClosed = async (
+  targetMonth: string,
+): Promise<{ closed: boolean; error: unknown }> => {
+  const supabase = createServiceRoleSupabase();
+
+  const { data, error } = await supabase
+    .from("budget_declaration_closings")
+    .select("id")
+    .eq("target_month", targetMonth)
+    .maybeSingle();
+
+  if (error) {
+    console.error("事前収支申告リマインドの確定状態取得に失敗しました:", error);
+    return { closed: false, error };
+  }
+
+  return { closed: !!data, error: null };
 };

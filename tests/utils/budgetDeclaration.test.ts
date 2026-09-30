@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
-  BUDGET_ALL_TEAMS_CLASSES,
+  BUDGET_WRITE_ALL_TEAMS_CLASSES,
   BUDGET_DECLARATION_ALLOWED_CLASSES,
   BudgetDeclarationError,
   BudgetDeclarationWithItems,
   buildBudgetDeclarationStatusList,
+  budgetAmountColor,
+  budgetEntryRowBg,
+  canWriteAllBudgetTeams,
   canWriteBudgetTeam,
   categoryOptionsFor,
   defaultTargetMonth,
@@ -14,7 +17,6 @@ import {
   previousItemsToFormRows,
   summarizeBudgetItems,
   totalBudgetSummary,
-  visibleBudgetTeams,
 } from "@/app/utils/budgetDeclaration";
 import { ROUTE_PERMISSIONS } from "@/app/utils/permissions";
 
@@ -23,6 +25,7 @@ const declaration = (
 ): BudgetDeclarationWithItems => ({
   id: 1,
   updated_at: "2026-08-20T10:00:00+09:00",
+  completed_at: "2026-08-20T10:00:00+09:00",
   declared_by_name: "山田",
   items: [],
   ...overrides,
@@ -87,41 +90,23 @@ describe("summarizeBudgetItems", () => {
   });
 });
 
-describe("visibleBudgetTeams", () => {
-  const teamList = ["Aチーム", "Bチーム", "Cチーム"];
+describe("canWriteAllBudgetTeams", () => {
+  it("全チームへ書き込めるのは経理・管理者のみ", () => {
+    expect(canWriteAllBudgetTeams("accounting")).toBe(true);
+    expect(canWriteAllBudgetTeams("admin")).toBe(true);
+    expect(canWriteAllBudgetTeams("teamleader")).toBe(false);
+    expect(canWriteAllBudgetTeams("public")).toBe(false);
+  });
+});
 
-  it("経理・管理者は全チームを表示する", () => {
-    expect(visibleBudgetTeams("accounting", null, teamList)).toEqual(teamList);
-    expect(visibleBudgetTeams("admin", "Aチーム", teamList)).toEqual(teamList);
+describe("budgetEntryRowBg / budgetAmountColor", () => {
+  it("収入と支出で行の背景色が異なる", () => {
+    expect(budgetEntryRowBg("income")).not.toBe(budgetEntryRowBg("expense"));
   });
 
-  it("チームリーダーは自チームのみ表示する", () => {
-    expect(visibleBudgetTeams("teamleader", "Bチーム", teamList)).toEqual([
-      "Bチーム",
-    ]);
-  });
-
-  it("チーム未設定のチームリーダーは表示対象なし", () => {
-    expect(visibleBudgetTeams("teamleader", null, teamList)).toEqual([]);
-    expect(visibleBudgetTeams("teamleader", "", teamList)).toEqual([]);
-  });
-
-  it("public・ロール未設定は表示対象なし", () => {
-    expect(visibleBudgetTeams("public", "Aチーム", teamList)).toEqual([]);
-    expect(visibleBudgetTeams(null, "Aチーム", teamList)).toEqual([]);
-  });
-
-  it("マスタに無いチームを持つチームリーダーでも自チームを表示する", () => {
-    // Own team's declaration status must remain checkable after the team is deactivated in the master.
-    expect(visibleBudgetTeams("teamleader", "旧チーム", teamList)).toEqual([
-      "旧チーム",
-    ]);
-  });
-
-  it("返り値は引数のチーム配列と独立している（呼び出し元の変更が波及しない）", () => {
-    const result = visibleBudgetTeams("admin", null, teamList);
-    result.push("Dチーム");
-    expect(teamList).toEqual(["Aチーム", "Bチーム", "Cチーム"]);
+  it("支出の金額のみ赤字にする", () => {
+    expect(budgetAmountColor("expense")).toContain("red");
+    expect(budgetAmountColor("income")).toBeUndefined();
   });
 });
 
@@ -166,7 +151,8 @@ describe("buildBudgetDeclarationStatusList", () => {
       {
         team: "Aチーム",
         declarationId: 7,
-        isDeclared: true,
+        status: "declared",
+        itemCount: 2,
         declaredByName: "山田",
         updatedAt: "2026-08-20T10:00:00+09:00",
         summary: {
@@ -188,7 +174,8 @@ describe("buildBudgetDeclarationStatusList", () => {
     expect(rows[1]).toMatchObject({
       team: "Bチーム",
       declarationId: null,
-      isDeclared: false,
+      status: "notDeclared",
+      itemCount: 0,
       declaredByName: null,
       summary: { incomeTotal: 0, expenseTotal: 0, balance: 0 },
     });
@@ -221,7 +208,7 @@ describe("buildBudgetDeclarationStatusList", () => {
     );
 
     expect(rows.map((row) => row.team)).toEqual(["Aチーム", "旧チーム"]);
-    expect(rows[1].isDeclared).toBe(true);
+    expect(rows[1].status).toBe("declared");
     expect(rows[1].summary.incomeTotal).toBe(1000);
   });
 
@@ -229,7 +216,7 @@ describe("buildBudgetDeclarationStatusList", () => {
     const rows = buildBudgetDeclarationStatusList(["Aチーム", "Bチーム"], []);
 
     expect(rows).toHaveLength(2);
-    expect(rows.every((row) => !row.isDeclared)).toBe(true);
+    expect(rows.every((row) => row.status === "notDeclared")).toBe(true);
   });
 
   it("申告者名が読めない（profiles の RLS 対象外）場合は null になる", () => {
@@ -239,7 +226,45 @@ describe("buildBudgetDeclarationStatusList", () => {
     );
 
     expect(rows[0].declaredByName).toBeNull();
-    expect(rows[0].isDeclared).toBe(true);
+    expect(rows[0].status).toBe("declared");
+  });
+
+  it("ヘッダ行があっても completed_at が無ければ入力中（申告済みにしない）", () => {
+    const rows = buildBudgetDeclarationStatusList(
+      ["Aチーム", "Bチーム", "Cチーム"],
+      [
+        declaration({
+          team: "Aチーム",
+          completed_at: null,
+          items: [{ entry_type: "income", amount: 500 }],
+        }),
+        declaration({ id: 2, team: "Bチーム" }),
+      ],
+    );
+
+    expect(rows.map((row) => row.status)).toEqual([
+      "inProgress",
+      "declared",
+      "notDeclared",
+    ]);
+  });
+
+  it("入力中の金額も合計に含め、明細 0 件の申告済みは itemCount 0 で区別できる", () => {
+    const rows = buildBudgetDeclarationStatusList(
+      ["Aチーム", "Bチーム"],
+      [
+        declaration({
+          team: "Aチーム",
+          completed_at: null,
+          items: [{ entry_type: "income", amount: 500 }],
+        }),
+        declaration({ id: 2, team: "Bチーム" }),
+      ],
+    );
+
+    expect(rows[0].itemCount).toBe(1);
+    expect(rows[1].itemCount).toBe(0);
+    expect(totalBudgetSummary(rows).incomeTotal).toBe(500);
   });
 });
 
@@ -286,14 +311,14 @@ describe("閲覧ロールの定義", () => {
     );
   });
 
-  it("全チーム閲覧ロールは、閲覧可ロールから自チーム限定ロールを除いたもの", () => {
+  it("全チーム書き込みロールは、閲覧可ロールから自チーム限定ロールを除いたもの", () => {
     // Regression: the list's visible scope follows when a role is added to ROUTE_PERMISSIONS.
-    expect(BUDGET_ALL_TEAMS_CLASSES).toEqual(
+    expect(BUDGET_WRITE_ALL_TEAMS_CLASSES).toEqual(
       BUDGET_DECLARATION_ALLOWED_CLASSES.filter(
         (role) => role !== "teamleader",
       ),
     );
-    expect(BUDGET_ALL_TEAMS_CLASSES).toEqual(["accounting", "admin"]);
+    expect(BUDGET_WRITE_ALL_TEAMS_CLASSES).toEqual(["accounting", "admin"]);
   });
 });
 

@@ -5,6 +5,12 @@ import {
   useQueryClient,
   type QueryClient,
 } from "@tanstack/react-query";
+import { useMemo } from "react";
+import {
+  closeBudgetDeclarationMonth,
+  getBudgetDeclarationClosings,
+  reopenBudgetDeclarationMonth,
+} from "../utils/supabase/budgetDeclarationClosings";
 import {
   deleteBudgetDeclaration,
   getBudgetDeclarationDetail,
@@ -13,6 +19,7 @@ import {
   saveBudgetDeclaration,
 } from "../utils/supabase/budgetDeclarations";
 import {
+  BudgetClosingInfo,
   BudgetDeclarationDetailType,
   BudgetDeclarationPreviousItem,
   BudgetDeclarationSaveInput,
@@ -27,6 +34,8 @@ import { notifyError, notifySuccess, toErrorMessage } from "../utils/notify";
 // Share only the prefix so lists (keyed by month) can be invalidated together by prefix match.
 const budgetDeclarationListQueryKey = ["budgetDeclarations", "list"] as const;
 
+const budgetClosingsQueryKey = ["budgetDeclarations", "closings"] as const;
+
 const budgetDeclarationDetailQueryKey = (declarationId: number | null) =>
   ["budgetDeclarations", "detail", declarationId] as const;
 
@@ -34,10 +43,15 @@ const budgetDeclarationDetailQueryKey = (declarationId: number | null) =>
 const invalidateBudgetDeclarationQueries = (
   queryClient: QueryClient,
   declarationId: number | null,
+  // Only for failed writes: a rejection (e.g. MONTH_CLOSED) means the cached closing state is stale.
+  { includeClosings = false }: { includeClosings?: boolean } = {},
 ) => {
   queryClient.invalidateQueries({
     queryKey: budgetDeclarationListQueryKey,
   });
+  if (includeClosings) {
+    queryClient.invalidateQueries({ queryKey: budgetClosingsQueryKey });
+  }
   if (declarationId === null) {
     return;
   }
@@ -141,7 +155,9 @@ export const useSaveBudgetDeclaration = () => {
     onError: (error, variables) => {
       console.error("事前収支申告の保存エラー:", error);
       // The DB function (save_budget_declaration) is one transaction, so no partial writes. But the local cache may already be stale (e.g. another user created the same month/team: duplicate 23505; row deleted: P0002), so always invalidate on failure to avoid a stuck stale UI.
-      invalidateBudgetDeclarationQueries(queryClient, variables.declarationId);
+      invalidateBudgetDeclarationQueries(queryClient, variables.declarationId, {
+        includeClosings: true,
+      });
       notifyError(toErrorMessage(error, "事前収支申告の保存に失敗しました。"));
     },
   });
@@ -176,8 +192,93 @@ export const useDeleteBudgetDeclaration = () => {
     onError: (error, variables) => {
       console.error("事前収支申告の削除エラー:", error);
       // Zero-row deletes error on double click or delete in another tab; cache may be stale either way, so always invalidate (as in useDeleteMatter).
-      invalidateBudgetDeclarationQueries(queryClient, variables.declarationId);
+      invalidateBudgetDeclarationQueries(queryClient, variables.declarationId, {
+        includeClosings: true,
+      });
       notifyError(toErrorMessage(error, "事前収支申告の削除に失敗しました。"));
+    },
+  });
+};
+
+// Closed months (all teams). Month keys are "YYYY-MM"; closedMonths feeds CustomMonthPicker's indicator.
+export const useBudgetClosings = (
+  initialData?: BudgetClosingInfo[],
+  initialDataUpdatedAt?: number,
+) => {
+  const query = useQuery({
+    queryKey: budgetClosingsQueryKey,
+    queryFn: async () => {
+      const { closings, error } = await getBudgetDeclarationClosings();
+      if (error) {
+        throw new BudgetDeclarationError(error);
+      }
+      return closings;
+    },
+    initialData,
+    initialDataUpdatedAt: initialData ? initialDataUpdatedAt : undefined,
+    // The write buttons are disabled in a closed month, so no mutation would ever refresh this for a
+    // viewer who cannot close/reopen (e.g. a teamleader after the accountant reopens). QueryProvider
+    // turns off mount / focus refetching, so opt in here. refetchOnMount follows staleTime so the SSR
+    // seed is used as-is on first mount.
+    staleTime: 60 * 1000,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    retry: retryUnlessForbidden,
+  });
+  const closingByMonth = useMemo(
+    () =>
+      new Map((query.data ?? []).map((closing) => [closing.month, closing])),
+    [query.data],
+  );
+  // Not spread: returning the whole query result would opt out of tracked-props re-render
+  // optimization. isUnknown = no closing state yet (loading, or failed with nothing cached);
+  // callers must not treat it as "open". isLoadFailed separates the failure from plain loading.
+  return {
+    closingByMonth,
+    isUnknown: query.data === undefined,
+    isLoadFailed: query.isError && query.data === undefined,
+  };
+};
+
+const useInvalidateAfterBudgetClosing = () => {
+  const queryClient = useQueryClient();
+  // Prefix match also refreshes lists and details opened under the new lock.
+  return () =>
+    queryClient.invalidateQueries({ queryKey: ["budgetDeclarations"] });
+};
+
+export const useCloseBudgetDeclarationMonth = () => {
+  const invalidate = useInvalidateAfterBudgetClosing();
+  return useMutation({
+    // No automatic retry; the user re-operates.
+    retry: 0,
+    mutationFn: async (month: string) => {
+      const { error } = await closeBudgetDeclarationMonth(month);
+      if (error) {
+        throw new BudgetDeclarationError(error);
+      }
+    },
+    // Also on failure: another accountant may have already closed it.
+    onSettled: invalidate,
+    onError: (error) => {
+      console.error("事前収支申告の確定エラー:", error);
+    },
+  });
+};
+
+export const useReopenBudgetDeclarationMonth = () => {
+  const invalidate = useInvalidateAfterBudgetClosing();
+  return useMutation({
+    retry: 0,
+    mutationFn: async (month: string) => {
+      const { error } = await reopenBudgetDeclarationMonth(month);
+      if (error) {
+        throw new BudgetDeclarationError(error);
+      }
+    },
+    onSettled: invalidate,
+    onError: (error) => {
+      console.error("事前収支申告の確定解除エラー:", error);
     },
   });
 };

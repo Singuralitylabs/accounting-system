@@ -4,17 +4,18 @@ import {
   Alert,
   Badge,
   Button,
+  Checkbox,
   Group,
   LoadingOverlay,
   Modal,
   NumberInput,
   Select,
-  Table,
   Textarea,
   TextInput,
   Tooltip,
 } from "@mantine/core";
 import { useForm } from "@mantine/form";
+import { useMediaQuery } from "@mantine/hooks";
 import { useAtomValue } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import { RiDeleteBin6Line } from "react-icons/ri";
@@ -30,6 +31,8 @@ import { useActiveBudgetRecurringItems } from "@/app/hooks/useBudgetRecurringIte
 import { BudgetDeclarationItemInput } from "@/app/types/types";
 import { confirmAction } from "@/app/utils/confirmAction";
 import {
+  budgetAmountColor,
+  budgetEntryRowBg,
   categoryOptionsFor,
   isCategoryUnregistered,
   previousItemsToFormRows,
@@ -42,6 +45,13 @@ import {
 import { ENTRY_TYPE_OPTIONS } from "@/app/utils/extraEntry";
 import { formatCurrency, formatMonthLabel } from "@/app/utils/formatter";
 import { notifyError } from "@/app/utils/notify";
+
+// Column widths from md up (same minimums as the former table); below md each item is a vertical block.
+const ITEM_GRID =
+  "md:grid-cols-[2.5rem_minmax(7rem,1fr)_minmax(9rem,1fr)_minmax(11rem,2fr)_minmax(9rem,1fr)_minmax(9rem,1fr)_3rem]";
+
+// The column header row replaces the input labels from md up.
+const MOBILE_ONLY_LABEL = { label: "md:!hidden" };
 
 // fromRecurring is a display-only flag (badge); not included in the submit payload.
 type ItemRow = BudgetDeclarationItemInput & {
@@ -69,11 +79,15 @@ type Props = {
   memberList: { value: string; label: string }[];
   // While true, the manager Select is disabled: with an empty memberList, existing manager_id values would look cleared.
   memberListError?: boolean;
+  // True when the month got closed (or its closing state is unknown) while the form is open: save and
+  // delete are disabled, since the DB would reject them with MONTH_CLOSED anyway.
+  locked?: boolean;
 };
 
 type HeaderFormValues = {
   team: string;
   comment: string;
+  completed: boolean;
 };
 
 const BudgetDeclarationForm = ({
@@ -85,6 +99,7 @@ const BudgetDeclarationForm = ({
   teamLocked,
   memberList,
   memberListError = false,
+  locked = false,
 }: Props) => {
   const { teamList, categoryList, itemList } = useAtomValue(optionsAtom);
   const isEditMode = declarationId !== null;
@@ -102,7 +117,7 @@ const BudgetDeclarationForm = ({
   const isSaving = saveMutation.isPending || deleteMutation.isPending;
 
   const form = useForm<HeaderFormValues>({
-    initialValues: { team, comment: "" },
+    initialValues: { team, comment: "", completed: false },
   });
 
   // Previous month's items for "copy previous"; enabled only for new declarations (editing waits on detail, so it is excluded) and refetched on team change and on every mount (stale after save/delete).
@@ -139,6 +154,7 @@ const BudgetDeclarationForm = ({
   // For new declarations, block until recurring items are fetched (and on failure), or the declaration would be created without them (see the Alert below).
   const saveDisabled =
     isSaving ||
+    locked ||
     (isEditMode
       ? !detail || isDetailFetching
       : isActiveRecurringItemsFetching || isActiveRecurringItemsError);
@@ -157,7 +173,7 @@ const BudgetDeclarationForm = ({
   // Reset to initial values on every open (including target row change); when editing, wait for detail so existing data is not overwritten with empty.
   useEffect(() => {
     if (!opened) return;
-    form.setValues({ team, comment: "" });
+    form.setValues({ team, comment: "", completed: false });
     nextKeyRef.current = 0;
     setItems([]);
     populatedForIdRef.current = null;
@@ -194,7 +210,11 @@ const BudgetDeclarationForm = ({
     if (isDetailFetching) return;
     if (populatedForIdRef.current === declarationId) return;
     populatedForIdRef.current = declarationId;
-    form.setValues({ team, comment: detail.comment ?? "" });
+    form.setValues({
+      team,
+      comment: detail.comment ?? "",
+      completed: detail.completed,
+    });
     setItems(
       detail.items.map((item) => ({
         key: nextKeyRef.current++,
@@ -257,6 +277,11 @@ const BudgetDeclarationForm = ({
     );
   };
 
+  // Read synchronously: the modal only mounts after a click, so there is no SSR mismatch.
+  const isMobile = useMediaQuery("(max-width: 47.99em)", false, {
+    getInitialValueInEffect: false,
+  });
+
   const closeModal = () => {
     if (isSaving) return;
     onClose();
@@ -287,6 +312,7 @@ const BudgetDeclarationForm = ({
         targetMonth,
         team: currentTeam,
         comment: form.getValues().comment || null,
+        completed: form.getValues().completed,
         items: items.map(
           ({ entry_type, category, description, amount, manager_id }) => ({
             entry_type,
@@ -337,6 +363,7 @@ const BudgetDeclarationForm = ({
       onClose={closeModal}
       title={isEditMode ? "事前収支申告の編集" : "事前収支申告の作成"}
       size="xl"
+      fullScreen={isMobile}
     >
       <div className="relative">
         <LoadingOverlay
@@ -354,6 +381,11 @@ const BudgetDeclarationForm = ({
           </Alert>
         )}
 
+        {locked && (
+          <Alert color="yellow" title="この月は編集できません" className="mb-4">
+            この月は確定済み（または確定状態が不明）のため、保存・削除できません。確定が解除された後、またはページを再読み込みしてからもう一度お試しください。
+          </Alert>
+        )}
         {isDetailMissing && (
           <Alert color="gray" title="申告が見つかりません" className="mb-4">
             既に削除されている可能性があります。一覧は自動で更新されます。
@@ -405,6 +437,14 @@ const BudgetDeclarationForm = ({
           {...form.getInputProps("comment")}
         />
 
+        <Checkbox
+          className="mt-4"
+          label="申告を完了する（申告済みにする）"
+          description="チェックを入れて保存したときだけ「申告済み」になります。入力の途中で保存する場合は外したままにしてください。明細が無い場合も、チェックを入れれば申告済みになります。"
+          key={form.key("completed")}
+          {...form.getInputProps("completed", { type: "checkbox" })}
+        />
+
         {!isEditMode && (
           <Group justify="flex-end" className="mt-4">
             <Tooltip label={copyDisabledReason} disabled={!copyDisabledReason}>
@@ -424,131 +464,134 @@ const BudgetDeclarationForm = ({
         )}
 
         <div className="overflow-x-auto mt-2 border border-gray-300 rounded bg-slate-50 p-4">
-          <Table verticalSpacing="sm" className="whitespace-nowrap">
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th className="w-10" />
-                <Table.Th className="min-w-28">種別</Table.Th>
-                <Table.Th className="min-w-36">分類</Table.Th>
-                <Table.Th className="min-w-44">内容</Table.Th>
-                <Table.Th className="min-w-36">金額</Table.Th>
-                <Table.Th className="min-w-36">担当者</Table.Th>
-                <Table.Th className="w-12" />
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {items.map((item) => (
-                <Table.Tr key={item.key}>
-                  <Table.Td>
-                    {item.fromRecurring && (
-                      <Tooltip label="定期明細から自動で追加された行です">
-                        <Badge size="sm" color="blue" variant="light">
-                          定期
-                        </Badge>
-                      </Tooltip>
-                    )}
-                  </Table.Td>
-                  <Table.Td>
-                    <Select
-                      data={ENTRY_TYPE_OPTIONS}
-                      value={item.entry_type}
-                      allowDeselect={false}
-                      onChange={(value) =>
-                        handleUpdateItem(item.key, {
-                          entry_type: value ?? "income",
-                          // Category master depends on type, so re-entry is required.
-                          category: "",
-                        })
-                      }
-                    />
-                  </Table.Td>
-                  <Table.Td>
-                    <Select
-                      data={categoryOptionsFor(
-                        item.entry_type,
-                        item.category,
-                        categoryList,
-                        itemList,
-                      )}
-                      value={item.category || null}
-                      placeholder="分類を選択"
-                      error={
-                        isCategoryUnregistered(
-                          item.entry_type,
-                          item.category,
-                          categoryList,
-                          itemList,
-                        )
-                          ? "マスタ未登録のため選び直してください"
-                          : undefined
-                      }
-                      onChange={(value) =>
-                        handleUpdateItem(item.key, { category: value ?? "" })
-                      }
-                    />
-                  </Table.Td>
-                  <Table.Td>
-                    <TextInput
-                      value={item.description}
-                      placeholder="例: ○○受託案件"
-                      onChange={(event) =>
-                        handleUpdateItem(item.key, {
-                          description: event.target.value,
-                        })
-                      }
-                    />
-                  </Table.Td>
-                  <Table.Td>
-                    <NumberInput
-                      value={item.amount}
-                      min={0}
-                      step={1000}
-                      thousandSeparator=","
-                      prefix="¥"
-                      onChange={(value) =>
-                        handleUpdateItem(item.key, {
-                          amount: typeof value === "number" ? value : 0,
-                        })
-                      }
-                    />
-                  </Table.Td>
-                  <Table.Td>
-                    <Select
-                      data={memberList}
-                      value={
-                        item.manager_id !== null
-                          ? String(item.manager_id)
-                          : null
-                      }
-                      placeholder={
-                        memberListError
-                          ? "担当者一覧を取得できませんでした"
-                          : "担当者を選択"
-                      }
-                      disabled={memberListError}
-                      searchable
-                      clearable
-                      onChange={(value) =>
-                        handleUpdateItem(item.key, {
-                          manager_id: value ? parseInt(value, 10) : null,
-                        })
-                      }
-                    />
-                  </Table.Td>
-                  <Table.Td>
-                    <button
-                      type="button"
-                      aria-label="明細を削除"
-                      className="text-red-500 hover:text-red-700"
-                      onClick={() => handleRemoveItem(item.key)}
-                    >
-                      <RiDeleteBin6Line size="1.2rem" />
-                    </button>
-                  </Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
+          {/* One set of inputs: a labelled vertical block on mobile, a table-like grid row from md up. */}
+          <div className="md:min-w-[52rem]">
+            <div
+              className={`hidden gap-3 px-2 pb-2 text-sm font-bold md:grid ${ITEM_GRID}`}
+            >
+              <span />
+              <span>種別</span>
+              <span>分類</span>
+              <span>内容</span>
+              <span>金額</span>
+              <span>担当者</span>
+              <span />
+            </div>
+            {items.map((item) => (
+              <div
+                key={item.key}
+                data-testid="budget-form-item"
+                className={`relative mb-3 grid gap-3 rounded p-3 max-md:pt-10 md:mb-0 md:items-center md:rounded-none md:px-2 md:py-2 ${ITEM_GRID}`}
+                style={{ backgroundColor: budgetEntryRowBg(item.entry_type) }}
+              >
+                <div className="absolute right-12 top-2 md:static">
+                  {item.fromRecurring && (
+                    <Tooltip label="定期明細から自動で追加された行です">
+                      <Badge size="sm" color="blue" variant="light">
+                        定期
+                      </Badge>
+                    </Tooltip>
+                  )}
+                </div>
+                <Select
+                  label="種別"
+                  classNames={MOBILE_ONLY_LABEL}
+                  data={ENTRY_TYPE_OPTIONS}
+                  value={item.entry_type}
+                  allowDeselect={false}
+                  onChange={(value) =>
+                    handleUpdateItem(item.key, {
+                      entry_type: value ?? "income",
+                      // Category master depends on type, so re-entry is required.
+                      category: "",
+                    })
+                  }
+                />
+                <Select
+                  label="分類"
+                  classNames={MOBILE_ONLY_LABEL}
+                  data={categoryOptionsFor(
+                    item.entry_type,
+                    item.category,
+                    categoryList,
+                    itemList,
+                  )}
+                  value={item.category || null}
+                  placeholder="分類を選択"
+                  error={
+                    isCategoryUnregistered(
+                      item.entry_type,
+                      item.category,
+                      categoryList,
+                      itemList,
+                    )
+                      ? "マスタ未登録のため選び直してください"
+                      : undefined
+                  }
+                  onChange={(value) =>
+                    handleUpdateItem(item.key, { category: value ?? "" })
+                  }
+                />
+                <TextInput
+                  label="内容"
+                  classNames={MOBILE_ONLY_LABEL}
+                  value={item.description}
+                  placeholder="例: ○○受託案件"
+                  onChange={(event) =>
+                    handleUpdateItem(item.key, {
+                      description: event.target.value,
+                    })
+                  }
+                />
+                <NumberInput
+                  label="金額"
+                  classNames={MOBILE_ONLY_LABEL}
+                  value={item.amount}
+                  min={0}
+                  step={1000}
+                  thousandSeparator=","
+                  prefix="¥"
+                  styles={{
+                    input: { color: budgetAmountColor(item.entry_type) },
+                  }}
+                  onChange={(value) =>
+                    handleUpdateItem(item.key, {
+                      amount: typeof value === "number" ? value : 0,
+                    })
+                  }
+                />
+                <Select
+                  label="担当者"
+                  classNames={MOBILE_ONLY_LABEL}
+                  data={memberList}
+                  value={
+                    item.manager_id !== null ? String(item.manager_id) : null
+                  }
+                  placeholder={
+                    memberListError
+                      ? "担当者一覧を取得できませんでした"
+                      : "担当者を選択"
+                  }
+                  disabled={memberListError}
+                  searchable
+                  clearable
+                  onChange={(value) =>
+                    handleUpdateItem(item.key, {
+                      manager_id: value ? parseInt(value, 10) : null,
+                    })
+                  }
+                />
+                <button
+                  type="button"
+                  aria-label="明細を削除"
+                  className="absolute right-3 top-2 text-red-500 hover:text-red-700 md:static"
+                  onClick={() => handleRemoveItem(item.key)}
+                >
+                  <RiDeleteBin6Line size="1.2rem" />
+                </button>
+              </div>
+            ))}
+          </div>
           {items.length === 0 && (
             <p className="text-center text-gray-500 py-4">
               明細が登録されていません。
@@ -580,7 +623,7 @@ const BudgetDeclarationForm = ({
             <Button
               color="red"
               variant="outline"
-              disabled={isSaving || isDetailMissing}
+              disabled={isSaving || isDetailMissing || locked}
               onClick={handleDelete}
             >
               削除

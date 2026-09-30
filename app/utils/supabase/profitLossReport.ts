@@ -7,6 +7,7 @@ import {
 } from "../../types/types";
 import { PL_ALLOWED_CLASSES } from "../permissions";
 import { createServerSupabase } from "./clients";
+import { getMemberOptions } from "./profiles";
 import { fiscalYearMonths, isMonthKey, reportFlags } from "../profitLossLogic";
 import { buildMonthReport } from "../profitLossClosing";
 import {
@@ -40,7 +41,7 @@ export const getProfitLossReport = async (
     {
       supplement: {
         month,
-        includeTeamBreakdown: flags.includeTeamBreakdown,
+        includeAdjustmentDetails: flags.includeAdjustmentDetails,
         includeMonthlyDetails: true,
       },
     },
@@ -148,9 +149,21 @@ export const getMatterInfoById = async (matterId: number) => {
   }
 
   const { profiles, ...matter } = data;
+  // A teamleader cannot read other teams' profiles (RLS), so the join above is null for their
+  // matters; fall back to get_member_options (id/name of every member, SECURITY DEFINER).
+  let userName = profiles?.name ?? null;
+  if (!profiles) {
+    const { memberOptions, error: memberError } = await getMemberOptions();
+    if (memberError) {
+      console.error("担当者名の取得に失敗しました:", memberError);
+    }
+    userName =
+      memberOptions?.find((member) => member.id === matter.user_id)?.name ??
+      null;
+  }
   const matterInfo: MatterInfoWithUserNameType = {
     ...matter,
-    user_name: profiles?.name ?? null,
+    user_name: userName,
     slack_id: profiles?.slack_id ?? null,
   };
 
