@@ -5,7 +5,9 @@ const {
   getAuthorizedViewer,
   assertManagerIdsExist,
   getActiveSelectOptionsByType,
+  getMemberOptions,
 } = vi.hoisted(() => ({
+  getMemberOptions: vi.fn(),
   createServerSupabase: vi.fn(),
   getAuthorizedViewer: vi.fn(),
   assertManagerIdsExist: vi.fn(),
@@ -14,7 +16,10 @@ const {
 
 vi.mock("@/app/utils/supabase/clients", () => ({ createServerSupabase }));
 vi.mock("@/app/utils/supabase/viewerAccess", () => ({ getAuthorizedViewer }));
-vi.mock("@/app/utils/supabase/profiles", () => ({ assertManagerIdsExist }));
+vi.mock("@/app/utils/supabase/profiles", () => ({
+  assertManagerIdsExist,
+  getMemberOptions,
+}));
 // budgetDeclarations.ts also imports selectOptions.ts for getBudgetDeclarationList, and its dependency
 // (selectOptionsCache.ts) calls React's cache() at module evaluation (RSC memoization; only works under
 // Next.js builds, not plain Vitest/Node), so mock it to avoid loading the real module.
@@ -25,6 +30,7 @@ vi.mock("@/app/utils/supabase/selectOptionsCache", () => ({
 
 import {
   deleteBudgetDeclaration,
+  getBudgetDeclarationDetail,
   getBudgetDeclarationList,
   saveBudgetDeclaration,
 } from "@/app/utils/supabase/budgetDeclarations";
@@ -35,6 +41,11 @@ import {
   UNIQUE_VIOLATION,
 } from "@/app/utils/supabase/errorCodes";
 import type { BudgetDeclarationSaveInput } from "@/app/types/types";
+
+beforeEach(() => {
+  getMemberOptions.mockReset();
+  getMemberOptions.mockResolvedValue({ memberOptions: [], error: null });
+});
 
 const single = vi.fn();
 const rpc = vi.fn(() => ({ single }));
@@ -496,5 +507,127 @@ describe("getBudgetDeclarationList", () => {
     const result = await getBudgetDeclarationList("2026-10");
 
     expect(result.rows?.map((r) => r.team)).toEqual(["Aチーム"]);
+  });
+
+  it("他チームの申告者名が profiles の RLS で読めなくても、メンバー一覧から補って表示する", async () => {
+    const { getSelectOptions } = await import(
+      "@/app/utils/supabase/selectOptions"
+    );
+    vi.mocked(getSelectOptions).mockResolvedValue({
+      options: [{ value: "Aチーム" }, { value: "Bチーム" }],
+      error: null,
+    } as never);
+    getAuthorizedViewer.mockResolvedValue({
+      profileInfo: { id: 2, class: "teamleader", team: "Bチーム" },
+    });
+    getMemberOptions.mockResolvedValue({
+      memberOptions: [{ id: 10, name: "他チームの山田" }],
+      error: null,
+    });
+    createServerSupabase.mockReturnValue({
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            order: vi.fn().mockResolvedValue({
+              data: [
+                {
+                  id: 1,
+                  team: "Aチーム",
+                  updated_at: null,
+                  declared_by: 10,
+                  profiles: null,
+                  budget_declaration_items: [],
+                },
+              ],
+              error: null,
+            }),
+          }),
+        }),
+      }),
+    });
+
+    const result = await getBudgetDeclarationList("2026-10");
+
+    expect(result.rows?.[0].declaredByName).toBe("他チームの山田");
+  });
+
+  it("メンバー一覧の取得に失敗しても一覧は返し、join で読めた名前を使う", async () => {
+    const { getSelectOptions } = await import(
+      "@/app/utils/supabase/selectOptions"
+    );
+    vi.mocked(getSelectOptions).mockResolvedValue({
+      options: [{ value: "Aチーム" }],
+      error: null,
+    } as never);
+    getAuthorizedViewer.mockResolvedValue({
+      profileInfo: { id: 1, class: "accounting", team: null },
+    });
+    getMemberOptions.mockResolvedValue({
+      memberOptions: null,
+      error: { message: "boom" },
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    createServerSupabase.mockReturnValue({
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            order: vi.fn().mockResolvedValue({
+              data: [
+                {
+                  id: 1,
+                  team: "Aチーム",
+                  updated_at: null,
+                  declared_by: 10,
+                  profiles: { name: "自チームの鈴木" },
+                  budget_declaration_items: [],
+                },
+              ],
+              error: null,
+            }),
+          }),
+        }),
+      }),
+    });
+
+    const result = await getBudgetDeclarationList("2026-10");
+
+    expect(result.rows?.[0].declaredByName).toBe("自チームの鈴木");
+  });
+});
+
+describe("getBudgetDeclarationDetail", () => {
+  it("読めない担当者名はメンバー一覧から補い、担当者なしは null のまま", async () => {
+    getAuthorizedViewer.mockResolvedValue({
+      profileInfo: { id: 2, class: "teamleader", team: "Bチーム" },
+    });
+    getMemberOptions.mockResolvedValue({
+      memberOptions: [{ id: 10, name: "他チームの山田" }],
+      error: null,
+    });
+    createServerSupabase.mockReturnValue({
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: {
+                comment: null,
+                budget_declaration_items: [
+                  { id: 1, display_order: 0, manager_id: 10, profiles: null },
+                  { id: 2, display_order: 1, manager_id: null, profiles: null },
+                ],
+              },
+              error: null,
+            }),
+          }),
+        }),
+      }),
+    });
+
+    const result = await getBudgetDeclarationDetail(1);
+
+    expect(result.detail?.items.map((i) => i.managerName)).toEqual([
+      "他チームの山田",
+      null,
+    ]);
   });
 });

@@ -218,9 +218,10 @@ export const useBudgetClosings = (
     initialDataUpdatedAt: initialData ? initialDataUpdatedAt : undefined,
     // The write buttons are disabled in a closed month, so no mutation would ever refresh this for a
     // viewer who cannot close/reopen (e.g. a teamleader after the accountant reopens). QueryProvider
-    // turns off mount / focus refetching, so opt in here.
+    // turns off mount / focus refetching, so opt in here. refetchOnMount follows staleTime so the SSR
+    // seed is used as-is on first mount.
     staleTime: 60 * 1000,
-    refetchOnMount: "always",
+    refetchOnMount: true,
     refetchOnWindowFocus: true,
     retry: retryUnlessForbidden,
   });

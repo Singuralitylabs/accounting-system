@@ -377,6 +377,8 @@ const BudgetDeclarationList = ({
           teamLocked={!canWriteAllBudgetTeams(profileClass)}
           memberList={memberList}
           memberListError={memberListError}
+          // Follows the live closing state of the form's own month, which can differ from the picker.
+          locked={closingUnknown || closingByMonth.has(formTarget.targetMonth)}
         />
       )}
     </div>

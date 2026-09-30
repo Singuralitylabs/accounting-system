@@ -49,11 +49,13 @@ export async function GET(request: NextRequest) {
     getDeclaredBudgetTeams(toFirstOfMonth(targetMonth)),
   ]);
 
-  if (closedResult.error || teamsResult.error || declaredResult.error) {
+  if (teamsResult.error || declaredResult.error) {
     return NextResponse.json({ error: "internal-error" }, { status: 500 });
   }
+  // Fail-open on the closing lookup (already logged): a needless reminder for a closed month is
+  // harmless, while failing here would suppress the whole day's reminders over a side table.
   // No reminder for a closed month: nobody can declare any more.
-  if (closedResult.closed) {
+  if (!closedResult.error && closedResult.closed) {
     return NextResponse.json({ skipped: true, reason: "month-closed" });
   }
 

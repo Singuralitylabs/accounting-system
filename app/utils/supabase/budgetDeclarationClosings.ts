@@ -56,7 +56,17 @@ const authorizeClosingWrite = async (
       error: { kind: "validationFailed", message: "対象月の形式が不正です。" },
     };
   }
-  return getAuthorizedViewer(BUDGET_CLOSING_WRITE_CLASSES, subject);
+  const result = await getAuthorizedViewer(BUDGET_CLOSING_WRITE_CLASSES, subject);
+  // getAuthorizedViewer words a denial as "no view permission"; here viewing is fine, writing is not.
+  if (result.error?.kind === "forbidden") {
+    return {
+      error: {
+        kind: "forbidden",
+        message: `${subject}を行う権限がありません。`,
+      },
+    };
+  }
+  return result;
 };
 
 // Closes the month for all teams. The DB (RLS + advisory lock) is the authority; the class check

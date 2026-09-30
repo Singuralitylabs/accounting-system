@@ -483,4 +483,29 @@ describe("BudgetDeclarationList", () => {
       screen.queryByText("所属チームが未設定です"),
     ).not.toBeInTheDocument();
   });
+
+  it("フォームを開いたまま月が確定されたら、開いているフォームを保存・削除できなくする", () => {
+    const { rerender } = renderList([row()]);
+
+    fireEvent.click(screen.getByRole("button", { name: "編集する" }));
+    expect(
+      screen.queryByText("この月は編集できません"),
+    ).not.toBeInTheDocument();
+
+    setClosings([closing("2026-10")]);
+    rerender(
+      <BudgetDeclarationList
+        initialMonth="2026-10"
+        initialData={null}
+        initialDataUpdatedAt={Date.now()}
+        profileClass="accounting"
+        memberList={[]}
+      />,
+    );
+
+    expect(
+      screen.getByText("この月は編集できません", { exact: false }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+  });
 });

@@ -71,6 +71,9 @@ type Props = {
   memberList: { value: string; label: string }[];
   // While true, the manager Select is disabled: with an empty memberList, existing manager_id values would look cleared.
   memberListError?: boolean;
+  // True when the month got closed (or its closing state is unknown) while the form is open: save and
+  // delete are disabled, since the DB would reject them with MONTH_CLOSED anyway.
+  locked?: boolean;
 };
 
 type HeaderFormValues = {
@@ -87,6 +90,7 @@ const BudgetDeclarationForm = ({
   teamLocked,
   memberList,
   memberListError = false,
+  locked = false,
 }: Props) => {
   const { teamList, categoryList, itemList } = useAtomValue(optionsAtom);
   const isEditMode = declarationId !== null;
@@ -141,6 +145,7 @@ const BudgetDeclarationForm = ({
   // For new declarations, block until recurring items are fetched (and on failure), or the declaration would be created without them (see the Alert below).
   const saveDisabled =
     isSaving ||
+    locked ||
     (isEditMode
       ? !detail || isDetailFetching
       : isActiveRecurringItemsFetching || isActiveRecurringItemsError);
@@ -356,6 +361,11 @@ const BudgetDeclarationForm = ({
           </Alert>
         )}
 
+        {locked && (
+          <Alert color="yellow" title="この月は編集できません" className="mb-4">
+            この月は確定済み（または確定状態が不明）のため、保存・削除できません。確定が解除された後、またはページを再読み込みしてからもう一度お試しください。
+          </Alert>
+        )}
         {isDetailMissing && (
           <Alert color="gray" title="申告が見つかりません" className="mb-4">
             既に削除されている可能性があります。一覧は自動で更新されます。
@@ -585,7 +595,7 @@ const BudgetDeclarationForm = ({
             <Button
               color="red"
               variant="outline"
-              disabled={isSaving || isDetailMissing}
+              disabled={isSaving || isDetailMissing || locked}
               onClick={handleDelete}
             >
               削除

@@ -54,10 +54,15 @@ describe("closeBudgetDeclarationMonth", () => {
     });
   });
 
-  it("権限が無ければ INSERT せずエラーを返す（チームリーダーは確定できない）", async () => {
+  it("権限が無ければ INSERT せず、書き込み権限がない旨のエラーを返す（チームリーダーは確定できない）", async () => {
     getAuthorizedViewer.mockResolvedValue(forbidden);
 
-    expect(await closeBudgetDeclarationMonth("2026-10")).toEqual(forbidden);
+    expect(await closeBudgetDeclarationMonth("2026-10")).toEqual({
+      error: {
+        kind: "forbidden",
+        message: "事前収支申告の月次確定を行う権限がありません。",
+      },
+    });
     expect(insert).not.toHaveBeenCalled();
   });
 
@@ -121,7 +126,12 @@ describe("reopenBudgetDeclarationMonth", () => {
   it("権限が無ければ DELETE しない（チームリーダーは解除できない）", async () => {
     getAuthorizedViewer.mockResolvedValue(forbidden);
 
-    expect(await reopenBudgetDeclarationMonth("2026-10")).toEqual(forbidden);
+    expect(await reopenBudgetDeclarationMonth("2026-10")).toEqual({
+      error: {
+        kind: "forbidden",
+        message: "事前収支申告の確定解除を行う権限がありません。",
+      },
+    });
     expect(del).not.toHaveBeenCalled();
   });
 });

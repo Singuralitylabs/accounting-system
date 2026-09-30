@@ -1360,3 +1360,57 @@ describe("BudgetDeclarationForm 収入 / 支出の色分け", () => {
     expect(expenseRow?.getAttribute("style")).toContain("red-light");
   });
 });
+
+describe("BudgetDeclarationForm 確定月のロック", () => {
+  it("locked のとき（確定済み・確定状態不明）は保存と削除を無効化し、理由を表示する", () => {
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: { comment: "", items: [] },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+    });
+
+    renderWithMantine(
+      <BudgetDeclarationForm
+        opened
+        onClose={vi.fn()}
+        targetMonth="2026-10"
+        team="開発チーム"
+        declarationId={7}
+        teamLocked={false}
+        memberList={testMemberList}
+        locked
+      />,
+    );
+
+    expect(screen.getByText("この月は編集できません")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "削除" })).toBeDisabled();
+  });
+
+  it("locked でなければ警告は出ず、保存できる", () => {
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: { comment: "", items: [] },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+    });
+
+    renderWithMantine(
+      <BudgetDeclarationForm
+        opened
+        onClose={vi.fn()}
+        targetMonth="2026-10"
+        team="開発チーム"
+        declarationId={7}
+        teamLocked={false}
+        memberList={testMemberList}
+      />,
+    );
+
+    expect(
+      screen.queryByText("この月は編集できません"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存" })).not.toBeDisabled();
+  });
+});

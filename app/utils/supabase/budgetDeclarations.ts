@@ -30,7 +30,7 @@ import {
   NO_DATA_FOUND,
   isMonthClosedError,
 } from "./errorCodes";
-import { assertManagerIdsExist } from "./profiles";
+import { assertManagerIdsExist, getMemberOptions } from "./profiles";
 import { getSelectOptions } from "./selectOptions";
 import { getActiveSelectOptionsByType } from "./selectOptionsCache";
 import { getAuthorizedViewer } from "./viewerAccess";
@@ -44,6 +44,7 @@ const DECLARATION_LIST_SELECT = `
   id,
   team,
   updated_at,
+  declared_by,
   profiles!budget_declarations_declared_by_fkey (name),
   budget_declaration_items (entry_type, amount)
 `;
@@ -65,13 +66,14 @@ export const getBudgetDeclarationList = async (
 
   // No team filter (every viewer reads all teams, migration 38), so declarations of teams removed from the master (kept by
   // buildBudgetDeclarationStatusList) are not dropped.
-  const [teamResult, declarationResult] = await Promise.all([
+  const [teamResult, declarationResult, memberNames] = await Promise.all([
     getSelectOptions("team"),
     supabase
       .from("budget_declarations")
       .select(DECLARATION_LIST_SELECT)
       .eq("target_month", targetMonth)
       .order("team", { ascending: true }),
+    fetchMemberNames(),
   ]);
 
   if (teamResult.error || declarationResult.error) {
@@ -96,7 +98,7 @@ export const getBudgetDeclarationList = async (
   return {
     rows: buildBudgetDeclarationStatusList(
       teams,
-      toDeclarations(declarationResult.data),
+      toDeclarations(declarationResult.data, memberNames),
     ),
   };
 };
@@ -115,15 +117,19 @@ export const getBudgetDeclarationDetail = async (
 
   const supabase = createServerSupabase();
 
-  // No inner join on manager_id's profiles either: an unreadable profile would drop the line (managerName becomes null).
-  const { data, error } = await supabase
-    .from("budget_declarations")
-    .select(
-      "comment, budget_declaration_items (*, profiles!budget_declaration_items_manager_id_fkey (name))",
-    )
-    .eq("id", declarationId)
-    // maybeSingle so 0 rows (including RLS-hidden) is not an error.
-    .maybeSingle();
+  // No inner join on manager_id's profiles either: an unreadable profile would drop the line. The
+  // join name is filled from the member list when RLS hides it (other teams, for a teamleader).
+  const [{ data, error }, memberNames] = await Promise.all([
+    supabase
+      .from("budget_declarations")
+      .select(
+        "comment, budget_declaration_items (*, profiles!budget_declaration_items_manager_id_fkey (name))",
+      )
+      .eq("id", declarationId)
+      // maybeSingle so 0 rows (including RLS-hidden) is not an error.
+      .maybeSingle(),
+    fetchMemberNames(),
+  ]);
 
   if (error) {
     console.error("事前収支申告の明細取得に失敗しました:", error);
@@ -144,7 +150,11 @@ export const getBudgetDeclarationDetail = async (
         .sort((a, b) => a.display_order - b.display_order || a.id - b.id)
         .map(({ profiles, ...item }) => ({
           ...item,
-          managerName: profiles?.name ?? null,
+          managerName:
+            profiles?.name ??
+            (item.manager_id === null
+              ? null
+              : (memberNames.get(item.manager_id) ?? null)),
         })),
     },
   };
@@ -429,21 +439,36 @@ export const deleteBudgetDeclaration = async (
   return {};
 };
 
+// id -> name for every member via get_member_options (SECURITY DEFINER). A direct profiles read is
+// limited to the own team for a teamleader (RLS), which would show other teams' declarers / managers
+// as "-". Auxiliary: on failure return an empty map (names fall back to the RLS-limited join).
+const fetchMemberNames = async (): Promise<Map<number, string>> => {
+  const { memberOptions, error } = await getMemberOptions();
+  if (error) {
+    console.error(`${SUBJECT}の担当者名の取得に失敗しました:`, error);
+    return new Map();
+  }
+  return new Map((memberOptions ?? []).map((member) => [member.id, member.name]));
+};
+
 type DeclarationListRow = {
   id: number;
   team: string;
   updated_at: string | null;
+  declared_by: number;
   profiles: { name: string | null } | null;
   budget_declaration_items: { entry_type: string; amount: number }[] | null;
 };
 
 const toDeclarations = (
   rows: DeclarationListRow[] | null,
+  memberNames: ReadonlyMap<number, string>,
 ): BudgetDeclarationWithItems[] =>
   (rows ?? []).map((row) => ({
     id: row.id,
     team: row.team,
     updated_at: row.updated_at,
-    declared_by_name: row.profiles?.name ?? null,
+    declared_by_name:
+      row.profiles?.name ?? memberNames.get(row.declared_by) ?? null,
     items: row.budget_declaration_items ?? [],
   }));
