@@ -304,6 +304,10 @@ const ExtraEntryList = ({
       console.error("経理追加収支情報の保存に失敗しました。", error);
       if (error instanceof ExtraEntryValidationError) {
         notifyError(error.message);
+        if (error.staleList) {
+          // Conflict: nothing was written, but the list is stale. The hook invalidated it, which blocks editing until the refetch. No markSaved: the outcome is known, so a failed refetch shows the neutral alert instead of "unknown whether saved".
+          setIsDirty(false);
+        }
         return;
       }
       // Outcome unknown (single transaction: all or nothing). The response may have been lost after commit, so saving again could double register new rows. Block editing until the refetch (invalidated in the hook's onError) and sync to the actual result.

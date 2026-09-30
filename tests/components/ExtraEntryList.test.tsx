@@ -55,7 +55,14 @@ vi.mock("@/app/hooks/useExtraEntryData", () => ({
   }),
   useExtraEntrySuggestions: () => ({ data: suggestionsState.value }),
   useUpsertExtraEntry: () => ({ mutateAsync, isPending: false }),
-  ExtraEntryValidationError: class extends Error {},
+  ExtraEntryValidationError: class extends Error {
+    constructor(
+      message: string,
+      readonly staleList = false,
+    ) {
+      super(message);
+    }
+  },
 }));
 vi.mock("@/app/hooks/useClosedMonths", () => ({
   useClosedMonths: () => ({
@@ -453,6 +460,40 @@ describe(
         "disabled",
         false,
       );
+    });
+
+    it("競合（staleList）で保存が拒否されたときは、結果不明と同じ再取得待ちに入り編集を止める", async () => {
+      const { ExtraEntryValidationError } =
+        await import("@/app/hooks/useExtraEntryData");
+      // The real hook invalidates the list on a conflict.
+      mutateAsync.mockImplementationOnce(async () => {
+        extraEntryListOverrides.value = { isInvalidated: true };
+        throw new ExtraEntryValidationError("他の利用者に変更されました", true);
+      });
+      const initialData = [entry({ id: 2, description: "9月協賛" })];
+      const view = renderList(initialData);
+      fireEvent.change(screen.getByDisplayValue("9月協賛"), {
+        target: { value: "9月協賛（修正）" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
+      await vi.waitFor(() =>
+        expect(notifyError).toHaveBeenCalledWith("他の利用者に変更されました"),
+      );
+
+      await vi.waitFor(() =>
+        expect(screen.getByRole("button", { name: "保存" })).toHaveProperty(
+          "disabled",
+          true,
+        ),
+      );
+
+      // If the refetch then fails, the alert must not claim the save outcome is unknown (nothing was written).
+      extraEntryListOverrides.value = { isError: true, isInvalidated: true };
+      view.rerender(listElement(initialData));
+      expect(
+        screen.getByText("最新の経理追加収支情報を取得できませんでした"),
+      ).toBeTruthy();
+      expect(screen.queryByText(/保存できたか確認できず/)).toBeNull();
     });
 
     it("無効化された一覧は、再取得中も取り直せるまで編集・保存を止める（定期費用と同じロック条件。Issue #190）", () => {

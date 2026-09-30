@@ -52,7 +52,11 @@ const fetchClosedMonths = async () => {
   return { closedMonths: new Set(months ?? []), error };
 };
 
-export type BulkUpsertExtraEntryResult = { error?: AccessFailure };
+// `staleList`: the on-screen list is known to be out of date (conflict), so the caller must refetch.
+export type BulkUpsertExtraEntryResult = {
+  error?: AccessFailure;
+  staleList?: boolean;
+};
 
 const SAVE_FAILED: AccessFailure = {
   kind: "fetchFailed",
@@ -102,9 +106,10 @@ export const bulkUpsertExtraEntry = async (
   );
   if (deletedUpdates.length > 0) {
     return {
+      staleList: true,
       error: {
         kind: "validationFailed",
-        message: `編集した行のうち、他の利用者に削除された行があります。画面を再読み込みしてから編集し直してください。（対象: ${deletedUpdates
+        message: `編集した行のうち、他の利用者に削除された行があります。最新の内容を取得して表示します。必要に応じて入力し直してください。（対象: ${deletedUpdates
           .map((ee) => ee.description || "（内容未入力の行）")
           .join("、")}）`,
       },
@@ -116,7 +121,9 @@ export const bulkUpsertExtraEntry = async (
     closedMonths
   );
   if (violations.length > 0) {
+    // The client checked its own closed-month info, so reaching here means that info is stale.
     return {
+      staleList: true,
       error: {
         kind: "validationFailed",
         message: `${CLOSED_MONTH_LOCK_MESSAGE}（対象: ${violations.join("、")}）`,
@@ -152,12 +159,20 @@ export const bulkUpsertExtraEntry = async (
       rpcError.code === "42501"
     ) {
       return {
+        staleList: true,
         error: {
           kind: "validationFailed",
           message:
-            "保存の途中で対象の月が確定されたか、行が他の利用者に変更・削除されたため、何も保存しませんでした。画面を再読み込みしてから保存し直してください。",
+            "保存の途中で対象の月が確定されたか、行が他の利用者に変更・削除されたため、何も保存しませんでした。最新の内容を取得して表示します。必要に応じて入力し直してください。",
         },
       };
+    }
+    // postgrest-js returns transport failures (e.g. "TypeError: fetch failed") as an error with an empty code
+    // instead of throwing. The commit may have happened with the response lost, so treat it as an unknown
+    // outcome (throw) rather than "nothing saved"; re-saving would double-insert new rows.
+    if (!rpcError.code) {
+      console.error("経理追加収支情報の保存結果が不明です:", rpcError);
+      throw new Error("経理追加収支情報の保存結果を確認できませんでした");
     }
     console.error("経理追加収支情報の保存に失敗しました:", rpcError);
     return { error: SAVE_FAILED };
