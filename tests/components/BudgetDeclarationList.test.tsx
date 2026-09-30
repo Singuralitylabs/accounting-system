@@ -11,9 +11,15 @@ const {
   useBudgetDeclarationList,
   useBudgetDeclarationDetail,
   usePreviousBudgetDeclarationItems,
+  useBudgetClosings,
   saveMutation,
   deleteMutation,
+  closeMutation,
+  reopenMutation,
 } = vi.hoisted(() => ({
+  useBudgetClosings: vi.fn(),
+  closeMutation: { mutateAsync: vi.fn(), isPending: false },
+  reopenMutation: { mutateAsync: vi.fn(), isPending: false },
   useBudgetDeclarationList: vi.fn(),
   useBudgetDeclarationDetail: vi.fn(() => ({
     data: undefined,
@@ -36,6 +42,9 @@ vi.mock("@/app/hooks/useBudgetDeclarationData", () => ({
   usePreviousBudgetDeclarationItems,
   useSaveBudgetDeclaration: () => saveMutation,
   useDeleteBudgetDeclaration: () => deleteMutation,
+  useBudgetClosings,
+  useCloseBudgetDeclarationMonth: () => closeMutation,
+  useReopenBudgetDeclarationMonth: () => reopenMutation,
 }));
 
 // Server Action used by BudgetDeclarationForm to auto-insert recurring items. Via "use server" it pulls in
@@ -76,16 +85,41 @@ const row = (
   ...overrides,
 });
 
+const closing = (month: string) => ({
+  month,
+  closedAt: "2026-09-21T10:00:00+09:00",
+  closedByName: "経理太郎",
+});
+
+const setClosings = (
+  closings: ReturnType<typeof closing>[] = [],
+  isUnknown = false,
+  isLoadFailed = false,
+) => {
+  useBudgetClosings.mockReturnValue({
+    closingByMonth: new Map(closings.map((c) => [c.month, c])),
+    isUnknown,
+    isLoadFailed,
+  });
+};
+
 const renderList = (
   rows: BudgetDeclarationStatusType[],
   {
     isPlaceholderData = false,
+    closings = [],
+    closingUnknown = false,
+    closingLoadFailed = false,
     props,
   }: {
     isPlaceholderData?: boolean;
+    closings?: ReturnType<typeof closing>[];
+    closingUnknown?: boolean;
+    closingLoadFailed?: boolean;
     props?: Partial<ComponentProps<typeof BudgetDeclarationList>>;
   } = {},
 ) => {
+  setClosings(closings, closingUnknown, closingLoadFailed);
   useBudgetDeclarationList.mockReturnValue({
     data: rows,
     isLoading: false,
@@ -99,7 +133,7 @@ const renderList = (
       initialMonth="2026-10"
       initialData={null}
       initialDataUpdatedAt={Date.now()}
-      canEditAllTeams
+      profileClass="accounting"
       memberList={[]}
       {...props}
     />,
@@ -252,7 +286,7 @@ describe("BudgetDeclarationList", () => {
         initialMonth="2026-10"
         initialData={null}
         initialDataUpdatedAt={Date.now()}
-        canEditAllTeams
+        profileClass="accounting"
         memberList={[]}
       />,
     );
@@ -273,7 +307,7 @@ describe("BudgetDeclarationList", () => {
         initialMonth="2026-10"
         initialData={null}
         initialDataUpdatedAt={Date.now()}
-        canEditAllTeams
+        profileClass="accounting"
         memberList={[]}
       />,
     );
@@ -323,5 +357,155 @@ describe("BudgetDeclarationList", () => {
       screen.getByRole("button", { name: "リマインド設定" }),
     ).toBeInTheDocument();
     expect(screen.getByText("リマインド無効")).toBeInTheDocument();
+  });
+
+  it("画面上部に全チーム合計（収入・支出・収支）を表示し、テーブルのフッター合計は無い", () => {
+    renderList([
+      row({
+        team: "開発チーム",
+        declarationId: 1,
+        summary: { incomeTotal: 300000, expenseTotal: 100000, balance: 200000 },
+      }),
+      row({
+        team: "広報チーム",
+        declarationId: 2,
+        summary: { incomeTotal: 0, expenseTotal: 500000, balance: -500000 },
+      }),
+    ]);
+
+    expect(screen.getByTestId("budget-total-income")).toHaveTextContent(
+      "300,000",
+    );
+    expect(screen.getByTestId("budget-total-expense")).toHaveTextContent(
+      "600,000",
+    );
+    expect(screen.getByTestId("budget-total-balance")).toHaveTextContent(
+      "300,000",
+    );
+    expect(screen.queryByText("合計")).not.toBeInTheDocument();
+  });
+
+  it("収支がマイナスのときは赤字で表示する", () => {
+    renderList([
+      row({
+        summary: { incomeTotal: 0, expenseTotal: 500000, balance: -500000 },
+      }),
+    ]);
+
+    expect(
+      screen.getByTestId("budget-total-balance").getAttribute("style"),
+    ).toContain("red");
+  });
+
+  it("チームリーダー: 他チーム行は「明細を表示」のみで、編集ボタンは自チーム行だけに出る", () => {
+    renderList(
+      [
+        row({ team: "開発チーム", declarationId: 1 }),
+        row({ team: "広報チーム", declarationId: 2 }),
+      ],
+      { props: { profileClass: "teamleader", profileTeam: "開発チーム" } },
+    );
+
+    expect(screen.getAllByRole("button", { name: "明細を表示" })).toHaveLength(
+      2,
+    );
+    expect(screen.getAllByRole("button", { name: "編集する" })).toHaveLength(1);
+    expect(screen.getByText("閲覧のみ")).toBeInTheDocument();
+  });
+
+  it("確定済みの月は確定情報を表示し、全ロールで編集ボタンを無効化する", () => {
+    renderList([row()], { closings: [closing("2026-10")] });
+
+    expect(screen.getByText("確定済み")).toBeInTheDocument();
+    expect(screen.getByText(/経理太郎/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "編集する" })).toBeDisabled();
+    expect(
+      screen.getAllByText(/確定済みのため、作成・編集・削除できません/).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("未確定の月は確定スイッチを経理・管理者（canCloseMonth）にだけ表示する", () => {
+    renderList([row()], { props: { canCloseMonth: true } });
+    expect(screen.getByRole("switch", { name: "確定済み" })).not.toBeChecked();
+  });
+
+  it("チームリーダー（canCloseMonth=false）には確定スイッチを表示しない", () => {
+    renderList([row()], { closings: [closing("2026-10")] });
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+  });
+
+  it("確定状態を取得できないときは「未確定」と表示せず、警告を出して編集を無効化する", () => {
+    renderList([row()], {
+      closingUnknown: true,
+      closingLoadFailed: true,
+      props: { canCloseMonth: true },
+    });
+
+    expect(
+      screen.getByText("確定状態を取得できませんでした"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("この月は未確定です。")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "編集する" })).toBeDisabled();
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+  });
+
+  it("確定状態の取得中は失敗の警告を出さず「確認中」と表示し、編集は無効のままにする", () => {
+    renderList([row()], {
+      closingUnknown: true,
+      closingLoadFailed: false,
+      props: { canCloseMonth: true },
+    });
+
+    expect(screen.getByText("確定状態を確認中です…")).toBeInTheDocument();
+    expect(
+      screen.queryByText("確定状態を取得できませんでした"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "編集する" })).toBeDisabled();
+  });
+
+  it("所属チーム未設定のチームリーダーには、編集できない理由を案内する", () => {
+    renderList([row()], {
+      props: { profileClass: "teamleader", profileTeam: null },
+    });
+
+    expect(screen.getByText("所属チームが未設定です")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "編集する" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("所属チームのあるチームリーダーには未設定の案内を出さない", () => {
+    renderList([row()], {
+      props: { profileClass: "teamleader", profileTeam: "開発チーム" },
+    });
+
+    expect(
+      screen.queryByText("所属チームが未設定です"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("フォームを開いたまま月が確定されたら、開いているフォームを保存・削除できなくする", () => {
+    const { rerender } = renderList([row()]);
+
+    fireEvent.click(screen.getByRole("button", { name: "編集する" }));
+    expect(
+      screen.queryByText("この月は編集できません"),
+    ).not.toBeInTheDocument();
+
+    setClosings([closing("2026-10")]);
+    rerender(
+      <BudgetDeclarationList
+        initialMonth="2026-10"
+        initialData={null}
+        initialDataUpdatedAt={Date.now()}
+        profileClass="accounting"
+        memberList={[]}
+      />,
+    );
+
+    expect(
+      screen.getByText("この月は編集できません", { exact: false }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
   });
 });

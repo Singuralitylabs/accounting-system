@@ -1318,3 +1318,99 @@ describe("BudgetDeclarationForm", () => {
     });
   });
 });
+
+describe("BudgetDeclarationForm 収入 / 支出の色分け", () => {
+  it("種別ごとに行の背景色が変わり、支出の金額入力は赤字になる", () => {
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: {
+        comment: "",
+        items: ["income", "expense"].map((entry_type, i) => ({
+          id: i + 1,
+          declaration_id: 7,
+          entry_type,
+          category: entry_type === "income" ? "セミナー" : "外注費",
+          description: `${entry_type}の明細`,
+          amount: 1000 * (i + 1),
+          manager_id: null,
+          display_order: i,
+          inserted_at: "",
+          updated_at: "",
+        })),
+      },
+      isLoading: false,
+      isError: false,
+    });
+
+    renderWithMantine(
+      <BudgetDeclarationForm
+        opened
+        onClose={vi.fn()}
+        targetMonth="2026-10"
+        team="開発チーム"
+        declarationId={7}
+        teamLocked={false}
+        memberList={testMemberList}
+      />,
+    );
+
+    const incomeRow = screen.getByDisplayValue("incomeの明細").closest("tr");
+    const expenseRow = screen.getByDisplayValue("expenseの明細").closest("tr");
+    // Mantine's `bg` prop is emitted as a `background` shorthand in the inline style.
+    expect(incomeRow?.getAttribute("style")).toContain("blue-light");
+    expect(expenseRow?.getAttribute("style")).toContain("red-light");
+  });
+});
+
+describe("BudgetDeclarationForm 確定月のロック", () => {
+  it("locked のとき（確定済み・確定状態不明）は保存と削除を無効化し、理由を表示する", () => {
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: { comment: "", items: [] },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+    });
+
+    renderWithMantine(
+      <BudgetDeclarationForm
+        opened
+        onClose={vi.fn()}
+        targetMonth="2026-10"
+        team="開発チーム"
+        declarationId={7}
+        teamLocked={false}
+        memberList={testMemberList}
+        locked
+      />,
+    );
+
+    expect(screen.getByText("この月は編集できません")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "削除" })).toBeDisabled();
+  });
+
+  it("locked でなければ警告は出ず、保存できる", () => {
+    useBudgetDeclarationDetail.mockReturnValue({
+      data: { comment: "", items: [] },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+    });
+
+    renderWithMantine(
+      <BudgetDeclarationForm
+        opened
+        onClose={vi.fn()}
+        targetMonth="2026-10"
+        team="開発チーム"
+        declarationId={7}
+        teamLocked={false}
+        memberList={testMemberList}
+      />,
+    );
+
+    expect(
+      screen.queryByText("この月は編集できません"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存" })).not.toBeDisabled();
+  });
+});

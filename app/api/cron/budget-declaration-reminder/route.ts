@@ -13,6 +13,7 @@ import {
   getBudgetDeclarationReminderTargetDays,
   getDeclaredBudgetTeams,
   getTeamLeaderSlackContacts,
+  isBudgetMonthClosed,
 } from "@/app/utils/supabase/budgetDeclarationReminderData";
 
 // Runs only from Vercel Cron; force-dynamic disables caching (matches app/layout.tsx).
@@ -42,13 +43,20 @@ export async function GET(request: NextRequest) {
 
   const targetMonth = defaultTargetMonth(now);
 
-  const [teamsResult, declaredResult] = await Promise.all([
+  const [closedResult, teamsResult, declaredResult] = await Promise.all([
+    isBudgetMonthClosed(toFirstOfMonth(targetMonth)),
     getActiveBudgetTeams(),
     getDeclaredBudgetTeams(toFirstOfMonth(targetMonth)),
   ]);
 
   if (teamsResult.error || declaredResult.error) {
     return NextResponse.json({ error: "internal-error" }, { status: 500 });
+  }
+  // Fail-open on the closing lookup (already logged): a needless reminder for a closed month is
+  // harmless, while failing here would suppress the whole day's reminders over a side table.
+  // No reminder for a closed month: nobody can declare any more.
+  if (!closedResult.error && closedResult.closed) {
+    return NextResponse.json({ skipped: true, reason: "month-closed" });
   }
 
   const undeclaredTeams = undeclaredBudgetTeams(

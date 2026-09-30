@@ -95,11 +95,15 @@ PostgreSQL（Supabase）/ スキーマ `public`（補助関数は `private`）�
 
 ### 3.9 budget_declarations テーブル
 
-事前収支申告のヘッダ。チームリーダーが翌月のチーム収支を申告する。`(target_month, team)` が UNIQUE（1 チーム × 1 対象月 = 1 行）。合計金額は非正規化せず明細から集計する。`declared_by` は最終更新者（表示・監査補助用。5.8 参照）。
+事前収支申告のヘッダ。チームリーダーが翌月のチーム収支を申告する。`(target_month, team)` が UNIQUE（1 チーム × 1 対象月 = 1 行）。合計金額は非正規化せず明細から集計する。`declared_by` は最終更新者（表示・監査補助用。5.8 参照）。確定済みの月（3.10a）のヘッダは書き込めない。
 
 ### 3.10 budget_declaration_items テーブル
 
 事前収支申告の明細（declaration_id への FK、ヘッダ削除時 CASCADE）。`amount` は正の値のみ、`manager_id` は任意（NULL 可）。
+
+### 3.10a budget_declaration_closings テーブル
+
+事前収支申告の月次確定。1 ヶ月 1 行（`target_month` は月初日で UNIQUE）で、行があればその月は確定済みで、全チームの申告（ヘッダ・明細）を作成・編集・削除できない。確定解除は行の削除。損益計算書の月次収支確定（3.15）とは独立で連動しない。`closed_by_name` は確定時点の氏名（profiles の RLS でチームリーダーが経理担当者の氏名を読めないため）。
 
 ### 3.11 budget_declaration_reminder_settings テーブル
 
@@ -237,10 +241,14 @@ recurring_costs と同じ方針（書き込みは経理・管理者のみ。SELE
 
 ### 5.8 budget_declarations テーブル
 
-recurring_costs / extra_entries と異なり、**チームリーダーに自チーム分の書き込みを許可する**（自分で入力するため）。経理・管理者は全行、チームリーダーは自チームの行のみ SELECT / INSERT / UPDATE / DELETE でき、public は不可。UPDATE は WITH CHECK でも team を制約し他チームへの付け替えを防ぐ。
+recurring_costs / extra_entries と異なり、**チームリーダーに自チーム分の書き込みを許可する**（自分で入力するため）。SELECT は経理・管理者・チームリーダーの**全チーム**に許可する（他チームとの比較・全体把握のため。migration 38）。INSERT / UPDATE / DELETE は経理・管理者は全行、チームリーダーは自チームの行のみで、public は全操作不可。UPDATE は WITH CHECK でも team を制約し他チームへの付け替えを防ぐ。
+
+#### 確定月の編集ロックと直列化（migration 38）
+
+書き込みポリシー（ヘッダ・明細の INSERT / UPDATE / DELETE）に `NOT private.is_budget_month_closed(target_month)` を加え、確定済みの月は全ロールで拒否する。RLS だけでは確定のコミットをまたいだ書き込みを防げないため、月単位の advisory lock（`private.lock_budget_month`。ロッククラス 222）で直列化する。書き込みトリガー（`guard_budget_closed_month_*`）と `save_budget_declaration` は共有ロックを取って確定済みを再確認し、確定（`budget_declaration_closings` の BEFORE INSERT トリガー）は排他ロックを取る。確定済みの月への書き込みは `MONTH_CLOSED`（SQLSTATE 42501）。削除は RLS の USING が確定月の行を隠して 0 行（エラーなし）になり「確定月」と「削除済み」を区別できないため、`delete_budget_declaration(p_declaration_id, p_team)`（SECURITY INVOKER。共有ロック → 確定判定 → DELETE、削除した行の id を返す。0 行 = 対象なし or 権限なし）を経由する。RLS が適用されない実行者（postgres / service_role）はトリガーの対象外。参考実装は損益計算書の月次収支確定（5.14。ロッククラス 148）。
 
 - 判定は `public.can_access_team_budget(text)`（`auth_user_class()` / `auth_user_team()` を呼ぶ）に切り出している。ヘッダ・明細で 10 箇所必要なため、逐語コピーだと将来ロール条件を変えたとき 1 箇所直し忘れて古いルールが残る（エラーにならない）RLS バグを踏みやすい。行ごとに評価されるが行数は小さいため許容している。
-- アプリ側にも同じ区分がある（`app/utils/budgetDeclaration.ts` の `BUDGET_ALL_TEAMS_CLASSES` / `BUDGET_OWN_TEAM_ONLY_CLASSES`。未申告チームを一覧に並べる必要があるため）。ロール条件を変えるときは **DB とアプリの両方**を直す（アプリ側は `ROUTE_PERMISSIONS["/budget-declarations"]` から導出しており、許可ロールの追加には自動追随する）。
+- アプリ側にも同じ区分がある（`app/utils/budgetDeclaration.ts` の `BUDGET_WRITE_ALL_TEAMS_CLASSES` / `BUDGET_OWN_TEAM_ONLY_CLASSES`。書き込み可否の判定 `canWriteBudgetTeam` のため。閲覧は全チームなので区分は不要）。ロール条件を変えるときは **DB とアプリの両方**を直す（アプリ側は `ROUTE_PERMISSIONS["/budget-declarations"]` から導出しており、許可ロールの追加には自動追随する）。
 
 #### declared_by の扱い（DB が保証する範囲）
 
@@ -248,13 +256,13 @@ INSERT の WITH CHECK に限り、チームリーダーには `declared_by` = �
 
 ### 5.9 budget_declaration_items テーブル
 
-親ヘッダへの EXISTS で 5.8 と同じ条件（`can_access_team_budget(d.team)`）を課す。4 コマンドの条件が同一なので `FOR ALL` 1 本（USING / WITH CHECK 両方。`declaration_id` の書き換えによる他チームへの付け替えを防ぐ）。
+SELECT は 5.8 と同じく経理・管理者・チームリーダーの全チームに許可する。書き込み（INSERT / UPDATE / DELETE）は親ヘッダへの EXISTS で 5.8 と同じ条件（`can_access_team_budget(d.team)` かつ確定月でないこと）を課す。SELECT が書き込みより広くなったため、以前の `FOR ALL` 1 本からコマンド別のポリシーに分けた（UPDATE / INSERT は WITH CHECK でも同条件を課し、`declaration_id` の書き換えによる他チームへの付け替えを防ぐ）。
 
 #### 申告の原子的な保存（`save_budget_declaration`）
 
 `saveBudgetDeclaration()`（`app/utils/supabase/budgetDeclarations.ts`）はこの関数を 1 回呼ぶだけで、ヘッダの作成/更新と明細の全削除・全登録を 1 トランザクションで行う（以前は別々の呼び出しで、全削除後の INSERT 失敗で明細が失われる不具合があった）。明細は「差し替え」方式（フォームの配列が最終形のため diff 追跡は不要）。
 
-- SECURITY INVOKER。書き込み可否は 5.8 / 5.9 の RLS がそのまま適用される。
+- SECURITY INVOKER。書き込み可否は 5.8 / 5.9 の RLS がそのまま適用される。対象月が確定済みなら先頭で `MONTH_CLOSED`（SQLSTATE 42501）を返し（共有ロックを取ってから判定）、RLS の汎用エラーと区別できる。
 - `declared_by` はクライアントから受け取らず `auth.uid()` から解決する。UPDATE 経路は RLS が `declared_by` を見ないため、なりすまし防止はこの関数内だけで担保している。
 - `p_declaration_id` 指定時は `team` / `target_month` も一致する行のみ更新し、該当なしは `DECLARATION_NOT_FOUND`（SQLSTATE P0002）。
 - 存在しない `manager_id` は FK 違反（23503）で全体ロールバックされる（アプリは事前に `assertManagerIdsExist()` で確認）。

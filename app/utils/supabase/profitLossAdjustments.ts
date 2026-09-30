@@ -5,6 +5,7 @@ import { PL_ADJUSTMENT_WRITE_CLASSES } from "../permissions";
 import { toFirstOfMonth } from "../formatter";
 import { CLOSED_MONTH_LOCK_MESSAGE } from "../profitLossClosing";
 import { createServerSupabase } from "./clients";
+import { isMonthClosedError } from "./errorCodes";
 import { getAuthorizedViewer } from "./viewerAccess";
 
 export type SaveProfitLossAdjustmentResult =
@@ -48,7 +49,7 @@ export const saveProfitLossAdjustment = async (
     // empty); the client validates too, so this guards direct calls.
     // Closed months return MONTH_CLOSED (also RLS-rejected); a month closed mid-save also yields
     // MONTH_CLOSED from the write trigger.
-    if (rpcError.message.includes("MONTH_CLOSED")) {
+    if (isMonthClosedError(rpcError)) {
       return {
         error: { kind: "validationFailed", message: CLOSED_MONTH_LOCK_MESSAGE },
       };
@@ -99,7 +100,7 @@ export const deleteProfitLossAdjustment = async (
     .eq("id", adjustmentId)
     .select("id");
 
-  if (deleteError?.message.includes("MONTH_CLOSED")) {
+  if (isMonthClosedError(deleteError)) {
     return {
       error: { kind: "validationFailed", message: CLOSED_MONTH_LOCK_MESSAGE },
     };

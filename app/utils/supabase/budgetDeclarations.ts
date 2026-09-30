@@ -13,10 +13,9 @@ import {
   BudgetDeclarationWithItems,
   addMonths,
   buildBudgetDeclarationStatusList,
-  canViewAllBudgetTeams,
+  BUDGET_MONTH_CLOSED_MESSAGE,
   canWriteBudgetTeam,
   ownBudgetTeams,
-  visibleBudgetTeams,
 } from "../budgetDeclaration";
 import {
   DUPLICATE_DECLARATION_MESSAGE,
@@ -26,8 +25,12 @@ import {
 } from "../budgetDeclarationValidation";
 import { toFirstOfMonth } from "../formatter";
 import { createServerSupabase } from "./clients";
-import { FOREIGN_KEY_VIOLATION, NO_DATA_FOUND } from "./errorCodes";
-import { assertManagerIdsExist } from "./profiles";
+import {
+  FOREIGN_KEY_VIOLATION,
+  NO_DATA_FOUND,
+  isMonthClosedError,
+} from "./errorCodes";
+import { assertManagerIdsExist, getMemberOptions } from "./profiles";
 import { getSelectOptions } from "./selectOptions";
 import { getActiveSelectOptionsByType } from "./selectOptionsCache";
 import { getAuthorizedViewer } from "./viewerAccess";
@@ -41,11 +44,12 @@ const DECLARATION_LIST_SELECT = `
   id,
   team,
   updated_at,
+  declared_by,
   profiles!budget_declarations_declared_by_fkey (name),
   budget_declaration_items (entry_type, amount)
 `;
 
-// RLS bounds visible rows, but showing "not declared" needs the team master filtered the same way.
+// Every role that can open the page reads all teams; writing is restricted separately (canWriteBudgetTeam).
 export const getBudgetDeclarationList = async (
   month: string,
 ): Promise<BudgetDeclarationListResult> => {
@@ -60,40 +64,16 @@ export const getBudgetDeclarationList = async (
   const supabase = createServerSupabase();
   const targetMonth = toFirstOfMonth(month);
 
-  // Only all-team roles need the master; a teamleader has one team, so skip the fetch and the
-  // per-row profiles lookup in can_access_team_budget.
-  if (!canViewAllBudgetTeams(profileInfo.class)) {
-    const teams = ownBudgetTeams(profileInfo.class, profileInfo.team);
-    if (teams.length === 0) {
-      // Teamleader without a team: a query would return 0 rows anyway.
-      return { rows: [] };
-    }
-
-    const { data, error } = await supabase
-      .from("budget_declarations")
-      .select(DECLARATION_LIST_SELECT)
-      .eq("target_month", targetMonth)
-      .in("team", teams);
-
-    if (error) {
-      console.error("事前収支申告一覧の取得に失敗しました:", error);
-      return {
-        error: { kind: "fetchFailed", message: `${SUBJECT}の取得に失敗しました。` },
-      };
-    }
-
-    return { rows: buildBudgetDeclarationStatusList(teams, toDeclarations(data)) };
-  }
-
-  // No team filter for all-team roles, so declarations of teams removed from the master (kept by
+  // No team filter (every viewer reads all teams, migration 38), so declarations of teams removed from the master (kept by
   // buildBudgetDeclarationStatusList) are not dropped.
-  const [teamResult, declarationResult] = await Promise.all([
+  const [teamResult, declarationResult, memberNames] = await Promise.all([
     getSelectOptions("team"),
     supabase
       .from("budget_declarations")
       .select(DECLARATION_LIST_SELECT)
       .eq("target_month", targetMonth)
       .order("team", { ascending: true }),
+    fetchMemberNames(),
   ]);
 
   if (teamResult.error || declarationResult.error) {
@@ -106,21 +86,24 @@ export const getBudgetDeclarationList = async (
     };
   }
 
-  const teams = visibleBudgetTeams(
-    profileInfo.class,
-    profileInfo.team,
-    teamResult.options.map((option) => option.value),
-  );
+  // A teamleader whose team was disabled/renamed in the master must still get a row for their own
+  // team, or they could never declare it (RLS still allows the write).
+  const teams = teamResult.options.map((option) => option.value);
+  for (const ownTeam of ownBudgetTeams(profileInfo.class, profileInfo.team)) {
+    if (!teams.includes(ownTeam)) {
+      teams.push(ownTeam);
+    }
+  }
 
   return {
     rows: buildBudgetDeclarationStatusList(
       teams,
-      toDeclarations(declarationResult.data),
+      toDeclarations(declarationResult.data, memberNames),
     ),
   };
 };
 
-// Fetched by declaration ID (one round trip). Line visibility is via parent-header RLS (migration 19).
+// Fetched by declaration ID (one round trip). Any viewer may read any team's lines (SELECT policies, migration 38).
 export const getBudgetDeclarationDetail = async (
   declarationId: number,
 ): Promise<BudgetDeclarationDetailResult> => {
@@ -134,15 +117,19 @@ export const getBudgetDeclarationDetail = async (
 
   const supabase = createServerSupabase();
 
-  // No inner join on manager_id's profiles either: an unreadable profile would drop the line (managerName becomes null).
-  const { data, error } = await supabase
-    .from("budget_declarations")
-    .select(
-      "comment, budget_declaration_items (*, profiles!budget_declaration_items_manager_id_fkey (name))",
-    )
-    .eq("id", declarationId)
-    // maybeSingle so 0 rows (including RLS-hidden) is not an error.
-    .maybeSingle();
+  // No inner join on manager_id's profiles either: an unreadable profile would drop the line. The
+  // join name is filled from the member list when RLS hides it (other teams, for a teamleader).
+  const [{ data, error }, memberNames] = await Promise.all([
+    supabase
+      .from("budget_declarations")
+      .select(
+        "comment, budget_declaration_items (*, profiles!budget_declaration_items_manager_id_fkey (name))",
+      )
+      .eq("id", declarationId)
+      // maybeSingle so 0 rows (including RLS-hidden) is not an error.
+      .maybeSingle(),
+    fetchMemberNames(),
+  ]);
 
   if (error) {
     console.error("事前収支申告の明細取得に失敗しました:", error);
@@ -163,7 +150,11 @@ export const getBudgetDeclarationDetail = async (
         .sort((a, b) => a.display_order - b.display_order || a.id - b.id)
         .map(({ profiles, ...item }) => ({
           ...item,
-          managerName: profiles?.name ?? null,
+          managerName:
+            profiles?.name ??
+            (item.manager_id === null
+              ? null
+              : (memberNames.get(item.manager_id) ?? null)),
         })),
     },
   };
@@ -171,7 +162,6 @@ export const getBudgetDeclarationDetail = async (
 
 // For "copy previous month's lines". items: null when there is no previous declaration at all
 // (distinct from a declaration with 0 lines, and from a fetch failure) to drive the copy button.
-// A teamleader reads only their own team's rows (other teams yield 0 rows via RLS -> null).
 export const getPreviousBudgetDeclarationItems = async (
   targetMonth: string,
   team: string,
@@ -342,6 +332,13 @@ export const saveBudgetDeclaration = async (
 
   if (rpcError) {
     console.error(`${SUBJECT}の保存に失敗しました:`, rpcError);
+    // save_budget_declaration raises MONTH_CLOSED (SQLSTATE 42501) for a closed month (migration 38);
+    // a plain RLS denial is also 42501, hence the message check.
+    if (isMonthClosedError(rpcError)) {
+      return {
+        error: { kind: "validationFailed", message: BUDGET_MONTH_CLOSED_MESSAGE },
+      };
+    }
     if (isDuplicateDeclarationError(rpcError)) {
       return {
         error: { kind: "duplicate", message: DUPLICATE_DECLARATION_MESSAGE },
@@ -406,17 +403,22 @@ export const deleteBudgetDeclaration = async (
 
   const supabase = createServerSupabase();
 
-  // Without .select() no deleted rows return, so RLS filtering to 0 rows would look like success
-  // (same as matters.ts). Also filtered by team so a mismatched id cannot delete another team's declaration.
-  const { data, error } = await supabase
-    .from("budget_declarations")
-    .delete()
-    .eq("id", declarationId)
-    .eq("team", team)
-    .select();
+  // Runs through delete_budget_declaration (migration 38): it takes the shared month lock and returns
+  // MONTH_CLOSED for a closed month. RLS-filtered rows come back as 0 rows (no error), which is
+  // checked below (same reason as matters.ts). The team filter keeps a mismatched id from deleting
+  // another team's declaration.
+  const { data, error } = await supabase.rpc("delete_budget_declaration", {
+    p_declaration_id: declarationId,
+    p_team: team,
+  });
 
   if (error) {
     console.error(`${SUBJECT}の削除に失敗しました:`, error);
+    if (isMonthClosedError(error)) {
+      return {
+        error: { kind: "validationFailed", message: BUDGET_MONTH_CLOSED_MESSAGE },
+      };
+    }
     return {
       error: { kind: "fetchFailed", message: `${SUBJECT}の削除に失敗しました。` },
     };
@@ -437,21 +439,36 @@ export const deleteBudgetDeclaration = async (
   return {};
 };
 
+// id -> name for every member via get_member_options (SECURITY DEFINER). A direct profiles read is
+// limited to the own team for a teamleader (RLS), which would show other teams' declarers / managers
+// as "-". Auxiliary: on failure return an empty map (names fall back to the RLS-limited join).
+const fetchMemberNames = async (): Promise<Map<number, string>> => {
+  const { memberOptions, error } = await getMemberOptions();
+  if (error) {
+    console.error(`${SUBJECT}の担当者名の取得に失敗しました:`, error);
+    return new Map();
+  }
+  return new Map((memberOptions ?? []).map((member) => [member.id, member.name]));
+};
+
 type DeclarationListRow = {
   id: number;
   team: string;
   updated_at: string | null;
+  declared_by: number;
   profiles: { name: string | null } | null;
   budget_declaration_items: { entry_type: string; amount: number }[] | null;
 };
 
 const toDeclarations = (
   rows: DeclarationListRow[] | null,
+  memberNames: ReadonlyMap<number, string>,
 ): BudgetDeclarationWithItems[] =>
   (rows ?? []).map((row) => ({
     id: row.id,
     team: row.team,
     updated_at: row.updated_at,
-    declared_by_name: row.profiles?.name ?? null,
+    declared_by_name:
+      row.profiles?.name ?? memberNames.get(row.declared_by) ?? null,
     items: row.budget_declaration_items ?? [],
   }));

@@ -106,3 +106,23 @@ export const getTeamLeaderSlackContacts = async (
 
   return { contacts, error: null };
 };
+
+// Closed months get no reminder (nobody can declare any more). Service role bypasses RLS.
+export const isBudgetMonthClosed = async (
+  targetMonth: string,
+): Promise<{ closed: boolean; error: unknown }> => {
+  const supabase = createServiceRoleSupabase();
+
+  const { data, error } = await supabase
+    .from("budget_declaration_closings")
+    .select("id")
+    .eq("target_month", targetMonth)
+    .maybeSingle();
+
+  if (error) {
+    console.error("事前収支申告リマインドの確定状態取得に失敗しました:", error);
+    return { closed: false, error };
+  }
+
+  return { closed: !!data, error: null };
+};
