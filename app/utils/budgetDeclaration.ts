@@ -1,7 +1,6 @@
 // Pure aggregation and target-month logic for budget declarations, separate from the
 // "use server" Supabase access so it can be unit-tested.
 
-import type { CSSProperties } from "react";
 import {
   AccessFailure,
   AccessFailureKind,
@@ -85,14 +84,13 @@ export const canWriteBudgetTeam = (
   canWriteAllBudgetTeams(profileClass) ||
   ownBudgetTeams(profileClass, profileTeam).includes(targetTeam);
 
-// Row background per entry type. The `-light` variables are translucent and theme-aware, so income /
-// expense stay distinguishable in both light and dark color schemes.
-export const budgetEntryRowStyle = (entryType: string): CSSProperties => ({
-  backgroundColor:
-    entryType === "expense"
-      ? "var(--mantine-color-red-light)"
-      : "var(--mantine-color-blue-light)",
-});
+// Row background per entry type (for the `bg` prop, as in AccountingTablebody). The `-light`
+// variables are translucent and theme-aware, so income / expense stay distinguishable in both light
+// and dark color schemes.
+export const budgetEntryRowBg = (entryType: string): string =>
+  entryType === "expense"
+    ? "var(--mantine-color-red-light)"
+    : "var(--mantine-color-blue-light)";
 
 // Expense amounts are shown in red (income keeps the default color).
 export const budgetAmountColor = (entryType: string): string | undefined =>

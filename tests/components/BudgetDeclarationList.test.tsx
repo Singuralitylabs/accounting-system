@@ -462,4 +462,25 @@ describe("BudgetDeclarationList", () => {
     ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "編集する" })).toBeDisabled();
   });
+
+  it("所属チーム未設定のチームリーダーには、編集できない理由を案内する", () => {
+    renderList([row()], {
+      props: { profileClass: "teamleader", profileTeam: null },
+    });
+
+    expect(screen.getByText("所属チームが未設定です")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "編集する" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("所属チームのあるチームリーダーには未設定の案内を出さない", () => {
+    renderList([row()], {
+      props: { profileClass: "teamleader", profileTeam: "開発チーム" },
+    });
+
+    expect(
+      screen.queryByText("所属チームが未設定です"),
+    ).not.toBeInTheDocument();
+  });
 });

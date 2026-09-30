@@ -205,6 +205,12 @@ const BudgetDeclarationList = ({
         )}
       </Paper>
 
+      {profileClass === "teamleader" && !profileTeam && (
+        <Alert color="yellow" className="mb-4" title="所属チームが未設定です">
+          所属チームが設定されていないため、申告の作成・編集はできません（全チームの閲覧のみ）。管理者にお問い合わせください。
+        </Alert>
+      )}
+
       {isError ? (
         // Insufficient permission is not fixed by reloading; use a separate message.
         <Alert

@@ -10,7 +10,7 @@ import { isMonthKey, toFirstOfMonth } from "../formatter";
 import { BUDGET_CLOSING_WRITE_CLASSES } from "../permissions";
 import { createServerSupabase } from "./clients";
 import { UNIQUE_VIOLATION } from "./errorCodes";
-import { getAuthorizedViewer } from "./viewerAccess";
+import { ViewerAccessResult, getAuthorizedViewer } from "./viewerAccess";
 
 const SUBJECT = "事前収支申告の月次確定";
 
@@ -46,20 +46,25 @@ export const getBudgetDeclarationClosings =
     return { closings };
   };
 
-// Closes the month for all teams. The DB (RLS + advisory lock) is the authority; the class check
-// here only gives a clearer message. An already-closed month hits the UNIQUE constraint.
-export const closeBudgetDeclarationMonth = async (
+// Shared pre-check for close / reopen: month format, then accounting / admin only.
+const authorizeClosingWrite = async (
   month: string,
-): Promise<BudgetClosingWriteResult> => {
+  subject: string,
+): Promise<ViewerAccessResult> => {
   if (!isMonthKey(month)) {
     return {
       error: { kind: "validationFailed", message: "対象月の形式が不正です。" },
     };
   }
-  const { profileInfo, error } = await getAuthorizedViewer(
-    BUDGET_CLOSING_WRITE_CLASSES,
-    SUBJECT,
-  );
+  return getAuthorizedViewer(BUDGET_CLOSING_WRITE_CLASSES, subject);
+};
+
+// Closes the month for all teams. The DB (RLS + advisory lock) is the authority; the class check
+// here only gives a clearer message. An already-closed month hits the UNIQUE constraint.
+export const closeBudgetDeclarationMonth = async (
+  month: string,
+): Promise<BudgetClosingWriteResult> => {
+  const { profileInfo, error } = await authorizeClosingWrite(month, SUBJECT);
   if (!profileInfo) {
     return { error };
   }
@@ -93,13 +98,8 @@ export const closeBudgetDeclarationMonth = async (
 export const reopenBudgetDeclarationMonth = async (
   month: string,
 ): Promise<BudgetClosingWriteResult> => {
-  if (!isMonthKey(month)) {
-    return {
-      error: { kind: "validationFailed", message: "対象月の形式が不正です。" },
-    };
-  }
-  const { profileInfo, error } = await getAuthorizedViewer(
-    BUDGET_CLOSING_WRITE_CLASSES,
+  const { profileInfo, error } = await authorizeClosingWrite(
+    month,
     "事前収支申告の確定解除",
   );
   if (!profileInfo) {

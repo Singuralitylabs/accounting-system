@@ -6,7 +6,7 @@ import {
   BudgetDeclarationWithItems,
   buildBudgetDeclarationStatusList,
   budgetAmountColor,
-  budgetEntryRowStyle,
+  budgetEntryRowBg,
   canWriteAllBudgetTeams,
   canWriteBudgetTeam,
   categoryOptionsFor,
@@ -98,11 +98,9 @@ describe("canWriteAllBudgetTeams", () => {
   });
 });
 
-describe("budgetEntryRowStyle / budgetAmountColor", () => {
+describe("budgetEntryRowBg / budgetAmountColor", () => {
   it("収入と支出で行の背景色が異なる", () => {
-    expect(budgetEntryRowStyle("income").backgroundColor).not.toBe(
-      budgetEntryRowStyle("expense").backgroundColor,
-    );
+    expect(budgetEntryRowBg("income")).not.toBe(budgetEntryRowBg("expense"));
   });
 
   it("支出の金額のみ赤字にする", () => {

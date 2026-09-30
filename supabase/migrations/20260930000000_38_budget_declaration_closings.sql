@@ -107,6 +107,13 @@ LANGUAGE plpgsql
 SET search_path = ''
 AS $$
 BEGIN
+  -- This trigger runs before the RLS WITH CHECK. Skip the exclusive lock for callers RLS will reject
+  -- anyway, or a teamleader / public could repeatedly stall a month's declaration writes.
+  IF pg_catalog.row_security_active(TG_RELID)
+     AND coalesce(public.auth_user_class(), '') NOT IN ('admin', 'accounting') THEN
+    RETURN NEW;
+  END IF;
+
   PERFORM private.lock_budget_month(NEW.target_month, true);
   -- The name is displayed as "closed by"; take it from the profile so a direct insert cannot forge it.
   SELECT p.name INTO NEW.closed_by_name FROM public.profiles p WHERE p.id = NEW.closed_by;

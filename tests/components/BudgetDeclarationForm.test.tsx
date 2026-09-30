@@ -1355,9 +1355,8 @@ describe("BudgetDeclarationForm 収入 / 支出の色分け", () => {
 
     const incomeRow = screen.getByDisplayValue("incomeの明細").closest("tr");
     const expenseRow = screen.getByDisplayValue("expenseの明細").closest("tr");
-    expect(incomeRow?.style.backgroundColor).toBeTruthy();
-    expect(incomeRow?.style.backgroundColor).not.toBe(
-      expenseRow?.style.backgroundColor,
-    );
+    // Mantine's `bg` prop is emitted as a `background` shorthand in the inline style.
+    expect(incomeRow?.getAttribute("style")).toContain("blue-light");
+    expect(expenseRow?.getAttribute("style")).toContain("red-light");
   });
 });

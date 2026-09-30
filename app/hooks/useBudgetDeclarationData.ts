@@ -43,14 +43,15 @@ const budgetDeclarationDetailQueryKey = (declarationId: number | null) =>
 const invalidateBudgetDeclarationQueries = (
   queryClient: QueryClient,
   declarationId: number | null,
+  // Only for failed writes: a rejection (e.g. MONTH_CLOSED) means the cached closing state is stale.
+  { includeClosings = false }: { includeClosings?: boolean } = {},
 ) => {
   queryClient.invalidateQueries({
     queryKey: budgetDeclarationListQueryKey,
   });
-  // A write rejected with MONTH_CLOSED means the cached closing state is stale (another user closed
-  // the month); the closings query has no window-focus refetch, so refresh it here or the edit
-  // buttons would stay enabled until a reload.
-  queryClient.invalidateQueries({ queryKey: budgetClosingsQueryKey });
+  if (includeClosings) {
+    queryClient.invalidateQueries({ queryKey: budgetClosingsQueryKey });
+  }
   if (declarationId === null) {
     return;
   }
@@ -154,7 +155,9 @@ export const useSaveBudgetDeclaration = () => {
     onError: (error, variables) => {
       console.error("事前収支申告の保存エラー:", error);
       // The DB function (save_budget_declaration) is one transaction, so no partial writes. But the local cache may already be stale (e.g. another user created the same month/team: duplicate 23505; row deleted: P0002), so always invalidate on failure to avoid a stuck stale UI.
-      invalidateBudgetDeclarationQueries(queryClient, variables.declarationId);
+      invalidateBudgetDeclarationQueries(queryClient, variables.declarationId, {
+        includeClosings: true,
+      });
       notifyError(toErrorMessage(error, "事前収支申告の保存に失敗しました。"));
     },
   });
@@ -189,7 +192,9 @@ export const useDeleteBudgetDeclaration = () => {
     onError: (error, variables) => {
       console.error("事前収支申告の削除エラー:", error);
       // Zero-row deletes error on double click or delete in another tab; cache may be stale either way, so always invalidate (as in useDeleteMatter).
-      invalidateBudgetDeclarationQueries(queryClient, variables.declarationId);
+      invalidateBudgetDeclarationQueries(queryClient, variables.declarationId, {
+        includeClosings: true,
+      });
       notifyError(toErrorMessage(error, "事前収支申告の削除に失敗しました。"));
     },
   });
@@ -211,7 +216,12 @@ export const useBudgetClosings = (
     },
     initialData,
     initialDataUpdatedAt: initialData ? initialDataUpdatedAt : undefined,
+    // The write buttons are disabled in a closed month, so no mutation would ever refresh this for a
+    // viewer who cannot close/reopen (e.g. a teamleader after the accountant reopens). QueryProvider
+    // turns off mount / focus refetching, so opt in here.
     staleTime: 60 * 1000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
     retry: retryUnlessForbidden,
   });
   const closingByMonth = useMemo(

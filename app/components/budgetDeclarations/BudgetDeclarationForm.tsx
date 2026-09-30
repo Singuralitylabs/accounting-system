@@ -31,7 +31,7 @@ import { BudgetDeclarationItemInput } from "@/app/types/types";
 import { confirmAction } from "@/app/utils/confirmAction";
 import {
   budgetAmountColor,
-  budgetEntryRowStyle,
+  budgetEntryRowBg,
   categoryOptionsFor,
   isCategoryUnregistered,
   previousItemsToFormRows,
@@ -440,10 +440,7 @@ const BudgetDeclarationForm = ({
             </Table.Thead>
             <Table.Tbody>
               {items.map((item) => (
-                <Table.Tr
-                  key={item.key}
-                  style={budgetEntryRowStyle(item.entry_type)}
-                >
+                <Table.Tr key={item.key} bg={budgetEntryRowBg(item.entry_type)}>
                   <Table.Td>
                     {item.fromRecurring && (
                       <Tooltip label="定期明細から自動で追加された行です">

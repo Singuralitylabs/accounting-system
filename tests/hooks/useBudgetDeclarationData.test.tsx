@@ -229,6 +229,29 @@ describe("useSaveBudgetDeclaration", () => {
     );
   });
 
+  it("保存に成功したときは確定状態のキャッシュを無効化しない（余分な再取得を避ける）", async () => {
+    queryClient.setQueryData(["budgetDeclarations", "closings"], []);
+    saveBudgetDeclaration.mockResolvedValue({ id: 7 });
+
+    const { result } = renderHook(() => useSaveBudgetDeclaration(), {
+      wrapper,
+    });
+
+    await result.current.mutateAsync({
+      declarationId: null,
+      targetMonth: "2026-10",
+      team: "Aチーム",
+      comment: null,
+      items: [],
+    });
+
+    await waitFor(() => expect(notifySuccess).toHaveBeenCalled());
+    expect(
+      queryClient.getQueryState(["budgetDeclarations", "closings"])
+        ?.isInvalidated,
+    ).toBeFalsy();
+  });
+
   it("確定済みの月への保存が拒否されたら、確定状態のキャッシュも無効化する（画面を開いたまま確定された場合に編集ボタンが残らない）", async () => {
     queryClient.setQueryData(["budgetDeclarations", "closings"], []);
     saveBudgetDeclaration.mockResolvedValue({
