@@ -1,7 +1,7 @@
 -- pgTAP tests for budget declaration completion (completed_at / completed_by, save_budget_declaration p_completed)
 -- Run: supabase test db (local Supabase running; docs/testing.md 3.8)
 BEGIN;
-SELECT plan(18);
+SELECT plan(22);
 
 INSERT INTO auth.users (id, email) VALUES
   ('11111111-1111-1111-1111-111111111111', 'acc@example.com'),
@@ -11,6 +11,25 @@ INSERT INTO public.profiles (user_id, email, name, class, team) VALUES
   ('11111111-1111-1111-1111-111111111111', 'acc@example.com', '経理', 'accounting', NULL),
   ('22222222-2222-2222-2222-222222222222', 'tla@example.com', 'リーダーA', 'teamleader', 'Aチーム'),
   ('33333333-3333-3333-3333-333333333333', 'tlb@example.com', 'リーダーB', 'teamleader', 'Bチーム');
+
+-- ===== new declaration: p_completed on INSERT =====
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333","role":"authenticated"}', true);
+SELECT lives_ok(
+  $$SELECT public.save_budget_declaration(DATE '2026-09-01', 'Bチーム', '[]'::jsonb, NULL, NULL, true)$$,
+  '新規作成と同時に完了にできる（明細 0 件）');
+SELECT is(
+  (SELECT completed_at IS NOT NULL AND completed_by = (SELECT id FROM public.profiles WHERE email = 'tlb@example.com')
+   FROM public.budget_declarations WHERE team = 'Bチーム' AND target_month = DATE '2026-09-01'),
+  true, '新規作成で完了にすると completed_at が設定され completed_by は保存者になる');
+SELECT lives_ok(
+  $$SELECT public.save_budget_declaration(DATE '2026-08-01', 'Bチーム', '[]'::jsonb)$$,
+  'p_completed を省略して新規作成できる');
+SELECT is(
+  (SELECT completed_at IS NULL AND completed_by IS NULL
+   FROM public.budget_declarations WHERE team = 'Bチーム' AND target_month = DATE '2026-08-01'),
+  true, 'p_completed を省略した新規作成は入力中になる');
+RESET ROLE;
 
 -- ===== teamleader A: create in progress, complete, re-save, revert =====
 SET LOCAL ROLE authenticated;

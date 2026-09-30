@@ -264,7 +264,7 @@ SELECT は 5.8 と同じく経理・管理者・チームリーダーの全チ�
 
 - SECURITY INVOKER。書き込み可否は 5.8 / 5.9 の RLS がそのまま適用される。対象月が確定済みなら先頭で `MONTH_CLOSED`（SQLSTATE 42501）を返し（共有ロックを取ってから判定）、RLS の汎用エラーと区別できる。
 - `declared_by` はクライアントから受け取らず `auth.uid()` から解決する。UPDATE 経路は RLS が `declared_by` を見ないため、なりすまし防止はこの関数内だけで担保している。
-- `p_completed`（migration 39）で完了状態を同じトランザクションで更新する。`true` は未完了なら `now()` / 保存者を設定し、**完了済みなら `completed_at` / `completed_by` を保持**、`false` は両方 NULL に戻す、`NULL`（省略）は変更しない。`completed_by` も `declared_by` と同様に `auth.uid()` から解決してクライアントからは受け取らない（UPDATE 経路の RLS は列を見ないため、なりすまし防止はこの関数内で担保）。`completed_at` と `completed_by` は CHECK で同時に NULL / 非 NULL。
+- `p_completed`（migration 39）で完了状態を同じトランザクションで更新する。`true` は未完了なら `now()` / 保存者を設定し、**完了済みなら `completed_at` / `completed_by` を保持**、`false` は両方 NULL に戻す、`NULL`（省略）は変更しない。`completed_by` も `declared_by` と同様に `auth.uid()` から解決してクライアントからは受け取らない。ただし保証は**この関数を経由した場合に限る**: テーブルへの直接の書き込みは RLS が `completed_at` / `completed_by` の値を見ないため、書き込み権限のある利用者が PostgREST から値を設定できる（`declared_by` の UPDATE 経路と同じ制約。改ざん耐性のある監査が必要になった時点でトリガーでの強制を検討する）。`completed_at` と `completed_by` は CHECK で同時に NULL / 非 NULL。
 - `p_declaration_id` 指定時は `team` / `target_month` も一致する行のみ更新し、該当なしは `DECLARATION_NOT_FOUND`（SQLSTATE P0002）。
 - 存在しない `manager_id` は FK 違反（23503）で全体ロールバックされる（アプリは事前に `assertManagerIdsExist()` で確認）。
 - 本番反映は **マイグレーションを先に適用してからアプリをデプロイ**する（新アプリが呼ぶ 6 引数の関数が無いと保存が失敗する）。`p_completed` は `DEFAULT NULL`（変更なし）のため、適用後に旧アプリが動いている間の保存もエラーにならず、完了状態は変わらない。旧 5 引数のシグネチャは DROP 済み。
