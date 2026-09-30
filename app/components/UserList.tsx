@@ -76,10 +76,11 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
   // A row whose role was edited stays in its saved section until the save succeeds (so it does not vanish while editing); baseline moves on save.
   const sections = useMemo(
     () =>
-      groupUsersByRole(
-        rows,
-        (user) => baseline.get(user.id)?.class ?? user.class,
-      ),
+      groupUsersByRole(rows, (user) => {
+        // `has` rather than `??`: a saved null role must stay in the "unset" section while edited.
+        const saved = baseline.get(user.id);
+        return saved ? saved.class : user.class;
+      }),
     [rows, baseline],
   );
   const validationErrors = useMemo(
@@ -244,8 +245,17 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
         </Alert>
       )}
       {sections.map((section) => (
-        <section key={section.key} className="pb-6">
-          <Title order={3} size="h4" className="pb-2">
+        <section
+          key={section.key}
+          className="pb-6"
+          aria-labelledby={`user-section-${section.key}`}
+        >
+          <Title
+            order={3}
+            size="h4"
+            className="pb-2"
+            id={`user-section-${section.key}`}
+          >
             {`${section.label}（${section.users.length} 名）`}
           </Title>
           {!isMobile ? (

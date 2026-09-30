@@ -260,6 +260,8 @@ describe("UserList", () => {
       );
       expect(marked).toBe(true);
       expect(rowOf("リーダー B").className).not.toContain("bg-yellow-50");
+      // Unchanged rows carry no marker or badge.
+      expect(within(rowOf("リーダー B")).queryByText("変更あり")).toBeNull();
     });
 
     it("編集中に権限を変えた行は元のセクションに残り、保存に成功したら新しいセクションへ移る", async () => {
@@ -283,6 +285,22 @@ describe("UserList", () => {
         "teamleader（3 名）",
         "未設定（2 名）",
       ]);
+    });
+
+    it("権限が未設定の行も、権限を選んだだけでは「未設定」セクションに残り、保存に成功したら移る", async () => {
+      renderWithMantine(
+        <UserList userList={mixedUserList} teamList={teamList} />,
+      );
+
+      await selectOption("未設定 花子の権限", "public");
+      expect(headings()).toContain("未設定（2 名）");
+      expect(headings()).toContain("public（1 名）");
+
+      fireEvent.click(saveButton());
+      await waitFor(() => expect(refresh).toHaveBeenCalled());
+
+      expect(headings()).toContain("public（2 名）");
+      expect(headings()).toContain("未設定（1 名）");
     });
 
     it("変更を破棄すると元のセクションのまま戻る", async () => {
