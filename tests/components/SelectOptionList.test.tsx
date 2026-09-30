@@ -73,6 +73,24 @@ describe("SelectOptionList", () => {
     expect(refresh).not.toHaveBeenCalled();
   });
 
+  it("一部だけ保存された（エラーだが保存済みの行がある）場合も refresh して保存済みの選択肢を反映する", async () => {
+    bulkUpsertSelectOptions.mockResolvedValue({
+      insertedIds: [],
+      updatedIds: [1],
+      error: "重複する名称があります。",
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    renderWithMantine(
+      <SelectOptionList optionClass="team" optionList={optionList} />,
+    );
+
+    editOption();
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(notifyError).toHaveBeenCalled());
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
   it("確認ダイアログでキャンセルした場合は保存も refresh もしない", async () => {
     confirmAction.mockResolvedValue(false);
     renderWithMantine(
@@ -275,7 +293,7 @@ describe("SelectOptionList", () => {
       expect(notifyError).toHaveBeenCalledWith(
         "チーム情報の保存に失敗しました。項目の追加に失敗しました。一部の項目は保存済みです。",
       );
-      expect(refresh).not.toHaveBeenCalled();
+      expect(refresh).toHaveBeenCalledTimes(1);
       expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
 
       fireEvent.click(screen.getByRole("button", { name: "保存" }));

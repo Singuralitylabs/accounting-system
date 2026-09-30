@@ -55,7 +55,14 @@ vi.mock("@/app/hooks/useExtraEntryData", () => ({
   }),
   useExtraEntrySuggestions: () => ({ data: suggestionsState.value }),
   useUpsertExtraEntry: () => ({ mutateAsync, isPending: false }),
-  ExtraEntryValidationError: class extends Error {},
+  ExtraEntryValidationError: class extends Error {
+    constructor(
+      message: string,
+      readonly staleList = false,
+    ) {
+      super(message);
+    }
+  },
 }));
 vi.mock("@/app/hooks/useClosedMonths", () => ({
   useClosedMonths: () => ({
@@ -452,6 +459,31 @@ describe(
       expect(screen.getByRole("button", { name: "保存" })).toHaveProperty(
         "disabled",
         false,
+      );
+    });
+
+    it("競合（staleList）で保存が拒否されたときは、結果不明と同じ再取得待ちに入り編集を止める", async () => {
+      const { ExtraEntryValidationError } =
+        await import("@/app/hooks/useExtraEntryData");
+      // The real hook invalidates the list on a conflict.
+      mutateAsync.mockImplementationOnce(async () => {
+        extraEntryListOverrides.value = { isInvalidated: true };
+        throw new ExtraEntryValidationError("他の利用者に変更されました", true);
+      });
+      renderList([entry({ id: 2, description: "9月協賛" })]);
+      fireEvent.change(screen.getByDisplayValue("9月協賛"), {
+        target: { value: "9月協賛（修正）" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
+      await vi.waitFor(() =>
+        expect(notifyError).toHaveBeenCalledWith("他の利用者に変更されました"),
+      );
+
+      await vi.waitFor(() =>
+        expect(screen.getByRole("button", { name: "保存" })).toHaveProperty(
+          "disabled",
+          true,
+        ),
       );
     });
 

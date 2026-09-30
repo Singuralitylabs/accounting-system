@@ -119,6 +119,7 @@ describe("bulkUpsertExtraEntry（確定済みの月の編集ロック・1 トラ
     ]);
     expect(result.error?.kind).toBe("validationFailed");
     expect(result.error?.message).toContain("他の利用者に削除された行");
+    expect(result.staleList).toBe(true);
     expect(result.error?.message).toContain("経理追加2");
     expect(calls).toEqual([]);
   });
@@ -155,13 +156,24 @@ describe("bulkUpsertExtraEntry（確定済みの月の編集ロック・1 トラ
       ]);
       expect(result.error?.kind).toBe("validationFailed");
       expect(result.error?.message).toContain("何も保存しませんでした");
+      expect(result.staleList).toBe(true);
     }
-    setup([], [september], { message: "boom" });
+    setup([], [september], { message: "boom", code: "XX000" });
     const failed = await bulkUpsertExtraEntry([
       row({ ...september, billing_amount: 1 }),
     ]);
     expect(failed.error?.kind).toBe("fetchFailed");
     expect(failed.error?.message).toContain("何も保存されていません");
+    expect(failed.staleList).toBeUndefined();
+  });
+
+  it("通信失敗（code が空の error）は「何も保存されていません」と断定せず、結果不明として throw する", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const september = saved(2, "2026-09-10");
+    setup([], [september], { message: "TypeError: fetch failed", code: "" });
+    await expect(
+      bulkUpsertExtraEntry([row({ ...september, billing_amount: 1 })]),
+    ).rejects.toThrow("結果を確認できませんでした");
   });
 
   it("確定済みの月の行を変更・削除・確定済みの月へ移動しようとすると、何も書き込まずにエラーを返す", async () => {
