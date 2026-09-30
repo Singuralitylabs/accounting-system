@@ -2,6 +2,7 @@ import { Badge, Select, Stack, Text, TextInput } from "@mantine/core";
 import { ProfilesType } from "../types/types";
 import { UserValidationErrors } from "../utils/userList";
 import { ROLES } from "@/app/utils/permissions";
+import { CHANGED_ROW_MARK_COLOR } from "../utils/userListGroup";
 import { teamOptionsFor } from "./UserList";
 
 type Props = {
@@ -9,6 +10,8 @@ type Props = {
   teamList: string[];
   // Whether role/team/Slack ID changed since load (highlights the card).
   isChanged: boolean;
+  // Card background by team (undefined = no color).
+  teamColor?: string;
   // Validation errors before save (passed only after a save attempt).
   errors?: UserValidationErrors;
   disabled?: boolean;
@@ -19,6 +22,7 @@ const UserCard = ({
   userInfo,
   teamList,
   isChanged,
+  teamColor,
   errors,
   disabled = false,
   onUpdateUserList,
@@ -26,7 +30,11 @@ const UserCard = ({
   return (
     <div
       data-changed={isChanged || undefined}
-      className={`py-4 border-b border-gray-200 ${isChanged ? "bg-yellow-50" : ""}`}
+      className="py-4 pl-3 border-b border-gray-200 border-l-4"
+      style={{
+        backgroundColor: teamColor,
+        borderLeftColor: isChanged ? CHANGED_ROW_MARK_COLOR : "transparent",
+      }}
     >
       <Stack>
         <div>
