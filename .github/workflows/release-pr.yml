@@ -545,6 +545,11 @@ jobs:
             # shellcheck disable=SC2016 # backticks are Markdown code, not to be expanded
             CHECKLIST_ITEMS="$CHECKLIST_ITEMS"$'- [ ] 上記マイグレーションを本番 Supabase に適用済み（`supabase migration list` で履歴一致を確認。`db push` は手動実行）\n'
           fi
+          # Without an automatic prod DB connection the migration list cannot be compared, so ask for a manual check (it also covers files left unapplied by an earlier release).
+          if [ "$MIGRATION_CONFIRMED" != "true" ]; then
+            # shellcheck disable=SC2016 # backticks are Markdown code, not to be expanded
+            CHECKLIST_ITEMS="$CHECKLIST_ITEMS"$'- [ ] 本番 DB の `migration list` を手動で確認し、未適用のマイグレーションが無いこと（自動接続できなかったため）\n'
+          fi
           if [ "$HAS_ENV_ADDED" = "true" ]; then
             CHECKLIST_ITEMS="$CHECKLIST_ITEMS"$'- [ ] 上記環境変数を本番環境（Vercel）に登録済み\n'
           fi
