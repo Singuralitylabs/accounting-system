@@ -12,6 +12,7 @@ type UserMatterCardProps = {
   onOpen: (matter: MatterType) => void;
   onCopy: (matter: MatterType) => void;
   onDelete: (matter: MatterType) => void;
+  deletePending?: boolean;
 };
 
 type AccountingMatterCardProps = {
@@ -29,6 +30,7 @@ function UserMatterCard({
   onOpen,
   onCopy,
   onDelete,
+  deletePending = false,
 }: UserMatterCardProps) {
   return (
     <Card p="md" radius="md" className="border relative" shadow="sm">
@@ -49,7 +51,12 @@ function UserMatterCard({
           ) : (
             <Badge color="blue">下書き</Badge>
           )}
-          <ThreedotsMenu matter={matter} onCopy={onCopy} onDelete={onDelete} />
+          <ThreedotsMenu
+            matter={matter}
+            onCopy={onCopy}
+            onDelete={onDelete}
+            deletePending={deletePending}
+          />
         </div>
       </Group>
       <Text>案件ID: {matter.id}</Text>

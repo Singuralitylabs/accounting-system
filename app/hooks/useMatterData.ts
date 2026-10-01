@@ -1,4 +1,9 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   getUserMatterInfoList,
   getAllMatterInfoList,
@@ -65,6 +70,8 @@ export const useAllMatterList = (
       return result as MatterWithProfileType[];
     },
     initialData: hasMatterListFilters(filters) ? undefined : initialData,
+    // A new filter key would otherwise drop the list until the fetch finishes (looks like zero rows).
+    placeholderData: keepPreviousData,
     staleTime: 2 * 60 * 1000,
   });
 };

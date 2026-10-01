@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryWithInvalidation } from "./useQueryWithInvalidation";
 import {
   bulkSaveBudgetRecurringItems,
   getActiveBudgetRecurringItems,
@@ -16,10 +17,11 @@ import {
 } from "../utils/budgetDeclaration";
 import { notifyError, notifySuccess, toErrorMessage } from "../utils/notify";
 
+// Returns isInvalidated so the list stays locked until the post-save refetch succeeds (same as useRecurringCostList).
 export const useBudgetRecurringItemList = (
   initialData?: BudgetRecurringItemType[] | null,
 ) => {
-  return useQuery({
+  return useQueryWithInvalidation({
     queryKey: ["budgetRecurringItems", "all"],
     queryFn: async () => {
       const { items, error } = await getBudgetRecurringItemList();
@@ -57,6 +59,11 @@ export const useSaveBudgetRecurringItems = () => {
     },
     onError: (error) => {
       console.error("定期明細の保存エラー:", error);
+      // Writes can be partially applied; refetch and keep the form locked until the latest rows arrive.
+      queryClient.invalidateQueries({ queryKey: ["budgetRecurringItems"] });
+      queryClient.invalidateQueries({
+        queryKey: ["budgetDeclarations", "activeRecurringItems"],
+      });
       const message = toErrorMessage(error, "定期明細の更新に失敗しました。");
       notifyError(
         isPartialWriteFailureError(error)

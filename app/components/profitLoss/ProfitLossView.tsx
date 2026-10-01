@@ -5,7 +5,7 @@ import {
   useAnnualTrend,
   useProfitLossReport,
 } from "@/app/hooks/useProfitLossData";
-import { Alert, Group, Select, Tabs } from "@mantine/core";
+import { Alert, Group, LoadingOverlay, Select, Tabs } from "@mantine/core";
 import dynamic from "next/dynamic";
 import { useState } from "react";
 import { CustomMonthPicker } from "../CustomMonthPicker";
@@ -77,6 +77,7 @@ const ProfitLossView = ({
   const {
     data: report,
     isLoading: isReportLoading,
+    isFetching: isReportFetching,
     isError: isReportError,
   } = useProfitLossReport(
     month,
@@ -188,50 +189,54 @@ const ProfitLossView = ({
                 className="-mt-2 mb-4"
               />
             )}
-          {isReportError ? (
-            <Alert color="red" title="損益レポートの取得に失敗しました">
-              時間をおいてページを再読み込みしてください。
-            </Alert>
-          ) : isReportLoading ? (
-            <LoadingSpinner />
-          ) : !report ? (
-            <Alert color="gray" title="表示できるデータがありません">
-              対象月を変えるか、時間をおいて再読み込みしてください。
-            </Alert>
-          ) : (
-            <>
-              <ClosingControl
-                month={report.month}
-                closing={report.closing ?? null}
-                canClose={canClose}
-              />
-              {canEditExtraEntries && (
-                <Group justify="flex-end" className="mb-4">
-                  <CopyPreviousExtraEntriesButton
-                    month={month}
-                    hasExistingEntries={
-                      report.extraIncome.entries.length +
-                        report.extraExpense.entries.length >
-                      0
-                    }
-                    isClosed={!!report.closing}
-                  />
-                </Group>
-              )}
-              {/* Recreated per month so expansion state and diff selection do not carry over to another month. */}
-              <ProfitLossStatement
-                key={report.month}
-                report={report}
-                canEditAdjustments={canEditAdjustments}
-                canEditLabels={canEditLabels}
-                breakdownTab={resolveBreakdownTab(
-                  breakdownTab,
-                  !!report.byTeam,
+          {/* Refetch after closing, adjustment, or a stale cached month: numbers stay visible but must not be acted on until the new report arrives. */}
+          <div className="relative">
+            <LoadingOverlay visible={isReportFetching && !isReportLoading} />
+            {isReportError ? (
+              <Alert color="red" title="損益レポートの取得に失敗しました">
+                時間をおいてページを再読み込みしてください。
+              </Alert>
+            ) : isReportLoading ? (
+              <LoadingSpinner />
+            ) : !report ? (
+              <Alert color="gray" title="表示できるデータがありません">
+                対象月を変えるか、時間をおいて再読み込みしてください。
+              </Alert>
+            ) : (
+              <>
+                <ClosingControl
+                  month={report.month}
+                  closing={report.closing ?? null}
+                  canClose={canClose}
+                />
+                {canEditExtraEntries && (
+                  <Group justify="flex-end" className="mb-4">
+                    <CopyPreviousExtraEntriesButton
+                      month={month}
+                      hasExistingEntries={
+                        report.extraIncome.entries.length +
+                          report.extraExpense.entries.length >
+                        0
+                      }
+                      isClosed={!!report.closing}
+                    />
+                  </Group>
                 )}
-                onBreakdownTabChange={setBreakdownTab}
-              />
-            </>
-          )}
+                {/* Recreated per month so expansion state and diff selection do not carry over to another month. */}
+                <ProfitLossStatement
+                  key={report.month}
+                  report={report}
+                  canEditAdjustments={canEditAdjustments}
+                  canEditLabels={canEditLabels}
+                  breakdownTab={resolveBreakdownTab(
+                    breakdownTab,
+                    !!report.byTeam,
+                  )}
+                  onBreakdownTabChange={setBreakdownTab}
+                />
+              </>
+            )}
+          </div>
         </Tabs.Panel>
 
         <Tabs.Panel value="annual" className="pt-4">

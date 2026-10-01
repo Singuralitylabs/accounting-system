@@ -8,7 +8,15 @@ import {
   useCloseProfitLossMonth,
   useReopenProfitLossMonth,
 } from "@/app/hooks/useProfitLossClosing";
-import { Badge, Group, Paper, Switch, Text } from "@mantine/core";
+import {
+  Badge,
+  Group,
+  LoadingOverlay,
+  Paper,
+  Switch,
+  Text,
+} from "@mantine/core";
+import { useState } from "react";
 import { FaLock } from "react-icons/fa";
 
 type Props = {
@@ -21,10 +29,23 @@ type Props = {
 const ClosingControl = ({ month, closing, canClose }: Props) => {
   const closeMutation = useCloseProfitLossMonth();
   const reopenMutation = useReopenProfitLossMonth();
-  const isPending = closeMutation.isPending || reopenMutation.isPending;
+  // Also covers the confirm dialog, which the mutation's isPending does not: without it the
+  // switch can be toggled again while the dialog is open and a second dialog stacks up.
+  const [isConfirming, setIsConfirming] = useState(false);
+  const mutationPending = closeMutation.isPending || reopenMutation.isPending;
+  const isPending = isConfirming || mutationPending;
   const monthLabel = formatMonthLabel(month);
 
   const handleChange = async (checked: boolean) => {
+    setIsConfirming(true);
+    try {
+      await runChange(checked);
+    } finally {
+      setIsConfirming(false);
+    }
+  };
+
+  const runChange = async (checked: boolean) => {
     if (checked) {
       const confirmed = await confirmAction(
         `${monthLabel}の収支を確定しますか？\n現在の損益計算書（案件・管理費・経理追加収支・損益調整）を確定値として保存します。確定中はこの月の損益調整・経理追加収支を編集できません。案件の変更は確定値に自動では反映されず、変更として通知されます。`,
@@ -55,7 +76,8 @@ const ClosingControl = ({ month, closing, canClose }: Props) => {
   }
 
   return (
-    <Paper withBorder radius="md" p="sm" className="mb-4">
+    <Paper withBorder radius="md" p="sm" className="relative mb-4">
+      <LoadingOverlay visible={mutationPending} />
       <Group justify="space-between" wrap="wrap" gap="xs">
         <Group gap="xs">
           {closing ? (

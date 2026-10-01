@@ -12,7 +12,7 @@ import {
   Title,
 } from "@mantine/core";
 import { SelectOptionType } from "../types/types";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   bulkUpsertSelectOptions,
@@ -217,11 +217,18 @@ const SelectOptionList = ({
     toOptionRows(optionList),
   );
   const [isLoading, setIsLoading] = useState(false);
+  // router.refresh() resolves after the server render; keep the overlay until then.
+  const [isRefreshPending, startRefresh] = useTransition();
   // Input errors are shown only after a save attempt, so a freshly added empty row is not flagged.
   const [showErrors, setShowErrors] = useState(false);
   const [focusTarget, setFocusTarget] = useState<number | "add" | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  const refreshPage = () => {
+    startRefresh(() => {
+      router.refresh();
+    });
+  };
   const hasChanges = hasOptionListChanges(baseline, updatedOptionList);
   const changeCount = countOptionChanges(baseline, updatedOptionList);
   const activeCount = countActiveOptions(updatedOptionList);
@@ -383,7 +390,7 @@ const SelectOptionList = ({
           // As on success, do not revert the display to the held pre-save props.
           syncedOptionListRef.current = latestOptionListRef.current;
           // Saved rows changed server-fetched props (e.g. team column of /dashboard/users), so refresh as on success.
-          router.refresh();
+          refreshPage();
         }
         notifyError(
           `${optionTitle}情報の保存に失敗しました。${error}${
@@ -402,7 +409,7 @@ const SelectOptionList = ({
       syncedOptionListRef.current = latestOptionListRef.current;
       notifySuccess(`${optionTitle}情報を更新しました。`);
       // Server-fetched options are passed as props (e.g. team column of /dashboard/users), so re-render Server Components and drop the client router cache to reflect the latest when switching screens.
-      router.refresh();
+      refreshPage();
     } catch (error) {
       console.error(`${optionTitle}情報の保存に失敗しました。`, error);
       notifyError(`${optionTitle}情報の保存に失敗しました。`);
@@ -562,7 +569,7 @@ const SelectOptionList = ({
           左端のつまみをドラッグすると並び順を変えられます
         </Text>
       </DndContext>
-      <LoadingOverlay visible={isLoading} />
+      <LoadingOverlay visible={isLoading || isRefreshPending} />
     </Paper>
   );
 };

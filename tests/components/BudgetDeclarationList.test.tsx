@@ -121,12 +121,16 @@ const renderList = (
   rows: BudgetDeclarationStatusType[],
   {
     isPlaceholderData = false,
+    isFetching = false,
+    isStale = false,
     closings = [],
     closingUnknown = false,
     closingLoadFailed = false,
     props,
   }: {
     isPlaceholderData?: boolean;
+    isFetching?: boolean;
+    isStale?: boolean;
     closings?: ReturnType<typeof closing>[];
     closingUnknown?: boolean;
     closingLoadFailed?: boolean;
@@ -140,6 +144,8 @@ const renderList = (
     isError: false,
     error: null,
     isPlaceholderData,
+    isFetching,
+    isStale,
   });
 
   return renderWithMantine(
@@ -170,6 +176,34 @@ describe("BudgetDeclarationList", () => {
       desk().getByRole("button", { name: "明細を表示" }),
     ).not.toBeDisabled();
     expect(desk().getByRole("button", { name: "編集する" })).not.toBeDisabled();
+    expect(screen.queryByRole("status", { name: "読み込み中" })).toBeNull();
+  });
+
+  it("月切替中（isPlaceholderData）は前月の一覧を残したまま読み込み中を表示する", () => {
+    renderList([row({ team: "開発チーム" })], { isPlaceholderData: true });
+
+    expect(screen.getAllByText("開発チーム").length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("status", { name: "読み込み中" }),
+    ).toBeInTheDocument();
+  });
+
+  it("キャッシュ済みだが stale な月の再取得中（isFetching かつ isStale）も読み込み中を表示する", () => {
+    renderList([row({ team: "開発チーム" })], {
+      isFetching: true,
+      isStale: true,
+    });
+
+    expect(screen.getAllByText("開発チーム").length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("status", { name: "読み込み中" }),
+    ).toBeInTheDocument();
+  });
+
+  it("再取得中でも stale でなければ読み込み中を表示しない", () => {
+    renderList([row()], { isFetching: true, isStale: false });
+
+    expect(screen.queryByRole("status", { name: "読み込み中" })).toBeNull();
   });
 
   it("モバイル用のカードにチーム・状況・金額・申告者と操作ボタンを表示する", () => {

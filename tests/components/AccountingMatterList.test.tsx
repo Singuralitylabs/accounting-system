@@ -8,7 +8,15 @@ import { renderWithMantine } from "../testUtils/renderWithMantine";
 
 const { listState, mutateAsync, slackMutateAsync, confirmAction } = vi.hoisted(
   () => ({
-    listState: { is_fixed: true, checkPending: false, slackPending: false },
+    listState: {
+      is_fixed: true,
+      checkPending: false,
+      slackPending: false,
+      isPlaceholderData: false,
+      isFetching: false,
+      isError: false,
+      empty: false,
+    },
     mutateAsync: vi.fn(),
     slackMutateAsync: vi.fn(),
     confirmAction: vi.fn(async () => true),
@@ -64,7 +72,12 @@ vi.mock("@/app/hooks/useMatterData", () => {
       const data = filters.team?.length
         ? all.filter((matter) => filters.team?.includes(matter.team))
         : all;
-      return { data };
+      return {
+        data: listState.empty ? undefined : data,
+        isPlaceholderData: listState.isPlaceholderData,
+        isFetching: listState.isFetching,
+        isError: listState.isError,
+      };
     },
     useCheckCompleted: () => ({
       mutateAsync,
@@ -98,6 +111,10 @@ describe("AccountingMatterList", () => {
     listState.is_fixed = true;
     listState.checkPending = false;
     listState.slackPending = false;
+    listState.isPlaceholderData = false;
+    listState.isFetching = false;
+    listState.isError = false;
+    listState.empty = false;
     mutateAsync.mockReset();
     slackMutateAsync.mockReset();
     vi.mocked(notifyError).mockReset();
@@ -199,5 +216,28 @@ describe("AccountingMatterList", () => {
     const button = screen.getByRole("button", { name: "確認完了" });
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute("data-loading", "true");
+  });
+
+  it("フィルタ変更の取得中は前の一覧を残したまま読み込み中を表示する", () => {
+    listState.isPlaceholderData = true;
+    listState.isFetching = true;
+    renderWithMantine(<AccountingMatterList />);
+
+    expect(screen.getByText("テスト案件")).toBeInTheDocument();
+    expect(
+      screen.getByRole("status", { name: "読み込み中" }),
+    ).toBeInTheDocument();
+  });
+
+  it("取得失敗で一覧が無いときはエラーを表示し、0件の表にしない", () => {
+    listState.isError = true;
+    listState.empty = true;
+    renderWithMantine(<AccountingMatterList />);
+
+    expect(
+      screen.getByText("案件一覧の取得に失敗しました"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("テスト案件")).not.toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "読み込み中" })).toBeNull();
   });
 });
