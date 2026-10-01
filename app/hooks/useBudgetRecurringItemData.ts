@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryWithInvalidation } from "./useQueryWithInvalidation";
 import {
   bulkSaveBudgetRecurringItems,
   getActiveBudgetRecurringItems,
@@ -11,15 +12,16 @@ import {
 } from "../types/types";
 import {
   BudgetDeclarationError,
-  isPartialWriteFailureError,
+  isPreWriteFailureError,
   retryUnlessForbidden,
 } from "../utils/budgetDeclaration";
 import { notifyError, notifySuccess, toErrorMessage } from "../utils/notify";
 
+// Returns isInvalidated so the list stays locked until the post-save refetch succeeds (same as useRecurringCostList).
 export const useBudgetRecurringItemList = (
   initialData?: BudgetRecurringItemType[] | null,
 ) => {
-  return useQuery({
+  return useQueryWithInvalidation({
     queryKey: ["budgetRecurringItems", "all"],
     queryFn: async () => {
       const { items, error } = await getBudgetRecurringItemList();
@@ -57,11 +59,18 @@ export const useSaveBudgetRecurringItems = () => {
     },
     onError: (error) => {
       console.error("定期明細の保存エラー:", error);
-      const message = toErrorMessage(error, "定期明細の更新に失敗しました。");
+      // Keep the form only when the server confirmed nothing was written. partialWriteFailed and a
+      // lost response (no kind: Failed to fetch, timeout) may already have inserted rows.
+      if (isPreWriteFailureError(error)) {
+        notifyError(toErrorMessage(error, "定期明細の更新に失敗しました。"));
+        return;
+      }
+      queryClient.invalidateQueries({ queryKey: ["budgetRecurringItems"] });
+      queryClient.invalidateQueries({
+        queryKey: ["budgetDeclarations", "activeRecurringItems"],
+      });
       notifyError(
-        isPartialWriteFailureError(error)
-          ? `${message}\n一部のみ反映されている可能性があるため、画面を再読み込みして内容を確認してください。`
-          : message,
+        "定期明細の更新に失敗しました。一部のみ反映されている可能性があるため、最新の内容を取得して表示します。反映されていない変更は入力し直してください。",
       );
     },
   });

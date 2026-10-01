@@ -24,6 +24,7 @@ import { selectChangedExtraEntries } from "@/app/utils/extraEntry";
 import { toFirstOfMonth } from "@/app/utils/formatter";
 import { notifyError, notifySuccess } from "@/app/utils/notify";
 import { confirmAction } from "@/app/utils/confirmAction";
+import { LoadingSpinner } from "../LoadingSpinner";
 import {
   Alert,
   Autocomplete,
@@ -463,7 +464,7 @@ const ExtraEntryList = ({
             時間をおいてページを再読み込みしてください。
           </Alert>
         ) : (
-          <p className="py-6 text-center text-gray-500">読み込み中…</p>
+          <LoadingSpinner />
         )}
       </div>
     );

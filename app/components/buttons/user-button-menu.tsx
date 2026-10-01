@@ -8,6 +8,7 @@ type UserButtonMenuProps = {
   userEmail?: string | null;
   userImage?: string | null;
   onSignOut: () => Promise<void>;
+  signingOut?: boolean;
 };
 
 const UserButtonMenu = ({
@@ -15,6 +16,7 @@ const UserButtonMenu = ({
   userEmail,
   userImage,
   onSignOut,
+  signingOut = false,
 }: UserButtonMenuProps) => {
   const displayName = userName || userEmail || undefined;
   const initial = displayName ? Array.from(displayName)[0].toUpperCase() : "?";
@@ -60,7 +62,9 @@ const UserButtonMenu = ({
           )}
         </Menu.Label>
         <Menu.Divider />
-        <Menu.Item onClick={onSignOut}>ログアウト</Menu.Item>
+        <Menu.Item disabled={signingOut} onClick={onSignOut}>
+          ログアウト
+        </Menu.Item>
       </Menu.Dropdown>
     </Menu>
   );

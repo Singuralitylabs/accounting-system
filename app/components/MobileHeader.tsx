@@ -10,9 +10,15 @@ type Props = {
   profile: ProfilesType | null;
   onSignOut: () => Promise<void>;
   hideNav?: boolean;
+  signingOut?: boolean;
 };
 
-const MobileHeader: FC<Props> = ({ profile, onSignOut, hideNav = false }) => {
+const MobileHeader: FC<Props> = ({
+  profile,
+  onSignOut,
+  hideNav = false,
+  signingOut = false,
+}) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const toggleMenu = () => {
@@ -42,8 +48,9 @@ const MobileHeader: FC<Props> = ({ profile, onSignOut, hideNav = false }) => {
               </Link>
             ))}
           <button
-            className="block w-full rounded px-3 py-2 text-right text-white hover:bg-gray-500"
+            className="block w-full rounded px-3 py-2 text-right text-white hover:bg-gray-500 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={onSignOut}
+            disabled={signingOut}
           >
             ログアウト
           </button>

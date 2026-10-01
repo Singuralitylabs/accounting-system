@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { optionsAtom } from "@/app/atoms/optionsAtom";
 import BudgetRecurringItemList from "@/app/components/budgetDeclarations/BudgetRecurringItemList";
 import { BudgetRecurringItemType } from "@/app/types/types";
+import { BudgetDeclarationError } from "@/app/utils/budgetDeclaration";
 import { notifyError, notifySuccess } from "@/app/utils/notify";
 import { renderWithMantine } from "../testUtils/renderWithMantine";
 
@@ -137,6 +138,65 @@ describe("BudgetRecurringItemList", () => {
     // The success notification comes only from the mutation's onSuccess; calling notifySuccess here too
     // would show it twice.
     expect(notifySuccess).not.toHaveBeenCalled();
+  });
+
+  it("書き込み前の失敗では編集を残す（担当者不存在など）", async () => {
+    confirmAction.mockResolvedValue(true);
+    saveMutation.mutateAsync.mockRejectedValue(
+      new BudgetDeclarationError({
+        kind: "validationFailed",
+        message:
+          "選択された担当者が見つかりません。画面を再読み込みして選び直してください。",
+      }),
+    );
+    renderList();
+
+    fireEvent.change(screen.getByDisplayValue("○○保守契約"), {
+      target: { value: "変更後の内容" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await vi.waitFor(() => expect(saveMutation.mutateAsync).toHaveBeenCalled());
+
+    expect(screen.getByDisplayValue("変更後の内容")).toBeInTheDocument();
+  });
+
+  it("一部だけ反映された可能性がある失敗では編集を捨てて表示を元に戻す", async () => {
+    confirmAction.mockResolvedValue(true);
+    saveMutation.mutateAsync.mockRejectedValue(
+      new BudgetDeclarationError({
+        kind: "partialWriteFailed",
+        message: "定期明細の更新に失敗しました。",
+      }),
+    );
+    renderList();
+
+    fireEvent.change(screen.getByDisplayValue("○○保守契約"), {
+      target: { value: "変更後の内容" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await vi.waitFor(() =>
+      expect(screen.getByDisplayValue("○○保守契約")).toBeInTheDocument(),
+    );
+    expect(screen.queryByDisplayValue("変更後の内容")).not.toBeInTheDocument();
+  });
+
+  it("応答が失われた失敗では編集を捨てて表示を元に戻す", async () => {
+    confirmAction.mockResolvedValue(true);
+    saveMutation.mutateAsync.mockRejectedValue(
+      new TypeError("Failed to fetch"),
+    );
+    renderList();
+
+    fireEvent.change(screen.getByDisplayValue("○○保守契約"), {
+      target: { value: "変更後の内容" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await vi.waitFor(() =>
+      expect(screen.getByDisplayValue("○○保守契約")).toBeInTheDocument(),
+    );
+    expect(screen.queryByDisplayValue("変更後の内容")).not.toBeInTheDocument();
   });
 
   it("保存の確認をキャンセルすると保存処理を呼ばない", async () => {
