@@ -206,7 +206,7 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
   return (
     <div className="relative p-4">
       <Title order={2} className="pb-4">
-        ユーザーリスト
+        ユーザー管理
       </Title>
       {teamListError && (
         <Text c="red" size="sm" className="pb-4">
