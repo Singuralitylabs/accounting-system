@@ -142,6 +142,7 @@ jobs:
             SEEN="$SEEN$num "
             title=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${num}" --jq .title 2>/dev/null | tr -d '\r' | head -n1 || true)
             if [ -z "$title" ]; then
+              echo "::warning::PR #${num} のタイトルを API で取得できないため、コミット件名で代用します。"
               title=$(printf '%s' "$subject" | sed -E 's/[[:space:]]*\(#[0-9]+\)[[:space:]]*$//')
             fi
             LINES="$LINES- ${title} (#${num})"$'\n'
@@ -241,7 +242,9 @@ jobs:
             HAS_HOOK=false
             while IFS= read -r f; do
               [ -z "$f" ] && continue
-              if git show "origin/main:$f" 2>/dev/null | grep -q 'custom_access_token_hook'; then
+              # Read the whole file into a variable first: with pipefail, grep -q exiting early would SIGPIPE git show and turn a match into false.
+              CONTENT=$(git show "origin/main:$f" 2>/dev/null || true)
+              if grep -q 'custom_access_token_hook' <<<"$CONTENT"; then
                 HAS_HOOK=true
               fi
             done <<< "$ADDED"
@@ -512,7 +515,17 @@ jobs:
 
           # Title: "リリース X.Y.Z: <更新内容>". The description is the first line of the summary input, else the merged PR titles joined by "、". Cut with "…" to stay within GitHub's 256-character title limit (character count, hence the UTF-8 locale).
           export LC_ALL=C.UTF-8
-          DESCRIPTION=$(printf '%s\n' "${SUMMARY:-}" | tr -d '\r' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | sed -n '/./{p;q;}')
+          # First non-empty line via a bash loop, not a pipe ending in an early-exiting sed (SIGPIPE under pipefail for long summaries).
+          DESCRIPTION=""
+          while IFS= read -r line || [ -n "$line" ]; do
+            line="${line//$'\r'/}"
+            line="${line#"${line%%[![:space:]]*}"}"
+            line="${line%"${line##*[![:space:]]}"}"
+            if [ -n "$line" ]; then
+              DESCRIPTION="$line"
+              break
+            fi
+          done <<<"${SUMMARY:-}"
           if [ -z "$DESCRIPTION" ]; then
             DESCRIPTION="${UPDATES_TITLES:-}"
           fi
