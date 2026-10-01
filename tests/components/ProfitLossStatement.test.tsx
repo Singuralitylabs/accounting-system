@@ -351,7 +351,13 @@ describe("ProfitLossStatement の表示順と収支の内訳タブ（Issue #152 
       "true",
     );
     expect(screen.getByRole("tab", { name: "チーム別" })).toBeInTheDocument();
-    expect(screen.getByText("案件X")).toBeVisible();
+    expect(
+      within(
+        screen
+          .getByRole("columnheader", { name: "案件別収支" })
+          .closest("table")!,
+      ).getByText("案件X"),
+    ).toBeVisible();
   });
 
   it("分類別タブは無く、チーム別に切り替えられる", () => {
@@ -373,7 +379,13 @@ describe("ProfitLossStatement の表示順と収支の内訳タブ（Issue #152 
     expect(
       screen.getByRole("columnheader", { name: "案件別収支" }),
     ).toBeVisible();
-    expect(screen.getByText("案件X")).toBeVisible();
+    expect(
+      within(
+        screen
+          .getByRole("columnheader", { name: "案件別収支" })
+          .closest("table")!,
+      ).getByText("案件X"),
+    ).toBeVisible();
   });
 });
 
