@@ -142,6 +142,25 @@ describe("UserList", () => {
     expect(teamInputValues()).toEqual(["チームA", "旧チーム"]);
   });
 
+  it("画面見出しは「ユーザー管理」で、権限セレクトは表示名の選択肢を ROLES の順に出す", async () => {
+    renderWithMantine(
+      <UserList userList={editableUserList} teamList={teamList} />,
+    );
+
+    expect(
+      screen.getByRole("heading", { level: 2, name: "ユーザー管理" }),
+    ).toBeInTheDocument();
+    expect(inputValue("鈴木一郎の権限")).toBe("メンバー");
+    expect(inputValue("山田太郎の権限")).toBe("チームリーダー");
+
+    fireEvent.click(inputByLabel("鈴木一郎の権限"));
+    expect(
+      (await screen.findAllByRole("option")).map(
+        (option) => option.textContent,
+      ),
+    ).toEqual(["メンバー", "チームリーダー", "経理", "管理者"]);
+  });
+
   it("行ごとの保存ボタンは無く、PC 表示の見出しと各行のセルの数が揃っている", () => {
     renderWithMantine(
       <UserList userList={editableUserList} teamList={teamList} />,
@@ -203,17 +222,20 @@ describe("UserList", () => {
       viewport.width = width;
     });
 
-    it("権限ごとに人数付きの見出しで分け、admin → accounting → teamleader → public → 未設定の順に並べる（該当者のいない権限は出さない）", () => {
+    it("権限ごとに人数付きの見出しで分け、管理者 → 経理 → チームリーダー → メンバー → 未設定の順に並べる（該当者のいない権限は出さない）", () => {
       renderWithMantine(
         <UserList userList={mixedUserList} teamList={teamList} />,
       );
 
       expect(headings()).toEqual([
-        "admin（1 名）",
-        "teamleader（3 名）",
-        "public（1 名）",
+        "管理者（1 名）",
+        "チームリーダー（3 名）",
+        "メンバー（1 名）",
         "未設定（2 名）",
       ]);
+      expect(inputValue("一般 次郎の権限")).toBe("メンバー");
+      expect(inputValue("管理 花子の権限")).toBe("管理者");
+      expect(inputValue("リーダー Aの権限")).toBe("チームリーダー");
     });
 
     it("チームの表示順に淡い色を割り当て、選択肢に無いチーム・チーム未設定には色を付けない", () => {
@@ -269,11 +291,11 @@ describe("UserList", () => {
         <UserList userList={mixedUserList} teamList={teamList} />,
       );
 
-      await selectOption("一般 次郎の権限", "admin");
+      await selectOption("一般 次郎の権限", "管理者");
       expect(headings()).toEqual([
-        "admin（1 名）",
-        "teamleader（3 名）",
-        "public（1 名）",
+        "管理者（1 名）",
+        "チームリーダー（3 名）",
+        "メンバー（1 名）",
         "未設定（2 名）",
       ]);
 
@@ -281,8 +303,8 @@ describe("UserList", () => {
       await waitFor(() => expect(refresh).toHaveBeenCalled());
 
       expect(headings()).toEqual([
-        "admin（2 名）",
-        "teamleader（3 名）",
+        "管理者（2 名）",
+        "チームリーダー（3 名）",
         "未設定（2 名）",
       ]);
     });
@@ -292,14 +314,14 @@ describe("UserList", () => {
         <UserList userList={mixedUserList} teamList={teamList} />,
       );
 
-      await selectOption("未設定 花子の権限", "public");
+      await selectOption("未設定 花子の権限", "メンバー");
       expect(headings()).toContain("未設定（2 名）");
-      expect(headings()).toContain("public（1 名）");
+      expect(headings()).toContain("メンバー（1 名）");
 
       fireEvent.click(saveButton());
       await waitFor(() => expect(refresh).toHaveBeenCalled());
 
-      expect(headings()).toContain("public（2 名）");
+      expect(headings()).toContain("メンバー（2 名）");
       expect(headings()).toContain("未設定（1 名）");
     });
 
@@ -308,11 +330,11 @@ describe("UserList", () => {
         <UserList userList={mixedUserList} teamList={teamList} />,
       );
 
-      await selectOption("一般 次郎の権限", "admin");
+      await selectOption("一般 次郎の権限", "管理者");
       fireEvent.click(discardButton());
 
-      expect(headings()).toContain("public（1 名）");
-      expect(inputValue("一般 次郎の権限")).toBe("public");
+      expect(headings()).toContain("メンバー（1 名）");
+      expect(inputValue("一般 次郎の権限")).toBe("メンバー");
     });
   });
 
@@ -387,8 +409,8 @@ describe("UserList", () => {
         <UserList userList={unsortedUserList} teamList={teamList} />,
       );
 
-      await selectOption("一般 次郎の権限", "admin");
-      await selectOption("リーダー Aの権限", "public");
+      await selectOption("一般 次郎の権限", "管理者");
+      await selectOption("リーダー Aの権限", "メンバー");
       expect(displayedNames()).toEqual(sortedNames);
 
       fireEvent.click(saveButton());
@@ -415,7 +437,7 @@ describe("UserList", () => {
         <UserList userList={unsortedUserList} teamList={teamList} />,
       );
 
-      await selectOption("一般 次郎の権限", "admin");
+      await selectOption("一般 次郎の権限", "管理者");
       fireEvent.click(saveButton());
       await waitFor(() => expect(notifyError).toHaveBeenCalled());
 
@@ -573,7 +595,7 @@ describe("UserList", () => {
       expect(screen.getByText("1 件変更あり")).toBeInTheDocument();
       expect(changedRowNames(container)).toEqual(["山田太郎"]);
 
-      await selectOption("鈴木一郎の権限", "accounting");
+      await selectOption("鈴木一郎の権限", "経理");
       await selectOption("佐藤花子のチーム", "チームB");
       expect(screen.getByText("3 件変更あり")).toBeInTheDocument();
       expect(changedRowNames(container)).toEqual([
@@ -590,11 +612,11 @@ describe("UserList", () => {
       );
 
       changeSlackId("山田太郎", "U999999");
-      await selectOption("鈴木一郎の権限", "admin");
+      await selectOption("鈴木一郎の権限", "管理者");
       fireEvent.click(discardButton());
 
       expect(inputValue("山田太郎の Slack ID")).toBe("U000001");
-      expect(inputValue("鈴木一郎の権限")).toBe("public");
+      expect(inputValue("鈴木一郎の権限")).toBe("メンバー");
       expect(screen.getByText("変更はありません")).toBeInTheDocument();
       expect(changedRowNames(container)).toEqual([]);
     });
@@ -604,7 +626,7 @@ describe("UserList", () => {
         <UserList userList={editableUserList} teamList={teamList} />,
       );
 
-      await selectOption("山田太郎の権限", "accounting");
+      await selectOption("山田太郎の権限", "経理");
 
       expect(inputValue("山田太郎のチーム")).toBe("");
     });
@@ -628,14 +650,14 @@ describe("UserList", () => {
         />,
       );
 
-      await selectOption("山田太郎の権限", "accounting");
+      await selectOption("山田太郎の権限", "経理");
       expect(inputValue("山田太郎のチーム")).toBe("");
-      await selectOption("山田太郎の権限", "teamleader");
+      await selectOption("山田太郎の権限", "チームリーダー");
       expect(inputValue("山田太郎のチーム")).toBe("チームA");
 
-      await selectOption("田中次郎の権限", "admin");
+      await selectOption("田中次郎の権限", "管理者");
       expect(inputValue("田中次郎のチーム")).toBe("");
-      await selectOption("田中次郎の権限", "public");
+      await selectOption("田中次郎の権限", "メンバー");
       expect(inputValue("田中次郎のチーム")).toBe("チームB");
 
       expect(screen.getByText("変更はありません")).toBeInTheDocument();
@@ -648,14 +670,14 @@ describe("UserList", () => {
         <UserList userList={editableUserList} teamList={teamList} />,
       );
 
-      await selectOption("鈴木一郎の権限", "teamleader");
+      await selectOption("鈴木一郎の権限", "チームリーダー");
       await selectOption("鈴木一郎のチーム", "チームB");
       fireEvent.click(saveButton());
       await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
 
-      await selectOption("鈴木一郎の権限", "public");
+      await selectOption("鈴木一郎の権限", "メンバー");
       expect(inputValue("鈴木一郎のチーム")).toBe("");
-      await selectOption("鈴木一郎の権限", "teamleader");
+      await selectOption("鈴木一郎の権限", "チームリーダー");
       expect(inputValue("鈴木一郎のチーム")).toBe("チームB");
       expect(screen.getByText("変更はありません")).toBeInTheDocument();
     });
@@ -665,7 +687,7 @@ describe("UserList", () => {
         <UserList userList={editableUserList} teamList={teamList} />,
       );
 
-      await selectOption("鈴木一郎の権限", "teamleader");
+      await selectOption("鈴木一郎の権限", "チームリーダー");
       fireEvent.click(saveButton());
 
       expect(
@@ -709,7 +731,7 @@ describe("UserList", () => {
       );
 
       changeSlackId("山田太郎", "U999999");
-      await selectOption("鈴木一郎の権限", "accounting");
+      await selectOption("鈴木一郎の権限", "経理");
       fireEvent.click(saveButton());
 
       await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));

@@ -7,6 +7,8 @@ import {
   PROFILE_WRITE_CLASSES,
   TEAM_MATTER_VIEW_CLASSES,
   ROLE_DISPLAY_RANK,
+  ROLE_LABELS,
+  ROLE_SELECT_OPTIONS,
   ROLES,
   visibleNavItems,
   ROUTE_PERMISSIONS,
@@ -155,6 +157,24 @@ describe("ロール一覧（ROLES）の整合（Issue #192）", () => {
     expect(Object.keys(ROLE_DISPLAY_RANK).sort()).toEqual([...ROLES].sort());
     const ranks = Object.values(ROLE_DISPLAY_RANK);
     expect(new Set(ranks).size).toBe(ROLES.length);
+  });
+
+  it("表示名（ROLE_LABELS）はすべてのロールを定義し、表示名が重複しない", () => {
+    expect(Object.keys(ROLE_LABELS).sort()).toEqual([...ROLES].sort());
+    const labels = Object.values(ROLE_LABELS);
+    expect(new Set(labels).size).toBe(ROLES.length);
+    expect(ROLE_LABELS).toEqual({
+      admin: "管理者",
+      accounting: "経理",
+      teamleader: "チームリーダー",
+      public: "メンバー",
+    });
+  });
+
+  it("権限セレクトの選択肢は ROLES の順で、value は DB の値・label は表示名", () => {
+    expect(ROLE_SELECT_OPTIONS).toEqual(
+      ROLES.map((role) => ({ value: role, label: ROLE_LABELS[role] })),
+    );
   });
 
   it("ROUTE_PERMISSIONS・PROFILE_WRITE_CLASSES はすべて ROLES の値だけを使う", () => {

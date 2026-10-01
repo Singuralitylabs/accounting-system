@@ -1,6 +1,6 @@
 // Single definition of the roles profiles.class can hold. When adding/renaming a role, update this,
-// the values update_profiles (migration 33) accepts (tests/utils/permissions.test.ts checks), and
-// ROLE_DISPLAY_RANK.
+// the values update_profiles (migration 33) accepts (tests/utils/permissions.test.ts checks),
+// ROLE_DISPLAY_RANK, and ROLE_LABELS.
 export const ROLES = ["public", "teamleader", "accounting", "admin"] as const;
 export type Role = (typeof ROLES)[number];
 
@@ -14,6 +14,20 @@ export const ROLE_DISPLAY_RANK: Record<Role, number> = {
   teamleader: 2,
   public: 3,
 };
+
+// User-facing names on the user management screen. Record<Role, string> so a missing label fails type checking.
+// Stored values stay the Role keys; only the screen changes.
+export const ROLE_LABELS: Record<Role, string> = {
+  admin: "管理者",
+  accounting: "経理",
+  teamleader: "チームリーダー",
+  public: "メンバー",
+};
+
+// Role select options in ROLES order (not the section display order).
+export const ROLE_SELECT_OPTIONS: { value: Role; label: string }[] = ROLES.map(
+  (role) => ({ value: role, label: ROLE_LABELS[role] }),
+);
 
 // Single definition of allowed roles per route, shared by middleware, header navigation and
 // Server Action permission checks.

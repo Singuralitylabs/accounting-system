@@ -1,7 +1,7 @@
 import { Badge, Select, Table, TextInput } from "@mantine/core";
 import { ProfilesType } from "../types/types";
 import { UserValidationErrors } from "../utils/userList";
-import { ROLES } from "@/app/utils/permissions";
+import { ROLE_SELECT_OPTIONS } from "@/app/utils/permissions";
 import { CHANGED_ROW_MARK_COLOR } from "../utils/userListGroup";
 import { teamOptionsFor } from "./UserList";
 
@@ -53,7 +53,7 @@ const UserTable = ({
       <Table.Td>
         <Select
           aria-label={`${userInfo.name}の権限`}
-          data={ROLES}
+          data={ROLE_SELECT_OPTIONS}
           value={userInfo.class ?? null}
           onChange={(value) => onUpdateUserList(userInfo.id, { class: value })}
           placeholder="権限を選択"
