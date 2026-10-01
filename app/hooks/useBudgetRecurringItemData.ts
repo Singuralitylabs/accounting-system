@@ -12,7 +12,7 @@ import {
 } from "../types/types";
 import {
   BudgetDeclarationError,
-  isPartialWriteFailureError,
+  isPreWriteFailureError,
   retryUnlessForbidden,
 } from "../utils/budgetDeclaration";
 import { notifyError, notifySuccess, toErrorMessage } from "../utils/notify";
@@ -59,12 +59,10 @@ export const useSaveBudgetRecurringItems = () => {
     },
     onError: (error) => {
       console.error("定期明細の保存エラー:", error);
-      const message = toErrorMessage(error, "定期明細の更新に失敗しました。");
-      // Only a parallel write that may have applied some rows needs a refetch. Auth, validation,
-      // permission, and missing-manager failures return before any write; invalidating then would
-      // replace the form with the unchanged DB rows and drop the user's edits.
-      if (!isPartialWriteFailureError(error)) {
-        notifyError(message);
+      // Keep the form only when the server confirmed nothing was written. partialWriteFailed and a
+      // lost response (no kind: Failed to fetch, timeout) may already have inserted rows.
+      if (isPreWriteFailureError(error)) {
+        notifyError(toErrorMessage(error, "定期明細の更新に失敗しました。"));
         return;
       }
       queryClient.invalidateQueries({ queryKey: ["budgetRecurringItems"] });
@@ -72,7 +70,7 @@ export const useSaveBudgetRecurringItems = () => {
         queryKey: ["budgetDeclarations", "activeRecurringItems"],
       });
       notifyError(
-        `${message}\n一部のみ反映されている可能性があるため、最新の内容を取得して表示します。反映されていない変更は入力し直してください。`,
+        "定期明細の更新に失敗しました。一部のみ反映されている可能性があるため、最新の内容を取得して表示します。反映されていない変更は入力し直してください。",
       );
     },
   });

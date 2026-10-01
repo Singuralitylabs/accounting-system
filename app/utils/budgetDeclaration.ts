@@ -247,3 +247,11 @@ export const retryUnlessForbidden = (failureCount: number, error: Error) =>
 // returns partialWriteFailed.
 export const isPartialWriteFailureError = (error: unknown): boolean =>
   getBudgetDeclarationErrorKind(error) === "partialWriteFailed";
+
+// True only when the server answered with a failure that happens before any write.
+// A thrown Error without kind (Failed to fetch, timeout) may mean the writes already ran;
+// treating that as "nothing was written" lets the user save new rows again and duplicate them.
+export const isPreWriteFailureError = (error: unknown): boolean => {
+  const kind = getBudgetDeclarationErrorKind(error);
+  return kind !== undefined && kind !== "partialWriteFailed";
+};

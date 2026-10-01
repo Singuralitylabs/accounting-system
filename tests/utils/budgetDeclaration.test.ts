@@ -14,6 +14,7 @@ import {
   isCategoryUnregistered,
   isForbiddenError,
   isPartialWriteFailureError,
+  isPreWriteFailureError,
   previousItemsToFormRows,
   summarizeBudgetItems,
   totalBudgetSummary,
@@ -393,6 +394,38 @@ describe("isPartialWriteFailureError", () => {
   it("無関係なエラーは対象外", () => {
     expect(isPartialWriteFailureError(new Error("network"))).toBe(false);
     expect(isPartialWriteFailureError(null)).toBe(false);
+  });
+});
+
+describe("isPreWriteFailureError", () => {
+  it("サーバーが書き込み前に返した失敗だけ真になる", () => {
+    for (const kind of [
+      "fetchFailed",
+      "forbidden",
+      "validationFailed",
+      "duplicate",
+    ] as const) {
+      expect(
+        isPreWriteFailureError(
+          new BudgetDeclarationError({ kind, message: "" }),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("一部書き込みと、応答が失われた失敗は書き込み前と確定しない", () => {
+    expect(
+      isPreWriteFailureError(
+        new BudgetDeclarationError({
+          kind: "partialWriteFailed",
+          message: "定期明細の更新に失敗しました。",
+        }),
+      ),
+    ).toBe(false);
+    expect(isPreWriteFailureError(new TypeError("Failed to fetch"))).toBe(
+      false,
+    );
+    expect(isPreWriteFailureError(null)).toBe(false);
   });
 });
 

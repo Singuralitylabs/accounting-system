@@ -25,7 +25,7 @@ import {
 import {
   categoryOptionsFor,
   isCategoryUnregistered,
-  isPartialWriteFailureError,
+  isPreWriteFailureError,
 } from "@/app/utils/budgetDeclaration";
 import {
   getBudgetRecurringItemValidationMessage,
@@ -163,10 +163,10 @@ const BudgetRecurringItemList = ({
       markSaved("saved");
       setIsDirty(false);
     } catch (error) {
-      // Notified in the mutation's onError. A partial write may have changed the DB, so drop local
-      // edits and wait for the refetch. Earlier failures wrote nothing; keep isDirty so the effect
-      // does not replace the form with the unchanged list.
-      if (isPartialWriteFailureError(error)) {
+      // Notified in the mutation's onError. Drop local edits unless the server confirmed that
+      // nothing was written. A lost response can follow a completed insert, and keeping isNew rows
+      // would insert them again on the next save.
+      if (!isPreWriteFailureError(error)) {
         markSaved("unknown");
         setIsDirty(false);
       }

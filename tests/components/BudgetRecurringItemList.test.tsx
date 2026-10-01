@@ -181,6 +181,24 @@ describe("BudgetRecurringItemList", () => {
     expect(screen.queryByDisplayValue("変更後の内容")).not.toBeInTheDocument();
   });
 
+  it("応答が失われた失敗では編集を捨てて表示を元に戻す", async () => {
+    confirmAction.mockResolvedValue(true);
+    saveMutation.mutateAsync.mockRejectedValue(
+      new TypeError("Failed to fetch"),
+    );
+    renderList();
+
+    fireEvent.change(screen.getByDisplayValue("○○保守契約"), {
+      target: { value: "変更後の内容" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await vi.waitFor(() =>
+      expect(screen.getByDisplayValue("○○保守契約")).toBeInTheDocument(),
+    );
+    expect(screen.queryByDisplayValue("変更後の内容")).not.toBeInTheDocument();
+  });
+
   it("保存の確認をキャンセルすると保存処理を呼ばない", async () => {
     confirmAction.mockResolvedValue(false);
     renderList();

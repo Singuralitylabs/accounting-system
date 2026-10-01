@@ -86,7 +86,29 @@ describe("useSaveBudgetRecurringItems の保存失敗", () => {
       queryKey: ["budgetDeclarations", "activeRecurringItems"],
     });
     expect(notifyError).toHaveBeenCalledWith(
-      "定期明細の更新に失敗しました。\n一部のみ反映されている可能性があるため、最新の内容を取得して表示します。反映されていない変更は入力し直してください。",
+      "定期明細の更新に失敗しました。一部のみ反映されている可能性があるため、最新の内容を取得して表示します。反映されていない変更は入力し直してください。",
+    );
+  });
+
+  it("応答が失われた失敗でも一覧を再取得し、入力し直しを案内する", async () => {
+    bulkSaveBudgetRecurringItems.mockRejectedValue(
+      new TypeError("Failed to fetch"),
+    );
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useSaveBudgetRecurringItems(), {
+      wrapper,
+    });
+
+    await result.current.mutateAsync([]).catch((error) => error);
+
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["budgetRecurringItems"],
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["budgetDeclarations", "activeRecurringItems"],
+    });
+    expect(notifyError).toHaveBeenCalledWith(
+      "定期明細の更新に失敗しました。一部のみ反映されている可能性があるため、最新の内容を取得して表示します。反映されていない変更は入力し直してください。",
     );
   });
 });
