@@ -25,6 +25,7 @@ import {
 import {
   categoryOptionsFor,
   isCategoryUnregistered,
+  isPartialWriteFailureError,
 } from "@/app/utils/budgetDeclaration";
 import {
   getBudgetRecurringItemValidationMessage,
@@ -161,10 +162,14 @@ const BudgetRecurringItemList = ({
       await saveMutation.mutateAsync(rows);
       markSaved("saved");
       setIsDirty(false);
-    } catch {
-      // Notified in the mutation's onError. Outcome may be partial, so wait for the refetch.
-      markSaved("unknown");
-      setIsDirty(false);
+    } catch (error) {
+      // Notified in the mutation's onError. A partial write may have changed the DB, so drop local
+      // edits and wait for the refetch. Earlier failures wrote nothing; keep isDirty so the effect
+      // does not replace the form with the unchanged list.
+      if (isPartialWriteFailureError(error)) {
+        markSaved("unknown");
+        setIsDirty(false);
+      }
     }
   };
 
