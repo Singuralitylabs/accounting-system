@@ -123,6 +123,42 @@ jobs:
           git fetch origin main:refs/remotes/origin/main
           git fetch origin release:refs/remotes/origin/release
 
+      # List the PRs merged into main since release for the PR body and title. Numbers come from the first-parent history of release..main: squash merges end with "(#N)", merge commits start with "Merge pull request #N". Titles are looked up by the API and fall back to the commit subject (direct pushes without a PR number are skipped). Titles are external data: they only flow through outputs/env, never into a script body.
+      - name: 更新内容（マージ済み PR）を検出
+        id: updates
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          export LC_ALL=C.UTF-8
+          LINES=""
+          TITLES=""
+          SEEN=" "
+          while IFS=$'\t' read -r _ subject; do
+            [ -z "$subject" ] && continue
+            num=$(printf '%s' "$subject" | sed -nE 's/.*\(#([0-9]+)\)[[:space:]]*$/\1/p; s/^Merge pull request #([0-9]+) .*/\1/p' | head -n1)
+            [ -z "$num" ] && continue
+            case "$SEEN" in *" $num "*) continue ;; esac
+            SEEN="$SEEN$num "
+            title=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${num}" --jq .title 2>/dev/null | tr -d '\r' | head -n1 || true)
+            if [ -z "$title" ]; then
+              title=$(printf '%s' "$subject" | sed -E 's/[[:space:]]*\(#[0-9]+\)[[:space:]]*$//')
+            fi
+            LINES="$LINES- ${title} (#${num})"$'\n'
+            if [ -z "$TITLES" ]; then TITLES="$title"; else TITLES="$TITLES、$title"; fi
+          done < <(git log --first-parent --reverse --format='%H%x09%s' origin/release..origin/main)
+
+          {
+            echo "list<<UPDATES_EOF"
+            if [ -z "$LINES" ]; then
+              echo "- なし"
+            else
+              printf '%s' "$LINES"
+            fi
+            echo "UPDATES_EOF"
+            echo "titles=$TITLES"
+          } >> "$GITHUB_OUTPUT"
+
       # Split release..main migration changes into "added" and "modified/deleted applied files". Backward-compatibility detection covers added files only: scanning applied files changed only in comments would list already-run UPDATEs and drown out new migrations. Modified/deleted files are listed separately as a history-mismatch notice. --no-renames treats a rename as delete + add: a changed timestamp (first 14 digits) is a new version for the prod history and is re-run by db push, so it is scanned as added; a rename keeping the version is not re-applied, so it goes to the "modified" list.
       - name: マイグレーション差分を検出
         id: migrations
@@ -197,6 +233,19 @@ jobs:
             else
               echo "has_changed=false"
             fi
+            if [ -n "$ADDED" ]; then
+              echo "has_added=true"
+            else
+              echo "has_added=false"
+            fi
+            HAS_HOOK=false
+            while IFS= read -r f; do
+              [ -z "$f" ] && continue
+              if git show "origin/main:$f" 2>/dev/null | grep -q 'custom_access_token_hook'; then
+                HAS_HOOK=true
+              fi
+            done <<< "$ADDED"
+            echo "has_hook=$HAS_HOOK"
           } >> "$GITHUB_OUTPUT"
 
       # Warn (not block) about migrations with backward-incompatible changes, scanning only files added in release..main (applied files that only changed are not re-run). To limit false positives, line (--) and block comments are stripped first, then:
@@ -314,6 +363,11 @@ jobs:
           CODE_KEYS=$(cat /tmp/keys.main || true)
 
           {
+            if [ -z "$(printf '%s' "$NEW_KEYS" | tr -d '[:space:]')" ]; then
+              echo "has_added=false"
+            else
+              echo "has_added=true"
+            fi
             echo "added<<ENV_ADDED_EOF"
             if [ -z "$(printf '%s' "$NEW_KEYS" | tr -d '[:space:]')" ]; then
               echo "- なし"
@@ -417,6 +471,11 @@ jobs:
           MIGRATIONS_LIST: ${{ steps.migrations.outputs.list }}
           MIGRATIONS_CHANGED_LIST: ${{ steps.migrations.outputs.changed }}
           HAS_MIGRATIONS_CHANGED: ${{ steps.migrations.outputs.has_changed }}
+          HAS_MIGRATIONS_ADDED: ${{ steps.migrations.outputs.has_added }}
+          HAS_HOOK: ${{ steps.migrations.outputs.has_hook }}
+          HAS_ENV_ADDED: ${{ steps.env-vars.outputs.has_added }}
+          UPDATES_LIST: ${{ steps.updates.outputs.list }}
+          UPDATES_TITLES: ${{ steps.updates.outputs.titles }}
           BREAKING_LIST: ${{ steps.breaking.outputs.list }}
           HAS_BREAKING: ${{ steps.breaking.outputs.has_warnings }}
           ENV_ADDED_LIST: ${{ steps.env-vars.outputs.added }}
@@ -451,14 +510,47 @@ jobs:
             MIGRATION_NOTICE=""
           fi
 
+          # Title: "リリース X.Y.Z: <更新内容>". The description is the first line of the summary input, else the merged PR titles joined by "、". Cut with "…" to stay within GitHub's 256-character title limit (character count, hence the UTF-8 locale).
+          export LC_ALL=C.UTF-8
+          DESCRIPTION=$(printf '%s\n' "${SUMMARY:-}" | tr -d '\r' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | sed -n '/./{p;q;}')
+          if [ -z "$DESCRIPTION" ]; then
+            DESCRIPTION="${UPDATES_TITLES:-}"
+          fi
+          TITLE="リリース ${VERSION}"
+          if [ -n "$DESCRIPTION" ]; then
+            TITLE_PREFIX="${TITLE}: "
+            MAX_DESC=$((256 - ${#TITLE_PREFIX}))
+            if [ "${#DESCRIPTION}" -gt "$MAX_DESC" ]; then
+              DESCRIPTION="${DESCRIPTION:0:$((MAX_DESC - 1))}…"
+            fi
+            TITLE="${TITLE_PREFIX}${DESCRIPTION}"
+          fi
+
+          # Checklist: only items that apply to this release. The "diff reviewed" item is always shown.
+          CHECKLIST_ITEMS=""
+          if [ "$HAS_MIGRATIONS_ADDED" = "true" ] || [ "$HAS_MIGRATIONS_CHANGED" = "true" ]; then
+            # shellcheck disable=SC2016 # backticks are Markdown code, not to be expanded
+            CHECKLIST_ITEMS="$CHECKLIST_ITEMS"$'- [ ] 上記マイグレーションを本番 Supabase に適用済み（`supabase migration list` で履歴一致を確認。`db push` は手動実行）\n'
+          fi
+          if [ "$HAS_ENV_ADDED" = "true" ]; then
+            CHECKLIST_ITEMS="$CHECKLIST_ITEMS"$'- [ ] 上記環境変数を本番環境（Vercel）に登録済み\n'
+          fi
+          if [ "$HAS_BREAKING" = "true" ]; then
+            CHECKLIST_ITEMS="$CHECKLIST_ITEMS"$'- [ ] 後方互換でない変更の確認済み（リリース分割の判断済み）\n'
+          fi
+          if [ "$HAS_HOOK" = "true" ]; then
+            CHECKLIST_ITEMS="$CHECKLIST_ITEMS"$'- [ ] Custom Access Token Hook の有効化はマイグレーション適用後に行う（docs/database.md）\n'
+          fi
+          CHECKLIST_ITEMS="$CHECKLIST_ITEMS"$'- [ ] 上記の更新内容・差分を確認済み'
+
           # The body template is a quoted <<'EOF' fixed string so backticks and $(...) are not executed. Values are expanded explicitly by listing variable names to envsubst (other $ forms stay literal). envsubst substitutes in one pass, so ${...} inside inserted values (e.g. the summary) is not re-expanded. It reads only environment variables, so export values built in this step.
           if ! command -v envsubst >/dev/null 2>&1; then
             echo "::error::envsubst（gettext-base）が見つかりません。PR 本文を組み立てられないため中断します。"
             exit 1
           fi
-          export SUMMARY_SECTION BREAKING_SECTION MIGRATIONS_CHANGED_SECTION MIGRATION_NOTICE
+          export SUMMARY_SECTION BREAKING_SECTION MIGRATIONS_CHANGED_SECTION MIGRATION_NOTICE CHECKLIST_ITEMS
           # shellcheck disable=SC2016 # list of variable names for envsubst, not expanded by the shell
-          BODY_VARS='${VERSION} ${SUMMARY_SECTION} ${BREAKING_SECTION} ${MIGRATIONS_LIST} ${MIGRATIONS_CHANGED_SECTION} ${BREAKING_LIST} ${ENV_ADDED_LIST} ${ENV_CODE_LIST} ${MIGRATION_NOTICE} ${MIGRATION_LIST_BODY}'
+          BODY_VARS='${VERSION} ${SUMMARY_SECTION} ${UPDATES_LIST} ${CHECKLIST_ITEMS} ${BREAKING_SECTION} ${MIGRATIONS_LIST} ${MIGRATIONS_CHANGED_SECTION} ${BREAKING_LIST} ${ENV_ADDED_LIST} ${ENV_CODE_LIST} ${MIGRATION_NOTICE} ${MIGRATION_LIST_BODY}'
           TEMPLATE=$(cat <<'EOF'
           ## リリース ${VERSION}
 
@@ -466,6 +558,10 @@ jobs:
           マージ後に `create-release.yml` が起動し、承認後に Git タグと GitHub Release が作成されます。
 
           ${SUMMARY_SECTION}
+
+          ### 更新内容
+
+          ${UPDATES_LIST}
 
           ${BREAKING_SECTION}
 
@@ -482,8 +578,12 @@ jobs:
           **新規環境変数（コード側の process.env 参照で追加。対象は `app/` 配下と `middleware.ts`）:**
           ${ENV_ADDED_LIST}
 
-          **コード側の環境変数参照（現行の一覧）:**
+          <details>
+          <summary>コード側の環境変数参照（現行の一覧）</summary>
+
           ${ENV_CODE_LIST}
+
+          </details>
 
           **本番DBの migration list（読み取り専用・db push は実行しない）:**
           ${MIGRATION_NOTICE}
@@ -491,14 +591,11 @@ jobs:
 
           ### マージ前チェックリスト
 
-          - [ ] 上記マイグレーションを本番 Supabase に適用済み（`supabase migration list` で履歴一致を確認。`db push` は手動実行）
-          - [ ] 上記環境変数を本番環境（Vercel）に登録済み
-          - [ ] 本番 Supabase の Exposed schemas に `private` が含まれていないこと（docs/database.md 5.12）
-          - [ ] Custom Access Token Hook の有効化はマイグレーション適用後に行うこと（該当リリースのみ。docs/database.md）
-          - [ ] 本番 DB のバックアップを取得した（無料プランのため取得できない場合は、追加系マイグレーションに限り省略可と判断した理由を記載）
-          - [ ] 後方互換でない変更が無いか確認済み（ある場合はリリース分割の判断済み）
-          - [ ] 差分内容を確認済み
-          - [ ] 本番動作確認後に create-release の承認を行うことを把握している（手順は docs/release.md）
+          ${CHECKLIST_ITEMS}
+
+          ### 補足（毎回の確認は不要）
+
+          - 本番 Supabase の Exposed schemas に `private` を含めないこと（docs/database.md 5.12）
           EOF
           )
 
@@ -524,10 +621,16 @@ jobs:
             exit 1
           fi
 
+          # The title gets the same check (the summary input flows into it).
+          if grep -qiE '[a-z][a-z0-9+.-]*://[^[:space:]/?#@]+@|postgres(ql)?://[^[:space:]]*@' <<<"$TITLE"; then
+            echo "::error::PR タイトルに認証情報付きの URL が含まれているため、PR を作成せずに中断します（Issue #195）。"
+            exit 1
+          fi
+
           # Create as Draft (prevents merging before migrations are applied).
           gh pr create \
             --base release \
             --head main \
             --draft \
-            --title "リリース ${VERSION}" \
+            --title "$TITLE" \
             --body "$BODY"

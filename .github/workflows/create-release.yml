@@ -59,8 +59,8 @@ jobs:
               exit 0
             fi
             echo "skip=false" >> "$GITHUB_OUTPUT"
-            # e.g. "リリース 3.3.0" / "リリース v3.3.0" -> 3.3.0
-            VERSION=$(printf '%s' "$PR_TITLE" | sed -E 's/^リリース[[:space:]　]+v?//' | tr -d '[:space:]　')
+            # Take only X.Y.Z, since the title may carry a description: "リリース 3.3.0" / "リリース v3.3.0" / "リリース 3.3.0: <更新内容>" -> 3.3.0. An unmatched title leaves VERSION empty and fails the format check.
+            VERSION=$(printf '%s' "$PR_TITLE" | sed -nE 's/^リリース[[:space:]　]+v?([0-9]+\.[0-9]+\.[0-9]+)([[:space:]　:：].*)?$/\1/p' | head -n1)
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "抽出されたバージョン: $VERSION"
@@ -202,7 +202,7 @@ jobs:
             # Extract the version by the same rule as the pull_request path.
             PR_VERSION=""
             if printf '%s' "$PR_TITLE" | grep -Eq '^リリース[[:space:]　]'; then
-              PR_VERSION=$(printf '%s' "$PR_TITLE" | sed -E 's/^リリース[[:space:]　]+v?//' | tr -d '[:space:]　')
+              PR_VERSION=$(printf '%s' "$PR_TITLE" | sed -nE 's/^リリース[[:space:]　]+v?([0-9]+\.[0-9]+\.[0-9]+)([[:space:]　:：].*)?$/\1/p' | head -n1)
             fi
             if [ "$PR_VERSION" != "$VERSION" ]; then
               echo "::error::release HEAD（${SHA}）は PR #${PR_NUMBER}「${PR_TITLE}」のマージコミットであり、指定バージョン ${VERSION} のリリース PR ではありません。リリース PR「リリース ${VERSION}」のマージ後に実行してください。"
