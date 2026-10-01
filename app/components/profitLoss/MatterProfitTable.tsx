@@ -427,7 +427,7 @@ const MatterProfitTable = ({
         {renderExpandAllButtons()}
       </div>
       <div
-        className="mb-6 space-y-3 md:hidden"
+        className="mb-6 min-w-0 space-y-3 md:hidden"
         data-testid="matter-profit-card-list"
       >
         {matters.length === 0 && (
@@ -440,15 +440,18 @@ const MatterProfitTable = ({
           const isMatterExpanded = expandedRows.has(matterKey);
           return (
             <Paper key={matterKey} withBorder radius="md" p="sm">
-              <div>
+              <div className="min-w-0">
                 <ExpandToggle
                   isExpanded={isMatterExpanded}
                   onToggle={() => toggleRow(matterKey)}
+                  className="flex w-full min-w-0 items-start gap-2 text-left"
                 >
-                  <span className="text-xs text-gray-500">
+                  <span className="shrink-0 text-xs text-gray-500">
                     #{matter.matterId}
                   </span>
-                  {matter.displayTitle}
+                  <span className="min-w-0 break-words">
+                    {matter.displayTitle}
+                  </span>
                 </ExpandToggle>
                 {changedMatterIds.has(matter.matterId) && (
                   <ChangedIcon label="この案件は確定後に変更があります（未反映）" />
@@ -485,7 +488,7 @@ const MatterProfitTable = ({
                   <MixedValuesIcon kind="分類" />
                 )}
               </div>
-              <div className="mt-1 text-xs text-gray-500">
+              <div className="mt-1 min-w-0 break-words text-xs text-gray-500">
                 {matter.teams.join(" / ")}
                 {matter.teams.length > 1 && <MixedValuesIcon kind="チーム" />}
               </div>

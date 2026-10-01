@@ -127,29 +127,36 @@ export const expandableRowProps = (onToggle: () => void) => ({
 });
 
 // Native button, so Enter / Space work by default; stop propagation to avoid double toggling with the row onClick.
+// className replaces the default inline layout. The mobile card passes a full-width class so a long title wraps inside the card.
 export const ExpandToggle = ({
   isExpanded,
   onToggle,
+  className,
   children,
 }: {
   isExpanded: boolean;
   onToggle: () => void;
+  className?: string;
   children: ReactNode;
 }) => (
   <button
     type="button"
     aria-expanded={isExpanded}
-    className="inline-flex items-center gap-2 text-left rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+    className={`${
+      className ?? "inline-flex items-center gap-2 text-left"
+    } rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600`}
     onClick={(event) => {
       event.stopPropagation();
       onToggle();
     }}
   >
-    {isExpanded ? (
-      <FaChevronDown size="0.7rem" />
-    ) : (
-      <FaChevronRight size="0.7rem" />
-    )}
+    <span className="shrink-0">
+      {isExpanded ? (
+        <FaChevronDown size="0.7rem" />
+      ) : (
+        <FaChevronRight size="0.7rem" />
+      )}
+    </span>
     {children}
   </button>
 );

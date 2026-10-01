@@ -91,7 +91,7 @@ const TeamProfitTable = ({ byTeam }: Props) => {
         </Paper>
       </div>
       <div
-        className="mb-6 space-y-3 md:hidden"
+        className="mb-6 min-w-0 space-y-3 md:hidden"
         data-testid="team-profit-card-list"
       >
         {byTeam.map((teamBreakdown) => (
@@ -101,7 +101,7 @@ const TeamProfitTable = ({ byTeam }: Props) => {
             radius="md"
             p="sm"
           >
-            <Text fw={700} className="break-words">
+            <Text fw={700} className="min-w-0 break-words">
               {teamBreakdown.team}
             </Text>
             <AmountList rows={teamAmountRows(teamBreakdown)} />

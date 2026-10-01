@@ -357,6 +357,11 @@ describe("MatterProfitTable", () => {
     );
 
     const cardX = cardOf("案件X");
+    const cardToggleButton = cardToggle(12, "案件X");
+    expect(cardToggleButton).toHaveClass("w-full", "min-w-0");
+    expect(within(cardToggleButton).getByText("案件X")).toHaveClass(
+      "break-words",
+    );
     expect(within(cardX).getByText("#12")).toBeInTheDocument();
     expect(within(cardX).getByText("シンラボ")).toBeInTheDocument();
     expect(within(cardX).getByText("受託案件")).toBeInTheDocument();
