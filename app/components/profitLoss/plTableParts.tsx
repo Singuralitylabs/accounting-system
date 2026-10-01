@@ -23,11 +23,39 @@ export const INDENT = {
 // Below md the tables drop secondary columns (CSS only; a viewport hook would flash the wrong layout on first render).
 export const HIDE_ON_MOBILE = "hidden md:table-cell";
 
-// Keeps the label column visible while a wide table scrolls horizontally on mobile; pair with an opaque background.
-export const STICKY_LABEL = "max-md:sticky max-md:left-0 max-md:z-[1]";
-
 export const amountColor = (value: number) =>
   value < 0 ? "text-red-600" : "text-green-700";
+
+export type AmountListRow = {
+  label: string;
+  value: number;
+  colorize?: boolean;
+  bold?: boolean;
+  divider?: boolean;
+};
+
+// "label：amount" rows shared by the mobile profit cards (same shape as the budget declaration cards).
+export const AmountList = ({ rows }: { rows: readonly AmountListRow[] }) => (
+  <dl className="my-2 space-y-1">
+    {rows.map((row) => (
+      <div
+        key={row.label}
+        className={`flex items-baseline justify-between gap-3 text-sm ${
+          row.divider ? "mt-1 border-t border-gray-200 pt-1" : ""
+        }`}
+      >
+        <dt className="text-gray-600">{row.label}：</dt>
+        <dd
+          className={`m-0 ${row.bold ? "font-bold" : "font-semibold"} ${
+            row.colorize ? amountColor(row.value) : ""
+          }`}
+        >
+          {formatCurrency(row.value)}
+        </dd>
+      </div>
+    ))}
+  </dl>
+);
 
 // Row expansion state (set of keys); keys carry a kind prefix since names can collide across kinds. initialKeys are open initially.
 export const useExpandedRows = (initialKeys: readonly string[] = []) => {
