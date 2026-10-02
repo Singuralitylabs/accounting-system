@@ -453,6 +453,12 @@ jobs:
               echo "::error::migration list の出力にパスワードが含まれているため中断します（Issue #195）。"
               exit 1
             fi
+            # A row with exactly one of Local / Remote empty is an unapplied file (Remote empty) or a history entry missing locally (Local empty). The header and separator rows have both columns filled.
+            if printf '%s\n' "$OUTPUT" | awk -F'|' 'NF >= 3 { l = $1; r = $2; gsub(/[[:space:]]/, "", l); gsub(/[[:space:]]/, "", r); if ((l == "") != (r == "")) found = 1 } END { exit !found }'; then
+              MISMATCH=true
+            else
+              MISMATCH=false
+            fi
             {
               echo "body<<MIGRATION_LIST_EOF"
               echo '```'
@@ -460,6 +466,7 @@ jobs:
               echo '```'
               echo "MIGRATION_LIST_EOF"
               echo "confirmed=true"
+              echo "mismatch=$MISMATCH"
             } >> "$GITHUB_OUTPUT"
           else
             fallback "DB Pause 等の可能性あり"
@@ -485,6 +492,7 @@ jobs:
           ENV_CODE_LIST: ${{ steps.env-vars.outputs.code_refs }}
           MIGRATION_LIST_BODY: ${{ steps.migration-list.outputs.body }}
           MIGRATION_CONFIRMED: ${{ steps.migration-list.outputs.confirmed }}
+          MIGRATION_MISMATCH: ${{ steps.migration-list.outputs.mismatch }}
         run: |
           set -euo pipefail
           # NOTE: create-release.yml extracts only the summary between the HTML comment markers into the Release notes, so wrap only the summary body; the "### リリースサマリー" heading stays outside the markers for PR display.
@@ -545,10 +553,13 @@ jobs:
             # shellcheck disable=SC2016 # backticks are Markdown code, not to be expanded
             CHECKLIST_ITEMS="$CHECKLIST_ITEMS"$'- [ ] 上記マイグレーションを本番 Supabase に適用済み（`supabase migration list` で履歴一致を確認。`db push` は手動実行）\n'
           fi
-          # Without an automatic prod DB connection the migration list cannot be compared, so ask for a manual check (it also covers files left unapplied by an earlier release).
+          # Without an automatic prod DB connection the migration list cannot be compared, so ask for a manual check. When it was read and shows unapplied files (e.g. left over from an earlier release) while release..main has no migration changes, ask to resolve them; otherwise the "applied" item above already covers it.
           if [ "$MIGRATION_CONFIRMED" != "true" ]; then
             # shellcheck disable=SC2016 # backticks are Markdown code, not to be expanded
             CHECKLIST_ITEMS="$CHECKLIST_ITEMS"$'- [ ] 本番 DB の `migration list` を手動で確認し、未適用のマイグレーションが無いこと（自動接続できなかったため）\n'
+          elif [ "${MIGRATION_MISMATCH:-}" = "true" ] && [ "$HAS_MIGRATIONS_ADDED" != "true" ] && [ "$HAS_MIGRATIONS_CHANGED" != "true" ]; then
+            # shellcheck disable=SC2016 # backticks are Markdown code, not to be expanded
+            CHECKLIST_ITEMS="$CHECKLIST_ITEMS"$'- [ ] 本文の `migration list` に未適用または履歴の不一致がある（Local と Remote が一致しない行）ため、本番に適用済みか確認した\n'
           fi
           if [ "$HAS_ENV_ADDED" = "true" ]; then
             CHECKLIST_ITEMS="$CHECKLIST_ITEMS"$'- [ ] 上記環境変数を本番環境（Vercel）に登録済み\n'
