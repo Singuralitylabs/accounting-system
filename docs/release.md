@@ -59,8 +59,8 @@ GitHub の **Settings > Environments** で以下を設定する。
 ### 1. リリース PR を作成する
 
 1. GitHub の **Actions > Release PR > Run workflow** を `main` ブランチから起動する（`version`: `X.Y.Z` 形式、`summary`: 任意）。
-2. 品質ゲート（typecheck+lint / test / build / format-check の再利用）を通過した場合のみ、main → release の Draft PR（タイトル `リリース X.Y.Z`）が作成される。
-3. 本文には自動で以下が入る: マイグレーション一覧（`release..main` で追加）と適用済みファイルの変更/削除、後方互換でない SQL の警告（`DROP` / `ALTER COLUMN ... TYPE` / `RENAME` / トップレベルの `UPDATE`・`DELETE` / `POLICY` など）、環境変数の差分（`app/**` と `middleware.ts` の `process.env.*`）、本番 DB の `migration list`（または手動確認の案内）、マージ前チェックリスト。
+2. 品質ゲート（typecheck+lint / test / build / format-check の再利用）を通過した場合のみ、main → release の Draft PR が作成される。タイトルは `リリース X.Y.Z: <更新内容>` の形式で、`<更新内容>` は `summary` 入力の 1 行目、無ければ `release..main` に含まれるマージ済み PR のタイトルを「、」で連結したもの（256 文字に収まるよう末尾を「…」で切る）。`create-release.yml` はタイトルから `X.Y.Z` だけを抽出するため、`リリース X.Y.Z` で始まっていれば説明部分は自由。
+3. 本文には自動で以下が入る: 更新内容（`release..main` に含まれるマージ済み PR の一覧。Release ノートへは `create-release.yml` が自動生成するため転記しない）、マイグレーション一覧（`release..main` で追加）と適用済みファイルの変更/削除、後方互換でない SQL の警告（`DROP` / `ALTER COLUMN ... TYPE` / `RENAME` / トップレベルの `UPDATE`・`DELETE` / `POLICY` など）、環境変数の差分（`app/**` と `middleware.ts` の `process.env.*`）、本番 DB の `migration list`（または手動確認の案内）、マージ前チェックリスト（該当する項目だけ表示）、補足。タイトルと本文のどちらにも認証情報付き URL が含まれていれば PR を作成しない。
 
 起動ガード（いずれも失敗する）: main 以外からの起動 / バージョン形式不正 / タグ重複 / オープン中のリリース PR あり。
 
@@ -80,14 +80,18 @@ supabase db push
 
 ### 3. マージ前チェックリストを潰す
 
-リリース PR 本文のチェックリスト（抜粋。全文は PR 本文を参照）。
+リリース PR 本文のチェックリストは、PR の内容に該当する項目だけが表示される。
 
-- 上記マイグレーションを本番に適用済み（履歴一致を確認）
-- 上記環境変数を本番（Vercel）に登録済み
-- 本番 Supabase の Exposed schemas に `private` が含まれていないこと（`docs/database.md` 5.12）
-- Custom Access Token Hook の有効化は適用後に行うこと（該当リリースのみ）
-- 本番 DB のバックアップ（無料プランのため取得できない場合は、追加系マイグレーションに限り省略可と判断した理由を書く）
-- 後方互換でない変更の有無（ある場合はリリース分割の判断済み）
+- 上記マイグレーションを本番に適用済み（追加されたマイグレーション、または適用済みファイルの変更・削除がある場合）
+- 本番 DB の `migration list` を手動で確認し、未適用分が無いこと（本番 DB へ自動接続できず、本文に手動確認の案内が出ている場合）
+- 本文の `migration list` に未適用または履歴の不一致がある（Local と Remote が一致しない行がある）ことの確認（追加・変更されたマイグレーションが無いリリースでも、前回リリースの適用漏れを拾うため）
+- 上記環境変数を本番（Vercel）に登録済み（新規環境変数がある場合）
+- 後方互換でない変更の確認（後方互換でない SQL の警告がある場合。リリース分割の判断）
+- 本番 DB のバックアップ（後方互換でない SQL の警告がある場合のみ。無料プランでは自動バックアップが使えないため、`supabase db dump --linked --data-only -f data.sql` などで SQL 形式のダンプを手動で取得する。手順は `docs/setup.md`）
+- Custom Access Token Hook の有効化は適用後に行うこと（追加されたマイグレーションに `custom_access_token_hook` が含まれる場合）
+- 上記の更新内容・差分を確認済み（常に表示）
+
+マイグレーション・環境変数・後方互換の警告がいずれも無く、本番 DB へ自動接続でき、`migration list` の Local と Remote が一致しているリリースでは、最後の 1 項目だけになる。本番 Supabase の Exposed schemas に `private` を含めないこと（`docs/database.md` 5.12）は、毎回の確認が不要なため本文末尾の補足として表示する。
 
 ### 4. マージする（merge commit）
 
@@ -103,7 +107,7 @@ Vercel の本番デプロイ後に動作確認し、問題がなければ `creat
 
 `create-release.yml` の手動実行（**Actions > Create Release > Run workflow**、`version` に `X.Y.Z`）は、**リリース PR をマージした後に**、自動実行が失敗・中断したときの再実行にだけ使う。リリース PR のマージ前に実行してはならない。
 
-- 手動実行は `release` HEAD をタグの対象にし、HEAD が「リリース X.Y.Z」（`version` と同じ）のマージ済み PR のマージコミットで、その PR の head が同一リポジトリの `main` であることを検証する。満たさなければタグを付けずに失敗する（マージ前に実行すると HEAD は前回リリースのままで、旧ツリーに新バージョンのタグが付いてしまうため）。
+- 手動実行は `release` HEAD をタグの対象にし、HEAD が、タイトルが「リリース X.Y.Z」で始まる（`X.Y.Z` は `version` と同じ。`: <更新内容>` が続いてもよい）マージ済み PR のマージコミットで、その PR の head が同一リポジトリの `main` であることを検証する。満たさなければタグを付けずに失敗する（マージ前に実行すると HEAD は前回リリースのままで、旧ツリーに新バージョンのタグが付いてしまうため）。
 - 次のリリースで `release` HEAD が進んだ後は、前のバージョンを手動実行でタグ付けできない。元の自動実行（`pull_request` イベント）を **Re-run jobs** で再実行する。Re-run は元の実行から 30 日以内のみ。過ぎた場合は対象のマージコミットを確認したうえでタグと Release を手動で作成する。
 
 ## トラブルシューティング

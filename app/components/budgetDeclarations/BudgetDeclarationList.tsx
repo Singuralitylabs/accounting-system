@@ -1,6 +1,15 @@
 "use client";
 
-import { Alert, Badge, Button, Group, Paper, Table, Text } from "@mantine/core";
+import {
+  Alert,
+  Badge,
+  Button,
+  Group,
+  LoadingOverlay,
+  Paper,
+  Table,
+  Text,
+} from "@mantine/core";
 import Link from "next/link";
 import { Fragment, useState } from "react";
 import {
@@ -98,14 +107,21 @@ const BudgetDeclarationList = ({
     });
   };
 
-  const { data, isLoading, isError, error, isPlaceholderData } =
-    useBudgetDeclarationList(
-      month,
-      month === initialMonth ? (initialData ?? undefined) : undefined,
-      initialDataUpdatedAt,
-    );
-  // Right after a month switch keepPreviousData still shows the previous month's rows (isLoading stays false); disable row actions or they would pass the previous month's declarationId.
-  const isSwitchingMonth = isPlaceholderData;
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+    isPlaceholderData,
+    isFetching,
+    isStale,
+  } = useBudgetDeclarationList(
+    month,
+    month === initialMonth ? (initialData ?? undefined) : undefined,
+    initialDataUpdatedAt,
+  );
+  // keepPreviousData still shows the previous month (isLoading stays false). A switch to a cached stale month skips the placeholder, so also cover isFetching && isStale (same as extra entries). Row actions stay disabled so they cannot use the previous month's declarationId.
+  const isSwitchingMonth = isPlaceholderData || (isFetching && isStale);
 
   const {
     closingByMonth,
@@ -220,247 +236,260 @@ const BudgetDeclarationList = ({
         />
       </div>
 
-      <Paper withBorder radius="md" p="sm" className="mb-4">
-        <Group gap="md" wrap="wrap" className="mb-2 sm:gap-8">
-          <div>
-            <Text size="xs" c="dimmed">
-              収入合計（全チーム）
+      <div className="relative">
+        <LoadingOverlay visible={isSwitchingMonth} />
+        <Paper withBorder radius="md" p="sm" className="mb-4">
+          <Group gap="md" wrap="wrap" className="mb-2 sm:gap-8">
+            <div>
+              <Text size="xs" c="dimmed">
+                収入合計（全チーム）
+              </Text>
+              <Text fw={700} data-testid="budget-total-income">
+                {formatCurrency(total.incomeTotal)}
+              </Text>
+            </div>
+            <div>
+              <Text size="xs" c="dimmed">
+                支出合計（全チーム）
+              </Text>
+              <Text fw={700} data-testid="budget-total-expense">
+                {formatCurrency(total.expenseTotal)}
+              </Text>
+            </div>
+            <div>
+              <Text size="xs" c="dimmed">
+                収支
+              </Text>
+              <Text
+                fw={700}
+                c={total.balance < 0 ? "red" : undefined}
+                data-testid="budget-total-balance"
+              >
+                {formatCurrency(total.balance)}
+              </Text>
+            </div>
+          </Group>
+          {!closingUnknown && (
+            <BudgetClosingControl
+              month={month}
+              closing={closing}
+              canClose={canCloseMonth}
+              disabled={isSwitchingMonth}
+            />
+          )}
+          {closingUnknown && !closingLoadFailed && (
+            <Text size="sm" c="dimmed">
+              確定状態を確認中です…
             </Text>
-            <Text fw={700} data-testid="budget-total-income">
-              {formatCurrency(total.incomeTotal)}
-            </Text>
-          </div>
-          <div>
-            <Text size="xs" c="dimmed">
-              支出合計（全チーム）
-            </Text>
-            <Text fw={700} data-testid="budget-total-expense">
-              {formatCurrency(total.expenseTotal)}
-            </Text>
-          </div>
-          <div>
-            <Text size="xs" c="dimmed">
-              収支
-            </Text>
-            <Text
-              fw={700}
-              c={total.balance < 0 ? "red" : undefined}
-              data-testid="budget-total-balance"
+          )}
+          {closingLoadFailed && (
+            <Alert
+              color="yellow"
+              mt="xs"
+              title="確定状態を取得できませんでした"
             >
-              {formatCurrency(total.balance)}
+              確定状態が不明なため、申告の作成・編集を一時的に無効にしています。ページを再読み込みしてください。
+            </Alert>
+          )}
+          {isClosed && (
+            <Text size="xs" c="dimmed" mt="xs">
+              {BUDGET_MONTH_CLOSED_MESSAGE}
             </Text>
-          </div>
-        </Group>
-        {!closingUnknown && (
-          <BudgetClosingControl
-            month={month}
-            closing={closing}
-            canClose={canCloseMonth}
-            disabled={isSwitchingMonth}
-          />
-        )}
-        {closingUnknown && !closingLoadFailed && (
-          <Text size="sm" c="dimmed">
-            確定状態を確認中です…
-          </Text>
-        )}
-        {closingLoadFailed && (
-          <Alert color="yellow" mt="xs" title="確定状態を取得できませんでした">
-            確定状態が不明なため、申告の作成・編集を一時的に無効にしています。ページを再読み込みしてください。
+          )}
+        </Paper>
+
+        {profileClass === "teamleader" && !profileTeam && (
+          <Alert color="yellow" className="mb-4" title="所属チームが未設定です">
+            所属チームが設定されていないため、申告の作成・編集はできません（全チームの閲覧のみ）。管理者にお問い合わせください。
           </Alert>
         )}
-        {isClosed && (
-          <Text size="xs" c="dimmed" mt="xs">
-            {BUDGET_MONTH_CLOSED_MESSAGE}
-          </Text>
-        )}
-      </Paper>
 
-      {profileClass === "teamleader" && !profileTeam && (
-        <Alert color="yellow" className="mb-4" title="所属チームが未設定です">
-          所属チームが設定されていないため、申告の作成・編集はできません（全チームの閲覧のみ）。管理者にお問い合わせください。
-        </Alert>
-      )}
-
-      {isError ? (
-        // Insufficient permission is not fixed by reloading; use a separate message.
-        <Alert
-          color="red"
-          title={
-            isForbiddenError(error)
-              ? "事前収支申告の閲覧権限がありません"
-              : "事前収支申告の取得に失敗しました"
-          }
-        >
-          {isForbiddenError(error)
-            ? "権限が変更された可能性があります。管理者にお問い合わせください。"
-            : "時間をおいてページを再読み込みしてください。"}
-        </Alert>
-      ) : isLoading ? (
-        <LoadingSpinner />
-      ) : rows.length === 0 ? (
-        <Alert color="gray" title="表示できるチームがありません">
-          チームマスタが未登録の可能性があります。管理者にお問い合わせください。
-        </Alert>
-      ) : (
-        <>
-          <Group justify="flex-end" mb="xs">
-            <Button
-              size="xs"
-              variant="default"
-              disabled={declaredDeclarationIds.length === 0 || isSwitchingMonth}
-              onClick={() =>
-                setExpandedDeclarations(new Set(declaredDeclarationIds))
-              }
-            >
-              すべて開く
-            </Button>
-            <Button
-              size="xs"
-              variant="default"
-              disabled={openDeclarationIds.length === 0}
-              onClick={() => setExpandedDeclarations(new Set())}
-            >
-              すべて閉じる
-            </Button>
-          </Group>
-          <div className="hidden overflow-x-auto md:block">
-            <Table withTableBorder withColumnBorders striped>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>チーム</Table.Th>
-                  <Table.Th>申告状況</Table.Th>
-                  <Table.Th className="text-right">収入合計</Table.Th>
-                  <Table.Th className="text-right">支出合計</Table.Th>
-                  <Table.Th className="text-right">差引</Table.Th>
-                  <Table.Th>申告者</Table.Th>
-                  <Table.Th>最終更新</Table.Th>
-                  <Table.Th>明細</Table.Th>
-                  <Table.Th>操作</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {rows.map((row) => {
-                  const isExpanded =
-                    row.declarationId !== null &&
-                    expandedDeclarations.has(row.declarationId);
-                  return (
-                    <Fragment key={row.team}>
-                      <Table.Tr>
-                        <Table.Td>{row.team}</Table.Td>
-                        <Table.Td>{renderStatus(row)}</Table.Td>
-                        <Table.Td className="text-right">
-                          {hasDeclaration(row)
-                            ? formatCurrency(row.summary.incomeTotal)
-                            : "-"}
-                        </Table.Td>
-                        <Table.Td className="text-right">
-                          {hasDeclaration(row)
-                            ? formatCurrency(row.summary.expenseTotal)
-                            : "-"}
-                        </Table.Td>
-                        <Table.Td
-                          className={`text-right ${
-                            hasDeclaration(row) && row.summary.balance < 0
-                              ? "text-red-600"
-                              : ""
-                          }`}
-                        >
-                          {hasDeclaration(row)
-                            ? formatCurrency(row.summary.balance)
-                            : "-"}
-                        </Table.Td>
-                        <Table.Td>{row.declaredByName ?? "-"}</Table.Td>
-                        <Table.Td>
-                          {row.updatedAt ? formatTimeToJp(row.updatedAt) : "-"}
-                        </Table.Td>
-                        <Table.Td>
-                          {renderDetailToggle(row, isExpanded)}
-                        </Table.Td>
-                        <Table.Td>{renderRowAction(row)}</Table.Td>
-                      </Table.Tr>
-                      {isExpanded && row.declarationId !== null && (
+        {isError ? (
+          // Insufficient permission is not fixed by reloading; use a separate message.
+          <Alert
+            color="red"
+            title={
+              isForbiddenError(error)
+                ? "事前収支申告の閲覧権限がありません"
+                : "事前収支申告の取得に失敗しました"
+            }
+          >
+            {isForbiddenError(error)
+              ? "権限が変更された可能性があります。管理者にお問い合わせください。"
+              : "時間をおいてページを再読み込みしてください。"}
+          </Alert>
+        ) : isLoading ? (
+          <LoadingSpinner />
+        ) : rows.length === 0 ? (
+          <Alert color="gray" title="表示できるチームがありません">
+            チームマスタが未登録の可能性があります。管理者にお問い合わせください。
+          </Alert>
+        ) : (
+          <>
+            <Group justify="flex-end" mb="xs">
+              <Button
+                size="xs"
+                variant="default"
+                disabled={
+                  declaredDeclarationIds.length === 0 || isSwitchingMonth
+                }
+                onClick={() =>
+                  setExpandedDeclarations(new Set(declaredDeclarationIds))
+                }
+              >
+                すべて開く
+              </Button>
+              <Button
+                size="xs"
+                variant="default"
+                disabled={openDeclarationIds.length === 0}
+                onClick={() => setExpandedDeclarations(new Set())}
+              >
+                すべて閉じる
+              </Button>
+            </Group>
+            <div className="hidden overflow-x-auto md:block">
+              <Table withTableBorder withColumnBorders striped>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>チーム</Table.Th>
+                    <Table.Th>申告状況</Table.Th>
+                    <Table.Th className="text-right">収入合計</Table.Th>
+                    <Table.Th className="text-right">支出合計</Table.Th>
+                    <Table.Th className="text-right">差引</Table.Th>
+                    <Table.Th>申告者</Table.Th>
+                    <Table.Th>最終更新</Table.Th>
+                    <Table.Th>明細</Table.Th>
+                    <Table.Th>操作</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {rows.map((row) => {
+                    const isExpanded =
+                      row.declarationId !== null &&
+                      expandedDeclarations.has(row.declarationId);
+                    return (
+                      <Fragment key={row.team}>
                         <Table.Tr>
-                          <Table.Td colSpan={9}>
-                            <BudgetDeclarationItemTable
-                              declarationId={row.declarationId}
-                            />
+                          <Table.Td>{row.team}</Table.Td>
+                          <Table.Td>{renderStatus(row)}</Table.Td>
+                          <Table.Td className="text-right">
+                            {hasDeclaration(row)
+                              ? formatCurrency(row.summary.incomeTotal)
+                              : "-"}
                           </Table.Td>
+                          <Table.Td className="text-right">
+                            {hasDeclaration(row)
+                              ? formatCurrency(row.summary.expenseTotal)
+                              : "-"}
+                          </Table.Td>
+                          <Table.Td
+                            className={`text-right ${
+                              hasDeclaration(row) && row.summary.balance < 0
+                                ? "text-red-600"
+                                : ""
+                            }`}
+                          >
+                            {hasDeclaration(row)
+                              ? formatCurrency(row.summary.balance)
+                              : "-"}
+                          </Table.Td>
+                          <Table.Td>{row.declaredByName ?? "-"}</Table.Td>
+                          <Table.Td>
+                            {row.updatedAt
+                              ? formatTimeToJp(row.updatedAt)
+                              : "-"}
+                          </Table.Td>
+                          <Table.Td>
+                            {renderDetailToggle(row, isExpanded)}
+                          </Table.Td>
+                          <Table.Td>{renderRowAction(row)}</Table.Td>
                         </Table.Tr>
-                      )}
-                    </Fragment>
-                  );
-                })}
-              </Table.Tbody>
-            </Table>
-          </div>
-          <div className="space-y-3 md:hidden" data-testid="budget-card-list">
-            {rows.map((row) => {
-              const isExpanded =
-                row.declarationId !== null &&
-                expandedDeclarations.has(row.declarationId);
-              const amountRows = [
-                { label: "収入合計", value: row.summary.incomeTotal },
-                { label: "支出合計", value: row.summary.expenseTotal },
-                { label: "差引", value: row.summary.balance },
-              ];
-              return (
-                <Paper key={row.team} withBorder radius="md" p="sm">
-                  <Group
-                    justify="space-between"
-                    align="flex-start"
-                    wrap="nowrap"
-                  >
-                    <Text fw={700} className="min-w-0 break-words">
-                      {row.team}
-                    </Text>
-                    <div className="shrink-0 text-right">
-                      {renderStatus(row)}
-                    </div>
-                  </Group>
-                  <dl className="my-2 space-y-1">
-                    {amountRows.map(({ label, value }) => (
-                      <div
-                        key={label}
-                        className="flex items-baseline justify-between text-sm"
-                      >
-                        <dt className="text-gray-600">{label}：</dt>
-                        <dd
-                          className={`m-0 font-semibold ${
-                            label === "差引" && hasDeclaration(row) && value < 0
-                              ? "text-red-600"
-                              : ""
-                          }`}
-                        >
-                          {hasDeclaration(row) ? formatCurrency(value) : "-"}
-                        </dd>
+                        {isExpanded && row.declarationId !== null && (
+                          <Table.Tr>
+                            <Table.Td colSpan={9}>
+                              <BudgetDeclarationItemTable
+                                declarationId={row.declarationId}
+                              />
+                            </Table.Td>
+                          </Table.Tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </Table.Tbody>
+              </Table>
+            </div>
+            <div className="space-y-3 md:hidden" data-testid="budget-card-list">
+              {rows.map((row) => {
+                const isExpanded =
+                  row.declarationId !== null &&
+                  expandedDeclarations.has(row.declarationId);
+                const amountRows = [
+                  { label: "収入合計", value: row.summary.incomeTotal },
+                  { label: "支出合計", value: row.summary.expenseTotal },
+                  { label: "差引", value: row.summary.balance },
+                ];
+                return (
+                  <Paper key={row.team} withBorder radius="md" p="sm">
+                    <Group
+                      justify="space-between"
+                      align="flex-start"
+                      wrap="nowrap"
+                    >
+                      <Text fw={700} className="min-w-0 break-words">
+                        {row.team}
+                      </Text>
+                      <div className="shrink-0 text-right">
+                        {renderStatus(row)}
                       </div>
-                    ))}
-                  </dl>
-                  <Text size="xs" c="dimmed">
-                    申告者：{row.declaredByName ?? "-"}
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    最終更新：
-                    {row.updatedAt ? formatTimeToJp(row.updatedAt) : "-"}
-                  </Text>
-                  <Group gap="xs" mt="sm" wrap="nowrap">
-                    {renderDetailToggle(row, isExpanded)}
-                    {renderRowAction(row)}
-                  </Group>
-                  {isExpanded && row.declarationId !== null && (
-                    <div className="mt-3">
-                      <BudgetDeclarationItemTable
-                        declarationId={row.declarationId}
-                      />
-                    </div>
-                  )}
-                </Paper>
-              );
-            })}
-          </div>
-        </>
-      )}
+                    </Group>
+                    <dl className="my-2 space-y-1">
+                      {amountRows.map(({ label, value }) => (
+                        <div
+                          key={label}
+                          className="flex items-baseline justify-between text-sm"
+                        >
+                          <dt className="text-gray-600">{label}：</dt>
+                          <dd
+                            className={`m-0 font-semibold ${
+                              label === "差引" &&
+                              hasDeclaration(row) &&
+                              value < 0
+                                ? "text-red-600"
+                                : ""
+                            }`}
+                          >
+                            {hasDeclaration(row) ? formatCurrency(value) : "-"}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                    <Text size="xs" c="dimmed">
+                      申告者：{row.declaredByName ?? "-"}
+                    </Text>
+                    <Text size="xs" c="dimmed">
+                      最終更新：
+                      {row.updatedAt ? formatTimeToJp(row.updatedAt) : "-"}
+                    </Text>
+                    <Group gap="xs" mt="sm" wrap="nowrap">
+                      {renderDetailToggle(row, isExpanded)}
+                      {renderRowAction(row)}
+                    </Group>
+                    {isExpanded && row.declarationId !== null && (
+                      <div className="mt-3">
+                        <BudgetDeclarationItemTable
+                          declarationId={row.declarationId}
+                        />
+                      </div>
+                    )}
+                  </Paper>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
 
       {formTarget && (
         <BudgetDeclarationForm

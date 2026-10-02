@@ -1,13 +1,21 @@
 import { MatterType } from "@/app/types/types";
 import { ActionIcon, Menu } from "@mantine/core";
 import { BsThreeDotsVertical } from "react-icons/bs";
+import { CompactLoader } from "../LoadingSpinner";
 
 type Props = {
   matter: MatterType;
   onCopy: (matter: MatterType) => void;
   onDelete: (matter: MatterType) => void;
+  // True while a delete mutation is in flight (blocks a second delete).
+  deletePending?: boolean;
 };
-const ThreedotsMenu = ({ matter, onCopy, onDelete }: Props) => {
+const ThreedotsMenu = ({
+  matter,
+  onCopy,
+  onDelete,
+  deletePending = false,
+}: Props) => {
   return (
     <Menu position="bottom-end" shadow="md">
       <Menu.Target>
@@ -18,7 +26,16 @@ const ThreedotsMenu = ({ matter, onCopy, onDelete }: Props) => {
       <Menu.Dropdown>
         <Menu.Item onClick={() => onCopy(matter)}>コピー</Menu.Item>
         {!matter.is_completed && !matter.is_fixed && (
-          <Menu.Item color="red" onClick={() => onDelete(matter)}>
+          <Menu.Item
+            color="red"
+            disabled={deletePending}
+            leftSection={
+              deletePending ? <CompactLoader color="red" /> : undefined
+            }
+            onClick={() => {
+              if (!deletePending) onDelete(matter);
+            }}
+          >
             削除
           </Menu.Item>
         )}

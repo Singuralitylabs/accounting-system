@@ -21,10 +21,10 @@ describe("groupUsersByRole", () => {
     ]);
 
     expect(sections.map((s) => [s.key, s.label, s.users.length])).toEqual([
-      ["admin", "admin", 1],
-      ["accounting", "accounting", 1],
-      ["teamleader", "teamleader", 2],
-      ["public", "public", 1],
+      ["admin", "管理者", 1],
+      ["accounting", "経理", 1],
+      ["teamleader", "チームリーダー", 2],
+      ["public", "メンバー", 1],
     ]);
   });
 

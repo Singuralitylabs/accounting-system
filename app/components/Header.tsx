@@ -115,17 +115,28 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
     };
   }, [supabase]);
 
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const signingOutRef = useRef(false);
+
   if (!user) {
     return null;
   }
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    profileCacheRef.current = {};
-    latestUserIdRef.current = null;
-    setUser(null);
-    setProfile(null);
-    router.push("/login");
+    if (signingOutRef.current) return;
+    signingOutRef.current = true;
+    setIsSigningOut(true);
+    try {
+      await supabase.auth.signOut();
+      profileCacheRef.current = {};
+      latestUserIdRef.current = null;
+      setUser(null);
+      setProfile(null);
+      router.push("/login");
+    } finally {
+      signingOutRef.current = false;
+      setIsSigningOut(false);
+    }
   };
 
   return (
@@ -153,13 +164,18 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
             </div>
           )}
           <div className="hidden sm:flex items-center">
-            <UserButton user={user} onSignOut={handleSignOut} />
+            <UserButton
+              user={user}
+              onSignOut={handleSignOut}
+              signingOut={isSigningOut}
+            />
           </div>
           <div className="sm:hidden">
             <MobileHeader
               profile={profile}
               onSignOut={handleSignOut}
               hideNav={isHub}
+              signingOut={isSigningOut}
             />
           </div>
         </div>

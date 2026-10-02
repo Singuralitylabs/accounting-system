@@ -1,6 +1,12 @@
 "use client";
 
-import { Button, SimpleGrid, Table } from "@mantine/core";
+import {
+  Alert,
+  Button,
+  LoadingOverlay,
+  SimpleGrid,
+  Table,
+} from "@mantine/core";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { MatterInfoWithUserNameType } from "../../types/types";
 import { MatterCardDetail } from "../modal/MatterCardDetail";
@@ -26,6 +32,7 @@ import { MatterListPagination } from "./MatterListPagination";
 import { notifyError, notifyInfo } from "../../utils/notify";
 import { confirmAction } from "../../utils/confirmAction";
 import { ActiveMatterFilterBar } from "./ActiveMatterFilterBar";
+import { LoadingSpinner } from "../LoadingSpinner";
 
 export const AccountingMatterList = ({
   initialData,
@@ -49,10 +56,15 @@ export const AccountingMatterList = ({
   const optionSourceRef = useRef<MatterInfoWithUserNameType[]>([]);
 
   // Seed the cache with server-fetched initialData to avoid a duplicate full fetch right after mount; filters are in the queryKey, so changes fetch server-filtered results.
-  const { data: rawMatterList } = useAllMatterList(
-    initialData,
-    compactedFilters,
-  );
+  const {
+    data: rawMatterList,
+    isPlaceholderData,
+    isFetching,
+    isError,
+  } = useAllMatterList(initialData, compactedFilters);
+  // placeholderData keeps the previous rows; overlay them until the new filter (or a refetch) settles.
+  const isListBusy = isPlaceholderData || isFetching;
+  const hasList = Array.isArray(rawMatterList);
 
   // Always an array (also before fetch / on failure), so children need no non-null assertion.
   const matterList: MatterInfoWithUserNameType[] = useMemo(() => {
@@ -234,7 +246,8 @@ export const AccountingMatterList = ({
   );
 
   return (
-    <div className="my-4">
+    <div className="relative my-4">
+      <LoadingOverlay visible={isListBusy && hasList} />
       <div className="sticky top-4 bg-white z-[5]">
         <div className="flex justify-end gap-4 my-4 px-4">
           <Button
@@ -274,67 +287,84 @@ export const AccountingMatterList = ({
         }
         onClearAll={() => setFilters({})}
       />
-      <div className="overflow-auto h-[calc(100vh-200px)]">
-        {showCards ? (
-          <div className="py-4 px-8">
-            <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
-              {pagedItems.map((matter: MatterInfoWithUserNameType) => (
-                <div
-                  key={matter.id}
-                  style={{
-                    contentVisibility: "auto",
-                    containIntrinsicSize: "auto 280px",
-                  }}
-                >
-                  <MatterCard
-                    variant="accounting"
-                    matter={matter}
-                    isChecked={checkedMatterIdList.includes(matter.id)}
-                    onOpen={handleShowMatterInfo}
-                    onCheck={() => handleCheckCard(matter.id)}
-                  />
-                </div>
-              ))}
-            </SimpleGrid>
-          </div>
-        ) : (
-          <Table stickyHeader>
-            <Table.Thead className="bg-white">
-              {
-                <AccountingTableHeader
-                  matterList={headerMatterList}
-                  filters={filters}
-                  setFilters={setFilters}
-                />
-              }
-            </Table.Thead>
-            <Table.Tbody>
-              {pagedItems.map((matter: MatterInfoWithUserNameType) => (
-                <AccountingTablebody
-                  key={matter.id}
-                  matter={matter}
-                  isChecked={checkedMatterIdList.includes(matter.id)}
-                  checkedMatterIdList={checkedMatterIdList}
-                  setCheckedMatterIdList={setCheckedMatterIdList}
-                  onShowMatterInfo={handleShowMatterInfo}
-                />
-              ))}
-            </Table.Tbody>
-          </Table>
-        )}
-      </div>
-      {showPagination && (
-        <MatterListPagination
-          page={page}
-          totalPages={totalPages}
-          onPageChange={setPage}
-          perPage={perPage}
-          onPerPageChange={setPerPage}
-          startIndex={startIndex}
-          endIndex={endIndex}
-          total={total}
-        />
+      {isError && (
+        <Alert
+          color="red"
+          title="案件一覧の取得に失敗しました"
+          className="mx-4 mb-4"
+        >
+          {hasList
+            ? "表示中の内容は取得済みのものです。時間をおいてページを再読み込みしてください。"
+            : "時間をおいてページを再読み込みしてください。"}
+        </Alert>
       )}
+      {!hasList && !isError ? (
+        <LoadingSpinner />
+      ) : hasList ? (
+        <>
+          <div className="overflow-auto h-[calc(100vh-200px)]">
+            {showCards ? (
+              <div className="py-4 px-8">
+                <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
+                  {pagedItems.map((matter: MatterInfoWithUserNameType) => (
+                    <div
+                      key={matter.id}
+                      style={{
+                        contentVisibility: "auto",
+                        containIntrinsicSize: "auto 280px",
+                      }}
+                    >
+                      <MatterCard
+                        variant="accounting"
+                        matter={matter}
+                        isChecked={checkedMatterIdList.includes(matter.id)}
+                        onOpen={handleShowMatterInfo}
+                        onCheck={() => handleCheckCard(matter.id)}
+                      />
+                    </div>
+                  ))}
+                </SimpleGrid>
+              </div>
+            ) : (
+              <Table stickyHeader>
+                <Table.Thead className="bg-white">
+                  {
+                    <AccountingTableHeader
+                      matterList={headerMatterList}
+                      filters={filters}
+                      setFilters={setFilters}
+                    />
+                  }
+                </Table.Thead>
+                <Table.Tbody>
+                  {pagedItems.map((matter: MatterInfoWithUserNameType) => (
+                    <AccountingTablebody
+                      key={matter.id}
+                      matter={matter}
+                      isChecked={checkedMatterIdList.includes(matter.id)}
+                      checkedMatterIdList={checkedMatterIdList}
+                      setCheckedMatterIdList={setCheckedMatterIdList}
+                      onShowMatterInfo={handleShowMatterInfo}
+                    />
+                  ))}
+                </Table.Tbody>
+              </Table>
+            )}
+          </div>
+          {showPagination && (
+            <MatterListPagination
+              page={page}
+              totalPages={totalPages}
+              onPageChange={setPage}
+              perPage={perPage}
+              onPerPageChange={setPerPage}
+              startIndex={startIndex}
+              endIndex={endIndex}
+              total={total}
+            />
+          )}
+        </>
+      ) : null}
 
       {detailOpened && detailMatterInfo && (
         <MatterCardDetail

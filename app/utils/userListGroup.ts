@@ -1,4 +1,10 @@
-import { isRole, ROLE_DISPLAY_RANK, ROLES, Role } from "./permissions";
+import {
+  isRole,
+  ROLE_DISPLAY_RANK,
+  ROLE_LABELS,
+  ROLES,
+  Role,
+} from "./permissions";
 
 // Grouping and team colors for the admin user list (sorting is in userListSort.ts).
 
@@ -37,7 +43,7 @@ export const groupUsersByRole = <T extends { class: string | null }>(
       ? [
           {
             key,
-            label: key === "unset" ? UNSET_LABEL : key,
+            label: key === "unset" ? UNSET_LABEL : ROLE_LABELS[key],
             users: sectionUsers,
           },
         ]

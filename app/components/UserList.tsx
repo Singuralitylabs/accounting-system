@@ -10,7 +10,7 @@ import {
   Title,
 } from "@mantine/core";
 import { ProfilesType } from "../types/types";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { bulkUpdateProfiles } from "../utils/supabase/profiles";
 import { notifyError, notifySuccess } from "../utils/notify";
@@ -59,6 +59,8 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
   // Rows when loaded (or at the last successful save); changed rows are highlighted and only they are sent on save (same as ExtraEntryList).
   const [baseline, setBaseline] = useState(() => toRowMap(userList));
   const [isSaving, setIsSaving] = useState(false);
+  // router.refresh() resolves after the server render; keep the overlay until then.
+  const [isRefreshPending, startRefresh] = useTransition();
   const [showErrors, setShowErrors] = useState(false);
 
   const { width } = useViewportSize();
@@ -179,7 +181,9 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
       setRows((prev) => sortUserList(prev, latestPropsRef.current.teamList));
       setShowErrors(false);
       notifySuccess(`${changedRows.length} 件のユーザー情報を保存しました。`);
-      router.refresh();
+      startRefresh(() => {
+        router.refresh();
+      });
     } catch (error) {
       // Outcome unknown (single transaction: all or nothing).
       console.error("ユーザー情報の保存に失敗しました:", error);
@@ -206,7 +210,7 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
   return (
     <div className="relative p-4">
       <Title order={2} className="pb-4">
-        ユーザーリスト
+        ユーザー管理
       </Title>
       {teamListError && (
         <Text c="red" size="sm" className="pb-4">
@@ -295,7 +299,7 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
           )}
         </section>
       ))}
-      <LoadingOverlay visible={isSaving} />
+      <LoadingOverlay visible={isSaving || isRefreshPending} />
     </div>
   );
 };

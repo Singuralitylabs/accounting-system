@@ -1,8 +1,8 @@
 "use client";
 
-import { Button, SimpleGrid, Table } from "@mantine/core";
+import { Button, LoadingOverlay, SimpleGrid, Table } from "@mantine/core";
 import dynamic from "next/dynamic";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { MatterType } from "../../types/types";
 import { ModalLoadingFallback } from "../LoadingSpinner";
 import { MatterCard } from "../MatterCard";
@@ -67,6 +67,9 @@ export function UserMatterList({
   const { switchDisplay, setSwitchDisplay, showCards } =
     useListDisplayMode(true);
   const deleteMatterMutation = useDeleteMatter();
+  const isDeleting = deleteMatterMutation.isPending;
+  // Covers the confirm dialog too: isPending is still false then, and a second click would stack another dialog.
+  const deleteLockRef = useRef(false);
 
   const { teamList, categoryList, itemList, certificateList } =
     useAtomValue(optionsAtom);
@@ -101,19 +104,23 @@ export function UserMatterList({
 
   const handleDeleteCard = useCallback(
     async (matter: MatterType) => {
-      const confirmed = await confirmAction(DELETE_MATTER_CONFIRM_MESSAGE, {
-        confirmLabel: "削除",
-        confirmColor: "red",
-      });
-      if (!confirmed) return;
-
+      if (deleteLockRef.current || isDeleting) return;
+      deleteLockRef.current = true;
       try {
+        const confirmed = await confirmAction(DELETE_MATTER_CONFIRM_MESSAGE, {
+          confirmLabel: "削除",
+          confirmColor: "red",
+        });
+        if (!confirmed) return;
+
         await deleteMatterMutation.mutateAsync(matter);
       } catch (error) {
         console.error("案件削除に失敗しました:", error);
+      } finally {
+        deleteLockRef.current = false;
       }
     },
-    [deleteMatterMutation],
+    [deleteMatterMutation, isDeleting],
   );
 
   const tableHeads = useMemo(
@@ -162,15 +169,17 @@ export function UserMatterList({
               matter={matter}
               onCopy={handleCopyCard}
               onDelete={handleDeleteCard}
+              deletePending={isDeleting}
             />
           </Table.Td>
         </Table.Tr>
       )),
-    [pagedItems, handleOpenCard, handleCopyCard, handleDeleteCard],
+    [pagedItems, handleOpenCard, handleCopyCard, handleDeleteCard, isDeleting],
   );
 
   return (
-    <div>
+    <div className="relative">
+      <LoadingOverlay visible={isDeleting} />
       <div className="flex flex-col items-end gap-2 px-8 pt-4">
         <Button onClick={handleCreateCard}>+ 新規作成</Button>
         <DisplayMenu
@@ -196,6 +205,7 @@ export function UserMatterList({
                     onOpen={handleOpenCard}
                     onCopy={handleCopyCard}
                     onDelete={handleDeleteCard}
+                    deletePending={isDeleting}
                   />
                 </div>
               ))}

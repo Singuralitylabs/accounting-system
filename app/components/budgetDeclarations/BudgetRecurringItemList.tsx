@@ -25,6 +25,7 @@ import {
 import {
   categoryOptionsFor,
   isCategoryUnregistered,
+  isPreWriteFailureError,
 } from "@/app/utils/budgetDeclaration";
 import {
   getBudgetRecurringItemValidationMessage,
@@ -33,7 +34,9 @@ import {
 import { confirmAction } from "@/app/utils/confirmAction";
 import { ENTRY_TYPE_OPTIONS } from "@/app/utils/extraEntry";
 import { notifyError } from "@/app/utils/notify";
+import { useSaveRefreshLock } from "@/app/hooks/useSaveRefreshLock";
 import { CustomMonthPicker } from "../CustomMonthPicker";
+import { SaveRefreshAlert } from "../SaveRefreshAlert";
 
 type Props = {
   initialData: BudgetRecurringItemType[];
@@ -66,8 +69,28 @@ const BudgetRecurringItemList = ({
   memberListError = false,
 }: Props) => {
   const { categoryList, itemList } = useAtomValue(optionsAtom);
-  const { data: recurringItems } = useBudgetRecurringItemList(initialData);
+  const {
+    data: recurringItems,
+    isInvalidated,
+    isFetching,
+    isError,
+    isPaused,
+    refetch,
+  } = useBudgetRecurringItemList(initialData);
   const saveMutation = useSaveBudgetRecurringItems();
+  // Keep the overlay and block edits until the refetch after a save finishes (same as RecurringCostList).
+  const {
+    locked: needsReload,
+    isStalled: reloadStalled,
+    outcome: saveOutcome,
+    markSaved,
+  } = useSaveRefreshLock({
+    isInvalidated: !!isInvalidated,
+    isFetching: !!isFetching,
+    isError: !!isError,
+    isPaused: !!isPaused,
+  });
+  const formLocked = saveMutation.isPending || needsReload;
 
   const [rows, setRows] = useState<BudgetRecurringItemInListType[]>(
     toListRows(initialData),
@@ -76,10 +99,10 @@ const BudgetRecurringItemList = ({
   const [isDirty, setIsDirty] = useState(false);
 
   useEffect(() => {
-    if (recurringItems && !isDirty) {
+    if (recurringItems && !isDirty && !needsReload) {
       setRows(toListRows(recurringItems));
     }
-  }, [recurringItems, isDirty]);
+  }, [recurringItems, isDirty, needsReload]);
 
   const handleUpdateRow = (
     id: number,
@@ -137,9 +160,16 @@ const BudgetRecurringItemList = ({
 
     try {
       await saveMutation.mutateAsync(rows);
+      markSaved("saved");
       setIsDirty(false);
-    } catch {
-      // Notified in the mutation's onError.
+    } catch (error) {
+      // Notified in the mutation's onError. Drop local edits unless the server confirmed that
+      // nothing was written. A lost response can follow a completed insert, and keeping isNew rows
+      // would insert them again on the next save.
+      if (!isPreWriteFailureError(error)) {
+        markSaved("unknown");
+        setIsDirty(false);
+      }
     }
   };
 
@@ -155,7 +185,18 @@ const BudgetRecurringItemList = ({
 
   return (
     <div className="px-4 pb-8 max-w-6xl mx-auto relative">
-      <LoadingOverlay visible={saveMutation.isPending} />
+      <LoadingOverlay
+        visible={saveMutation.isPending || (!!needsReload && !!isFetching)}
+      />
+      {reloadStalled && (
+        <SaveRefreshAlert
+          subject="定期明細"
+          outcome={saveOutcome}
+          partialPossible
+          isPaused={!!isPaused}
+          onReload={() => refetch()}
+        />
+      )}
       <Link
         href="/budget-declarations"
         className="text-sm text-blue-600 hover:underline"
@@ -169,7 +210,7 @@ const BudgetRecurringItemList = ({
         <Button
           type="button"
           className="shrink-0"
-          disabled={saveMutation.isPending}
+          disabled={formLocked}
           onClick={handleSave}
         >
           保存
@@ -217,7 +258,7 @@ const BudgetRecurringItemList = ({
                     ? [row.team, ...teamList]
                     : teamList
                 }
-                disabled={!canEditAllTeams}
+                disabled={!canEditAllTeams || formLocked}
                 allowDeselect={false}
                 placeholder="チームを選択"
                 onChange={(selected) =>
@@ -229,6 +270,7 @@ const BudgetRecurringItemList = ({
                 classNames={MOBILE_ONLY_LABEL}
                 data={ENTRY_TYPE_OPTIONS}
                 value={row.entry_type}
+                disabled={formLocked}
                 allowDeselect={false}
                 onChange={(value) =>
                   handleUpdateRow(row.id, {
@@ -248,6 +290,7 @@ const BudgetRecurringItemList = ({
                   itemList,
                 )}
                 value={row.category || null}
+                disabled={formLocked}
                 placeholder="分類を選択"
                 error={
                   isCategoryUnregistered(
@@ -267,6 +310,7 @@ const BudgetRecurringItemList = ({
                 label="内容"
                 classNames={MOBILE_ONLY_LABEL}
                 value={row.description}
+                disabled={formLocked}
                 placeholder="例: ○○保守契約"
                 onChange={(event) =>
                   handleUpdateRow(row.id, {
@@ -278,6 +322,7 @@ const BudgetRecurringItemList = ({
                 label="金額"
                 classNames={MOBILE_ONLY_LABEL}
                 value={row.amount}
+                disabled={formLocked}
                 min={0}
                 step={1000}
                 thousandSeparator=","
@@ -298,7 +343,7 @@ const BudgetRecurringItemList = ({
                     ? "担当者一覧を取得できませんでした"
                     : "担当者を選択"
                 }
-                disabled={memberListError}
+                disabled={memberListError || formLocked}
                 searchable
                 clearable
                 onChange={(value) =>
@@ -311,6 +356,7 @@ const BudgetRecurringItemList = ({
                 label="適用開始月"
                 classNames={MOBILE_ONLY_LABEL}
                 placeholder="開始月"
+                disabled={formLocked}
                 value={row.start_month ? row.start_month.slice(0, 7) : null}
                 onChange={(month) =>
                   handleUpdateRow(row.id, {
@@ -322,6 +368,7 @@ const BudgetRecurringItemList = ({
                 label="適用終了月"
                 classNames={MOBILE_ONLY_LABEL}
                 placeholder="終了月（継続中は空欄）"
+                disabled={formLocked}
                 value={row.end_month ? row.end_month.slice(0, 7) : null}
                 onChange={(month) =>
                   handleUpdateRow(row.id, {
@@ -333,7 +380,8 @@ const BudgetRecurringItemList = ({
               <button
                 type="button"
                 aria-label="削除"
-                className="absolute right-3 top-2 text-red-500 hover:text-red-700 md:static"
+                className="absolute right-3 top-2 text-red-500 hover:text-red-700 disabled:text-gray-300 disabled:cursor-not-allowed md:static"
+                disabled={formLocked}
                 onClick={() => handleRemoveRow(row.id)}
               >
                 <RiDeleteBin6Line size="1.2rem" />
@@ -353,7 +401,7 @@ const BudgetRecurringItemList = ({
           color="dark"
           variant="outline"
           rightSection={<CiSquarePlus />}
-          disabled={!canEditAllTeams && !ownTeam}
+          disabled={(!canEditAllTeams && !ownTeam) || formLocked}
           onClick={handleAddRow}
         >
           定期明細追加
