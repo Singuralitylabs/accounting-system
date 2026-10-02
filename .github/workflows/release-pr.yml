@@ -556,6 +556,11 @@ jobs:
           if [ "$HAS_BREAKING" = "true" ]; then
             CHECKLIST_ITEMS="$CHECKLIST_ITEMS"$'- [ ] 後方互換でない変更の確認済み（リリース分割の判断済み）\n'
           fi
+          # The free plan has no managed backups, so a destructive migration is guarded by a manual SQL dump instead.
+          if [ "$HAS_BREAKING" = "true" ]; then
+            # shellcheck disable=SC2016 # backticks are Markdown code, not to be expanded
+            CHECKLIST_ITEMS="$CHECKLIST_ITEMS"$'- [ ] 本番 DB のバックアップを SQL 形式で取得した（無料プランでは自動バックアップが使えないため、`supabase db dump --linked --data-only -f data.sql` などで手動取得する。手順は docs/setup.md）\n'
+          fi
           if [ "$HAS_HOOK" = "true" ]; then
             CHECKLIST_ITEMS="$CHECKLIST_ITEMS"$'- [ ] Custom Access Token Hook の有効化はマイグレーション適用後に行う（docs/database.md）\n'
           fi

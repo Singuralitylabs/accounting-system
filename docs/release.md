@@ -86,6 +86,7 @@ supabase db push
 - 本番 DB の `migration list` を手動で確認し、未適用分が無いこと（本番 DB へ自動接続できず、本文に手動確認の案内が出ている場合）
 - 上記環境変数を本番（Vercel）に登録済み（新規環境変数がある場合）
 - 後方互換でない変更の確認（後方互換でない SQL の警告がある場合。リリース分割の判断）
+- 本番 DB のバックアップ（後方互換でない SQL の警告がある場合のみ。無料プランでは自動バックアップが使えないため、`supabase db dump --linked --data-only -f data.sql` などで SQL 形式のダンプを手動で取得する。手順は `docs/setup.md`）
 - Custom Access Token Hook の有効化は適用後に行うこと（追加されたマイグレーションに `custom_access_token_hook` が含まれる場合）
 - 上記の更新内容・差分を確認済み（常に表示）
 
