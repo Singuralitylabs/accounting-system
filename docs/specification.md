@@ -416,7 +416,7 @@ admin のみ。画面は [5.3.9](#539-管理画面)。選択肢（チーム / �
 - Vercel Cron が毎日 09:00 JST（`0 0 * * *` UTC。`vercel.json`）に `app/api/cron/budget-declaration-reminder/route.ts` を実行する。`Authorization: Bearer ${CRON_SECRET}` が一致しなければ 401
 - リマインド対象日は `budget_declaration_reminder_settings`（1 行のみ。[database.md 3.11](database.md#311-budget_declaration_reminder_settings-テーブル)）の `target_days` で管理し、デプロイなしで編集できる（DB 取得に失敗したら既定 `[15, 18, 20]` にフォールバック）。JST の今日が対象日に含まれなければ何もしない（200 でスキップ）。**対象日を空にするとリマインド自体が停止する**（cron は動作するが常にスキップ）
 - 編集は `/budget-declarations` の「リマインド設定」（admin / accounting のみ。[5.3.14](#5314-事前収支申告画面)）。`id = 1` の既存行の UPDATE のみ（INSERT / DELETE は不可）
-- 対象日に、翌月（JST）分の申告が無い、または未完了（入力中）のチームを抽出する（全チームが申告済み（完了）なら通知しない。翌月が確定済み（[4.20.8](#4208-月次確定)）なら通知せずスキップする）。未申告チームのチームリーダー（`profiles.class = 'teamleader'` かつ team が一致）の `slack_id` でメンションし、チーム名・期限（毎月 20 日）・申告ページ URL を 1 通にまとめて `SLACK_WEBHOOK_URL` へ送る。`slack_id` 未設定のリーダーやリーダー不在のチームはメンションなしでチーム名のみ通知する
+- 対象日に、翌月（JST）分の申告が無い、または未完了（入力中）のチームを抽出する（全チームが申告済み（完了）なら通知しない。翌月が確定済み（[4.20.8](#4208-月次確定)）なら通知せずスキップする）。未申告チームのチームリーダー（`profiles.is_teamleader = true` かつ team が一致）の `slack_id` でメンションし、チーム名・期限（毎月 20 日）・申告ページ URL を 1 通にまとめて `SLACK_WEBHOOK_URL` へ送る。`slack_id` 未設定のリーダーやリーダー不在のチームはメンションなしでチーム名のみ通知する
 - cron ハンドラは認証セッションを持たないため、`app/utils/supabase/budgetDeclarationReminderData.ts` に限り `SUPABASE_SERVICE_ROLE_KEY`（RLS を完全にバイパスできる強力なキー）の server-only クライアントで読み取る。キー自体の権限はこの用途に限定されないため、クライアントへ露出させない
 - 申告ページ URL は Vercel が自動設定する `VERCEL_PROJECT_PRODUCTION_URL` / `VERCEL_URL` から組み立てる（追加の環境変数は不要）
 
