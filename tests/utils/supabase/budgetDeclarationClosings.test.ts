@@ -146,7 +146,7 @@ describe("getBudgetDeclarationClosings", () => {
     });
     getAuthorizedViewer.mockReset();
     getAuthorizedViewer.mockResolvedValue({
-      profileInfo: { id: 2, class: "teamleader" },
+      profileInfo: { id: 2, class: "public", is_teamleader: true },
     });
     vi.spyOn(console, "error").mockImplementation(() => {});
   });

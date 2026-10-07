@@ -152,15 +152,17 @@ const Header: FC<HeaderProps> = ({ initialUser, initialProfile }) => {
         <div className="ml-auto flex items-center gap-4">
           {!isHub && (
             <div className="hidden sm:flex flex-wrap gap-2">
-              {visibleNavItems(profile?.class).map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
-                >
-                  {item.label}
-                </Link>
-              ))}
+              {visibleNavItems(profile?.class, profile?.is_teamleader).map(
+                (item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="rounded bg-gray-700 px-3 py-2 text-white hover:bg-gray-500"
+                  >
+                    {item.label}
+                  </Link>
+                ),
+              )}
             </div>
           )}
           <div className="hidden sm:flex items-center">

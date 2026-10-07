@@ -9,6 +9,7 @@ import {
   budgetEntryRowBg,
   canWriteAllBudgetTeams,
   canWriteBudgetTeam,
+  ownBudgetTeams,
   categoryOptionsFor,
   defaultTargetMonth,
   isCategoryUnregistered,
@@ -97,6 +98,7 @@ describe("canWriteAllBudgetTeams", () => {
     expect(canWriteAllBudgetTeams("admin")).toBe(true);
     expect(canWriteAllBudgetTeams("teamleader")).toBe(false);
     expect(canWriteAllBudgetTeams("public")).toBe(false);
+    expect(canWriteAllBudgetTeams(null)).toBe(false);
   });
 });
 
@@ -113,22 +115,53 @@ describe("budgetEntryRowBg / budgetAmountColor", () => {
 
 describe("canWriteBudgetTeam", () => {
   it("経理・管理者は全チームへ書き込める", () => {
-    expect(canWriteBudgetTeam("accounting", null, "Aチーム")).toBe(true);
-    expect(canWriteBudgetTeam("admin", "Bチーム", "Aチーム")).toBe(true);
+    expect(canWriteBudgetTeam("accounting", null, "Aチーム", false)).toBe(true);
+    expect(canWriteBudgetTeam("admin", "Bチーム", "Aチーム", false)).toBe(true);
   });
 
-  it("チームリーダーは自チームのみ書き込める", () => {
-    expect(canWriteBudgetTeam("teamleader", "Aチーム", "Aチーム")).toBe(true);
-    expect(canWriteBudgetTeam("teamleader", "Aチーム", "Bチーム")).toBe(false);
+  it("フラグ付きの public（チームリーダー）は自チームのみ書き込める", () => {
+    expect(canWriteBudgetTeam("public", "Aチーム", "Aチーム", true)).toBe(true);
+    expect(canWriteBudgetTeam("public", "Aチーム", "Bチーム", true)).toBe(
+      false,
+    );
+  });
+
+  it("フラグ付きの経理（兼任）は全チームへ書き込める", () => {
+    expect(canWriteBudgetTeam("accounting", "Aチーム", "Bチーム", true)).toBe(
+      true,
+    );
+    expect(canWriteBudgetTeam("accounting", null, "Aチーム", true)).toBe(true);
   });
 
   it("チーム未設定のチームリーダーはどのチームにも書き込めない", () => {
-    expect(canWriteBudgetTeam("teamleader", null, "Aチーム")).toBe(false);
+    expect(canWriteBudgetTeam("public", null, "Aチーム", true)).toBe(false);
   });
 
-  it("public・ロール未設定は書き込めない", () => {
-    expect(canWriteBudgetTeam("public", "Aチーム", "Aチーム")).toBe(false);
-    expect(canWriteBudgetTeam(null, "Aチーム", "Aチーム")).toBe(false);
+  it("フラグなしの public・ロール未設定は書き込めない", () => {
+    expect(canWriteBudgetTeam("public", "Aチーム", "Aチーム", false)).toBe(
+      false,
+    );
+    expect(canWriteBudgetTeam(null, "Aチーム", "Aチーム", false)).toBe(false);
+    expect(canWriteBudgetTeam(null, "Aチーム", "Aチーム", null)).toBe(false);
+  });
+
+  it("class が 'teamleader' の値はフラグが無ければ書き込めない", () => {
+    expect(canWriteBudgetTeam("teamleader", "Aチーム", "Aチーム", false)).toBe(
+      false,
+    );
+  });
+});
+
+describe("ownBudgetTeams", () => {
+  it("フラグ付きでチームがあれば自チームだけを返す", () => {
+    expect(ownBudgetTeams("public", "Aチーム", true)).toEqual(["Aチーム"]);
+    expect(ownBudgetTeams("accounting", "Aチーム", true)).toEqual(["Aチーム"]);
+  });
+
+  it("フラグなし・チーム未設定では空配列を返す", () => {
+    expect(ownBudgetTeams("public", "Aチーム", false)).toEqual([]);
+    expect(ownBudgetTeams("accounting", "Aチーム", false)).toEqual([]);
+    expect(ownBudgetTeams("public", null, true)).toEqual([]);
   });
 });
 

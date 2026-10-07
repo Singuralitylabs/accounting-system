@@ -1,14 +1,14 @@
-import { Badge, Select, Stack, Text, TextInput } from "@mantine/core";
+import { Badge, Checkbox, Select, Stack, Text, TextInput } from "@mantine/core";
 import { ProfilesType } from "../types/types";
 import { UserValidationErrors } from "../utils/userList";
-import { ROLE_SELECT_OPTIONS } from "@/app/utils/permissions";
+import { CLASS_SELECT_OPTIONS } from "@/app/utils/permissions";
 import { CHANGED_ROW_MARK_COLOR } from "../utils/userListGroup";
 import { teamOptionsFor } from "./UserList";
 
 type Props = {
   userInfo: ProfilesType;
   teamList: string[];
-  // Whether role/team/Slack ID changed since load (highlights the card).
+  // Whether role/teamleader flag/team/Slack ID changed since load (highlights the card).
   isChanged: boolean;
   // Card background by team (undefined = no color).
   teamColor?: string;
@@ -64,13 +64,31 @@ const UserCard = ({
           </Text>
           <Select
             aria-label={`${userInfo.name}の権限`}
-            data={ROLE_SELECT_OPTIONS}
+            data={CLASS_SELECT_OPTIONS}
             value={userInfo.class ?? null}
             onChange={(value) =>
               onUpdateUserList(userInfo.id, { class: value })
             }
             placeholder="権限を選択"
             error={errors?.class}
+            disabled={disabled}
+            className="mt-1"
+          />
+        </div>
+
+        <div>
+          <Text size="sm" fw={500} c="dimmed">
+            チームリーダー
+          </Text>
+          <Checkbox
+            aria-label={`${userInfo.name}のチームリーダー`}
+            label="チームリーダーを兼任する"
+            checked={userInfo.is_teamleader}
+            onChange={(e) =>
+              onUpdateUserList(userInfo.id, {
+                is_teamleader: e.currentTarget.checked,
+              })
+            }
             disabled={disabled}
             className="mt-1"
           />

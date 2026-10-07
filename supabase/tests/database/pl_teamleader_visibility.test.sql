@@ -10,9 +10,11 @@ INSERT INTO auth.users (id, email) VALUES
   ('44444444-4444-4444-4444-444444444444', 'pub@example.com');
 INSERT INTO public.profiles (user_id, email, name, class, team) VALUES
   ('11111111-1111-1111-1111-111111111111', 'acc@example.com', '経理', 'accounting', NULL),
-  ('22222222-2222-2222-2222-222222222222', 'tla@example.com', 'リーダーA', 'teamleader', 'Aチーム'),
-  ('33333333-3333-3333-3333-333333333333', 'tlb@example.com', 'リーダーB', 'teamleader', 'Bチーム'),
+  ('22222222-2222-2222-2222-222222222222', 'tla@example.com', 'リーダーA', 'public', 'Aチーム'),
+  ('33333333-3333-3333-3333-333333333333', 'tlb@example.com', 'リーダーB', 'public', 'Bチーム'),
   ('44444444-4444-4444-4444-444444444444', 'pub@example.com', '一般', 'public', 'Bチーム');
+-- Teamleaders are the is_teamleader flag on top of class (migration 41)
+UPDATE public.profiles SET is_teamleader = true WHERE email IN ('tla@example.com', 'tlb@example.com');
 
 -- One matter per team (A: owned by teamleader A, B: owned by teamleader B), each with a business and a cost row
 INSERT INTO public.matters (title, category, team, user_id, start_date)

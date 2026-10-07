@@ -127,7 +127,13 @@ export const bulkSaveBudgetRecurringItems = async (
   // to reject deleting another team's row.
   const teams = Array.from(new Set(rows.map((row) => row.team)));
   const forbiddenTeam = teams.find(
-    (team) => !canWriteBudgetTeam(profileInfo.class, profileInfo.team, team),
+    (team) =>
+      !canWriteBudgetTeam(
+        profileInfo.class,
+        profileInfo.team,
+        team,
+        profileInfo.is_teamleader,
+      ),
   );
   if (forbiddenTeam) {
     return {

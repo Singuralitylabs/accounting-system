@@ -11,20 +11,32 @@ const user = (id: number, userClass: string | null) => ({
 });
 
 describe("groupUsersByRole", () => {
-  it("admin → accounting → teamleader → public → 未設定の順にセクション化し、人数は users の長さで分かる", () => {
+  it("admin → accounting → public → 未設定の順にセクション化し、teamleader のセクションは作らない", () => {
     const sections = groupUsersByRole([
       user(1, "public"),
       user(2, "admin"),
       user(3, "teamleader"),
       user(4, "accounting"),
-      user(5, "teamleader"),
+      user(5, "public"),
     ]);
 
     expect(sections.map((s) => [s.key, s.label, s.users.length])).toEqual([
       ["admin", "管理者", 1],
       ["accounting", "経理", 1],
-      ["teamleader", "チームリーダー", 2],
-      ["public", "メンバー", 1],
+      ["public", "メンバー", 2],
+      ["unset", "未設定", 1],
+    ]);
+  });
+
+  it("チームリーダーのフラグが付いた経理ユーザーも経理セクションに入る", () => {
+    const sections = groupUsersByRole([
+      { id: 1, class: "accounting", is_teamleader: true },
+      { id: 2, class: "public", is_teamleader: true },
+    ]);
+
+    expect(sections.map((s) => [s.key, s.users.map((u) => u.id)])).toEqual([
+      ["accounting", [1]],
+      ["public", [2]],
     ]);
   });
 
@@ -50,9 +62,9 @@ describe("groupUsersByRole", () => {
 
   it("セクション内は入力の並び順を保つ", () => {
     const sections = groupUsersByRole([
-      user(3, "teamleader"),
-      user(1, "teamleader"),
-      user(2, "teamleader"),
+      user(3, "public"),
+      user(1, "public"),
+      user(2, "public"),
     ]);
 
     expect(sections[0].users.map((u) => u.id)).toEqual([3, 1, 2]);

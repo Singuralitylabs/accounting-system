@@ -32,6 +32,7 @@ const elementListOfUser = [
   "名前",
   "メールアドレス",
   "権限",
+  "チームリーダー",
   "チーム",
   "slack ID",
 ];
@@ -120,12 +121,14 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
     userId: number,
     updates: Partial<ProfilesType>,
   ) => {
-    // Reverting the role to its loaded value restores the team too (otherwise the team stays cleared with no "changed" state or error); changing to a non-teamleader role clears the team (PC and mobile).
+    // Reverting the teamleader flag to its loaded value restores the team too (otherwise the team stays cleared with no "changed" state or error); clearing the flag clears the team (PC and mobile).
     const saved = baseline.get(userId);
     const normalized: Partial<ProfilesType> =
-      "class" in updates && saved && updates.class === saved.class
+      "is_teamleader" in updates &&
+      saved &&
+      updates.is_teamleader === saved.is_teamleader
         ? { ...updates, team: saved.team }
-        : "class" in updates && updates.class !== "teamleader"
+        : "is_teamleader" in updates && !updates.is_teamleader
           ? { ...updates, team: null }
           : updates;
     setRows((prev) =>
@@ -157,13 +160,16 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
     try {
       // Send only fields needed for writing (name is for server error messages).
       const { error } = await bulkUpdateProfiles(
-        changedRows.map(({ id, name, class: userClass, team, slack_id }) => ({
-          id,
-          name,
-          class: userClass,
-          team,
-          slack_id,
-        })),
+        changedRows.map(
+          ({ id, name, class: userClass, is_teamleader, team, slack_id }) => ({
+            id,
+            name,
+            class: userClass,
+            is_teamleader,
+            team,
+            slack_id,
+          }),
+        ),
       );
       if (error) {
         // Nothing was saved; keep the edits on screen.

@@ -37,16 +37,18 @@ const MobileHeader: FC<Props> = ({
       {isMenuOpen && (
         <div className="absolute right-0 top-8 z-[15] w-32 bg-gray-700 text-right">
           {!hideNav &&
-            visibleNavItems(profile?.class).map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="block w-full rounded px-3 py-2 text-right text-white hover:bg-gray-500"
-                onClick={toggleMenu}
-              >
-                {item.label}
-              </Link>
-            ))}
+            visibleNavItems(profile?.class, profile?.is_teamleader).map(
+              (item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="block w-full rounded px-3 py-2 text-right text-white hover:bg-gray-500"
+                  onClick={toggleMenu}
+                >
+                  {item.label}
+                </Link>
+              ),
+            )}
           <button
             className="block w-full rounded px-3 py-2 text-right text-white hover:bg-gray-500 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={onSignOut}

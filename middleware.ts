@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { hasClassAccess } from "./app/utils/permissions";
-import { readClassClaim } from "./app/utils/authClaims";
+import { readClassClaim, readTeamleaderClaim } from "./app/utils/authClaims";
 import type { Database } from "./app/lib/database.types";
 import type { AuthError } from "@supabase/supabase-js";
 import {
@@ -112,16 +112,17 @@ export async function middleware(req: NextRequest) {
         const {
           data: { session },
         } = await supabase.auth.getSession();
-        // Invalid claim (hook disabled / old token / profile not yet created) falls back to a profiles query.
+        // Either claim invalid (hook disabled / old token / profile not yet created) falls back to a profiles query.
         let userClass = readClassClaim(session?.access_token);
+        let isTeamleader = readTeamleaderClaim(session?.access_token);
 
-        if (userClass === null) {
+        if (userClass === null || isTeamleader === null) {
           // Outer timeout is AUTH_PROFILES_TIMEOUT_MS (inner + 1s) so the inner abort fires first on
           // header hangs; postgrest-js turns it into `{ error }`, hence isProfilesTimeoutError -> 503.
           // A body stall throws into the catch's 503. Other fetch failures redirect to `/`.
           const profileQuery = supabase
             .from("profiles")
-            .select("class")
+            .select("class, is_teamleader")
             .eq("user_id", user.id)
             .single();
           const { data: profile, error: profileError } = await withAuthTimeout(
@@ -136,9 +137,10 @@ export async function middleware(req: NextRequest) {
             console.error("Profile fetch error:", profileError);
           }
           userClass = profile?.class ?? null;
+          isTeamleader = profile?.is_teamleader ?? false;
         }
 
-        if (!hasClassAccess(pathClass.allowed, userClass)) {
+        if (!hasClassAccess(pathClass.allowed, userClass, isTeamleader)) {
           return redirectTo("/");
         }
         return res;

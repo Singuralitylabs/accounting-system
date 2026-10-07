@@ -42,6 +42,8 @@ type Props = {
   initialDataUpdatedAt: number;
   // Viewer's role / team: writes follow canWriteBudgetTeam (accounting/admin all teams, teamleader own team only); other teams are view-only.
   profileClass: string | null;
+  // profiles.is_teamleader: writes to the own team (in addition to the class's access).
+  isTeamleader?: boolean;
   profileTeam?: string | null;
   // Role that can close/reopen a month (accounting/admin). Others see the state only.
   canCloseMonth?: boolean;
@@ -80,6 +82,7 @@ const BudgetDeclarationList = ({
   initialData,
   initialDataUpdatedAt,
   profileClass,
+  isTeamleader = false,
   profileTeam = null,
   canCloseMonth = false,
   initialClosings = null,
@@ -134,7 +137,7 @@ const BudgetDeclarationList = ({
   // A failed closing lookup is neither "open" nor "closed": block edits until it loads.
   const editLocked = isClosed || closingUnknown;
   const canWriteTeam = (team: string) =>
-    canWriteBudgetTeam(profileClass, profileTeam, team);
+    canWriteBudgetTeam(profileClass, profileTeam, team, isTeamleader);
 
   const rows = data ?? [];
   const total = totalBudgetSummary(rows);
@@ -298,11 +301,17 @@ const BudgetDeclarationList = ({
           )}
         </Paper>
 
-        {profileClass === "teamleader" && !profileTeam && (
-          <Alert color="yellow" className="mb-4" title="所属チームが未設定です">
-            所属チームが設定されていないため、申告の作成・編集はできません（全チームの閲覧のみ）。管理者にお問い合わせください。
-          </Alert>
-        )}
+        {isTeamleader &&
+          !profileTeam &&
+          !canWriteAllBudgetTeams(profileClass) && (
+            <Alert
+              color="yellow"
+              className="mb-4"
+              title="所属チームが未設定です"
+            >
+              所属チームが設定されていないため、申告の作成・編集はできません（全チームの閲覧のみ）。管理者にお問い合わせください。
+            </Alert>
+          )}
 
         {isError ? (
           // Insufficient permission is not fixed by reloading; use a separate message.

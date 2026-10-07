@@ -27,7 +27,11 @@ export const getAuthorizedViewer = async (
     };
   }
 
-  if (!hasClassAccess(allowedClasses, profileInfo.class)) {
+  if (!hasClassAccess(
+      allowedClasses,
+      profileInfo.class,
+      profileInfo.is_teamleader,
+    )) {
     console.error(`${subject}の閲覧権限がありません。`);
     return {
       error: {

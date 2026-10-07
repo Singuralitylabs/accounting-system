@@ -6,10 +6,13 @@ import {
   isRole,
   PROFILE_WRITE_CLASSES,
   TEAM_MATTER_VIEW_CLASSES,
-  ROLE_DISPLAY_RANK,
+  CLASS_DISPLAY_RANK,
+  CLASS_SELECT_OPTIONS,
+  PROFILE_CLASSES,
   ROLE_LABELS,
-  ROLE_SELECT_OPTIONS,
   ROLES,
+  effectiveRoles,
+  isProfileClass,
   visibleNavItems,
   ROUTE_PERMISSIONS,
   AUTH_ONLY_ROUTES,
@@ -19,7 +22,7 @@ import {
 describe("hasClassAccess", () => {
   it("許可ロールに含まれる場合は true を返す", () => {
     expect(hasClassAccess(["teamleader", "admin"], "admin")).toBe(true);
-    expect(hasClassAccess(["teamleader", "admin"], "teamleader")).toBe(true);
+    expect(hasClassAccess(["teamleader", "admin"], "public", true)).toBe(true);
   });
 
   it("許可ロールに含まれない場合は false を返す", () => {
@@ -36,33 +39,106 @@ describe("hasClassAccess", () => {
   it("未知のロール文字列の場合は false を返す", () => {
     expect(hasClassAccess(["admin"], "superuser")).toBe(false);
   });
+
+  it("teamleader は class ではなくフラグでのみ満たされる", () => {
+    expect(hasClassAccess(["teamleader", "admin"], "teamleader")).toBe(false);
+    expect(hasClassAccess(["teamleader", "admin"], "public", true)).toBe(true);
+    expect(hasClassAccess(["teamleader", "admin"], "public", false)).toBe(
+      false,
+    );
+    expect(hasClassAccess(["teamleader"], null, true)).toBe(true);
+  });
+
+  it("フラグ付きの経理は accounting と teamleader の両方の許可で通る", () => {
+    expect(hasClassAccess(["accounting"], "accounting", true)).toBe(true);
+    expect(hasClassAccess(["teamleader"], "accounting", true)).toBe(true);
+    expect(hasClassAccess(["teamleader"], "accounting", false)).toBe(false);
+  });
+});
+
+describe("effectiveRoles", () => {
+  it("フラグなしの class はその class だけを返す", () => {
+    expect(effectiveRoles("public")).toEqual(["public"]);
+    expect(effectiveRoles("public", false)).toEqual(["public"]);
+    expect(effectiveRoles("admin", null)).toEqual(["admin"]);
+  });
+
+  it("フラグ付きの public は public と teamleader を返す", () => {
+    expect(effectiveRoles("public", true)).toEqual(["public", "teamleader"]);
+  });
+
+  it("フラグ付きの accounting は accounting と teamleader を返す", () => {
+    expect(effectiveRoles("accounting", true)).toEqual([
+      "accounting",
+      "teamleader",
+    ]);
+  });
+
+  it("class が null / undefined でもフラグがあれば teamleader だけを返す", () => {
+    expect(effectiveRoles(null, true)).toEqual(["teamleader"]);
+    expect(effectiveRoles(undefined, true)).toEqual(["teamleader"]);
+    expect(effectiveRoles(null)).toEqual([]);
+    expect(effectiveRoles(undefined, false)).toEqual([]);
+  });
+
+  it("未知の class は実効ロールにならない（フラグがあれば teamleader のみ）", () => {
+    expect(effectiveRoles("superuser")).toEqual([]);
+    expect(effectiveRoles("superuser", true)).toEqual(["teamleader"]);
+  });
+
+  it("class としての 'teamleader' は実効ロールにならない", () => {
+    expect(effectiveRoles("teamleader")).toEqual([]);
+    expect(effectiveRoles("teamleader", false)).toEqual([]);
+    expect(effectiveRoles("teamleader", true)).toEqual(["teamleader"]);
+  });
 });
 
 describe("ROUTE_PERMISSIONS による各保護ルートの認可", () => {
   it.each([
-    ["/matters/team", "teamleader", true],
-    ["/matters/team", "accounting", false],
-    ["/matters/accounting", "accounting", true],
-    ["/matters/accounting", "teamleader", false],
+    ["/matters/team", "public", true, true],
+    ["/matters/team", "public", false, false],
+    ["/matters/team", "accounting", false, false],
+    ["/matters/team", "accounting", true, true],
+    ["/matters/accounting", "accounting", false, true],
+    ["/matters/accounting", "accounting", true, true],
+    ["/matters/accounting", "public", true, false],
     // Legacy URLs keep the same roles as the new ones (kept for protection before the redirect).
-    ["/team", "teamleader", true],
-    ["/team", "accounting", false],
-    ["/accounting", "accounting", true],
-    ["/accounting", "teamleader", false],
-    ["/profit-loss", "teamleader", true],
-    ["/profit-loss", "accounting", true],
-    ["/profit-loss", "public", false],
-    ["/recurring-costs", "accounting", true],
-    ["/recurring-costs", "teamleader", false],
-    ["/extra-entries", "accounting", true],
-    ["/extra-entries", "teamleader", false],
-    ["/budget-declarations", "teamleader", true],
-    ["/budget-declarations", "accounting", true],
-    ["/budget-declarations", "public", false],
-    ["/dashboard", "admin", true],
-    ["/dashboard", "accounting", false],
-  ])("%s へのアクセス: ロール %s → %s", (route, role, expected) => {
-    expect(hasClassAccess(ROUTE_PERMISSIONS[route], role)).toBe(expected);
+    ["/team", "public", true, true],
+    ["/team", "accounting", false, false],
+    ["/accounting", "accounting", false, true],
+    ["/accounting", "public", true, false],
+    ["/profit-loss", "public", true, true],
+    ["/profit-loss", "accounting", false, true],
+    ["/profit-loss", "public", false, false],
+    ["/recurring-costs", "accounting", false, true],
+    ["/recurring-costs", "public", true, false],
+    ["/extra-entries", "accounting", false, true],
+    ["/extra-entries", "public", true, false],
+    ["/budget-declarations", "public", true, true],
+    ["/budget-declarations", "accounting", false, true],
+    ["/budget-declarations", "public", false, false],
+    ["/dashboard", "admin", false, true],
+    ["/dashboard", "accounting", true, false],
+  ])(
+    "%s へのアクセス: class %s・teamleader フラグ %s → %s",
+    (route, profileClass, isTeamleader, expected) => {
+      expect(
+        hasClassAccess(ROUTE_PERMISSIONS[route], profileClass, isTeamleader),
+      ).toBe(expected);
+    },
+  );
+
+  it("フラグ付きの経理は /matters/team と /matters/accounting の両方にアクセスできる", () => {
+    expect(
+      hasClassAccess(ROUTE_PERMISSIONS["/matters/team"], "accounting", true),
+    ).toBe(true);
+    expect(
+      hasClassAccess(
+        ROUTE_PERMISSIONS["/matters/accounting"],
+        "accounting",
+        true,
+      ),
+    ).toBe(true);
   });
 
   it("admin はすべての保護ルートにアクセスできる", () => {
@@ -99,8 +175,10 @@ describe("AUTH_ONLY_ROUTES / isAuthOnlyPath", () => {
 });
 
 describe("visibleNavItems", () => {
-  const hrefsFor = (profileClass: string | null | undefined) =>
-    visibleNavItems(profileClass).map((item) => item.href);
+  const hrefsFor = (
+    profileClass: string | null | undefined,
+    isTeamleader?: boolean,
+  ) => visibleNavItems(profileClass, isTeamleader).map((item) => item.href);
 
   it("admin には全項目を表示する", () => {
     expect(hrefsFor("admin")).toEqual([
@@ -115,12 +193,33 @@ describe("visibleNavItems", () => {
     expect(hrefsFor("public")).toEqual(["/matters"]);
   });
 
-  it("teamleader には案件カード・損益計算書・事前収支申告を表示する", () => {
-    expect(hrefsFor("teamleader")).toEqual([
+  it("フラグ付きの public には案件カード・損益計算書・事前収支申告を表示する", () => {
+    expect(hrefsFor("public", true)).toEqual([
       "/matters",
       "/profit-loss",
       "/budget-declarations",
     ]);
+  });
+
+  it("フラグ付きの accounting（兼任）にも同じ項目を重複なく表示する", () => {
+    expect(hrefsFor("accounting", true)).toEqual([
+      "/matters",
+      "/profit-loss",
+      "/budget-declarations",
+    ]);
+  });
+
+  it("フラグ付きの admin には全項目を表示する", () => {
+    expect(hrefsFor("admin", true)).toEqual([
+      "/matters",
+      "/profit-loss",
+      "/budget-declarations",
+      "/dashboard",
+    ]);
+  });
+
+  it("class が 'teamleader' の値は実効ロールにならず案件カードのみ表示する", () => {
+    expect(hrefsFor("teamleader")).toEqual(["/matters"]);
   });
 
   it("accounting には案件カード・損益計算書・事前収支申告を表示する", () => {
@@ -133,6 +232,7 @@ describe("visibleNavItems", () => {
 
   it("ロールが null の場合は案件カードのみ表示する", () => {
     expect(hrefsFor(null)).toEqual(["/matters"]);
+    expect(hrefsFor(null, false)).toEqual(["/matters"]);
   });
 
   it("すべてのナビ項目にハブ用の説明文がある", () => {
@@ -153,10 +253,21 @@ describe("ロール一覧（ROLES）の整合（Issue #192）", () => {
     expect(isRole(undefined)).toBe(false);
   });
 
-  it("表示順（ROLE_DISPLAY_RANK）はすべてのロールを重複なく定義している", () => {
-    expect(Object.keys(ROLE_DISPLAY_RANK).sort()).toEqual([...ROLES].sort());
-    const ranks = Object.values(ROLE_DISPLAY_RANK);
-    expect(new Set(ranks).size).toBe(ROLES.length);
+  it("isProfileClass は PROFILE_CLASSES の値だけ true を返す", () => {
+    expect([...PROFILE_CLASSES]).toEqual(["public", "accounting", "admin"]);
+    for (const c of PROFILE_CLASSES) expect(isProfileClass(c)).toBe(true);
+    expect(isProfileClass("teamleader")).toBe(false);
+    expect(isProfileClass("")).toBe(false);
+    expect(isProfileClass(null)).toBe(false);
+    expect(isProfileClass(undefined)).toBe(false);
+  });
+
+  it("表示順（CLASS_DISPLAY_RANK）はすべての class を重複なく定義している", () => {
+    expect(Object.keys(CLASS_DISPLAY_RANK).sort()).toEqual(
+      [...PROFILE_CLASSES].sort(),
+    );
+    const ranks = Object.values(CLASS_DISPLAY_RANK);
+    expect(new Set(ranks).size).toBe(PROFILE_CLASSES.length);
   });
 
   it("表示名（ROLE_LABELS）はすべてのロールを定義し、表示名が重複しない", () => {
@@ -171,9 +282,12 @@ describe("ロール一覧（ROLES）の整合（Issue #192）", () => {
     });
   });
 
-  it("権限セレクトの選択肢は ROLES の順で、value は DB の値・label は表示名", () => {
-    expect(ROLE_SELECT_OPTIONS).toEqual(
-      ROLES.map((role) => ({ value: role, label: ROLE_LABELS[role] })),
+  it("権限セレクトの選択肢は PROFILE_CLASSES の順で、value は DB の値・label は表示名", () => {
+    expect(CLASS_SELECT_OPTIONS).toEqual(
+      PROFILE_CLASSES.map((c) => ({ value: c, label: ROLE_LABELS[c] })),
+    );
+    expect(CLASS_SELECT_OPTIONS.map((o) => o.value)).not.toContain(
+      "teamleader",
     );
   });
 
@@ -185,9 +299,9 @@ describe("ロール一覧（ROLES）の整合（Issue #192）", () => {
     for (const role of used) expect(isRole(role)).toBe(true);
   });
 
-  // If the values update_profiles allows drift from ROLES, options vanish or saves fail with INVALID_INPUT
+  // If the values update_profiles allows drift from PROFILE_CLASSES, options vanish or saves fail with INVALID_INPUT
   // silently. Target the last migration that defines update_profiles so later redefinitions are not missed.
-  it("update_profiles（最後に定義したマイグレーション）が受け付ける class の許可値と ROLES が一致する", () => {
+  it("update_profiles（最後に定義したマイグレーション）が受け付ける class の許可値と PROFILE_CLASSES が一致する", () => {
     const dir = resolve(__dirname, "../../supabase/migrations");
     const definitions = readdirSync(dir)
       .filter((name) => name.endsWith(".sql"))
@@ -209,7 +323,7 @@ describe("ロール一覧（ROLES）の整合（Issue #192）", () => {
     ).not.toBeNull();
     const allowed = Array.from(match![1].matchAll(/'([^']+)'/g), (m) => m[1]);
     expect(new Set(allowed).size).toBe(allowed.length);
-    expect([...allowed].sort()).toEqual([...ROLES].sort());
+    expect([...allowed].sort()).toEqual([...PROFILE_CLASSES].sort());
   });
 });
 

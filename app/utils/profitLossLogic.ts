@@ -108,10 +108,14 @@ export const isRecurringCostChargedInMonth = (
 
 // Teamleaders read the same company-wide report as accounting (team breakdown, team-less rows);
 // only the adjustment / closing-diff details (actionable by accounting / admin) stay restricted.
-export const reportFlags = (profileClass: string | null | undefined) => ({
+export const reportFlags = (
+  profileClass: string | null | undefined,
+  isTeamleader?: boolean | null,
+) => ({
   includeTeamBreakdown: hasClassAccess(
     ["teamleader", "accounting", "admin"],
     profileClass,
+    isTeamleader,
   ),
   includeAdjustmentDetails: hasClassAccess(
     ["accounting", "admin"],

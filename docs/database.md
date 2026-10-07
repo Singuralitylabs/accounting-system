@@ -24,25 +24,25 @@ PostgreSQL（Supabase）/ スキーマ `public`（補助関数は `private`）�
 
 ## 2. テーブル一覧
 
-| テーブル名                           | 役割                                                                   |
-| ------------------------------------ | ---------------------------------------------------------------------- |
-| profiles                             | ユーザー。`class`（public / teamleader / accounting / admin）と `team` |
-| matters                              | 案件（ライフサイクル・集計値・差し戻し検知フラグを持つ）               |
-| costs                                | 案件の費用                                                             |
-| business                             | 案件の売上（取引先ごと）                                               |
-| select_option_types                  | 選択肢の種類（team / category / item / certificate など）              |
-| select_options                       | 選択肢の値                                                             |
-| recurring_costs                      | 定期費用（管理費）マスタ                                               |
-| extra_entries                        | 経理追加収支（案件に紐づかない収入・支出）                             |
-| budget_declarations                  | 事前収支申告のヘッダ（チーム × 対象月）                                |
-| budget_declaration_items             | 事前収支申告の明細（見込み収入・支出）                                 |
-| budget_declaration_reminder_settings | 未申告 Slack リマインド対象日の設定（1 行のみ）                        |
-| budget_recurring_items               | 事前収支申告の定期明細マスタ（新規申告作成時に明細へ展開）             |
-| profit_loss_adjustments              | 損益調整（案件・定期費用の実績額修正の差分）                           |
-| profit_loss_labels                   | 損益計算書上の表示タイトル（案件・明細名の上書き）                     |
-| profit_loss_closings                 | 月次収支確定のヘッダ（行があれば確定済みの月）                         |
-| profit_loss_closing_lines            | 月次収支確定の明細（確定時点のスナップショット）                       |
-| profit_loss_closing_dismissals       | 確定後の案件変更の見送り記録                                           |
+| テーブル名                           | 役割                                                                                             |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| profiles                             | ユーザー。`class`（public / accounting / admin）、チームリーダーのフラグ `is_teamleader`、`team` |
+| matters                              | 案件（ライフサイクル・集計値・差し戻し検知フラグを持つ）                                         |
+| costs                                | 案件の費用                                                                                       |
+| business                             | 案件の売上（取引先ごと）                                                                         |
+| select_option_types                  | 選択肢の種類（team / category / item / certificate など）                                        |
+| select_options                       | 選択肢の値                                                                                       |
+| recurring_costs                      | 定期費用（管理費）マスタ                                                                         |
+| extra_entries                        | 経理追加収支（案件に紐づかない収入・支出）                                                       |
+| budget_declarations                  | 事前収支申告のヘッダ（チーム × 対象月）                                                          |
+| budget_declaration_items             | 事前収支申告の明細（見込み収入・支出）                                                           |
+| budget_declaration_reminder_settings | 未申告 Slack リマインド対象日の設定（1 行のみ）                                                  |
+| budget_recurring_items               | 事前収支申告の定期明細マスタ（新規申告作成時に明細へ展開）                                       |
+| profit_loss_adjustments              | 損益調整（案件・定期費用の実績額修正の差分）                                                     |
+| profit_loss_labels                   | 損益計算書上の表示タイトル（案件・明細名の上書き）                                               |
+| profit_loss_closings                 | 月次収支確定のヘッダ（行があれば確定済みの月）                                                   |
+| profit_loss_closing_lines            | 月次収支確定の明細（確定時点のスナップショット）                                                 |
+| profit_loss_closing_dismissals       | 確定後の案件変更の見送り記録                                                                     |
 
 列挙型は `information_category`（basic_info / business_info / cost_info。`select_option_types.category`）のみ。
 
@@ -57,7 +57,7 @@ PostgreSQL（Supabase）/ スキーマ `public`（補助関数は `private`）�
 
 ### 3.1 profiles テーブル
 
-ユーザー情報。`user_id` は auth.users への UNIQUE FK（削除時 CASCADE）。`class` が権限、`team` は teamleader で必須（アプリ側で検証）。`slack_id` は通知用。
+ユーザー情報。`user_id` は auth.users への UNIQUE FK（削除時 CASCADE）。`class` が権限（public / accounting / admin）、`is_teamleader` がチームリーダーのフラグ（経理・管理者と兼任できる。migration 41 で `class = 'teamleader'` から移行）、`team` は `is_teamleader` が true のとき必須（アプリ側で検証）。権限判定は「有効ロール集合 = `class` ＋（`is_teamleader` なら teamleader）」。`slack_id` は通知用。
 
 ### 3.2 matters テーブル
 
@@ -163,7 +163,7 @@ PostgreSQL（Supabase）/ スキーマ `public`（補助関数は `private`）�
 共通の前提:
 
 - 判定には `(select auth.uid())` でラップした形を使う（`auth_rls_initplan` リンタ対応）。
-- 閲覧者自身の `class` / `team` は、profiles への再帰参照を避けるため `SECURITY DEFINER` のヘルパ `public.auth_user_class()` / `public.auth_user_team()`（自分の 1 行のみ読む）で取得する。`authenticated` のみ EXECUTE 可。
+- 閲覧者自身の `class` / `is_teamleader` / `team` は、profiles への再帰参照を避けるため `SECURITY DEFINER` のヘルパ `public.auth_user_class()` / `public.auth_user_is_teamleader()` / `public.auth_user_team()`（自分の 1 行のみ読む）で取得する。`authenticated` のみ EXECUTE 可。
 - RPC（DB 関数）は `REVOKE ... FROM PUBLIC, anon` のうえ `authenticated` にだけ EXECUTE を付ける（Supabase の既定で anon にも EXECUTE が付くため）。SECURITY INVOKER の関数は RLS がそのまま適用される。
 - RLS で弾かれた UPDATE / DELETE はエラーにならず 0 行になるだけ。書き込みの保存処理は更新件数を確認して失敗を返す（RPC は `NOT_APPLIED` 例外）。
 
@@ -177,22 +177,22 @@ RLS は行スコープのゲートで、テーブルへの `GRANT SELECT / INSER
 
 ### 5.1 profiles テーブル
 
-- SELECT: 自分 / 経理・管理者（全員）/ 同チームのチームリーダー。以前の `USING (true)` では全ログインユーザーが他人の email・class を読めた（migration 12 で制限）。
+- SELECT: 自分 / 経理・管理者（全員）/ 同チームのチームリーダー（`is_teamleader`）。以前の `USING (true)` では全ログインユーザーが他人の email・class を読めた（migration 12 で制限）。
 - INSERT: 自分の行のみ（`auth.uid() = user_id`）。
-- UPDATE: 自分または admin。WITH CHECK で admin 以外の `class` / `team` / `user_id` の改変（自己昇格・所有者付け替え）を防ぐ。
+- UPDATE: 自分または admin。WITH CHECK で admin 以外の `class` / `is_teamleader` / `team` / `user_id` の改変（自己昇格・所有者付け替え）を防ぐ。
 
 #### 担当者選択肢用の関数（get_member_options / validate_member_ids）
 
-事前収支申告の明細担当者は全メンバーから選ぶが、teamleader は上記 SELECT で自チームしか読めない。そこで `SECURITY DEFINER` の `get_member_options()`（`id` / `name` のみ返す）と、保存前の実在確認用 `validate_member_ids(bigint[])`（実在する id のみ返す）を用意している。PostgREST の RPC はテーブル RLS と独立に公開されるため、関数内で呼び出しロールを teamleader / accounting / admin に絞り、それ以外は 0 行を返す（public に id/name を再び開けないため）。
+事前収支申告の明細担当者は全メンバーから選ぶが、teamleader は上記 SELECT で自チームしか読めない。そこで `SECURITY DEFINER` の `get_member_options()`（`id` / `name` のみ返す）と、保存前の実在確認用 `validate_member_ids(bigint[])`（実在する id のみ返す）を用意している。PostgREST の RPC はテーブル RLS と独立に公開されるため、関数内で呼び出しロール（`class` が accounting / admin、または `is_teamleader`）を絞り、それ以外は 0 行を返す（public に id/name を再び開けないため）。
 
 #### ユーザーリストの一括更新（`update_profiles`。migration 33）
 
-管理画面（/dashboard/users）の一括保存は `update_profiles(p_updates jsonb)` を 1 回呼ぶ（1 トランザクション。1 件でも更新できなければ全体ロールバック）。`class` / `team` / `slack_id` / `updated_at` を更新する。
+管理画面（/dashboard/users）の一括保存は `update_profiles(p_updates jsonb)` を 1 回呼ぶ（1 トランザクション。1 件でも更新できなければ全体ロールバック）。`class` / `is_teamleader` / `team` / `slack_id` / `updated_at` を更新する（migration 41 で `is_teamleader` を追加し、`class` の許可値を public / accounting / admin に変更）。
 
-- SECURITY INVOKER。UPDATE ポリシー（他人の行は admin のみ）がそのまま適用される。RLS で弾かれた行は 0 行になるだけなので、更新件数が指定件数に満たなければ `NOT_APPLIED` で全体ロールバックする。admin 以外が class / team を変えた場合は WITH CHECK 違反（42501）。
-- 画面を経由しない呼び出しに備え、配列でない・必須キー（`id` / `class` / `team` / `slack_id`）欠落・`id` が 1 以上の bigint 整数でない／重複・`class` が許可値外・`team` / `slack_id` が文字列でも null でもない、のいずれかは `INVALID_INPUT`（22023）で全体拒否する。
-- 業務上のチェック（teamleader のチーム必須など）はアプリ側 `validateUserUpdates`（`app/utils/userList.ts`）。呼び出しは `bulkUpdateProfiles`（`app/utils/supabase/profiles.ts`）で、Server Action として公開されるため呼び出し元の権限も `hasClassAccess(PROFILE_WRITE_CLASSES, ...)`（現状 admin のみ。`app/utils/permissions.ts`）で確認する（RLS 上は admin 以外も自分の `slack_id` は更新できるが、この経路では変更させない）。
-- `class` の許可値はアプリの `ROLES`（`app/utils/permissions.ts`）と一致させる。ロールを追加・改名するときは本関数の許可値も直す（`tests/utils/permissions.test.ts` が最新マイグレーションの許可値との一致を確認する）。
+- SECURITY INVOKER。UPDATE ポリシー（他人の行は admin のみ）がそのまま適用される。RLS で弾かれた行は 0 行になるだけなので、更新件数が指定件数に満たなければ `NOT_APPLIED` で全体ロールバックする。admin 以外が class / is_teamleader / team を変えた場合は WITH CHECK 違反（42501）。
+- 画面を経由しない呼び出しに備え、配列でない・必須キー（`id` / `class` / `is_teamleader` / `team` / `slack_id`）欠落・`id` が 1 以上の bigint 整数でない／重複・`class` が許可値外・`is_teamleader` が boolean でない・`team` / `slack_id` が文字列でも null でもない、のいずれかは `INVALID_INPUT`（22023）で全体拒否する。
+- 業務上のチェック（`is_teamleader` のチーム必須など）はアプリ側 `validateUserUpdates`（`app/utils/userList.ts`）。呼び出しは `bulkUpdateProfiles`（`app/utils/supabase/profiles.ts`）で、Server Action として公開されるため呼び出し元の権限も `hasClassAccess(PROFILE_WRITE_CLASSES, ...)`（現状 admin のみ。`app/utils/permissions.ts`）で確認する（RLS 上は admin 以外も自分の `slack_id` は更新できるが、この経路では変更させない）。
+- `class` の許可値はアプリの `PROFILE_CLASSES`（`app/utils/permissions.ts`）と一致させる。クラスを追加・改名するときは本関数の許可値も直す（`tests/utils/permissions.test.ts` が最新マイグレーションの許可値との一致を確認する）。
 - クライアントからの upsert は使わない（INSERT ポリシーに弾かれる）。
 
 ### 5.2 matters テーブル
@@ -378,20 +378,20 @@ RLS の `is_pl_month_closed` は文のスナップショットで評価される
 - `private.lock_pl_month(p_month date, p_exclusive boolean)`: 月単位の advisory lock（`pg_advisory_xact_lock(148, YYYYMM)` / `..._shared`）。トランザクション終了まで保持。NULL は何もしない。SECURITY DEFINER。前月コピーの 140 とは別の名前空間（5.7）。
 - `private.guard_pl_closed_month_write()`（トリガー関数。SECURITY INVOKER）: `TG_ARGV[0]` の列（月）について、`row_security_active` が true（RLS が適用される利用者の書き込み）のときだけ、書き込んだ行の月（INSERT は新しい行、DELETE は元の行、UPDATE は変更前と変更後の両方）の共有ロックを取り、別の文で `is_pl_month_closed` を判定し直して確定済みなら `MONTH_CLOSED`（42501）で拒否する。
 - 対象は `profit_loss_adjustments`（`target_month`）と `extra_entries`（`entry_date`）。
-- BEFORE トリガーは RLS の WITH CHECK より先に走るため、書き込み権限の無い利用者（teamleader / public）の INSERT も RLS で拒否される前に共有ロックを取る（トランザクション終了で外れるため実害はない）。
+- BEFORE トリガーは RLS の WITH CHECK より先に走るため、書き込み権限の無い利用者（teamleader のみの利用者 / public）の INSERT も RLS で拒否される前に共有ロックを取る（トランザクション終了で外れるため実害はない）。
 - anon: 日付ありの経理追加収支の INSERT は、`private` の関数を実行できず `permission denied` で拒否される（従来の RLS 違反とメッセージが違うだけで書き込めないのは同じ。日付なしの行はロックを取らず従来どおり RLS 違反）。損益調整は anon にテーブル権限が無く、トリガーより前に拒否される。
 - RLS をバイパスするロール（service_role・テーブル所有者）と、損益調整の CASCADE 削除（`row_security_active` が false）は対象外。
 
 ## 7. 認証フック（Custom Access Token Hook）
 
-`public.custom_access_token_hook(event jsonb)` は Supabase Auth がトークン発行/リフレッシュ時に呼ぶフック。`profiles.class` を JWT の `user_class` クレームに載せ、`middleware.ts` が制限ルートのロール判定を DB クエリなしで行えるようにする（middleware 側の挙動・フォールバック・503 判定は [specification.md 3 章](specification.md) が正本）。定義は migration 15 を migration 16 で是正したもの。
+`public.custom_access_token_hook(event jsonb)` は Supabase Auth がトークン発行/リフレッシュ時に呼ぶフック。`profiles.class` / `is_teamleader` を JWT の `user_class` / `user_is_teamleader` クレームに載せ、`middleware.ts` が制限ルートのロール判定を DB クエリなしで行えるようにする（middleware 側の挙動・フォールバック・503 判定は [specification.md 3 章](specification.md) が正本）。定義は migration 15 を migration 16 で是正し、migration 41 で `user_is_teamleader` を追加したもの。
 
 - フェイルセーフ: `claims` が object でない場合や、uuid 不正・権限ドリフトなど想定外の例外では、`RAISE WARNING` のうえクレーム付与を諦めて `event` をそのまま返す（トークン発行自体は失敗させない）。
-- 実行は `supabase_auth_admin` のみ（`REVOKE ... FROM PUBLIC, authenticated, anon`）。`profiles.class` を読むため `supabase_auth_admin` 向けの SELECT ポリシーを追加し、テーブル権限は `SELECT (user_id, class)` の**列単位 GRANT** に絞る（RLS の `USING (true)` は行スコープの制御であり、email / slack_id / team などの PII 列は列単位 GRANT で読めないようにしている）。
+- 実行は `supabase_auth_admin` のみ（`REVOKE ... FROM PUBLIC, authenticated, anon`）。`profiles.class` を読むため `supabase_auth_admin` 向けの SELECT ポリシーを追加し、テーブル権限は `SELECT (user_id, class, is_teamleader)` の**列単位 GRANT** に絞る（RLS の `USING (true)` は行スコープの制御であり、email / slack_id / team などの PII 列は列単位 GRANT で読めないようにしている）。
 - 有効化:
   - ローカル: `supabase/config.toml` の `[auth.hook.custom_access_token]`。フックは関数の存在が前提のため、pull 後は再起動だけでなく **`supabase db reset` でマイグレーションを適用する**（関数が無い状態でフックが有効だとトークン発行が失敗し、全ユーザーがログインできなくなる）。
   - 本番: Supabase ダッシュボード（Authentication > Hooks）で「Custom Access Token」に `public.custom_access_token_hook` を設定する（**手動対応**）。マイグレーション適用前に有効化すると同様にログイン不能になるため、**適用後に有効化する**。
-- `class` の変更は、対象ユーザーのトークンのリフレッシュ（既定で最大約 1 時間）または再ログインまで JWT に反映されない。即時反映が必要な用途では middleware だけに依存しない。新規ユーザーの初回トークンはプロフィール作成前に発行されるため必ず `user_class: null` で、middleware が DB にフォールバックする。
+- `class` / `is_teamleader` の変更は、対象ユーザーのトークンのリフレッシュ（既定で最大約 1 時間）または再ログインまで JWT に反映されない。即時反映が必要な用途では middleware だけに依存しない。新規ユーザーの初回トークンはプロフィール作成前に発行されるため必ず `user_class: null` / `user_is_teamleader: null` で、middleware が DB にフォールバックする（どちらかのクレームが無効ならフォールバック。migration 41 適用直後の旧トークンも `user_is_teamleader` が無いためフォールバックで動作する。フックは有効化済みなので追加のダッシュボード操作は不要）。
 - PostgREST の `JWT issued at future`（`getUser()` は通るのに直後の REST が 401 になる）は、アプリや Supabase の設定ではなく PostgREST 側の不具合（現在時刻のキャッシュの誤読。上流 issue [#5172](https://github.com/PostgREST/postgrest/issues/5172) / [#5196](https://github.com/PostgREST/postgrest/issues/5196)）で、14.18 / 16.3 で修正済み。クライアントは `app/utils/supabase/postgrestFetch.ts` が同じトークンを短い待ち（200ms / 500ms の計 2 回）のあと再送する（refresh はしない。判定は**メッセージ一致のみ**。`PGRST303` は `JWT expired` など他の `JwtClaimsErr` と同じコードのため、コードだけで再試行すると期限切れトークンを無駄に再送する）。これは修正前バージョン向けの保険で、本番の PostgREST が 14.18 以上と確認できたら削除してよい（Supabase ダッシュボード → Settings → Infrastructure）。
 
 ## 8. 初期データ

@@ -9,8 +9,10 @@ INSERT INTO auth.users (id, email) VALUES
   ('33333333-3333-3333-3333-333333333333', 'tlb@example.com');
 INSERT INTO public.profiles (user_id, email, name, class, team) VALUES
   ('11111111-1111-1111-1111-111111111111', 'acc@example.com', '経理', 'accounting', NULL),
-  ('22222222-2222-2222-2222-222222222222', 'tla@example.com', 'リーダーA', 'teamleader', 'Aチーム'),
-  ('33333333-3333-3333-3333-333333333333', 'tlb@example.com', 'リーダーB', 'teamleader', 'Bチーム');
+  ('22222222-2222-2222-2222-222222222222', 'tla@example.com', 'リーダーA', 'public', 'Aチーム'),
+  ('33333333-3333-3333-3333-333333333333', 'tlb@example.com', 'リーダーB', 'public', 'Bチーム');
+-- Teamleaders are the is_teamleader flag on top of class (migration 41)
+UPDATE public.profiles SET is_teamleader = true WHERE email IN ('tla@example.com', 'tlb@example.com');
 
 -- ===== new declaration: p_completed on INSERT =====
 SET LOCAL ROLE authenticated;

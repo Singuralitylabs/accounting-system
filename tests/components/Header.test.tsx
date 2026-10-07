@@ -89,6 +89,7 @@ const initialProfile = {
   id: 1,
   user_id: "user-1",
   class: "public",
+  is_teamleader: false,
   name: "初期ユーザー",
   email: "member@future-tech-association.org",
   team: null,
@@ -101,7 +102,8 @@ const teamleaderProfile = {
   ...initialProfile,
   id: 2,
   user_id: "user-2",
-  class: "teamleader",
+  class: "public",
+  is_teamleader: true,
   name: "TLユーザー",
 };
 

@@ -73,6 +73,7 @@ const DynamicBudgetDeclarations = async () => {
       // Without the seed time TanStack Query treats initialData as fetched now and shows stale data after GC without refetching.
       initialDataUpdatedAt={Date.now()}
       profileClass={profileInfo?.class ?? null}
+      isTeamleader={profileInfo?.is_teamleader ?? false}
       profileTeam={profileInfo?.team ?? null}
       canCloseMonth={hasClassAccess(
         BUDGET_CLOSING_WRITE_CLASSES,

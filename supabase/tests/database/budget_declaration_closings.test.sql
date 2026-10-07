@@ -11,10 +11,12 @@ INSERT INTO auth.users (id, email) VALUES
   ('55555555-5555-5555-5555-555555555555', 'adm@example.com');
 INSERT INTO public.profiles (user_id, email, name, class, team) VALUES
   ('11111111-1111-1111-1111-111111111111', 'acc@example.com', '経理', 'accounting', NULL),
-  ('22222222-2222-2222-2222-222222222222', 'tla@example.com', 'リーダーA', 'teamleader', 'Aチーム'),
-  ('33333333-3333-3333-3333-333333333333', 'tlb@example.com', 'リーダーB', 'teamleader', 'Bチーム'),
+  ('22222222-2222-2222-2222-222222222222', 'tla@example.com', 'リーダーA', 'public', 'Aチーム'),
+  ('33333333-3333-3333-3333-333333333333', 'tlb@example.com', 'リーダーB', 'public', 'Bチーム'),
   ('44444444-4444-4444-4444-444444444444', 'pub@example.com', '一般', 'public', NULL),
   ('55555555-5555-5555-5555-555555555555', 'adm@example.com', '管理者', 'admin', NULL);
+-- Teamleaders are the is_teamleader flag on top of class (migration 41)
+UPDATE public.profiles SET is_teamleader = true WHERE email IN ('tla@example.com', 'tlb@example.com');
 
 -- October: teams A and B have both declared (one line each)
 INSERT INTO public.budget_declarations (target_month, team, declared_by)

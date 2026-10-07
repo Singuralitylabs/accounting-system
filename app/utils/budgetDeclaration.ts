@@ -62,7 +62,8 @@ export const summarizeBudgetItems = (
   };
 };
 
-// Write access to every team (accounting / admin); teamleaders write only their own team.
+// Write access to every team (accounting / admin); teamleaders write only their own team. A user who
+// is both (e.g. accounting + teamleader flag) gets the wider all-team access.
 export const canWriteAllBudgetTeams = (
   profileClass: string | null | undefined,
 ): boolean => hasClassAccess(BUDGET_WRITE_ALL_TEAMS_CLASSES, profileClass);
@@ -71,19 +72,22 @@ export const canWriteAllBudgetTeams = (
 export const ownBudgetTeams = (
   profileClass: string | null | undefined,
   profileTeam: string | null | undefined,
+  isTeamleader: boolean | null | undefined,
 ): string[] =>
-  hasClassAccess(BUDGET_OWN_TEAM_ONLY_CLASSES, profileClass) && profileTeam
+  hasClassAccess(BUDGET_OWN_TEAM_ONLY_CLASSES, profileClass, isTeamleader) &&
+  profileTeam
     ? [profileTeam]
     : [];
 
-// Mirrors DB `public.can_access_team_budget` (migration 19); change both together.
+// Mirrors DB `public.can_access_team_budget` (migrations 19 / 41); change both together.
 export const canWriteBudgetTeam = (
   profileClass: string | null | undefined,
   profileTeam: string | null | undefined,
   targetTeam: string,
+  isTeamleader: boolean | null | undefined,
 ): boolean =>
   canWriteAllBudgetTeams(profileClass) ||
-  ownBudgetTeams(profileClass, profileTeam).includes(targetTeam);
+  ownBudgetTeams(profileClass, profileTeam, isTeamleader).includes(targetTeam);
 
 // Row background per entry type (for the `bg` prop, as in AccountingTablebody). The `-light`
 // variables are translucent and theme-aware, so income / expense stay distinguishable in both light
