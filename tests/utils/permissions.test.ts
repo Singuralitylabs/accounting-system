@@ -3,7 +3,6 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   hasClassAccess,
-  isRole,
   PROFILE_WRITE_CLASSES,
   TEAM_MATTER_VIEW_CLASSES,
   CLASS_DISPLAY_RANK,
@@ -245,14 +244,6 @@ describe("visibleNavItems", () => {
 });
 
 describe("ロール一覧（ROLES）の整合（Issue #192）", () => {
-  it("isRole は ROLES の値だけ true を返す", () => {
-    for (const role of ROLES) expect(isRole(role)).toBe(true);
-    expect(isRole("superuser")).toBe(false);
-    expect(isRole("")).toBe(false);
-    expect(isRole(null)).toBe(false);
-    expect(isRole(undefined)).toBe(false);
-  });
-
   it("isProfileClass は PROFILE_CLASSES の値だけ true を返す", () => {
     expect([...PROFILE_CLASSES]).toEqual(["public", "accounting", "admin"]);
     for (const c of PROFILE_CLASSES) expect(isProfileClass(c)).toBe(true);
@@ -296,7 +287,7 @@ describe("ロール一覧（ROLES）の整合（Issue #192）", () => {
       ...Object.values(ROUTE_PERMISSIONS).flat(),
       ...PROFILE_WRITE_CLASSES,
     ];
-    for (const role of used) expect(isRole(role)).toBe(true);
+    for (const role of used) expect(ROLES).toContain(role);
   });
 
   // If the values update_profiles allows drift from PROFILE_CLASSES, options vanish or saves fail with INVALID_INPUT

@@ -5,9 +5,6 @@
 export const ROLES = ["public", "teamleader", "accounting", "admin"] as const;
 export type Role = (typeof ROLES)[number];
 
-export const isRole = (value: string | null | undefined): value is Role =>
-  !!value && (ROLES as readonly string[]).includes(value);
-
 // Values profiles.class can hold (a role other than the teamleader flag).
 export const PROFILE_CLASSES = ["public", "accounting", "admin"] as const;
 export type ProfileClass = (typeof PROFILE_CLASSES)[number];
