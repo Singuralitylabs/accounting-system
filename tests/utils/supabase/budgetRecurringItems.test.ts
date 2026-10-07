@@ -136,6 +136,7 @@ describe("bulkSaveBudgetRecurringItems の display_order 採番（Issue #136）"
         start_month: "2026-04-01",
         end_month: null,
         display_order: 0,
+        updated_at: "",
       },
       {
         id: 2,
@@ -148,6 +149,7 @@ describe("bulkSaveBudgetRecurringItems の display_order 採番（Issue #136）"
         start_month: "2026-04-01",
         end_month: null,
         display_order: 1,
+        updated_at: "",
       },
       {
         id: 3,
@@ -160,6 +162,7 @@ describe("bulkSaveBudgetRecurringItems の display_order 採番（Issue #136）"
         start_month: "2026-04-01",
         end_month: null,
         display_order: 0,
+        updated_at: "",
       },
       {
         id: 4,
@@ -172,6 +175,7 @@ describe("bulkSaveBudgetRecurringItems の display_order 採番（Issue #136）"
         start_month: "2026-04-01",
         end_month: null,
         display_order: 1,
+        updated_at: "",
       },
     ];
     const rows = [
@@ -211,7 +215,12 @@ describe("bulkSaveBudgetRecurringItems の display_order 採番（Issue #136）"
 });
 
 describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #245）", () => {
-  const dbRow = (id: number, team: string, amount = 100000) => ({
+  const dbRow = (
+    id: number,
+    team: string,
+    amount = 100000,
+    updated_at = "",
+  ) => ({
     id,
     team,
     entry_type: "expense",
@@ -222,6 +231,7 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
     start_month: "2026-04-01",
     end_month: null,
     display_order: 0,
+    updated_at,
   });
   const listRow = (
     id: number,
@@ -356,8 +366,8 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
   });
 
   it("画面表示後に他チームから自チームへ付け替えられた行を、旧チームのまま送ってきても forbidden にしない", async () => {
-    // Row 2 was Bチーム when displayed (read-only) and now belongs to Aチーム.
-    mockSupabase([dbRow(1, "Aチーム"), dbRow(2, "Aチーム")]);
+    // Row 2 was Bチーム when displayed (read-only) and now belongs to Aチーム (updated_at moved).
+    mockSupabase([dbRow(1, "Aチーム"), dbRow(2, "Aチーム", 100000, "t2")]);
 
     const result = await bulkSaveBudgetRecurringItems([
       listRow(1, "Aチーム", { amount: 200000 }),
@@ -368,16 +378,67 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
     expect(operations.updates).toEqual([1]);
   });
 
-  it("画面表示後に自チームの行が他チームへ付け替えられていたら、黙って捨てず再読み込みを促すエラーを返す", async () => {
-    mockSupabase([dbRow(1, "Bチーム")]);
+  it("画面表示後に自チームの行が他チームへ付け替えられ、その行を編集していたら、黙って捨てず再読み込みを促す", async () => {
+    mockSupabase([dbRow(1, "Bチーム", 100000, "t2")]);
 
     const result = await bulkSaveBudgetRecurringItems([
-      listRow(1, "Aチーム", { amount: 200000 }),
+      listRow(1, "Aチーム", { amount: 200000, isEdited: true }),
     ]);
 
     expect(result.error?.kind).toBe("validationFailed");
     expect(result.error?.message).toContain("再読み込み");
     expect(operations.updates).toEqual([]);
+  });
+
+  it("触っていない自チームの行が他チームへ付け替えられ、担当者や金額も変えられていても、別の行の保存は競合にしない", async () => {
+    mockSupabase([
+      dbRow(1, "Aチーム"),
+      { ...dbRow(2, "Bチーム", 999999, "t2"), manager_id: 7 as never },
+    ]);
+
+    const result = await bulkSaveBudgetRecurringItems([
+      listRow(1, "Aチーム", { amount: 200000, isEdited: true }),
+      listRow(2, "Aチーム"),
+    ]);
+
+    expect(result).toEqual({});
+    expect(operations.updates).toEqual([1]);
+  });
+
+  it("触っていない自チームの行が他のユーザーに更新されていても、表示時の古い値で上書きしない", async () => {
+    // Row 2 amount was changed from 100000 to 120000 by someone else after display.
+    mockSupabase([dbRow(1, "Aチーム"), dbRow(2, "Aチーム", 120000, "t2")]);
+
+    const result = await bulkSaveBudgetRecurringItems([
+      listRow(1, "Aチーム", { amount: 200000, isEdited: true }),
+      listRow(2, "Aチーム"),
+    ]);
+
+    expect(result).toEqual({});
+    expect(operations.updates).toEqual([1]);
+  });
+
+  it("自分が編集した行が他のユーザーにも更新されていたら、上書きせず再読み込みを促す", async () => {
+    mockSupabase([dbRow(1, "Aチーム", 120000, "t2")]);
+
+    const result = await bulkSaveBudgetRecurringItems([
+      listRow(1, "Aチーム", { amount: 200000, isEdited: true }),
+    ]);
+
+    expect(result.error?.kind).toBe("validationFailed");
+    expect(operations.updates).toEqual([]);
+  });
+
+  it("画面表示後に自チームから他チームへ付け替えられた行を削除しようとしたら、成功扱いにせず再読み込みを促す", async () => {
+    mockSupabase([dbRow(1, "Bチーム", 100000, "t2")]);
+
+    const result = await bulkSaveBudgetRecurringItems([
+      listRow(1, "Aチーム", { isRemoved: true }),
+    ]);
+
+    expect(result.error?.kind).toBe("validationFailed");
+    expect(result.error?.message).toContain("再読み込み");
+    expect(operations.deletes).toEqual([]);
   });
 
   it("他チームの行の新規追加・削除は forbidden", async () => {
@@ -393,18 +454,6 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
     expect(added.error?.kind).toBe("forbidden");
     expect(removed.error?.kind).toBe("forbidden");
     expect(operations.inserts).toEqual([]);
-    expect(operations.deletes).toEqual([]);
-  });
-
-  it("画面表示後に自チームから他チームへ付け替えられた行を削除しようとしたら、成功扱いにせず再読み込みを促す", async () => {
-    mockSupabase([dbRow(1, "Bチーム")]);
-
-    const result = await bulkSaveBudgetRecurringItems([
-      listRow(1, "Aチーム", { isRemoved: true }),
-    ]);
-
-    expect(result.error?.kind).toBe("validationFailed");
-    expect(result.error?.message).toContain("再読み込み");
     expect(operations.deletes).toEqual([]);
   });
 

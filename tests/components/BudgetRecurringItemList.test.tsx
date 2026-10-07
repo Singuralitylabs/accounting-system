@@ -201,6 +201,23 @@ describe("BudgetRecurringItemList", () => {
     expect(confirmAction).not.toHaveBeenCalled();
   });
 
+  it("編集した行だけ isEdited を付けて保存し、触っていない行には付けない", async () => {
+    confirmAction.mockResolvedValue(true);
+    const second = { ...existingRow, id: 2, description: "△△契約" };
+    useBudgetRecurringItemList.mockReturnValue({ data: [existingRow, second] });
+    renderList({ initialData: [existingRow, second] });
+
+    fireEvent.change(screen.getByDisplayValue("△△契約"), {
+      target: { value: "△△契約（改定）" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await vi.waitFor(() => expect(saveMutation.mutateAsync).toHaveBeenCalled());
+
+    const sent = saveMutation.mutateAsync.mock.calls[0][0];
+    expect(sent.find((r: { id: number }) => r.id === 1).isEdited).toBeFalsy();
+    expect(sent.find((r: { id: number }) => r.id === 2).isEdited).toBe(true);
+  });
+
   it("確認後に一括保存する", async () => {
     confirmAction.mockResolvedValue(true);
     renderList();

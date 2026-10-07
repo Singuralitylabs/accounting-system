@@ -413,10 +413,12 @@ type BudgetRecurringItemsTable =
   Database["public"]["Tables"]["budget_recurring_items"];
 export type BudgetRecurringItemType = BudgetRecurringItemsTable["Row"];
 
-// Local edit state (isNew/isRemoved) is never sent to the server.
+// Local edit state (isNew/isRemoved/isEdited) is never persisted. isEdited marks rows the user changed,
+// so the server can tell them from untouched rows that were merely sent back as displayed.
 export type BudgetRecurringItemInListType = BudgetRecurringItemType & {
   isNew: boolean;
   isRemoved: boolean;
+  isEdited?: boolean;
 };
 
 export type BudgetRecurringItemListResult =

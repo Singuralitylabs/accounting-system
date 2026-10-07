@@ -13,6 +13,7 @@ import {
 import { useState } from "react";
 import {
   MATTER_NOTICE_PLACEHOLDERS,
+  MATTER_NOTICE_REQUIRED_KEYS,
   MatterNoticeSettings,
   buildMatterNoticeText,
   validateMatterNoticeSettings,
@@ -158,7 +159,7 @@ const SlackNotificationSettings = () => {
                     </Table.Td>
                     <Table.Td>
                       {description}
-                      {key === "message" && "（必須）"}
+                      {MATTER_NOTICE_REQUIRED_KEYS.includes(key) && "（必須）"}
                     </Table.Td>
                   </Table.Tr>
                 ))}

@@ -17,9 +17,9 @@ describe("expandSlackTemplate", () => {
     );
   });
 
-  it("小文字英字以外の波括弧は通常の文字として扱い、展開も検証も対象外", () => {
-    expect(expandSlackTemplate("【重要】{至急} {A} {a_b} {}", { a: "X" })).toBe(
-      "【重要】{至急} {A} {a_b} {}",
+  it("日本語・記号・空の波括弧は通常の文字として扱い、展開も検証も対象外", () => {
+    expect(expandSlackTemplate('【重要】{至急} {} {"a": 1}', { a: "X" })).toBe(
+      '【重要】{至急} {} {"a": 1}',
     );
     expect(
       validateSlackTemplate('【重要】{至急} JSON: {"a": 1} {message}', {

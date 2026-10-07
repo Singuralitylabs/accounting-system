@@ -29,6 +29,12 @@ export const MATTER_NOTICE_PLACEHOLDERS: readonly SlackPlaceholder[] = [
 
 const ALLOWED = MATTER_NOTICE_PLACEHOLDERS.map(({ key }) => key);
 
+// Single source for validation and the "(必須)" marks in the settings modal.
+export const MATTER_NOTICE_REQUIRED_KEYS: readonly string[] = [
+  "message",
+  "assignee",
+];
+
 export type MatterNoticeSettings = {
   header: string;
   bodyTemplate: string;
@@ -49,7 +55,7 @@ export const validateMatterNoticeSettings = ({
   validateSlackTemplate(bodyTemplate, {
     label: "本文テンプレート",
     allowed: ALLOWED,
-    required: ["message", "assignee"],
+    required: MATTER_NOTICE_REQUIRED_KEYS,
   });
 
 export type MatterNoticeValues = {

@@ -157,7 +157,7 @@ PostgreSQL（Supabase）/ スキーマ `public`（補助関数は `private`）�
 
 ### 3.18 slack_notification_settings テーブル
 
-経理用一覧の「担当者に連絡」で送る Slack メッセージの定型文（ヘッダ `matter_notice_header`、本文テンプレート `matter_notice_body_template`）を持つシングルトン（`id = 1` を CHECK で固定）。本文には `{message}` が必須（CHECK）。プレースホルダの展開と検証は `app/utils/slackTemplate.ts` / `slackNotificationTemplate.ts`。
+経理用一覧の「担当者に連絡」で送る Slack メッセージの定型文（ヘッダ `matter_notice_header`、本文テンプレート `matter_notice_body_template`）を持つシングルトン（`id = 1` を CHECK で固定）。本文には `{message}` と `{assignee}` が必須（CHECK）。プレースホルダの展開と検証は `app/utils/slackTemplate.ts` / `slackNotificationTemplate.ts`。
 
 - 送信時は service role で読み、取得失敗は固定文（`DEFAULT_MATTER_NOTICE_SETTINGS`）にフォールバックする（通知を止めない）。
 - 編集は `/matters/accounting` の「通知設定」モーダルから admin / accounting が行う（`id = 1` の UPDATE のみ。Server Action でも `getAuthorizedViewer` と検証を行う）。投稿先チャンネルは Webhook 固定のため持たない。

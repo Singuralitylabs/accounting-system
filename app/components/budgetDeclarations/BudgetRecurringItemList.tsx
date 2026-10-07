@@ -113,7 +113,9 @@ const BudgetRecurringItemList = ({
   ) => {
     setIsDirty(true);
     setRows((prev) =>
-      prev.map((row) => (row.id === id ? { ...row, ...updates } : row)),
+      prev.map((row) =>
+        row.id === id ? { ...row, ...updates, isEdited: true } : row,
+      ),
     );
   };
 

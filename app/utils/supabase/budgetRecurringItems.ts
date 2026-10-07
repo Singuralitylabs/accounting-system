@@ -156,24 +156,6 @@ export const bulkSaveBudgetRecurringItems = async (
   const updateRows = activeRows.filter((row) => !row.isNew);
   const deleteRows = rows.filter((row) => row.isRemoved && !row.isNew);
 
-  // Writes are parallel and non-transactional, so a missing manager_id could leave only some changes applied.
-  const managerIds = Array.from(
-    new Set(
-      // Only rows that can be written: read-only rows of other teams are never saved.
-      [...newRows, ...updateRows.filter((row) => canWriteTeam(row.team))]
-        .map((row) => row.manager_id)
-        .filter((id): id is number => id !== null),
-    ),
-  );
-  const managerIdError = await assertManagerIdsExist(
-    managerIds,
-    SUBJECT,
-    "画面を再読み込みして選び直してください。",
-  );
-  if (managerIdError) {
-    return { error: managerIdError };
-  }
-
   // Check categories against the master before saving (same as saveBudgetDeclaration). Recurring lines
   // expand into later declarations, so an invalid value here would spread. Uses the server's latest
   // values, not the client's master.
@@ -211,14 +193,14 @@ export const bulkSaveBudgetRecurringItems = async (
   // (lost update). Compare with current DB values and UPDATE only truly changed rows. Version-based
   // conflict detection (updated_at) is not done here.
   let rowsToUpdate = updateRows;
-  const movedRowIds: number[] = [];
+  const conflictRowIds: number[] = [];
   let currentRows: { id: number; team: string }[] | null = null;
   const checkedIds = [...updateRows, ...deleteRows].map((row) => row.id);
   if (checkedIds.length > 0) {
     const { data, error: currentError } = await supabase
       .from("budget_recurring_items")
       .select(
-        "id, team, entry_type, category, description, amount, manager_id, start_month, end_month, display_order",
+        "id, team, entry_type, category, description, amount, manager_id, start_month, end_month, display_order, updated_at",
       )
       .in("id", checkedIds);
 
@@ -241,19 +223,15 @@ export const bulkSaveBudgetRecurringItems = async (
       const current = currentById.get(row.id);
       // A row deleted by someone else just before saving hits 0 rows harmlessly; keep it anyway.
       if (!current) return true;
-      const desired = toDbRow(row);
-      // The client showed it as writable but it now belongs to another team. An untouched row is just
-      // ignored; an edited one must not be dropped silently, so ask the user to reload.
-      if (!canWriteTeam(current.team)) {
-        const edited = (Object.keys(desired) as (keyof typeof desired)[]).some(
-          (key) =>
-            key !== "team" &&
-            key !== "display_order" &&
-            desired[key] !== current[key],
-        );
-        if (edited) movedRowIds.push(current.id);
+      // Someone else changed this row after the client displayed it (updated_at moved). An untouched row
+      // is ignored so their change is not overwritten with the stale displayed values; a row the user
+      // edited cannot be merged safely, so ask the user to reload instead of dropping or overwriting it.
+      if (row.updated_at !== current.updated_at) {
+        if (row.isEdited) conflictRowIds.push(row.id);
         return false;
       }
+      if (!canWriteTeam(current.team)) return false;
+      const desired = toDbRow(row);
       return (Object.keys(desired) as (keyof typeof desired)[]).some(
         (key) => desired[key] !== current[key],
       );
@@ -264,18 +242,36 @@ export const bulkSaveBudgetRecurringItems = async (
       const stored = currentById.get(row.id)?.team;
       // Only when the client showed it as writable; deleting another team's row outright stays forbidden below.
       if (canWriteTeam(row.team) && stored !== undefined && !canWriteTeam(stored)) {
-        movedRowIds.push(row.id);
+        conflictRowIds.push(row.id);
       }
     }
   }
 
-  if (movedRowIds.length > 0) {
+  if (conflictRowIds.length > 0) {
     return {
       error: {
         kind: "validationFailed",
         message: `${SUBJECT}が他のユーザーによって変更されました。画面を再読み込みしてやり直してください。`,
       },
     };
+  }
+
+  // Writes are parallel and non-transactional, so a missing manager_id could leave only some changes
+  // applied. Check only the rows actually written (untouched or ignored rows may reference a removed member).
+  const managerIds = Array.from(
+    new Set(
+      [...newRows, ...rowsToUpdate]
+        .map((row) => row.manager_id)
+        .filter((id): id is number => id !== null),
+    ),
+  );
+  const managerIdError = await assertManagerIdsExist(
+    managerIds,
+    SUBJECT,
+    "画面を再読み込みして選び直してください。",
+  );
+  if (managerIdError) {
+    return { error: managerIdError };
   }
 
   // RLS is the last defense; check first for a clearer message. Only rows actually written count:
