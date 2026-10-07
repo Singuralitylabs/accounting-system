@@ -1,7 +1,7 @@
 -- pgTAP tests for the profiles.is_teamleader flag (migration 41)
 -- Run: supabase test db (local Supabase running; docs/testing.md 3.8)
 BEGIN;
-SELECT plan(18);
+SELECT plan(22);
 
 INSERT INTO auth.users (id, email) VALUES
   ('11111111-1111-1111-1111-111111111111', 'accleader@example.com'),
@@ -76,6 +76,26 @@ SELECT throws_ok(
       'id', (SELECT id FROM public.profiles WHERE email = 'other@example.com'),
       'class', 'teamleader', 'is_teamleader', false, 'team', 'Bチーム', 'slack_id', NULL)))$$,
   '22023', 'INVALID_INPUT', 'class に teamleader は指定できない');
+
+-- ===== Custom Access Token Hook claims (run as supabase_auth_admin, as Supabase Auth does) =====
+RESET ROLE;
+SET LOCAL ROLE supabase_auth_admin;
+SELECT is(
+  (public.custom_access_token_hook(jsonb_build_object('user_id', '11111111-1111-1111-1111-111111111111', 'claims', '{"sub":"s"}'::jsonb))
+    -> 'claims' ->> 'user_class'),
+  'accounting', 'Hook は user_class を付与する');
+SELECT is(
+  (public.custom_access_token_hook(jsonb_build_object('user_id', '11111111-1111-1111-1111-111111111111', 'claims', '{"sub":"s"}'::jsonb))
+    -> 'claims' -> 'user_is_teamleader'),
+  'true'::jsonb, 'Hook は兼任ユーザーに user_is_teamleader = true（boolean）を付与する');
+SELECT is(
+  (public.custom_access_token_hook(jsonb_build_object('user_id', '55555555-5555-5555-5555-555555555555', 'claims', '{"sub":"s"}'::jsonb))
+    -> 'claims' -> 'user_is_teamleader'),
+  'false'::jsonb, 'Hook はフラグ無しのユーザーに user_is_teamleader = false を付与する');
+SELECT is(
+  (public.custom_access_token_hook(jsonb_build_object('user_id', '99999999-9999-9999-9999-999999999999', 'claims', '{"sub":"s"}'::jsonb))
+    -> 'claims' -> 'user_is_teamleader'),
+  'null'::jsonb, 'Hook はプロフィールが無いユーザーには user_is_teamleader = null を付与する（middleware が DB にフォールバック）');
 
 SELECT * FROM finish();
 ROLLBACK;

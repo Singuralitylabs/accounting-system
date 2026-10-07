@@ -20,6 +20,8 @@
 | 本番動作確認 → 承認              | 手動（Environment の承認）                   |
 | タグ作成・GitHub Release 公開    | 自動（承認後）                               |
 
+**チームリーダーのフラグ化（`profiles.is_teamleader`。migration 41）を含むリリースの適用順**: 旧アプリと新 migration、新アプリと旧 DB のどちらの組み合わせでも既存のチームリーダーが一時的に権限を失う（旧アプリは `class = 'public'` を、新アプリは `is_teamleader` を見るため）。migration 41 を適用したら**すぐに**新アプリをデプロイする（間隔を空けない。本番動作確認の前にこの 2 つを続けて行う）。ユーザー管理の保存も、間の時間帯は旧アプリが `is_teamleader` を送らないため失敗する。
+
 ワークフローが本番 DB へ書き込むことはない（`release-pr.yml` の DB アクセスは `supabase migration list` の読み取りのみ）。
 
 ## 事前準備（管理者作業・初回のみ）

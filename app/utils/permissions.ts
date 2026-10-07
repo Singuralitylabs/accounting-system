@@ -83,19 +83,13 @@ export const BUDGET_CLOSING_WRITE_CLASSES: Role[] = ["accounting", "admin"];
 // write must be able to open the page (tests/utils/permissions.test.ts).
 export const PROFILE_WRITE_CLASSES: Role[] = ["admin"];
 
-// Minimal profile shape for role checks; accepts both a profiles row and a JWT-derived pair.
-export type RoleSubject = {
-  class?: string | null;
-  is_teamleader?: boolean | null;
-};
-
 // Effective role set: class (when it is a known role) plus teamleader when flagged.
 export const effectiveRoles = (
   profileClass: string | null | undefined,
   isTeamleader?: boolean | null,
 ): Role[] => {
   const roles: Role[] = [];
-  if (isRole(profileClass) && profileClass !== "teamleader") {
+  if (isProfileClass(profileClass)) {
     roles.push(profileClass);
   }
   if (isTeamleader === true) roles.push("teamleader");

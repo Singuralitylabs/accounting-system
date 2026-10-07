@@ -116,7 +116,11 @@ export async function middleware(req: NextRequest) {
         let userClass = readClassClaim(session?.access_token);
         let isTeamleader = readTeamleaderClaim(session?.access_token);
 
-        if (userClass === null || isTeamleader === null) {
+        // The flag only matters for routes that allow teamleader, so skip the DB round trip for the rest.
+        if (
+          userClass === null ||
+          (isTeamleader === null && pathClass.allowed.includes("teamleader"))
+        ) {
           // Outer timeout is AUTH_PROFILES_TIMEOUT_MS (inner + 1s) so the inner abort fires first on
           // header hangs; postgrest-js turns it into `{ error }`, hence isProfilesTimeoutError -> 503.
           // A body stall throws into the catch's 503. Other fetch failures redirect to `/`.

@@ -82,7 +82,6 @@ const UserCard = ({
           </Text>
           <Checkbox
             aria-label={`${userInfo.name}のチームリーダー`}
-            label="チームリーダーを兼任する"
             checked={userInfo.is_teamleader}
             onChange={(e) =>
               onUpdateUserList(userInfo.id, {

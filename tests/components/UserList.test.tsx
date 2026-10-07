@@ -183,15 +183,16 @@ describe("UserList", () => {
     expect(leaderCheckbox("鈴木一郎")).not.toBeChecked();
   });
 
-  it("モバイル（カード）ではチェックボックスに「チームリーダーを兼任する」のラベルが付く", () => {
+  it("モバイル（カード）でも各ユーザーに「チームリーダー」の項目とチェックボックスがある", () => {
     viewport.width = 375;
     renderWithMantine(
       <UserList userList={editableUserList} teamList={teamList} />,
     );
 
-    expect(screen.getAllByText("チームリーダーを兼任する")).toHaveLength(
+    expect(screen.getAllByText("チームリーダー")).toHaveLength(
       editableUserList.length,
     );
+    expect(leaderCheckbox("山田太郎")).toBeChecked();
   });
 
   it("行ごとの保存ボタンは無く、PC 表示の見出しと各行のセルの数が揃っている", () => {

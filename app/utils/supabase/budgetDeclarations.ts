@@ -87,7 +87,7 @@ export const getBudgetDeclarationList = async (
     };
   }
 
-  // A teamleader whose team was disabled/renamed in the master must still get a row for their own
+  // A teamleader (including accounting / admin with the flag) whose team was disabled/renamed in the master must still get a row for their own
   // team, or they could never declare it (RLS still allows the write).
   const teams = teamResult.options.map((option) => option.value);
   for (const ownTeam of ownBudgetTeams(
