@@ -39,6 +39,20 @@ const baseRow: BudgetRecurringItemInListType = {
   isRemoved: false,
 };
 
+
+const mockSelectOnlySupabase = () => {
+  const writes = vi.fn();
+  createServerSupabase.mockReturnValue({
+    from: () => ({
+      select: () => ({ in: () => Promise.resolve({ data: [], error: null }) }),
+      insert: writes,
+      update: writes,
+      delete: writes,
+    }),
+  });
+  return writes;
+};
+
 describe("bulkSaveBudgetRecurringItems の分類マスタ照合（Issue #116）", () => {
   beforeEach(() => {
     createServerSupabase.mockReset();
@@ -58,7 +72,8 @@ describe("bulkSaveBudgetRecurringItems の分類マスタ照合（Issue #116）"
     });
   });
 
-  it("マスタに無い分類は validationFailed を返し DB へ行かない", async () => {
+  it("マスタに無い分類は validationFailed を返し、何も書き込まない", async () => {
+    const writes = mockSelectOnlySupabase();
     const result = await bulkSaveBudgetRecurringItems([
       { ...baseRow, category: "旧品目" },
     ]);
@@ -70,10 +85,11 @@ describe("bulkSaveBudgetRecurringItems の分類マスタ照合（Issue #116）"
           "選択された分類がマスタに登録されていません。画面を再読み込みして選び直してください。",
       },
     });
-    expect(createServerSupabase).not.toHaveBeenCalled();
+    expect(writes).not.toHaveBeenCalled();
   });
 
-  it("分類マスタの取得に失敗したら fetchFailed を返す", async () => {
+  it("分類マスタの取得に失敗したら fetchFailed を返し、何も書き込まない", async () => {
+    const writes = mockSelectOnlySupabase();
     getActiveSelectOptionsByType.mockResolvedValue({
       optionsByType: {},
       error: new Error("master fetch failed"),
@@ -87,7 +103,7 @@ describe("bulkSaveBudgetRecurringItems の分類マスタ照合（Issue #116）"
         message: "事前収支申告の定期明細の分類確認に失敗しました。",
       },
     });
-    expect(createServerSupabase).not.toHaveBeenCalled();
+    expect(writes).not.toHaveBeenCalled();
   });
 });
 
@@ -190,12 +206,20 @@ describe("bulkSaveBudgetRecurringItems の display_order 採番（Issue #136）"
       const query: Record<string, unknown> = {};
       query.select = vi.fn(() => query);
       query.in = vi.fn(() => Promise.resolve({ data: currentRows, error: null }));
-      query.update = vi.fn((row: Record<string, unknown>) => ({
-        eq: vi.fn((_col: string, id: number) => {
-          updates.push({ id, row });
-          return Promise.resolve({ error: null });
-        }),
-      }));
+      query.update = vi.fn((row: Record<string, unknown>) => {
+        let id = 0;
+        const chain = {
+          eq: vi.fn((col: string, value: number) => {
+            if (col === "id") id = value;
+            return chain;
+          }),
+          select: vi.fn(() => {
+            updates.push({ id, row });
+            return Promise.resolve({ data: [{ id }], error: null });
+          }),
+        };
+        return chain;
+      });
       query.insert = vi.fn(() => Promise.resolve({ error: null }));
       query.delete = vi.fn(() => ({
         in: vi.fn(() => Promise.resolve({ error: null })),
@@ -241,6 +265,7 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
 
   const operations = {
     updates: [] as number[],
+    unmatchedIds: [] as number[],
     inserts: [] as unknown[],
     deletes: [] as number[][],
   };
@@ -253,12 +278,24 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
         query.in = vi.fn(() =>
           Promise.resolve({ data: currentRows, error: null }),
         );
-        query.update = vi.fn(() => ({
-          eq: vi.fn((_col: string, id: number) => {
-            operations.updates.push(id);
-            return Promise.resolve({ error: null });
-          }),
-        }));
+        query.update = vi.fn(() => {
+          let id = 0;
+          const chain = {
+            eq: vi.fn((col: string, value: number) => {
+              if (col === "id") id = value;
+              return chain;
+            }),
+            select: vi.fn(() => {
+              operations.updates.push(id);
+              // A concurrent save in between: the updated_at match finds no row.
+              return Promise.resolve({
+                data: operations.unmatchedIds.includes(id) ? [] : [{ id }],
+                error: null,
+              });
+            }),
+          };
+          return chain;
+        });
         query.insert = vi.fn((rows: unknown) => {
           operations.inserts.push(rows);
           return Promise.resolve({ error: null });
@@ -276,6 +313,7 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
 
   beforeEach(() => {
     operations.updates = [];
+    operations.unmatchedIds = [];
     operations.inserts = [];
     operations.deletes = [];
     createServerSupabase.mockReset();
@@ -457,25 +495,22 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
     expect(operations.deletes).toEqual([]);
   });
 
-  it("触っていない自チームの行が他チームへ付け替えられても、別の行の保存は競合にしない", async () => {
-    // Row 2 (untouched, sent as displayed) was moved to Bチーム by someone else.
-    mockSupabase([dbRow(1, "Aチーム"), dbRow(2, "Bチーム")]);
-
-    const result = await bulkSaveBudgetRecurringItems([
-      listRow(1, "Aチーム", { amount: 200000 }),
-      listRow(2, "Aチーム"),
+  it("担当者の存在確認は実際に書き込む行だけが対象で、他チーム・変更のない行・無視される行の担当者は含めない", async () => {
+    mockSupabase([
+      dbRow(1, "Aチーム"),
+      { ...dbRow(2, "Aチーム"), manager_id: 99 as never, display_order: 1 },
+      { ...dbRow(3, "Aチーム", 100000, "t2"), manager_id: 98 as never },
+      { ...dbRow(4, "Bチーム"), manager_id: 97 as never },
     ]);
 
-    expect(result).toEqual({});
-    expect(operations.updates).toEqual([1]);
-  });
-
-  it("他チームの行の担当者が削除済みでも、自チームの保存は担当者確認で止まらない", async () => {
-    mockSupabase([dbRow(1, "Aチーム"), dbRow(2, "Bチーム")]);
-
     await bulkSaveBudgetRecurringItems([
-      listRow(1, "Aチーム", { amount: 200000, manager_id: 10 }),
-      listRow(2, "Bチーム", { manager_id: 99 }),
+      listRow(1, "Aチーム", { amount: 200000, manager_id: 10, isEdited: true }),
+      // Unchanged own row whose manager was removed.
+      listRow(2, "Aチーム", { manager_id: 99 }),
+      // Untouched own row that someone else changed since display (ignored).
+      listRow(3, "Aチーム", { manager_id: 98 }),
+      // Another team's row.
+      listRow(4, "Bチーム", { manager_id: 97 }),
     ]);
 
     expect(assertManagerIdsExist).toHaveBeenCalledWith(
@@ -483,6 +518,54 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
       expect.any(String),
       expect.any(String),
     );
+  });
+
+  it("自分が編集した行が、表示後に他のユーザーに削除されていたら、成功扱いにせず再読み込みを促す", async () => {
+    mockSupabase([]);
+
+    const result = await bulkSaveBudgetRecurringItems([
+      listRow(1, "Aチーム", { amount: 200000, isEdited: true }),
+    ]);
+
+    expect(result.error?.kind).toBe("validationFailed");
+    expect(result.error?.message).toContain("再読み込み");
+    expect(operations.updates).toEqual([]);
+  });
+
+  it("触っていない行が表示後に他のユーザーに削除されていても、別の行の保存は止まらない", async () => {
+    mockSupabase([dbRow(1, "Aチーム")]);
+
+    const result = await bulkSaveBudgetRecurringItems([
+      listRow(1, "Aチーム", { amount: 200000, isEdited: true }),
+      listRow(2, "Aチーム"),
+    ]);
+
+    expect(result).toEqual({});
+    expect(operations.updates).toEqual([1]);
+  });
+
+  it("表示後に他のユーザーが内容を直した行を削除しようとしたら、確認なしに削除せず再読み込みを促す", async () => {
+    mockSupabase([dbRow(1, "Aチーム", 120000, "t2")]);
+
+    const result = await bulkSaveBudgetRecurringItems([
+      listRow(1, "Aチーム", { isRemoved: true }),
+    ]);
+
+    expect(result.error?.kind).toBe("validationFailed");
+    expect(operations.deletes).toEqual([]);
+  });
+
+  it("確認から UPDATE までの間に他のユーザーが同じ行を保存していたら、上書きせず一部未保存として報告する", async () => {
+    mockSupabase([dbRow(1, "Aチーム"), dbRow(2, "Aチーム")]);
+    operations.unmatchedIds = [2];
+
+    const result = await bulkSaveBudgetRecurringItems([
+      listRow(1, "Aチーム", { amount: 200000, isEdited: true }),
+      listRow(2, "Aチーム", { amount: 300000, isEdited: true }),
+    ]);
+
+    expect(result.error?.kind).toBe("partialWriteFailed");
+    expect(result.error?.message).toContain("再読み込み");
   });
 
   it("所属チーム未設定の public は閲覧のみで、新規追加は forbidden", async () => {

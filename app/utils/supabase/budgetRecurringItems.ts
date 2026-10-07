@@ -156,11 +156,28 @@ export const bulkSaveBudgetRecurringItems = async (
   const updateRows = activeRows.filter((row) => !row.isNew);
   const deleteRows = rows.filter((row) => row.isRemoved && !row.isNew);
 
-  // Check categories against the master before saving (same as saveBudgetDeclaration). Recurring lines
-  // expand into later declarations, so an invalid value here would spread. Uses the server's latest
-  // values, not the client's master.
-  const { optionsByType: categoryOptionsByType, error: categoryMasterError } =
-    await getActiveSelectOptionsByType(["category", "item"]);
+  const supabase = createServerSupabase();
+  const checkedIds = [...updateRows, ...deleteRows].map((row) => row.id);
+  const fetchCurrentRows = async () => {
+    if (checkedIds.length === 0) return { data: [], error: null };
+    return supabase
+      .from("budget_recurring_items")
+      .select(
+        "id, team, entry_type, category, description, amount, manager_id, start_month, end_month, display_order, updated_at",
+      )
+      .in("id", checkedIds);
+  };
+
+  // Independent reads, so run them together. The category master check mirrors saveBudgetDeclaration:
+  // recurring lines expand into later declarations, so an invalid value here would spread. It uses the
+  // server's latest values, not the client's master.
+  const [
+    { optionsByType: categoryOptionsByType, error: categoryMasterError },
+    { data: currentRows, error: currentError },
+  ] = await Promise.all([
+    getActiveSelectOptionsByType(["category", "item"]),
+    fetchCurrentRows(),
+  ]);
   if (categoryMasterError) {
     console.error(`${SUBJECT}の分類マスタ確認に失敗しました:`, categoryMasterError);
     return {
@@ -185,65 +202,59 @@ export const bulkSaveBudgetRecurringItems = async (
       },
     };
   }
-
-  const supabase = createServerSupabase();
+  if (currentError) {
+    console.error(`${SUBJECT}の更新前確認に失敗しました:`, currentError);
+    return {
+      error: {
+        kind: "fetchFailed",
+        message: `${SUBJECT}の更新前確認に失敗しました。`,
+      },
+    };
+  }
 
   // Staged editing sends every non-deleted existing row as updateRows, and all-team roles edit other
   // teams' rows on the same screen; UPDATEing untouched rows would overwrite a concurrent change
-  // (lost update). Compare with current DB values and UPDATE only truly changed rows. Version-based
-  // conflict detection (updated_at) is not done here.
-  let rowsToUpdate = updateRows;
+  // (lost update). Compare with current DB values and UPDATE only truly changed rows. Rows changed by
+  // someone else since display (updated_at moved) are skipped if untouched, or reported as a conflict
+  // if the user edited them; the UPDATE itself also matches updated_at (see below).
   const conflictRowIds: number[] = [];
-  let currentRows: { id: number; team: string }[] | null = null;
-  const checkedIds = [...updateRows, ...deleteRows].map((row) => row.id);
-  if (checkedIds.length > 0) {
-    const { data, error: currentError } = await supabase
-      .from("budget_recurring_items")
-      .select(
-        "id, team, entry_type, category, description, amount, manager_id, start_month, end_month, display_order, updated_at",
-      )
-      .in("id", checkedIds);
-
-    if (currentError) {
-      console.error(`${SUBJECT}の更新前確認に失敗しました:`, currentError);
-      return {
-        error: {
-          kind: "fetchFailed",
-          message: `${SUBJECT}の更新前確認に失敗しました。`,
-        },
-      };
+  const currentById = new Map((currentRows ?? []).map((row) => [row.id, row]));
+  const rowsToUpdate = updateRows.filter((row) => {
+    // Read-only rows (another team's, by the team the client showed) are sent back as displayed and
+    // may have been changed or deleted by someone else since; ignore them instead of failing.
+    if (!canWriteTeam(row.team)) return false;
+    const current = currentById.get(row.id);
+    // Deleted by someone else since display: an untouched row is ignored, an edited one would be
+    // lost silently (UPDATE matches 0 rows without an error), so report a conflict.
+    if (!current) {
+      if (row.isEdited) conflictRowIds.push(row.id);
+      return false;
     }
+    // Someone else changed this row after the client displayed it (updated_at moved). An untouched row
+    // is ignored so their change is not overwritten with the stale displayed values; a row the user
+    // edited cannot be merged safely, so ask the user to reload instead of dropping or overwriting it.
+    if (row.updated_at !== current.updated_at) {
+      if (row.isEdited) conflictRowIds.push(row.id);
+      return false;
+    }
+    if (!canWriteTeam(current.team)) return false;
+    const desired = toDbRow(row);
+    return (Object.keys(desired) as (keyof typeof desired)[]).some(
+      (key) => desired[key] !== current[key],
+    );
+  });
 
-    currentRows = data;
-    const currentById = new Map((data ?? []).map((row) => [row.id, row]));
-    rowsToUpdate = updateRows.filter((row) => {
-      // Read-only rows (another team's, by the team the client showed) are sent back as displayed and
-      // may have been changed or deleted by someone else since; ignore them instead of failing.
-      if (!canWriteTeam(row.team)) return false;
-      const current = currentById.get(row.id);
-      // A row deleted by someone else just before saving hits 0 rows harmlessly; keep it anyway.
-      if (!current) return true;
-      // Someone else changed this row after the client displayed it (updated_at moved). An untouched row
-      // is ignored so their change is not overwritten with the stale displayed values; a row the user
-      // edited cannot be merged safely, so ask the user to reload instead of dropping or overwriting it.
-      if (row.updated_at !== current.updated_at) {
-        if (row.isEdited) conflictRowIds.push(row.id);
-        return false;
-      }
-      if (!canWriteTeam(current.team)) return false;
-      const desired = toDbRow(row);
-      return (Object.keys(desired) as (keyof typeof desired)[]).some(
-        (key) => desired[key] !== current[key],
-      );
-    });
-
-    // A row to delete that now belongs to another team would match 0 rows under RLS and still report success.
-    for (const row of deleteRows) {
-      const stored = currentById.get(row.id)?.team;
-      // Only when the client showed it as writable; deleting another team's row outright stays forbidden below.
-      if (canWriteTeam(row.team) && stored !== undefined && !canWriteTeam(stored)) {
-        conflictRowIds.push(row.id);
-      }
+  // A row to delete that someone else changed (including moving it to another team) after display would
+  // be removed together with their change, or match 0 rows under RLS and still report success.
+  for (const row of deleteRows) {
+    const current = currentById.get(row.id);
+    // Only when the client showed it as writable; deleting another team's row outright stays forbidden below.
+    if (
+      canWriteTeam(row.team) &&
+      current &&
+      (row.updated_at !== current.updated_at || !canWriteTeam(current.team))
+    ) {
+      conflictRowIds.push(row.id);
     }
   }
 
@@ -309,16 +320,17 @@ export const bulkSaveBudgetRecurringItems = async (
     );
   }
 
-  if (rowsToUpdate.length > 0) {
-    operations.push(
-      ...rowsToUpdate.map((row) =>
-        supabase
-          .from("budget_recurring_items")
-          .update(toDbRow(row))
-          .eq("id", row.id),
-      ),
-    );
-  }
+  // Matching updated_at in the UPDATE closes the gap between the check above and the write: a row saved
+  // by someone else in between matches 0 rows and is reported instead of overwritten.
+  const updateOperations = rowsToUpdate.map((row) =>
+    supabase
+      .from("budget_recurring_items")
+      .update(toDbRow(row))
+      .eq("id", row.id)
+      .eq("updated_at", row.updated_at)
+      .select("id"),
+  );
+  operations.push(...updateOperations);
 
   if (deleteRows.length > 0) {
     operations.push(
@@ -345,6 +357,23 @@ export const bulkSaveBudgetRecurringItems = async (
       error: {
         kind: "partialWriteFailed",
         message: `${SUBJECT}の更新に失敗しました。`,
+      },
+    };
+  }
+
+  // The other writes already went through, so this is a partial write like the errors above.
+  const updateOffset = newRows.length > 0 ? 1 : 0;
+  const unmatchedUpdates = results
+    .slice(updateOffset, updateOffset + updateOperations.length)
+    .filter((result) => {
+      const data = result.data as unknown[] | null;
+      return !data || data.length === 0;
+    });
+  if (unmatchedUpdates.length > 0) {
+    return {
+      error: {
+        kind: "partialWriteFailed",
+        message: `${SUBJECT}の一部が他のユーザーによって変更されたため保存されませんでした。画面を再読み込みして確認してください。`,
       },
     };
   }
