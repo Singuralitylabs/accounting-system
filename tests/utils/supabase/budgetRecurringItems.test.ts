@@ -396,6 +396,46 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
     expect(operations.deletes).toEqual([]);
   });
 
+  it("画面表示後に自チームから他チームへ付け替えられた行を削除しようとしたら、成功扱いにせず再読み込みを促す", async () => {
+    mockSupabase([dbRow(1, "Bチーム")]);
+
+    const result = await bulkSaveBudgetRecurringItems([
+      listRow(1, "Aチーム", { isRemoved: true }),
+    ]);
+
+    expect(result.error?.kind).toBe("validationFailed");
+    expect(result.error?.message).toContain("再読み込み");
+    expect(operations.deletes).toEqual([]);
+  });
+
+  it("触っていない自チームの行が他チームへ付け替えられても、別の行の保存は競合にしない", async () => {
+    // Row 2 (untouched, sent as displayed) was moved to Bチーム by someone else.
+    mockSupabase([dbRow(1, "Aチーム"), dbRow(2, "Bチーム")]);
+
+    const result = await bulkSaveBudgetRecurringItems([
+      listRow(1, "Aチーム", { amount: 200000 }),
+      listRow(2, "Aチーム"),
+    ]);
+
+    expect(result).toEqual({});
+    expect(operations.updates).toEqual([1]);
+  });
+
+  it("他チームの行の担当者が削除済みでも、自チームの保存は担当者確認で止まらない", async () => {
+    mockSupabase([dbRow(1, "Aチーム"), dbRow(2, "Bチーム")]);
+
+    await bulkSaveBudgetRecurringItems([
+      listRow(1, "Aチーム", { amount: 200000, manager_id: 10 }),
+      listRow(2, "Bチーム", { manager_id: 99 }),
+    ]);
+
+    expect(assertManagerIdsExist).toHaveBeenCalledWith(
+      [10],
+      expect.any(String),
+      expect.any(String),
+    );
+  });
+
   it("所属チーム未設定の public は閲覧のみで、新規追加は forbidden", async () => {
     getAuthorizedViewer.mockResolvedValue({
       profileInfo: { id: 5, class: "public", is_teamleader: false, team: null },

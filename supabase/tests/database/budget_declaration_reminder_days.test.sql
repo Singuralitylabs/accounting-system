@@ -1,7 +1,7 @@
 -- pgTAP tests for budget_declaration_reminder_days RLS and replace_budget_declaration_reminder_days
 -- Run: supabase test db (local Supabase running; docs/testing.md 3.8)
 BEGIN;
-SELECT plan(18);
+SELECT plan(19);
 
 INSERT INTO auth.users (id, email) VALUES
   ('11111111-1111-1111-1111-111111111111', 'acc@example.com'),
@@ -44,6 +44,9 @@ SELECT throws_ok(
 SELECT throws_ok(
   $$SELECT public.replace_budget_declaration_reminder_days('[{"day":5,"message":""}]'::jsonb)$$,
   '23514', NULL, '空の文面は CHECK で拒否される');
+SELECT throws_ok(
+  $$SELECT public.replace_budget_declaration_reminder_days('[{"day":5,"message":"  "}]'::jsonb)$$,
+  '23514', NULL, '空白だけの文面は CHECK で拒否される');
 SELECT is(
   (SELECT array_agg(day ORDER BY day) FROM public.budget_declaration_reminder_days),
   ARRAY[10, 20]::smallint[], '失敗した全置換は 1 トランザクションでロールバックされ元の行が残る');

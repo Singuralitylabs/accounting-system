@@ -37,6 +37,9 @@ AS $$
       )
 $$;
 
+COMMENT ON FUNCTION public.can_access_team_budget(text) IS
+  '事前収支申告（ヘッダ・明細・定期明細）の書き込み判定。経理・管理者は全チーム、それ以外は profiles.team が一致するチームのみ true（ロール・is_teamleader に依存しない。migration 44）。詳細: docs/database.md 5.8';
+
 -- ===== 2. SELECT for every authenticated user =====
 DROP POLICY "budget_declarations_select_policy" ON budget_declarations;
 CREATE POLICY "budget_declarations_select_policy" ON budget_declarations

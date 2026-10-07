@@ -39,7 +39,8 @@ export const DEFAULT_MATTER_NOTICE_SETTINGS: MatterNoticeSettings = {
   bodyTemplate: DEFAULT_MATTER_NOTICE_BODY_TEMPLATE,
 };
 
-// Header takes no placeholders; the body must contain {message}.
+// Header takes no placeholders; the body must contain {message} and {assignee} (the mention is what
+// notifies the person in charge).
 export const validateMatterNoticeSettings = ({
   header,
   bodyTemplate,
@@ -48,7 +49,7 @@ export const validateMatterNoticeSettings = ({
   validateSlackTemplate(bodyTemplate, {
     label: "本文テンプレート",
     allowed: ALLOWED,
-    required: ["message"],
+    required: ["message", "assignee"],
   });
 
 export type MatterNoticeValues = {

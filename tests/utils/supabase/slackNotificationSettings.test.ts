@@ -13,7 +13,7 @@ import {
   updateSlackNotificationSettings,
 } from "@/app/utils/supabase/slackNotificationSettings";
 
-const valid = { header: "ヘッダ", bodyTemplate: "{matter}\n{message}" };
+const valid = { header: "ヘッダ", bodyTemplate: "{matter}\n{assignee}\n{message}" };
 
 describe("getSlackNotificationSettings", () => {
   const maybeSingle = vi.fn();
@@ -83,7 +83,7 @@ describe("updateSlackNotificationSettings", () => {
 
     expect(update).toHaveBeenCalledWith({
       matter_notice_header: "ヘッダ",
-      matter_notice_body_template: "{matter}\n{message}",
+      matter_notice_body_template: "{matter}\n{assignee}\n{message}",
     });
     expect(eq).toHaveBeenCalledWith("id", 1);
     expect(result).toEqual({});

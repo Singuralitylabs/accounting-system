@@ -80,7 +80,7 @@ export const updateBudgetDeclarationReminderDays = async (
     if (validationError) {
       return {
         error: {
-          kind: "fetchFailed",
+          kind: "validationFailed",
           message: `${day}日の${validationError}`,
         },
       };

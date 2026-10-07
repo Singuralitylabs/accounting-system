@@ -78,7 +78,7 @@ export const updateSlackNotificationSettings = async (
 
   const validationError = validateMatterNoticeSettings(settings);
   if (validationError) {
-    return { error: { kind: "fetchFailed", message: validationError } };
+    return { error: { kind: "validationFailed", message: validationError } };
   }
 
   const supabase = createServerSupabase();

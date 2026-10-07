@@ -12,7 +12,8 @@ CREATE TABLE slack_notification_settings (
     CHECK (length(btrim(matter_notice_header)) > 0),
   CONSTRAINT slack_notification_settings_body_check
     CHECK (length(btrim(matter_notice_body_template)) > 0
-           AND position('{message}' in matter_notice_body_template) > 0)
+           AND position('{message}' in matter_notice_body_template) > 0
+           AND position('{assignee}' in matter_notice_body_template) > 0)
 );
 
 COMMENT ON TABLE slack_notification_settings IS 'Slack 担当者連絡の定型文設定。1 行のみ（id=1 固定）。詳細: docs/database.md 3.18 / 5.17';

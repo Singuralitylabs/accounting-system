@@ -1,7 +1,7 @@
 -- pgTAP tests for slack_notification_settings RLS (admin / accounting only; no INSERT / DELETE)
 -- Run: supabase test db (local Supabase running; docs/testing.md 3.8)
 BEGIN;
-SELECT plan(10);
+SELECT plan(11);
 
 INSERT INTO auth.users (id, email) VALUES
   ('11111111-1111-1111-1111-111111111111', 'acc@example.com'),
@@ -27,6 +27,9 @@ SELECT is((SELECT count(*) FROM u)::int, 1, 'accounting は更新できる');
 SELECT throws_ok(
   $$UPDATE public.slack_notification_settings SET matter_notice_body_template = '{matter}'$$,
   '23514', NULL, '{message} を含まない本文は CHECK で拒否される');
+SELECT throws_ok(
+  $$UPDATE public.slack_notification_settings SET matter_notice_body_template = '{message}'$$,
+  '23514', NULL, '{assignee} を含まない本文は CHECK で拒否される');
 SELECT throws_ok(
   $$INSERT INTO public.slack_notification_settings (id) VALUES (2)$$,
   '42501', NULL, 'accounting は INSERT できない');

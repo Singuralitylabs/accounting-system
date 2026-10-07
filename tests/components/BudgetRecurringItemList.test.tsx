@@ -136,6 +136,38 @@ describe("BudgetRecurringItemList", () => {
     expect(screen.getByDisplayValue("他チームの契約")).not.toBeDisabled();
   });
 
+  it("プロフィール取得失敗時は「所属チーム未設定」と誤案内せず、再読み込みを促して保存を無効にする", () => {
+    renderList({
+      canEditAllTeams: false,
+      ownTeam: null,
+      profileLoadFailed: true,
+    });
+
+    expect(
+      screen.getByText("権限情報の取得に失敗しました"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("所属チームが未設定です"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+  });
+
+  it("マスタ未登録の分類エラーは編集できる行にだけ表示する", () => {
+    const otherRow = {
+      ...existingRow,
+      id: 2,
+      team: "経理チーム",
+      category: "旧分類",
+    };
+    const own = { ...existingRow, category: "旧分類" };
+    useBudgetRecurringItemList.mockReturnValue({ data: [own, otherRow] });
+    renderList({ initialData: [own, otherRow] });
+
+    expect(
+      screen.getAllByText("マスタ未登録のため選び直してください"),
+    ).toHaveLength(1);
+  });
+
   it("所属チームのない閲覧者（ownTeam=null）は全行が閲覧のみで、行の追加も保存もできず、理由を案内する", () => {
     renderList({ ownTeam: null });
 

@@ -30,6 +30,17 @@ describe("expandSlackTemplate", () => {
     ).toBeNull();
   });
 
+  it("大文字・アンダースコア・数字入りの識別子は未知のプレースホルダとして検証で弾く", () => {
+    const rules = {
+      label: "本文",
+      allowed: ["message"],
+      required: ["message"],
+    };
+    for (const typo of ["{Message}", "{matter_name}", "{a1}"]) {
+      expect(validateSlackTemplate(`{message}${typo}`, rules)).toContain(typo);
+    }
+  });
+
   it("未知のプレースホルダはそのまま残す", () => {
     expect(expandSlackTemplate("{a}{zzz}", { a: "X" })).toBe("X{zzz}");
   });
@@ -107,6 +118,21 @@ describe("matter notice template", () => {
     expect(
       validateMatterNoticeSettings({ header: " ", bodyTemplate: "{message}" }),
     ).not.toBeNull();
+  });
+
+  it("本文に {assignee} が無いと保存不可（担当者メンションが付かなくなるため）", () => {
+    expect(
+      validateMatterNoticeSettings({
+        header: "h",
+        bodyTemplate: "{matter}{message}",
+      }),
+    ).toContain("{assignee}");
+    expect(
+      validateMatterNoticeSettings({
+        header: "h",
+        bodyTemplate: "{Assignee}{message}",
+      }),
+    ).toContain("{Assignee}");
   });
 
   it("ヘッダにプレースホルダは使えない", () => {

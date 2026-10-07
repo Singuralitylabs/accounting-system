@@ -10,7 +10,7 @@ CREATE TABLE budget_declaration_reminder_days (
   CONSTRAINT budget_declaration_reminder_days_day_range_check
     CHECK (1 <= day AND day <= 31),
   CONSTRAINT budget_declaration_reminder_days_message_check
-    CHECK (length(message) > 0)
+    CHECK (length(btrim(message)) > 0)
 );
 
 COMMENT ON TABLE budget_declaration_reminder_days IS '事前収支申告の未申告 Slack リマインドの対象日（day）と日ごとの文面（message）。行なし = リマインド停止。詳細: docs/database.md 3.11 / 5.10';
@@ -21,9 +21,17 @@ CREATE TRIGGER update_budget_declaration_reminder_days_updated_at
     FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 
 -- Carry over existing target days with the current fixed message so behavior does not change.
+-- An existing row with an empty array stays empty (reminders stopped on purpose). Without any row the
+-- old app fell back to the 15 / 18 / 20 defaults, so keep that behavior.
 INSERT INTO budget_declaration_reminder_days (day, message)
 SELECT DISTINCT d, '【事前収支申告リマインド】{month}分の事前収支申告が未申告・未完了のチームがあります。'
-FROM budget_declaration_reminder_settings s, unnest(s.target_days) AS d;
+FROM unnest(
+  CASE
+    WHEN EXISTS (SELECT 1 FROM budget_declaration_reminder_settings)
+      THEN (SELECT s.target_days FROM budget_declaration_reminder_settings s LIMIT 1)
+    ELSE ARRAY[15, 18, 20]::smallint[]
+  END
+) AS d;
 
 DROP TABLE budget_declaration_reminder_settings;
 

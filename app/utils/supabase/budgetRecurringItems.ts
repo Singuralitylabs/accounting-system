@@ -159,7 +159,8 @@ export const bulkSaveBudgetRecurringItems = async (
   // Writes are parallel and non-transactional, so a missing manager_id could leave only some changes applied.
   const managerIds = Array.from(
     new Set(
-      [...newRows, ...updateRows]
+      // Only rows that can be written: read-only rows of other teams are never saved.
+      [...newRows, ...updateRows.filter((row) => canWriteTeam(row.team))]
         .map((row) => row.manager_id)
         .filter((id): id is number => id !== null),
     ),
@@ -212,16 +213,14 @@ export const bulkSaveBudgetRecurringItems = async (
   let rowsToUpdate = updateRows;
   const movedRowIds: number[] = [];
   let currentRows: { id: number; team: string }[] | null = null;
-  if (updateRows.length > 0) {
+  const checkedIds = [...updateRows, ...deleteRows].map((row) => row.id);
+  if (checkedIds.length > 0) {
     const { data, error: currentError } = await supabase
       .from("budget_recurring_items")
       .select(
         "id, team, entry_type, category, description, amount, manager_id, start_month, end_month, display_order",
       )
-      .in(
-        "id",
-        updateRows.map((row) => row.id),
-      );
+      .in("id", checkedIds);
 
     if (currentError) {
       console.error(`${SUBJECT}の更新前確認に失敗しました:`, currentError);
@@ -242,16 +241,32 @@ export const bulkSaveBudgetRecurringItems = async (
       const current = currentById.get(row.id);
       // A row deleted by someone else just before saving hits 0 rows harmlessly; keep it anyway.
       if (!current) return true;
-      // The client showed it as writable but it now belongs to another team: do not drop the edit silently.
+      const desired = toDbRow(row);
+      // The client showed it as writable but it now belongs to another team. An untouched row is just
+      // ignored; an edited one must not be dropped silently, so ask the user to reload.
       if (!canWriteTeam(current.team)) {
-        movedRowIds.push(current.id);
+        const edited = (Object.keys(desired) as (keyof typeof desired)[]).some(
+          (key) =>
+            key !== "team" &&
+            key !== "display_order" &&
+            desired[key] !== current[key],
+        );
+        if (edited) movedRowIds.push(current.id);
         return false;
       }
-      const desired = toDbRow(row);
       return (Object.keys(desired) as (keyof typeof desired)[]).some(
         (key) => desired[key] !== current[key],
       );
     });
+
+    // A row to delete that now belongs to another team would match 0 rows under RLS and still report success.
+    for (const row of deleteRows) {
+      const stored = currentById.get(row.id)?.team;
+      // Only when the client showed it as writable; deleting another team's row outright stays forbidden below.
+      if (canWriteTeam(row.team) && stored !== undefined && !canWriteTeam(stored)) {
+        movedRowIds.push(row.id);
+      }
+    }
   }
 
   if (movedRowIds.length > 0) {

@@ -46,6 +46,8 @@ type Props = {
   teamList: string[];
   memberList: { value: string; label: string }[];
   memberListError?: boolean;
+  // True when the profile fetch failed: the role / team are unknown, so editing is disabled with a reload hint.
+  profileLoadFailed?: boolean;
 };
 
 // Column widths from md up (same minimums as the former table); below md each row is a vertical block.
@@ -67,6 +69,7 @@ const BudgetRecurringItemList = ({
   teamList,
   memberList,
   memberListError = false,
+  profileLoadFailed = false,
 }: Props) => {
   const { categoryList, itemList } = useAtomValue(optionsAtom);
   const {
@@ -150,7 +153,9 @@ const BudgetRecurringItemList = ({
     canEditAllTeams || (!!ownTeam && row.team === ownTeam);
 
   // No team and not accounting / admin: nothing can be edited or saved.
-  const isViewOnly = !canEditAllTeams && !ownTeam;
+  const isViewOnly = !profileLoadFailed && !canEditAllTeams && !ownTeam;
+  // The role is unknown, so nothing can be saved; do not blame the team setting.
+  const isSaveDisabled = isViewOnly || profileLoadFailed;
 
   const handleSave = async () => {
     // Read-only rows (other teams) are not saved, so their problems must not block the save.
@@ -216,6 +221,15 @@ const BudgetRecurringItemList = ({
       >
         ← 事前収支申告一覧に戻る
       </Link>
+      {profileLoadFailed && (
+        <Alert
+          color="red"
+          className="mt-2"
+          title="権限情報の取得に失敗しました"
+        >
+          時間をおいてページを再読み込みしてください。
+        </Alert>
+      )}
       {isViewOnly && (
         <Alert color="yellow" className="mt-2" title="所属チームが未設定です">
           閲覧のみ（編集には所属チームの設定が必要です）。管理者にお問い合わせください。
@@ -228,7 +242,7 @@ const BudgetRecurringItemList = ({
         <Button
           type="button"
           className="shrink-0"
-          disabled={formLocked || isViewOnly}
+          disabled={formLocked || isSaveDisabled}
           onClick={handleSave}
         >
           保存
@@ -311,6 +325,7 @@ const BudgetRecurringItemList = ({
                 disabled={formLocked || !isEditableRow(row)}
                 placeholder="分類を選択"
                 error={
+                  isEditableRow(row) &&
                   isCategoryUnregistered(
                     row.entry_type,
                     row.category,

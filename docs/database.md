@@ -280,7 +280,7 @@ SELECT は 5.8 と同じくログイン済みの全ユーザーの全チーム�
 
 ### 5.10 budget_declaration_reminder_days テーブル
 
-admin / accounting のみ SELECT / INSERT / UPDATE / DELETE（`can_access_team_budget` と同じロール区分）。teamleader / public は 0 行・書き込み不可。`anon` は ALL REVOKE。cron は service role で読むため RLS 対象外。全置換 RPC は SECURITY INVOKER で RLS に従い、さらに関数内でロールを明示チェックする（3.11）。
+admin / accounting のみ SELECT / INSERT / UPDATE / DELETE（`auth_user_class() IN ('admin', 'accounting')`。`can_access_team_budget` とは異なり所属チームだけでは書き込めない）。teamleader / public は 0 行・書き込み不可。`anon` は ALL REVOKE。cron は service role で読むため RLS 対象外。全置換 RPC は SECURITY INVOKER で RLS に従い、さらに関数内でロールを明示チェックする（3.11）。
 
 ### 5.11 budget_recurring_items テーブル
 

@@ -27,7 +27,7 @@ vi.mock("@/app/utils/supabase/slackNotificationSettings", () => ({
 
 const settings = {
   header: "ヘッダ",
-  bodyTemplate: "案件：{matter}\n{message}",
+  bodyTemplate: "案件：{matter}\n{assignee}\n{message}",
 };
 
 const openModal = async () => {
@@ -49,10 +49,10 @@ describe("SlackNotificationSettings", () => {
     await openModal();
 
     expect(screen.getByLabelText("本文テンプレート")).toHaveValue(
-      "案件：{matter}\n{message}",
+      "案件：{matter}\n{assignee}\n{message}",
     );
     expect(screen.getByTestId("slack-template-preview").textContent).toBe(
-      "ヘッダ\n\n案件：サンプル案件\nご確認をお願いします。",
+      "ヘッダ\n\n案件：サンプル案件\n@担当者\nご確認をお願いします。",
     );
   });
 
@@ -93,7 +93,7 @@ describe("SlackNotificationSettings", () => {
       target: { value: "案件：{matter}" },
     });
 
-    expect(screen.getByText(/\{message\}を含めてください/)).toBeInTheDocument();
+    expect(screen.getByText(/を含めてください/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
   });
 
