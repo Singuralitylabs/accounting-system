@@ -3,20 +3,72 @@
 
 import { currentJstDate, formatMonthLabel } from "./formatter";
 import { Role, hasClassAccess } from "./permissions";
+import {
+  SlackPlaceholder,
+  expandSlackTemplate,
+  validateSlackTemplate,
+} from "./slackTemplate";
 
-// Fallback target days (JST) used only when fetching budget_declaration_reminder_settings fails.
-// Notification starts a few days before the 20th deadline.
-export const DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS: readonly number[] =
-  [15, 18, 20];
+export type BudgetDeclarationReminderDay = {
+  day: number;
+  message: string;
+};
+
+// Placeholders in the message header; the team list, deadline line and URL are appended automatically.
+export const BUDGET_DECLARATION_REMINDER_PLACEHOLDERS: readonly SlackPlaceholder[] =
+  [
+    {
+      key: "month",
+      description: "対象月（例: 2026年10月）",
+      sample: "2026年10月",
+    },
+    {
+      key: "deadline",
+      description: "期限日（毎月の日）",
+      sample: "20",
+    },
+  ];
+
+export const DEFAULT_BUDGET_DECLARATION_REMINDER_MESSAGE =
+  "【事前収支申告リマインド】{month}分の事前収支申告が未申告・未完了のチームがあります。";
 
 // Deadline day; only shown in the message (not locked in DB / UI).
 export const BUDGET_DECLARATION_DEADLINE_DAY = 20;
 
-// An empty targetDays is always false (emptying the list stops reminders).
-export const isBudgetDeclarationReminderTargetDay = (
+// Fallback used only when fetching budget_declaration_reminder_days fails.
+// Notification starts a few days before the 20th deadline.
+export const DEFAULT_BUDGET_DECLARATION_REMINDER_DAYS: readonly BudgetDeclarationReminderDay[] =
+  [15, 18, 20].map((day) => ({
+    day,
+    message: DEFAULT_BUDGET_DECLARATION_REMINDER_MESSAGE,
+  }));
+
+// Null when today is not a target day (an empty list never matches, so emptying it stops reminders).
+export const findBudgetDeclarationReminderForDay = (
   now: Date,
-  targetDays: readonly number[],
-): boolean => targetDays.includes(currentJstDate(now));
+  rows: readonly BudgetDeclarationReminderDay[],
+): BudgetDeclarationReminderDay | null => {
+  const today = currentJstDate(now);
+  return rows.find(({ day }) => day === today) ?? null;
+};
+
+export const expandBudgetDeclarationReminderMessage = (
+  template: string,
+  targetMonth: string,
+): string =>
+  expandSlackTemplate(template, {
+    month: formatMonthLabel(targetMonth),
+    deadline: String(BUDGET_DECLARATION_DEADLINE_DAY),
+  });
+
+// Returns a Japanese error message, or null when valid.
+export const validateBudgetDeclarationReminderMessage = (
+  message: string,
+): string | null =>
+  validateSlackTemplate(message, {
+    label: "リマインド文面",
+    allowed: BUDGET_DECLARATION_REMINDER_PLACEHOLDERS.map(({ key }) => key),
+  });
 
 export const undeclaredBudgetTeams = (
   teams: readonly string[],
@@ -53,10 +105,11 @@ export type BudgetDeclarationReminderTeam = {
   slackIds: readonly string[];
 };
 
+// header is the already-expanded first line (see expandBudgetDeclarationReminderMessage).
 // Null when no team is targeted; callers skip the Slack send.
 export const buildBudgetDeclarationReminderMessage = (
   teams: readonly BudgetDeclarationReminderTeam[],
-  targetMonth: string,
+  header: string,
   declarationUrl: string,
 ): string | null => {
   if (teams.length === 0) return null;
@@ -70,7 +123,7 @@ export const buildBudgetDeclarationReminderMessage = (
   });
 
   return [
-    `【事前収支申告リマインド】${formatMonthLabel(targetMonth)}分の事前収支申告が未申告・未完了のチームがあります。`,
+    header,
     ...lines,
     `期限: 毎月${BUDGET_DECLARATION_DEADLINE_DAY}日`,
     declarationUrl,
@@ -81,15 +134,19 @@ export const isValidBudgetDeclarationReminderTargetDay = (
   day: number,
 ): boolean => Number.isInteger(day) && day >= 1 && day <= 31;
 
-// Drops out-of-range values, dedupes and sorts ascending.
-export const normalizeBudgetDeclarationReminderTargetDays = (
-  days: readonly number[],
-): number[] =>
+// Drops out-of-range days, dedupes (the last row for a day wins) and sorts ascending.
+export const normalizeBudgetDeclarationReminderDays = (
+  rows: readonly BudgetDeclarationReminderDay[],
+): BudgetDeclarationReminderDay[] =>
   Array.from(
-    new Set(days.filter(isValidBudgetDeclarationReminderTargetDay)),
-  ).sort((a, b) => a - b);
+    new Map(
+      rows
+        .filter(({ day }) => isValidBudgetDeclarationReminderTargetDay(day))
+        .map((row) => [row.day, row] as const),
+    ).values(),
+  ).sort((a, b) => a.day - b.day);
 
-// Mirrors RLS on budget_declaration_reminder_settings (select/update, migration 20); change both together.
+// Mirrors RLS on budget_declaration_reminder_days (migration 43); change both together.
 export const BUDGET_DECLARATION_REMINDER_SETTINGS_ALLOWED_CLASSES: readonly Role[] =
   ["admin", "accounting"];
 

@@ -57,7 +57,7 @@ vi.mock("@/app/hooks/useBudgetRecurringItemData", () => ({
 // Server Action imported directly by BudgetDeclarationReminderSettings. Mocked for the same reason
 // (requestCache / React cache()); never called since this test does not save.
 vi.mock("@/app/utils/supabase/budgetDeclarationReminderSettings", () => ({
-  updateBudgetDeclarationReminderTargetDays: vi.fn(),
+  updateBudgetDeclarationReminderDays: vi.fn(),
 }));
 
 // The month picker is a Mantine calendar (cumbersome to drive); stub it so a click changes the month.
@@ -255,7 +255,7 @@ describe("BudgetDeclarationList", () => {
   });
 
   it("canManageReminderSettings が false のときはリマインド設定ボタンを表示しない", () => {
-    renderList([row()], { props: { initialReminderTargetDays: [] } });
+    renderList([row()], { props: { initialReminderDays: [] } });
 
     expect(
       screen.queryByRole("button", { name: "リマインド設定" }),
@@ -418,7 +418,10 @@ describe("BudgetDeclarationList", () => {
     renderList([row()], {
       props: {
         canManageReminderSettings: true,
-        initialReminderTargetDays: [15, 18, 20],
+        initialReminderDays: [15, 18, 20].map((day) => ({
+          day,
+          message: "文面",
+        })),
       },
     });
 
@@ -445,7 +448,7 @@ describe("BudgetDeclarationList", () => {
     renderList([row()], {
       props: {
         canManageReminderSettings: true,
-        initialReminderTargetDays: [],
+        initialReminderDays: [],
       },
     });
 

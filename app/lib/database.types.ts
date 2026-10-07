@@ -120,20 +120,20 @@ export type Database = {
           },
         ]
       }
-      budget_declaration_reminder_settings: {
+      budget_declaration_reminder_days: {
         Row: {
-          id: number
-          target_days: number[]
+          day: number
+          message: string
           updated_at: string
         }
         Insert: {
-          id?: number
-          target_days?: number[]
+          day: number
+          message: string
           updated_at?: string
         }
         Update: {
-          id?: number
-          target_days?: number[]
+          day?: number
+          message?: string
           updated_at?: string
         }
         Relationships: []
@@ -1045,6 +1045,10 @@ export type Database = {
       // 省略可能（supabase gen types は DEFAULT の有無だけを見て `?:` を付け、
       // `| null` は付与しない）。呼び出し側は null の代わりに undefined
       // （キー省略）を渡す（app/utils/supabase/budgetDeclarations.ts 参照）
+      replace_budget_declaration_reminder_days: {
+        Args: { p_rows: Json }
+        Returns: undefined
+      }
       save_budget_declaration: {
         Args: {
           p_target_month: string

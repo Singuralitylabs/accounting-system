@@ -1,41 +1,42 @@
 import {
-  DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS,
+  DEFAULT_BUDGET_DECLARATION_REMINDER_DAYS,
+  type BudgetDeclarationReminderDay,
   type TeamLeaderSlackRow,
 } from "../budgetDeclarationReminder";
 import { createServiceRoleSupabase } from "./clients";
 
-// Reads target days from budget_declaration_reminder_settings (PRIMARY KEY + CHECK (id = 1): at most one
-// row). Falls back to the defaults on a missing row or error so the cron does not stop.
-// The try/catch also covers createServiceRoleSupabase() throwing synchronously when env vars are
-// unset; otherwise only this path would return 500 daily in such environments.
-// Trade-off (fail-open): if the list was emptied on purpose to stop reminders, a transient fetch
+// Reads target days and their messages from budget_declaration_reminder_days. Falls back to the
+// defaults on an error so the cron does not stop. The try/catch also covers
+// createServiceRoleSupabase() throwing synchronously when env vars are unset; otherwise only this
+// path would return 500 daily in such environments.
+// Trade-off (fail-open): if the table was emptied on purpose to stop reminders, a transient fetch
 // failure reverts to defaults and reminders go out; chosen over failing the cron route with 500.
-export const getBudgetDeclarationReminderTargetDays = async (): Promise<
-  readonly number[]
+export const getBudgetDeclarationReminderDays = async (): Promise<
+  readonly BudgetDeclarationReminderDay[]
 > => {
   try {
     const supabase = createServiceRoleSupabase();
 
     const { data, error } = await supabase
-      .from("budget_declaration_reminder_settings")
-      .select("target_days")
-      .maybeSingle();
+      .from("budget_declaration_reminder_days")
+      .select("day, message")
+      .order("day");
 
     if (error || !data) {
       console.error(
         "事前収支申告リマインドの対象日設定取得に失敗しました。デフォルト値にフォールバックします:",
         error,
       );
-      return DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS;
+      return DEFAULT_BUDGET_DECLARATION_REMINDER_DAYS;
     }
 
-    return data.target_days;
+    return data;
   } catch (error) {
     console.error(
       "事前収支申告リマインドの対象日設定取得で例外が発生しました。デフォルト値にフォールバックします:",
       error,
     );
-    return DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS;
+    return DEFAULT_BUDGET_DECLARATION_REMINDER_DAYS;
   }
 };
 

@@ -1,3 +1,4 @@
+import type { BudgetDeclarationReminderDay } from "../utils/budgetDeclarationReminder";
 import type { MatterNoticeSettings } from "../utils/slackNotificationTemplate";
 import { Database } from "../lib/database.types";
 
@@ -402,8 +403,8 @@ export type BudgetDeclarationPreviousItemsResult =
   | { items?: undefined; error: AccessFailure };
 
 export type BudgetDeclarationReminderSettingsResult =
-  | { targetDays: number[]; error?: undefined }
-  | { targetDays?: undefined; error: AccessFailure };
+  | { days: BudgetDeclarationReminderDay[]; error?: undefined }
+  | { days?: undefined; error: AccessFailure };
 
 export type BudgetDeclarationReminderSettingsSaveResult = {
   error?: AccessFailure;

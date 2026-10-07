@@ -24,26 +24,26 @@ PostgreSQL（Supabase）/ スキーマ `public`（補助関数は `private`）�
 
 ## 2. テーブル一覧
 
-| テーブル名                           | 役割                                                                                             |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| profiles                             | ユーザー。`class`（public / accounting / admin）、チームリーダーのフラグ `is_teamleader`、`team` |
-| matters                              | 案件（ライフサイクル・集計値・差し戻し検知フラグを持つ）                                         |
-| costs                                | 案件の費用                                                                                       |
-| business                             | 案件の売上（取引先ごと）                                                                         |
-| select_option_types                  | 選択肢の種類（team / category / item / certificate など）                                        |
-| select_options                       | 選択肢の値                                                                                       |
-| recurring_costs                      | 定期費用（管理費）マスタ                                                                         |
-| extra_entries                        | 経理追加収支（案件に紐づかない収入・支出）                                                       |
-| budget_declarations                  | 事前収支申告のヘッダ（チーム × 対象月）                                                          |
-| budget_declaration_items             | 事前収支申告の明細（見込み収入・支出）                                                           |
-| budget_declaration_reminder_settings | 未申告 Slack リマインド対象日の設定（1 行のみ）                                                  |
-| slack_notification_settings          | Slack 担当者連絡の定型文設定（1 行のみ）                                                         |
-| budget_recurring_items               | 事前収支申告の定期明細マスタ（新規申告作成時に明細へ展開）                                       |
-| profit_loss_adjustments              | 損益調整（案件・定期費用の実績額修正の差分）                                                     |
-| profit_loss_labels                   | 損益計算書上の表示タイトル（案件・明細名の上書き）                                               |
-| profit_loss_closings                 | 月次収支確定のヘッダ（行があれば確定済みの月）                                                   |
-| profit_loss_closing_lines            | 月次収支確定の明細（確定時点のスナップショット）                                                 |
-| profit_loss_closing_dismissals       | 確定後の案件変更の見送り記録                                                                     |
+| テーブル名                       | 役割                                                                                             |
+| -------------------------------- | ------------------------------------------------------------------------------------------------ |
+| profiles                         | ユーザー。`class`（public / accounting / admin）、チームリーダーのフラグ `is_teamleader`、`team` |
+| matters                          | 案件（ライフサイクル・集計値・差し戻し検知フラグを持つ）                                         |
+| costs                            | 案件の費用                                                                                       |
+| business                         | 案件の売上（取引先ごと）                                                                         |
+| select_option_types              | 選択肢の種類（team / category / item / certificate など）                                        |
+| select_options                   | 選択肢の値                                                                                       |
+| recurring_costs                  | 定期費用（管理費）マスタ                                                                         |
+| extra_entries                    | 経理追加収支（案件に紐づかない収入・支出）                                                       |
+| budget_declarations              | 事前収支申告のヘッダ（チーム × 対象月）                                                          |
+| budget_declaration_items         | 事前収支申告の明細（見込み収入・支出）                                                           |
+| budget_declaration_reminder_days | 未申告 Slack リマインドの対象日と日ごとの文面（1 日 1 行）                                       |
+| slack_notification_settings      | Slack 担当者連絡の定型文設定（1 行のみ）                                                         |
+| budget_recurring_items           | 事前収支申告の定期明細マスタ（新規申告作成時に明細へ展開）                                       |
+| profit_loss_adjustments          | 損益調整（案件・定期費用の実績額修正の差分）                                                     |
+| profit_loss_labels               | 損益計算書上の表示タイトル（案件・明細名の上書き）                                               |
+| profit_loss_closings             | 月次収支確定のヘッダ（行があれば確定済みの月）                                                   |
+| profit_loss_closing_lines        | 月次収支確定の明細（確定時点のスナップショット）                                                 |
+| profit_loss_closing_dismissals   | 確定後の案件変更の見送り記録                                                                     |
 
 列挙型は `information_category`（basic_info / business_info / cost_info。`select_option_types.category`）のみ。
 
@@ -106,12 +106,12 @@ PostgreSQL（Supabase）/ スキーマ `public`（補助関数は `private`）�
 
 事前収支申告の月次確定。1 ヶ月 1 行（`target_month` は月初日で UNIQUE）で、行があればその月は確定済みで、全チームの申告（ヘッダ・明細）を作成・編集・削除できない。確定解除は行の削除。損益計算書の月次収支確定（3.15）とは独立で連動しない。`closed_by_name` は確定時点の氏名（profiles の RLS でチームリーダーが経理担当者の氏名を読めないため）。
 
-### 3.11 budget_declaration_reminder_settings テーブル
+### 3.11 budget_declaration_reminder_days テーブル
 
-未申告 Slack リマインド（`app/api/cron/budget-declaration-reminder/route.ts`）の対象日（`target_days`、JST の日、各要素 1〜31）を持つシングルトン（`id = 1` を CHECK で固定）。**空配列にするとリマインド停止。** Supabase ダッシュボード直編集（RLS バイパス）でも typo を防ぐため範囲を CHECK で検証している。
+未申告 Slack リマインド（`app/api/cron/budget-declaration-reminder/route.ts`）の対象日（`day`、JST の日、1〜31）と、その日の文面（`message`。メッセージ 1 行目のテンプレート。プレースホルダ `{month}` `{deadline}`）を 1 日 1 行で持つ。**行を 0 件にするとリマインド停止。** Supabase ダッシュボード直編集（RLS バイパス）でも typo を防ぐため日の範囲と空文面を CHECK で検証している。migration 43 で旧 `budget_declaration_reminder_settings`（`target_days` 配列。migration 20）から移行し、旧テーブルは DROP した（既存の対象日は現行と同じ既定文面で引き継ぎ）。
 
-- cron は service role で読む。取得失敗（DB エラー・行なし・例外）は `DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS`（`[15, 18, 20]`）にフォールバックする（fail-open）。空配列で意図的に止めていても、取得が一時的に失敗すればデフォルト日に戻る点は許容している。
-- 編集は `/budget-declarations` の「リマインド設定」モーダルから admin / accounting が行う（`id = 1` の UPDATE のみ。保存前に `normalizeBudgetDeclarationReminderTargetDays` で正規化。Server Action 側でも `getAuthorizedViewer` で拒否）。
+- cron は service role で読む。取得失敗（DB エラー・例外）は `DEFAULT_BUDGET_DECLARATION_REMINDER_DAYS`（15 / 18 / 20 日・既定文面）にフォールバックする（fail-open）。行を 0 件にして意図的に止めていても、取得が一時的に失敗すればデフォルトに戻る点は許容している。
+- 編集は `/budget-declarations` の「リマインド設定」モーダルから admin / accounting が行う。保存は `replace_budget_declaration_reminder_days(p_rows jsonb)`（SECURITY INVOKER）で、1 トランザクションで全行を DELETE → INSERT する。同じ日の重複は主キー違反で失敗し全体がロールバックされる。呼び出し元が admin / accounting でなければ、空配列でも 42501 で拒否する（RLS だけだと DELETE が 0 行で黙って成功してしまうため）。Server Action 側でも保存前に正規化・文面検証し、`getAuthorizedViewer` で拒否する。
 
 ### 3.12 budget_recurring_items テーブル
 
@@ -278,9 +278,9 @@ SELECT は 5.8 と同じく経理・管理者・チームリーダーの全チ�
 - 本番反映は **マイグレーションを先に適用してからアプリをデプロイ**する（新アプリが呼ぶ 6 引数の関数が無いと保存が失敗する）。`p_completed` は `DEFAULT NULL`（変更なし）のため、適用後に旧アプリが動いている間の保存もエラーにならず、完了状態は変わらない。旧 5 引数のシグネチャは DROP 済み。
 - `p_declaration_id` / `p_comment` / `p_completed` に `DEFAULT NULL` を付けているのは、`supabase gen types` が引数を DEFAULT の有無でしか区別せず、付けると生成型が省略可能（`?:`）になり呼び出し側が `undefined` を渡せるため。DEFAULT 付き引数は SQL 構文上末尾に置く。
 
-### 5.10 budget_declaration_reminder_settings テーブル
+### 5.10 budget_declaration_reminder_days テーブル
 
-admin / accounting のみ SELECT / UPDATE（`can_access_team_budget` と同じロール区分）。cron は service role で読むため RLS 対象外。行は migration で作った 1 行のみを更新し続ける運用で INSERT / DELETE のポリシーは無く、DEFAULT PRIVILEGES で自動付与される INSERT / DELETE 権限も `REVOKE INSERT, DELETE ... FROM authenticated` で塞いでいる（`id = 1` の CHECK もあり新規行は追加できない）。
+admin / accounting のみ SELECT / INSERT / UPDATE / DELETE（`can_access_team_budget` と同じロール区分）。teamleader / public は 0 行・書き込み不可。`anon` は ALL REVOKE。cron は service role で読むため RLS 対象外。全置換 RPC は SECURITY INVOKER で RLS に従い、さらに関数内でロールを明示チェックする（3.11）。
 
 ### 5.11 budget_recurring_items テーブル
 

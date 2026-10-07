@@ -34,6 +34,7 @@ import { LoadingSpinner } from "../LoadingSpinner";
 import BudgetClosingControl from "./BudgetClosingControl";
 import BudgetDeclarationForm from "./BudgetDeclarationForm";
 import BudgetDeclarationItemTable from "./BudgetDeclarationItemTable";
+import type { BudgetDeclarationReminderDay } from "@/app/utils/budgetDeclarationReminder";
 import BudgetDeclarationReminderSettings from "./BudgetDeclarationReminderSettings";
 
 type Props = {
@@ -51,7 +52,7 @@ type Props = {
   // Role that can show the reminder settings button (admin / accounting). Defaults to false.
   canManageReminderSettings?: boolean;
   // null when fetch failed, even if canManageReminderSettings.
-  initialReminderTargetDays?: number[] | null;
+  initialReminderDays?: BudgetDeclarationReminderDay[] | null;
   memberList: { value: string; label: string }[];
   // Manager Select is disabled while true (see BudgetDeclarationForm).
   memberListError?: boolean;
@@ -87,7 +88,7 @@ const BudgetDeclarationList = ({
   canCloseMonth = false,
   initialClosings = null,
   canManageReminderSettings = false,
-  initialReminderTargetDays = null,
+  initialReminderDays = null,
   memberList,
   memberListError = false,
 }: Props) => {
@@ -211,7 +212,7 @@ const BudgetDeclarationList = ({
         {/* Modal-opened rather than always expanded; kept mounted so saved values persist across open/close. */}
         {canManageReminderSettings && (
           <BudgetDeclarationReminderSettings
-            initialTargetDays={initialReminderTargetDays}
+            initialDays={initialReminderDays}
           />
         )}
         <Button
