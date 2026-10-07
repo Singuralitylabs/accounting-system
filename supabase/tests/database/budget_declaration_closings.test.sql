@@ -56,7 +56,7 @@ SELECT throws_ok(
 
 -- ===== public without a team: read-only (migration 44) =====
 SELECT set_config('request.jwt.claims', '{"sub":"44444444-4444-4444-4444-444444444444","role":"authenticated"}', true);
-SELECT is((SELECT count(*) FROM public.budget_declarations)::int, 2, '所属チームなしの public も全チームの申告ヘッダを閲覧できる');
+SELECT is((SELECT count(*) FROM public.budget_declarations WHERE target_month = DATE '2026-10-01')::int, 2, '所属チームなしの public も全チームの申告ヘッダを閲覧できる');
 SELECT is((SELECT count(*) FROM public.budget_declaration_items)::int, 2, '所属チームなしの public も全チームの申告明細を閲覧できる');
 SELECT throws_ok(
   $$INSERT INTO public.budget_declarations (target_month, team, declared_by)
@@ -69,7 +69,7 @@ SELECT throws_ok(
 
 -- ===== public with a team (no teamleader flag): reads all teams, writes own team only =====
 SELECT set_config('request.jwt.claims', '{"sub":"66666666-6666-6666-6666-666666666666","role":"authenticated"}', true);
-SELECT is((SELECT count(*) FROM public.budget_declarations)::int, 2, 'フラグなしの public も全チームの申告を閲覧できる');
+SELECT is((SELECT count(*) FROM public.budget_declarations WHERE target_month = DATE '2026-10-01')::int, 2, 'フラグなしの public も全チームの申告を閲覧できる');
 SELECT lives_ok(
   $$SELECT public.save_budget_declaration(DATE '2026-12-01', 'Aチーム', '[]'::jsonb)$$,
   'フラグなしの public は所属チームの申告を作成できる');

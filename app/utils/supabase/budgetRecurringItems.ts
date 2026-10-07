@@ -131,6 +131,18 @@ export const bulkSaveBudgetRecurringItems = async (
   const activeRows = rows
     .filter((row) => !row.isRemoved)
     .map((row) => {
+      // Teams the user cannot write keep their stored order: renumbering them could mark rows as
+      // changed (legacy gaps / ties) and make an own-team save look like a write to another team.
+      if (
+        !canWriteBudgetTeam(
+          profileInfo.class,
+          profileInfo.team,
+          row.team,
+          profileInfo.is_teamleader,
+        )
+      ) {
+        return row;
+      }
       const order = orderByTeam.get(row.team) ?? 0;
       orderByTeam.set(row.team, order + 1);
       return { ...row, display_order: order };
