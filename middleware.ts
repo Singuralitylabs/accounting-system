@@ -145,6 +145,7 @@ export async function middleware(req: NextRequest) {
           }
           console.error("Profile fetch error:", profileError);
         }
+        // Dropping the JWT class is safe: this branch is reached only when the claims alone did not grant access.
         userClass = profile?.class ?? null;
         // Keep a valid JWT flag when the query fails or returns no row.
         isTeamleader = profile?.is_teamleader ?? isTeamleader ?? false;

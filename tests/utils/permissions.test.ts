@@ -61,7 +61,7 @@ describe("hasClassAccess", () => {
 
 describe("effectiveRoles", () => {
   it("フラグなしの class はその class だけを返す", () => {
-    expect(effectiveRoles("public")).toEqual(["public"]);
+    expect(effectiveRoles("public", false)).toEqual(["public"]);
     expect(effectiveRoles("public", false)).toEqual(["public"]);
     expect(effectiveRoles("admin", null)).toEqual(["admin"]);
   });
@@ -80,17 +80,17 @@ describe("effectiveRoles", () => {
   it("class が null / undefined でもフラグがあれば teamleader だけを返す", () => {
     expect(effectiveRoles(null, true)).toEqual(["teamleader"]);
     expect(effectiveRoles(undefined, true)).toEqual(["teamleader"]);
-    expect(effectiveRoles(null)).toEqual([]);
+    expect(effectiveRoles(null, false)).toEqual([]);
     expect(effectiveRoles(undefined, false)).toEqual([]);
   });
 
   it("未知の class は実効ロールにならない（フラグがあれば teamleader のみ）", () => {
-    expect(effectiveRoles("superuser")).toEqual([]);
+    expect(effectiveRoles("superuser", false)).toEqual([]);
     expect(effectiveRoles("superuser", true)).toEqual(["teamleader"]);
   });
 
   it("class としての 'teamleader' は実効ロールにならない", () => {
-    expect(effectiveRoles("teamleader")).toEqual([]);
+    expect(effectiveRoles("teamleader", false)).toEqual([]);
     expect(effectiveRoles("teamleader", false)).toEqual([]);
     expect(effectiveRoles("teamleader", true)).toEqual(["teamleader"]);
   });

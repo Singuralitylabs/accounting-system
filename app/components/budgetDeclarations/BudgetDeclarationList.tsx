@@ -303,7 +303,7 @@ const BudgetDeclarationList = ({
 
         {isTeamleader &&
           !profileTeam &&
-          !canWriteAllBudgetTeams(profileClass) && (
+          !canWriteAllBudgetTeams(profileClass, isTeamleader) && (
             <Alert
               color="yellow"
               className="mb-4"
@@ -507,7 +507,7 @@ const BudgetDeclarationList = ({
           targetMonth={formTarget.targetMonth}
           team={formTarget.team}
           declarationId={formTarget.declarationId}
-          teamLocked={!canWriteAllBudgetTeams(profileClass)}
+          teamLocked={!canWriteAllBudgetTeams(profileClass, isTeamleader)}
           memberList={memberList}
           memberListError={memberListError}
           // Follows the live closing state of the form's own month, which can differ from the picker.

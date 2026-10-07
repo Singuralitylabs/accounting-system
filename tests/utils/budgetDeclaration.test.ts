@@ -94,11 +94,13 @@ describe("summarizeBudgetItems", () => {
 
 describe("canWriteAllBudgetTeams", () => {
   it("全チームへ書き込めるのは経理・管理者のみ", () => {
-    expect(canWriteAllBudgetTeams("accounting")).toBe(true);
-    expect(canWriteAllBudgetTeams("admin")).toBe(true);
-    expect(canWriteAllBudgetTeams("teamleader")).toBe(false);
-    expect(canWriteAllBudgetTeams("public")).toBe(false);
-    expect(canWriteAllBudgetTeams(null)).toBe(false);
+    expect(canWriteAllBudgetTeams("accounting", false)).toBe(true);
+    expect(canWriteAllBudgetTeams("admin", false)).toBe(true);
+    expect(canWriteAllBudgetTeams("teamleader", false)).toBe(false);
+    expect(canWriteAllBudgetTeams("public", false)).toBe(false);
+    expect(canWriteAllBudgetTeams("public", true)).toBe(false);
+    expect(canWriteAllBudgetTeams("accounting", true)).toBe(true);
+    expect(canWriteAllBudgetTeams(null, false)).toBe(false);
   });
 });
 

@@ -52,6 +52,7 @@ const DynamicBudgetDeclarations = async () => {
 
   const canManageReminderSettings = canManageBudgetDeclarationReminderSettings(
     profileInfo?.class,
+    profileInfo?.is_teamleader,
   );
 
   // The reminder settings button renders for admin / accounting only, so do not call the Server Action for other roles (avoids permission-denied logs).

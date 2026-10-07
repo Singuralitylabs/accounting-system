@@ -83,7 +83,7 @@ export const PROFILE_WRITE_CLASSES: Role[] = ["admin"];
 // Effective role set: class (when it is a known role) plus teamleader when flagged.
 export const effectiveRoles = (
   profileClass: string | null | undefined,
-  isTeamleader?: boolean | null,
+  isTeamleader: boolean | null | undefined,
 ): Role[] => {
   const roles: Role[] = [];
   if (isProfileClass(profileClass)) {

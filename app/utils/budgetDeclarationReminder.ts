@@ -95,10 +95,10 @@ export const BUDGET_DECLARATION_REMINDER_SETTINGS_ALLOWED_CLASSES: readonly Role
 
 export const canManageBudgetDeclarationReminderSettings = (
   profileClass: string | null | undefined,
+  isTeamleader: boolean | null | undefined,
 ): boolean =>
   hasClassAccess(
     BUDGET_DECLARATION_REMINDER_SETTINGS_ALLOWED_CLASSES,
     profileClass,
-    // The list has no teamleader role, so the flag cannot change the result.
-    false,
+    isTeamleader,
   );

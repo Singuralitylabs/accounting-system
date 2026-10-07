@@ -122,14 +122,16 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
     userId: number,
     updates: Partial<ProfilesType>,
   ) => {
-    // Clearing the teamleader flag clears the team. Setting it back to its loaded value restores the loaded team only when the team is still empty (otherwise the team stays cleared with no "changed" state or error), so a team the admin picked in between is kept (PC and mobile).
+    // Clearing the flag of a row that was loaded as a teamleader clears its team; setting it back restores the loaded team only while the team is still empty (otherwise the team stays cleared with no "changed" state or error). Rows loaded without the flag keep their team when the checkbox is toggled (PC and mobile).
     const saved = baseline.get(userId);
     setRows((prev) =>
       prev.map((user) => {
         if (user.id !== userId) return user;
         if (!("is_teamleader" in updates)) return { ...user, ...updates };
         if (!updates.is_teamleader) {
-          return { ...user, ...updates, team: null };
+          return saved?.is_teamleader === true
+            ? { ...user, ...updates, team: null }
+            : { ...user, ...updates };
         }
         const restoreTeam =
           saved?.is_teamleader === true &&

@@ -31,6 +31,11 @@ export const readRoleClaims = (
   const payload = readPayload(accessToken);
   const classClaim = payload?.user_class;
   const flagClaim = payload?.user_is_teamleader;
+  // Tokens issued before migration 41 carry user_class: 'teamleader'. The token is signature-verified, so
+  // reading it as public + flag avoids a profiles query per request until it refreshes (~1 hour).
+  if (classClaim === "teamleader") {
+    return { userClass: "public", isTeamleader: true };
+  }
   return {
     userClass:
       typeof classClaim === "string" && classClaim.length > 0
@@ -40,9 +45,3 @@ export const readRoleClaims = (
     isTeamleader: typeof flagClaim === "boolean" ? flagClaim : null,
   };
 };
-
-export const readClassClaim = (accessToken: string | undefined) =>
-  readRoleClaims(accessToken).userClass;
-
-export const readTeamleaderClaim = (accessToken: string | undefined) =>
-  readRoleClaims(accessToken).isTeamleader;

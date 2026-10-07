@@ -752,6 +752,35 @@ describe("UserList", () => {
       expect(saveButton()).toBeDisabled();
     });
 
+    it("フラグ無しで読み込んだ行は、チェックを付けて外しても元のチームが消えず変更なしに戻る", () => {
+      const { container } = renderWithMantine(
+        <UserList
+          userList={[
+            makeUser({
+              id: 5,
+              user_id: "00000000-0000-0000-0000-000000000005",
+              name: "高橋三郎",
+              email: "saburo@future-tech-association.org",
+              class: "accounting",
+              is_teamleader: false,
+              team: "チームB",
+              slack_id: null,
+            }),
+          ]}
+          teamList={teamList}
+        />,
+      );
+
+      toggleLeader("高橋三郎");
+      expect(inputValue("高橋三郎のチーム")).toBe("チームB");
+      toggleLeader("高橋三郎");
+      expect(inputValue("高橋三郎のチーム")).toBe("チームB");
+
+      expect(screen.getByText("変更はありません")).toBeInTheDocument();
+      expect(changedRowNames(container)).toEqual([]);
+      expect(saveButton()).toBeDisabled();
+    });
+
     it("チームリーダーのフラグだけを変えても変更ありになり、戻すと変更なしになる", () => {
       const { container } = renderWithMantine(
         <UserList userList={editableUserList} teamList={teamList} />,

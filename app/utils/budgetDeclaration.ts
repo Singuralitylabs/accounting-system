@@ -66,9 +66,9 @@ export const summarizeBudgetItems = (
 // is both (e.g. accounting + teamleader flag) gets the wider all-team access.
 export const canWriteAllBudgetTeams = (
   profileClass: string | null | undefined,
+  isTeamleader: boolean | null | undefined,
 ): boolean =>
-  // The list has no teamleader role, so the flag cannot change the result.
-  hasClassAccess(BUDGET_WRITE_ALL_TEAMS_CLASSES, profileClass, false);
+  hasClassAccess(BUDGET_WRITE_ALL_TEAMS_CLASSES, profileClass, isTeamleader);
 
 // Empty when the role has no access or no team is set.
 export const ownBudgetTeams = (
@@ -88,7 +88,7 @@ export const canWriteBudgetTeam = (
   targetTeam: string,
   isTeamleader: boolean | null | undefined,
 ): boolean =>
-  canWriteAllBudgetTeams(profileClass) ||
+  canWriteAllBudgetTeams(profileClass, isTeamleader) ||
   ownBudgetTeams(profileClass, profileTeam, isTeamleader).includes(targetTeam);
 
 // Row background per entry type (for the `bg` prop, as in AccountingTablebody). The `-light`
