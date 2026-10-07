@@ -965,6 +965,27 @@ export type Database = {
           },
         ]
       }
+      slack_notification_settings: {
+        Row: {
+          id: number
+          matter_notice_body_template: string
+          matter_notice_header: string
+          updated_at: string
+        }
+        Insert: {
+          id?: number
+          matter_notice_body_template?: string
+          matter_notice_header?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: number
+          matter_notice_body_template?: string
+          matter_notice_header?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

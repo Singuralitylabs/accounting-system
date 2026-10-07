@@ -30,6 +30,11 @@ const sampleMatter: MatterType = {
 
 // The closed-month notice in the detail modal uses TanStack Query; stub it as "no closed months"
 // (there is no QueryClientProvider here).
+vi.mock("@/app/utils/supabase/slackNotificationSettings", () => ({
+  getSlackNotificationSettings: vi.fn(),
+  updateSlackNotificationSettings: vi.fn(),
+}));
+
 vi.mock("@/app/hooks/useClosedMonths", () => ({
   useClosedMonths: () => ({ closedMonths: new Set<string>() }),
 }));

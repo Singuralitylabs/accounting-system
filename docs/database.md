@@ -37,6 +37,7 @@ PostgreSQL（Supabase）/ スキーマ `public`（補助関数は `private`）�
 | budget_declarations                  | 事前収支申告のヘッダ（チーム × 対象月）                                                          |
 | budget_declaration_items             | 事前収支申告の明細（見込み収入・支出）                                                           |
 | budget_declaration_reminder_settings | 未申告 Slack リマインド対象日の設定（1 行のみ）                                                  |
+| slack_notification_settings          | Slack 担当者連絡の定型文設定（1 行のみ）                                                         |
 | budget_recurring_items               | 事前収支申告の定期明細マスタ（新規申告作成時に明細へ展開）                                       |
 | profit_loss_adjustments              | 損益調整（案件・定期費用の実績額修正の差分）                                                     |
 | profit_loss_labels                   | 損益計算書上の表示タイトル（案件・明細名の上書き）                                               |
@@ -153,6 +154,13 @@ PostgreSQL（Supabase）/ スキーマ `public`（補助関数は `private`）�
 確定後の案件変更（確定明細とライブ集計の差分）のうち、経理が「見送る」とした明細ごとの記録。見送った時点のライブの状態（`live_*`）を保持し、現在のライブと一致する間だけ「見送り済み」としてアラート・件数から外す。差分の算出は `app/utils/profitLossDiff.ts`（純粋関数）で行う。`source_type` は business / cost のみ。`(closing_id, source_type, source_id)` が UNIQUE（再見送りは upsert）。
 
 見送り記録は、反映（`apply_profit_loss_closing_diffs`）・確定解除（CASCADE）・確定の取り直し（`save_profit_loss_closing`）で削除される。差分が解消した明細の記録は残るが表示には使われない。
+
+### 3.18 slack_notification_settings テーブル
+
+経理用一覧の「担当者に連絡」で送る Slack メッセージの定型文（ヘッダ `matter_notice_header`、本文テンプレート `matter_notice_body_template`）を持つシングルトン（`id = 1` を CHECK で固定）。本文には `{message}` が必須（CHECK）。プレースホルダの展開と検証は `app/utils/slackTemplate.ts` / `slackNotificationTemplate.ts`。
+
+- 送信時は service role で読み、取得失敗は固定文（`DEFAULT_MATTER_NOTICE_SETTINGS`）にフォールバックする（通知を止めない）。
+- 編集は `/matters/accounting` の「通知設定」モーダルから admin / accounting が行う（`id = 1` の UPDATE のみ。Server Action でも `getAuthorizedViewer` と検証を行う）。投稿先チャンネルは Webhook 固定のため持たない。
 
 ## 4. 列挙型
 
@@ -356,6 +364,10 @@ RLS の `is_pl_month_closed` は文のスナップショットで評価される
 ### 5.16 リリース用の読み取り専用ロール（migration_reader。migration 36）
 
 リリース PR 作成ワークフロー（`.github/workflows/release-pr.yml`）が本番の `supabase migration list` を読むための専用ロール（アプリ・PostgREST・RLS からは使わない）。権限は `supabase_migrations.schema_migrations` の SELECT のみで、業務テーブルには権限が無く、接続情報が漏れても業務データは読めない（`pg_read_all_data` や `BYPASSRLS` も付けない）。パスワードはマイグレーションに書かず、本番で `psql` の `\password migration_reader` で設定する（ローカルではロールと権限だけ再現され接続には使えない）。接続情報の登録とローテーションは `docs/release.md` の「読み取り専用ロール」を参照。
+
+### 5.17 slack_notification_settings テーブル
+
+admin / accounting のみ SELECT / UPDATE（5.10 と同じ構成）。INSERT / DELETE のポリシーは無く、`authenticated` からの INSERT / DELETE 権限も REVOKE している。送信時の読み取りは service role のため RLS 対象外。
 
 ## 6. トリガー
 

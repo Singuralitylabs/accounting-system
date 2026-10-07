@@ -9,8 +9,10 @@ const sendMessageToSlack = async (
 ) => {
   try {
     const slackName = slackId ? `<@${slackId}>` : username;
-    const body = `案件：${title}\n` + `担当者：${slackName}\n` + message;
-    const slackResult = await sendSlackNotification(body);
+    const slackResult = await sendSlackNotification(message, {
+      matterTitle: title,
+      assignee: slackName,
+    });
 
     if (slackResult.error) {
       throw new Error(slackResult.error);

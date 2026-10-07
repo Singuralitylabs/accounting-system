@@ -1,3 +1,4 @@
+import type { MatterNoticeSettings } from "../utils/slackNotificationTemplate";
 import { Database } from "../lib/database.types";
 
 export type PageTitleProps = {
@@ -27,6 +28,7 @@ export type SlackNotificationResponse = {
 };
 
 export type SlackNotificationMetadata = {
+  assignee?: string;
   matterId?: number;
   matterTitle?: string;
   sender?: string;
@@ -491,4 +493,12 @@ export type ClosingDiffSummary = { month: string; count: number }[];
 export type ClosingDiffSummaryData = {
   summary: ClosingDiffSummary;
   fromMonth: string; // "YYYY-MM"
+};
+
+export type SlackNotificationSettingsResult =
+  | { settings: MatterNoticeSettings; error?: undefined }
+  | { settings?: undefined; error: AccessFailure };
+
+export type SlackNotificationSettingsSaveResult = {
+  error?: AccessFailure;
 };
