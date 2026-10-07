@@ -1,7 +1,7 @@
 -- pgTAP tests for the profiles.is_teamleader flag (migration 41)
 -- Run: supabase test db (local Supabase running; docs/testing.md 3.8)
 BEGIN;
-SELECT plan(22);
+SELECT plan(23);
 
 INSERT INTO auth.users (id, email) VALUES
   ('11111111-1111-1111-1111-111111111111', 'accleader@example.com'),
@@ -77,9 +77,13 @@ SELECT throws_ok(
       'class', 'teamleader', 'is_teamleader', false, 'team', 'Bチーム', 'slack_id', NULL)))$$,
   '22023', 'INVALID_INPUT', 'class に teamleader は指定できない');
 
--- ===== Custom Access Token Hook claims (run as supabase_auth_admin, as Supabase Auth does) =====
+-- ===== Custom Access Token Hook claims =====
+-- The test role cannot SET ROLE supabase_auth_admin, so the hook runs as the current role and the
+-- column grant the hook needs under that role is checked separately.
 RESET ROLE;
-SET LOCAL ROLE supabase_auth_admin;
+SELECT ok(
+  has_column_privilege('supabase_auth_admin', 'public.profiles', 'is_teamleader', 'SELECT'),
+  'supabase_auth_admin は Hook のために profiles.is_teamleader を SELECT できる');
 SELECT is(
   (public.custom_access_token_hook(jsonb_build_object('user_id', '11111111-1111-1111-1111-111111111111', 'claims', '{"sub":"s"}'::jsonb))
     -> 'claims' ->> 'user_class'),
