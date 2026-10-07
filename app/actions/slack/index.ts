@@ -20,12 +20,15 @@ export async function sendSlackNotification(
     return { error: "Slack configuration is missing" };
   }
 
-  const [settings, { profileInfo }] = await Promise.all([
+  const [settings, { profileInfo, error: profileError }] = await Promise.all([
     getMatterNoticeSettingsForSend(),
     getProfileInfo(),
   ]);
   // Sender comes from the verified session, not from client-supplied metadata (which could be spoofed).
-  const sender = profileInfo?.name ?? "";
+  if (profileError) {
+    console.error("Slack通知の送信者の取得に失敗しました:", profileError);
+  }
+  const sender = profileInfo?.name ?? "（不明）";
   const sentAt = new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
   const text = buildMatterNoticeText(settings, {
     matter: metadata?.matterTitle ?? "",

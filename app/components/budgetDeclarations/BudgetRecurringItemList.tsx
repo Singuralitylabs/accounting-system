@@ -149,6 +149,9 @@ const BudgetRecurringItemList = ({
   const isEditableRow = (row: BudgetRecurringItemInListType) =>
     canEditAllTeams || (!!ownTeam && row.team === ownTeam);
 
+  // No team and not accounting / admin: nothing can be edited or saved.
+  const isViewOnly = !canEditAllTeams && !ownTeam;
+
   const handleSave = async () => {
     // Read-only rows (other teams) are not saved, so their problems must not block the save.
     const validation = validateBudgetRecurringItemList(
@@ -213,6 +216,11 @@ const BudgetRecurringItemList = ({
       >
         ← 事前収支申告一覧に戻る
       </Link>
+      {isViewOnly && (
+        <Alert color="yellow" className="mt-2" title="所属チームが未設定です">
+          閲覧のみ（編集には所属チームの設定が必要です）。管理者にお問い合わせください。
+        </Alert>
+      )}
       <div className="flex justify-between items-center mb-4 mt-2 gap-4">
         <p className="text-sm text-gray-600">
           毎月固定で発生する収入・支出を登録します。適用期間内の対象月で新規の事前収支申告を作成すると、明細として自動で取り込まれます（取り込み後は申告ごとに編集・削除できます）。金額改定は既存行の適用終了月を設定して打ち切り、新しい行を追加してください。
@@ -220,7 +228,7 @@ const BudgetRecurringItemList = ({
         <Button
           type="button"
           className="shrink-0"
-          disabled={formLocked}
+          disabled={formLocked || isViewOnly}
           onClick={handleSave}
         >
           保存

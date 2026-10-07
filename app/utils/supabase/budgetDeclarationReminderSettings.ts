@@ -61,6 +61,19 @@ export const updateBudgetDeclarationReminderDays = async (
     return { error: accessError };
   }
 
+  // Server Actions accept arbitrary input; reject malformed rows before normalizing / validating.
+  if (
+    !Array.isArray(rows) ||
+    rows.some(
+      (row) =>
+        typeof row?.day !== "number" || typeof row?.message !== "string",
+    )
+  ) {
+    return {
+      error: { kind: "validationFailed", message: "入力内容が不正です。" },
+    };
+  }
+
   const normalized = normalizeBudgetDeclarationReminderDays(rows);
   for (const { day, message } of normalized) {
     const validationError = validateBudgetDeclarationReminderMessage(message);

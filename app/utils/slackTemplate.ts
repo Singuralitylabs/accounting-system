@@ -9,7 +9,8 @@ export type SlackPlaceholder = {
   sample: string;
 };
 
-const PLACEHOLDER_PATTERN = /\{([^{}]*)\}/g;
+// Only {lowercase} is a placeholder; any other braces (e.g. {至急}, JSON) stay ordinary text.
+const PLACEHOLDER_PATTERN = /\{([a-z]+)\}/g;
 
 // Replaces only known placeholders; unknown ones are kept verbatim so a stale template never throws at send time.
 export const expandSlackTemplate = (

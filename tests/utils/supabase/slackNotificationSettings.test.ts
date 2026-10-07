@@ -100,6 +100,16 @@ describe("updateSlackNotificationSettings", () => {
     expect(result.error?.kind).toBe("forbidden");
   });
 
+  it("文字列でない入力は TypeError にせず validationFailed を返す", async () => {
+    const result = await updateSlackNotificationSettings({
+      header: null,
+      bodyTemplate: 1,
+    } as never);
+
+    expect(update).not.toHaveBeenCalled();
+    expect(result.error?.kind).toBe("validationFailed");
+  });
+
   it("{message} を含まないテンプレートは更新しない", async () => {
     const result = await updateSlackNotificationSettings({
       header: "h",

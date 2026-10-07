@@ -117,6 +117,19 @@ describe("updateBudgetDeclarationReminderDays", () => {
     expect(result.error?.kind).toBe("forbidden");
   });
 
+  it("配列でない入力・文字列でない文面は TypeError にせず validationFailed を返す", async () => {
+    const notArray = await updateBudgetDeclarationReminderDays(
+      "x" as never,
+    );
+    const nullMessage = await updateBudgetDeclarationReminderDays([
+      { day: 15, message: null },
+    ] as never);
+
+    expect(rpc).not.toHaveBeenCalled();
+    expect(notArray.error?.kind).toBe("validationFailed");
+    expect(nullMessage.error?.kind).toBe("validationFailed");
+  });
+
   it("未知のプレースホルダ・空の文面は更新せずエラーを返す", async () => {
     const unknown = await updateBudgetDeclarationReminderDays([
       { day: 15, message: "{foo}" },

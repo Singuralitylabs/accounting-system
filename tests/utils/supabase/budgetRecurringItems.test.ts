@@ -346,14 +346,37 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
     expect(operations.updates).toEqual([1]);
   });
 
-  it("自チームの行を他チームへ付け替える変更は forbidden", async () => {
+  it("自チームの行を他チームへ付け替える変更は書き込まれない（UI では起きない。DB の RLS も拒否する）", async () => {
     mockSupabase([dbRow(1, "Aチーム")]);
 
+    const result = await bulkSaveBudgetRecurringItems([listRow(1, "Bチーム")]);
+
+    expect(result).toEqual({});
+    expect(operations.updates).toEqual([]);
+  });
+
+  it("画面表示後に他チームから自チームへ付け替えられた行を、旧チームのまま送ってきても forbidden にしない", async () => {
+    // Row 2 was Bチーム when displayed (read-only) and now belongs to Aチーム.
+    mockSupabase([dbRow(1, "Aチーム"), dbRow(2, "Aチーム")]);
+
     const result = await bulkSaveBudgetRecurringItems([
-      listRow(1, "Bチーム"),
+      listRow(1, "Aチーム", { amount: 200000 }),
+      listRow(2, "Bチーム"),
     ]);
 
-    expect(result.error?.kind).toBe("forbidden");
+    expect(result).toEqual({});
+    expect(operations.updates).toEqual([1]);
+  });
+
+  it("画面表示後に自チームの行が他チームへ付け替えられていたら、黙って捨てず再読み込みを促すエラーを返す", async () => {
+    mockSupabase([dbRow(1, "Bチーム")]);
+
+    const result = await bulkSaveBudgetRecurringItems([
+      listRow(1, "Aチーム", { amount: 200000 }),
+    ]);
+
+    expect(result.error?.kind).toBe("validationFailed");
+    expect(result.error?.message).toContain("再読み込み");
     expect(operations.updates).toEqual([]);
   });
 

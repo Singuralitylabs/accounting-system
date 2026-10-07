@@ -55,6 +55,20 @@ describe("sendSlackNotification", () => {
     expect(sectionText()).toBe("h\n\n経理 太郎m");
   });
 
+  it("プロフィール取得に失敗したら送信者を「（不明）」にしてログに残す", async () => {
+    getProfileInfo.mockResolvedValue({ error: new Error("x") });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    getMatterNoticeSettingsForSend.mockResolvedValue({
+      header: "h",
+      bodyTemplate: "{sender}{message}",
+    });
+
+    await sendSlackNotification("m");
+
+    expect(sectionText()).toBe("h\n\n（不明）m");
+    expect(console.error).toHaveBeenCalled();
+  });
+
   it("Webhook 未設定ならエラーを返し送信しない", async () => {
     delete process.env.SLACK_WEBHOOK_URL;
 

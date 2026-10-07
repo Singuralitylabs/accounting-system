@@ -136,8 +136,11 @@ describe("BudgetRecurringItemList", () => {
     expect(screen.getByDisplayValue("他チームの契約")).not.toBeDisabled();
   });
 
-  it("所属チームのない閲覧者（ownTeam=null）は全行が閲覧のみで、行の追加もできない", () => {
+  it("所属チームのない閲覧者（ownTeam=null）は全行が閲覧のみで、行の追加も保存もできず、理由を案内する", () => {
     renderList({ ownTeam: null });
+
+    expect(screen.getByText("所属チームが未設定です")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
 
     expect(screen.getByDisplayValue("○○保守契約")).toBeDisabled();
     expect(screen.getByRole("button", { name: "定期明細追加" })).toBeDisabled();

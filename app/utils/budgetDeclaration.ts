@@ -11,7 +11,7 @@ import {
   BudgetSummaryType,
 } from "../types/types";
 import { addMonths, currentJstMonth } from "./formatter";
-import { ROLES, Role, hasClassAccess } from "./permissions";
+import { ACCOUNTING_ROLES, ROLES, Role, hasClassAccess } from "./permissions";
 
 // Re-exported so existing importers keep working (addMonths lives in formatter.ts).
 export { addMonths };
@@ -23,7 +23,7 @@ export const BUDGET_DECLARATION_VIEW_CLASSES: readonly Role[] = ROLES;
 // (profiles.team), whatever their role. Mirrors DB `public.can_access_team_budget` (migration 44);
 // change both together or the app and RLS diverge. Reading is open to every logged-in user
 // (SELECT policies, migration 44), so /budget-declarations is login-only.
-export const BUDGET_WRITE_ALL_TEAMS_CLASSES: Role[] = ["accounting", "admin"];
+export const BUDGET_WRITE_ALL_TEAMS_CLASSES: Role[] = ACCOUNTING_ROLES;
 
 export type BudgetItemAmount = {
   entry_type: string;

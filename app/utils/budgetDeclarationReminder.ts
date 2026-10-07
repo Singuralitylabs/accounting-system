@@ -2,7 +2,7 @@
 // access so they can be unit-tested.
 
 import { currentJstDate, formatMonthLabel } from "./formatter";
-import { Role, hasClassAccess } from "./permissions";
+import { ACCOUNTING_ROLES, Role, hasClassAccess } from "./permissions";
 import {
   SlackPlaceholder,
   expandSlackTemplate,
@@ -148,7 +148,7 @@ export const normalizeBudgetDeclarationReminderDays = (
 
 // Mirrors RLS on budget_declaration_reminder_days (migration 43); change both together.
 export const BUDGET_DECLARATION_REMINDER_SETTINGS_ALLOWED_CLASSES: readonly Role[] =
-  ["admin", "accounting"];
+  ACCOUNTING_ROLES;
 
 export const canManageBudgetDeclarationReminderSettings = (
   profileClass: string | null | undefined,

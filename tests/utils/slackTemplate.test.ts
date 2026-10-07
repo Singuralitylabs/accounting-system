@@ -17,6 +17,19 @@ describe("expandSlackTemplate", () => {
     );
   });
 
+  it("小文字英字以外の波括弧は通常の文字として扱い、展開も検証も対象外", () => {
+    expect(expandSlackTemplate("【重要】{至急} {A} {a_b} {}", { a: "X" })).toBe(
+      "【重要】{至急} {A} {a_b} {}",
+    );
+    expect(
+      validateSlackTemplate('【重要】{至急} JSON: {"a": 1} {message}', {
+        label: "本文",
+        allowed: ["message"],
+        required: ["message"],
+      }),
+    ).toBeNull();
+  });
+
   it("未知のプレースホルダはそのまま残す", () => {
     expect(expandSlackTemplate("{a}{zzz}", { a: "X" })).toBe("X{zzz}");
   });

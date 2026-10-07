@@ -11,13 +11,13 @@ import {
   MatterNoticeSettings,
   validateMatterNoticeSettings,
 } from "../slackNotificationTemplate";
-import { ROUTE_PERMISSIONS } from "../permissions";
+import { ACCOUNTING_ROLES } from "../permissions";
 import { createServerSupabase } from "./clients";
 import { getAuthorizedViewer } from "./viewerAccess";
 
 const SUBJECT = "Slack通知設定";
-// Same roles as the page that hosts the settings button.
-const ALLOWED_CLASSES = ROUTE_PERMISSIONS["/matters/accounting"];
+// Mirrors RLS on slack_notification_settings (admin / accounting; migration 42).
+const ALLOWED_CLASSES = ACCOUNTING_ROLES;
 
 export const getSlackNotificationSettings =
   async (): Promise<SlackNotificationSettingsResult> => {
@@ -64,6 +64,16 @@ export const updateSlackNotificationSettings = async (
   );
   if (accessError) {
     return { error: accessError };
+  }
+
+  // Server Actions accept arbitrary input; reject non-strings before the validators call string methods.
+  if (
+    typeof settings?.header !== "string" ||
+    typeof settings?.bodyTemplate !== "string"
+  ) {
+    return {
+      error: { kind: "validationFailed", message: "入力内容が不正です。" },
+    };
   }
 
   const validationError = validateMatterNoticeSettings(settings);

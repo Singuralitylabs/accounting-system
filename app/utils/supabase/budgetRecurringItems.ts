@@ -210,6 +210,7 @@ export const bulkSaveBudgetRecurringItems = async (
   // (lost update). Compare with current DB values and UPDATE only truly changed rows. Version-based
   // conflict detection (updated_at) is not done here.
   let rowsToUpdate = updateRows;
+  const movedRowIds: number[] = [];
   let currentRows: { id: number; team: string }[] | null = null;
   if (updateRows.length > 0) {
     const { data, error: currentError } = await supabase
@@ -235,17 +236,31 @@ export const bulkSaveBudgetRecurringItems = async (
     currentRows = data;
     const currentById = new Map((data ?? []).map((row) => [row.id, row]));
     rowsToUpdate = updateRows.filter((row) => {
+      // Read-only rows (another team's, by the team the client showed) are sent back as displayed and
+      // may have been changed or deleted by someone else since; ignore them instead of failing.
+      if (!canWriteTeam(row.team)) return false;
       const current = currentById.get(row.id);
-      // Read-only rows (another team's, by stored team) are sent back unchanged by the client and may
-      // have been changed or deleted by someone else since; ignore them instead of failing the save.
-      if (!canWriteTeam(current?.team ?? row.team)) return false;
       // A row deleted by someone else just before saving hits 0 rows harmlessly; keep it anyway.
       if (!current) return true;
+      // The client showed it as writable but it now belongs to another team: do not drop the edit silently.
+      if (!canWriteTeam(current.team)) {
+        movedRowIds.push(current.id);
+        return false;
+      }
       const desired = toDbRow(row);
       return (Object.keys(desired) as (keyof typeof desired)[]).some(
         (key) => desired[key] !== current[key],
       );
     });
+  }
+
+  if (movedRowIds.length > 0) {
+    return {
+      error: {
+        kind: "validationFailed",
+        message: `${SUBJECT}が他のユーザーによって変更されました。画面を再読み込みしてやり直してください。`,
+      },
+    };
   }
 
   // RLS is the last defense; check first for a clearer message. Only rows actually written count:
