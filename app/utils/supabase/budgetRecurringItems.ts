@@ -233,27 +233,25 @@ export const bulkSaveBudgetRecurringItems = async (
     // Someone else changed this row after the client displayed it (updated_at moved). An untouched row
     // is ignored so their change is not overwritten with the stale displayed values; a row the user
     // edited cannot be merged safely, so ask the user to reload instead of dropping or overwriting it.
+    // Ignoring it also skips its renumbered display_order, so the team may end up with a duplicate
+    // display_order; that only affects the tie order (by id), so it is accepted.
     if (row.updated_at !== current.updated_at) {
       if (row.isEdited) conflictRowIds.push(row.id);
       return false;
     }
-    if (!canWriteTeam(current.team)) return false;
     const desired = toDbRow(row);
     return (Object.keys(desired) as (keyof typeof desired)[]).some(
       (key) => desired[key] !== current[key],
     );
   });
 
-  // A row to delete that someone else changed (including moving it to another team) after display would
-  // be removed together with their change, or match 0 rows under RLS and still report success.
+  // A row to delete that someone else changed after display (including moving it to another team: the
+  // trigger moves updated_at on every UPDATE) would be removed together with their change, or match
+  // 0 rows under RLS and still report success.
   for (const row of deleteRows) {
     const current = currentById.get(row.id);
     // Only when the client showed it as writable; deleting another team's row outright stays forbidden below.
-    if (
-      canWriteTeam(row.team) &&
-      current &&
-      (row.updated_at !== current.updated_at || !canWriteTeam(current.team))
-    ) {
+    if (canWriteTeam(row.team) && current && row.updated_at !== current.updated_at) {
       conflictRowIds.push(row.id);
     }
   }
@@ -312,16 +310,12 @@ export const bulkSaveBudgetRecurringItems = async (
     };
   }
 
-  const operations = [];
-
-  if (newRows.length > 0) {
-    operations.push(
-      supabase.from("budget_recurring_items").insert(newRows.map(toDbRow)),
-    );
-  }
-
-  // Matching updated_at in the UPDATE closes the gap between the check above and the write: a row saved
-  // by someone else in between matches 0 rows and is reported instead of overwritten.
+  // One request per row so each write can match updated_at: closing the gap between the check above and
+  // the write, a row saved by someone else in between matches 0 rows and is reported, not overwritten.
+  const insertOperations =
+    newRows.length > 0
+      ? [supabase.from("budget_recurring_items").insert(newRows.map(toDbRow))]
+      : [];
   const updateOperations = rowsToUpdate.map((row) =>
     supabase
       .from("budget_recurring_items")
@@ -330,26 +324,33 @@ export const bulkSaveBudgetRecurringItems = async (
       .eq("updated_at", row.updated_at)
       .select("id"),
   );
-  operations.push(...updateOperations);
+  // A row already deleted by someone else needs no delete.
+  const rowsToDelete = deleteRows.filter((row) => currentById.has(row.id));
+  const deleteOperations = rowsToDelete.map((row) =>
+    supabase
+      .from("budget_recurring_items")
+      .delete()
+      .eq("id", row.id)
+      .eq("updated_at", row.updated_at)
+      .select("id"),
+  );
 
-  if (deleteRows.length > 0) {
-    operations.push(
-      supabase
-        .from("budget_recurring_items")
-        .delete()
-        .in(
-          "id",
-          deleteRows.map((row) => row.id),
-        ),
-    );
-  }
-
-  if (operations.length === 0) {
+  if (
+    insertOperations.length === 0 &&
+    updateOperations.length === 0 &&
+    deleteOperations.length === 0
+  ) {
     return {};
   }
 
-  const results = await Promise.all(operations);
-  const errors = results.filter((result) => result.error);
+  const [insertResults, updateResults, deleteResults] = await Promise.all([
+    Promise.all(insertOperations),
+    Promise.all(updateOperations),
+    Promise.all(deleteOperations),
+  ]);
+  const errors = [...insertResults, ...updateResults, ...deleteResults].filter(
+    (result) => result.error,
+  );
 
   if (errors.length > 0) {
     console.error(`${SUBJECT}の一括更新でエラーが発生しました:`, errors);
@@ -361,19 +362,20 @@ export const bulkSaveBudgetRecurringItems = async (
     };
   }
 
-  // The other writes already went through, so this is a partial write like the errors above.
-  const updateOffset = newRows.length > 0 ? 1 : 0;
-  const unmatchedUpdates = results
-    .slice(updateOffset, updateOffset + updateOperations.length)
-    .filter((result) => {
-      const data = result.data as unknown[] | null;
-      return !data || data.length === 0;
-    });
-  if (unmatchedUpdates.length > 0) {
+  const isUnmatched = (result: { data: unknown[] | null }) =>
+    !result.data || result.data.length === 0;
+  // Only rows the user edited or deleted are reported; an untouched row in rowsToUpdate (renumbered
+  // display_order only) that someone else changed in between is simply left alone, like at the check above.
+  const unmatchedCount =
+    updateResults.filter(
+      (result, index) => rowsToUpdate[index].isEdited && isUnmatched(result),
+    ).length + deleteResults.filter(isUnmatched).length;
+  if (unmatchedCount > 0) {
+    // The other writes already went through, so this is a partial write like the errors above.
     return {
       error: {
         kind: "partialWriteFailed",
-        message: `${SUBJECT}の一部が他のユーザーによって変更されたため保存されませんでした。画面を再読み込みして確認してください。`,
+        message: `${SUBJECT}の一部が他のユーザーによって変更されたため保存されませんでした。`,
       },
     };
   }

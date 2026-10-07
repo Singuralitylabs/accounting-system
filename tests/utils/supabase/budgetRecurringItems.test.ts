@@ -221,9 +221,13 @@ describe("bulkSaveBudgetRecurringItems の display_order 採番（Issue #136）"
         return chain;
       });
       query.insert = vi.fn(() => Promise.resolve({ error: null }));
-      query.delete = vi.fn(() => ({
-        in: vi.fn(() => Promise.resolve({ error: null })),
-      }));
+      query.delete = vi.fn(() => {
+        const chain = {
+          eq: vi.fn(() => chain),
+          select: vi.fn(() => Promise.resolve({ data: [{ id: 0 }], error: null })),
+        };
+        return chain;
+      });
       return query;
     });
     createServerSupabase.mockReturnValue({ from });
@@ -265,9 +269,10 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
 
   const operations = {
     updates: [] as number[],
-    unmatchedIds: [] as number[],
     inserts: [] as unknown[],
-    deletes: [] as number[][],
+    deletes: [] as number[],
+    eqCalls: [] as [string, unknown][][],
+    concurrentUpdatedAt: {} as Record<number, string>,
   };
 
   const mockSupabase = (currentRows: ReturnType<typeof dbRow>[]) => {
@@ -278,34 +283,41 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
         query.in = vi.fn(() =>
           Promise.resolve({ data: currentRows, error: null }),
         );
-        query.update = vi.fn(() => {
-          let id = 0;
+        // Mimics PostgREST: the write matches a row only when every .eq() condition holds, so an
+        // updated_at that differs from the row's value at write time matches nothing.
+        const matchesAtWrite = (eqs: [string, unknown][]) => {
+          const id = eqs.find(([col]) => col === "id")?.[1] as number;
+          const sent = eqs.find(([col]) => col === "updated_at");
+          const atWrite =
+            operations.concurrentUpdatedAt[id] ??
+            currentRows.find((row) => row.id === id)?.updated_at;
+          return !!sent && sent[1] === atWrite;
+        };
+        const writeChain = (kind: "updates" | "deletes") => {
+          const eqs: [string, unknown][] = [];
           const chain = {
-            eq: vi.fn((col: string, value: number) => {
-              if (col === "id") id = value;
+            eq: vi.fn((col: string, value: unknown) => {
+              eqs.push([col, value]);
               return chain;
             }),
             select: vi.fn(() => {
-              operations.updates.push(id);
-              // A concurrent save in between: the updated_at match finds no row.
-              return Promise.resolve({
-                data: operations.unmatchedIds.includes(id) ? [] : [{ id }],
-                error: null,
-              });
+              const id = eqs.find(([col]) => col === "id")?.[1] as number;
+              operations.eqCalls.push(eqs);
+              if (!matchesAtWrite(eqs)) {
+                return Promise.resolve({ data: [], error: null });
+              }
+              operations[kind].push(id);
+              return Promise.resolve({ data: [{ id }], error: null });
             }),
           };
           return chain;
-        });
+        };
+        query.update = vi.fn(() => writeChain("updates"));
         query.insert = vi.fn((rows: unknown) => {
           operations.inserts.push(rows);
           return Promise.resolve({ error: null });
         });
-        query.delete = vi.fn(() => ({
-          in: vi.fn((_col: string, ids: number[]) => {
-            operations.deletes.push(ids);
-            return Promise.resolve({ error: null });
-          }),
-        }));
+        query.delete = vi.fn(() => writeChain("deletes"));
         return query;
       },
     });
@@ -313,7 +325,8 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
 
   beforeEach(() => {
     operations.updates = [];
-    operations.unmatchedIds = [];
+    operations.eqCalls = [];
+    operations.concurrentUpdatedAt = {};
     operations.inserts = [];
     operations.deletes = [];
     createServerSupabase.mockReset();
@@ -555,9 +568,24 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
     expect(operations.deletes).toEqual([]);
   });
 
-  it("確認から UPDATE までの間に他のユーザーが同じ行を保存していたら、上書きせず一部未保存として報告する", async () => {
+  it("UPDATE は id と、表示時の updated_at の両方を条件にする", async () => {
+    mockSupabase([dbRow(2, "Aチーム", 100000, "t1")]);
+
+    await bulkSaveBudgetRecurringItems([
+      listRow(2, "Aチーム", { amount: 300000, isEdited: true, updated_at: "t1" }),
+    ]);
+
+    expect(operations.eqCalls).toEqual([
+      [
+        ["id", 2],
+        ["updated_at", "t1"],
+      ],
+    ]);
+  });
+
+  it("確認から UPDATE までの間に他のユーザーが同じ行を保存していたら（updated_at が変わる）、上書きせず一部未保存として報告する", async () => {
     mockSupabase([dbRow(1, "Aチーム"), dbRow(2, "Aチーム")]);
-    operations.unmatchedIds = [2];
+    operations.concurrentUpdatedAt = { 2: "t3" };
 
     const result = await bulkSaveBudgetRecurringItems([
       listRow(1, "Aチーム", { amount: 200000, isEdited: true }),
@@ -565,7 +593,56 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
     ]);
 
     expect(result.error?.kind).toBe("partialWriteFailed");
-    expect(result.error?.message).toContain("再読み込み");
+    expect(result.error?.message).toContain("他のユーザー");
+    expect(operations.updates).toEqual([1]);
+  });
+
+  it("確認後に他のユーザーが変えた、触っていない行（display_order の再採番だけ）の UPDATE が 0 行でも報告しない", async () => {
+    // Deleting row 1 renumbers row 2 (display_order 1 -> 0), so row 2 is in the update list untouched.
+    mockSupabase([
+      dbRow(1, "Aチーム"),
+      { ...dbRow(2, "Aチーム"), display_order: 1 },
+    ]);
+    operations.concurrentUpdatedAt = { 2: "t3" };
+
+    const result = await bulkSaveBudgetRecurringItems([
+      listRow(1, "Aチーム", { isRemoved: true }),
+      listRow(2, "Aチーム"),
+    ]);
+
+    expect(result).toEqual({});
+    expect(operations.deletes).toEqual([1]);
+    expect(operations.updates).toEqual([]);
+  });
+
+  it("DELETE も id と updated_at を条件にし、確認後に他のユーザーが直した行は削除せず報告する", async () => {
+    mockSupabase([dbRow(1, "Aチーム")]);
+    operations.concurrentUpdatedAt = { 1: "t3" };
+
+    const result = await bulkSaveBudgetRecurringItems([
+      listRow(1, "Aチーム", { isRemoved: true }),
+    ]);
+
+    expect(operations.eqCalls).toEqual([
+      [
+        ["id", 1],
+        ["updated_at", ""],
+      ],
+    ]);
+    expect(result.error?.kind).toBe("partialWriteFailed");
+    expect(operations.deletes).toEqual([]);
+  });
+
+  it("表示後に他のユーザーが既に削除した行は、削除対象にせず成功扱いにする", async () => {
+    mockSupabase([dbRow(2, "Aチーム")]);
+
+    const result = await bulkSaveBudgetRecurringItems([
+      listRow(1, "Aチーム", { isRemoved: true }),
+      listRow(2, "Aチーム"),
+    ]);
+
+    expect(result).toEqual({});
+    expect(operations.deletes).toEqual([]);
   });
 
   it("所属チーム未設定の public は閲覧のみで、新規追加は forbidden", async () => {

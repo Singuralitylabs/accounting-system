@@ -90,6 +90,27 @@ describe("useSaveBudgetRecurringItems の保存失敗", () => {
     );
   });
 
+  it("同時保存の競合など、サーバが理由を返した一部未保存の失敗ではその理由を表示する", async () => {
+    bulkSaveBudgetRecurringItems.mockResolvedValue({
+      error: {
+        kind: "partialWriteFailed",
+        message:
+          "事前収支申告の定期明細の一部が他のユーザーによって変更されたため保存されませんでした。",
+      },
+    });
+    const { result } = renderHook(() => useSaveBudgetRecurringItems(), {
+      wrapper,
+    });
+
+    await result.current.mutateAsync([]).catch((error) => error);
+
+    expect(notifyError).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "他のユーザーによって変更されたため保存されませんでした。",
+      ),
+    );
+  });
+
   it("応答が失われた失敗でも一覧を再取得し、入力し直しを案内する", async () => {
     bulkSaveBudgetRecurringItems.mockRejectedValue(
       new TypeError("Failed to fetch"),

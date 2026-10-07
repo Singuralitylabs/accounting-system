@@ -12,6 +12,7 @@ import {
 } from "../types/types";
 import {
   BudgetDeclarationError,
+  isPartialWriteFailureError,
   isPreWriteFailureError,
   retryUnlessForbidden,
 } from "../utils/budgetDeclaration";
@@ -69,8 +70,13 @@ export const useSaveBudgetRecurringItems = () => {
       queryClient.invalidateQueries({
         queryKey: ["budgetDeclarations", "activeRecurringItems"],
       });
+      // Show the server's reason for a partial write (e.g. a row changed by someone else); a lost
+      // response has no reason, so it keeps the generic lead.
+      const lead = isPartialWriteFailureError(error)
+        ? toErrorMessage(error, "定期明細の更新に失敗しました。")
+        : "定期明細の更新に失敗しました。";
       notifyError(
-        "定期明細の更新に失敗しました。一部のみ反映されている可能性があるため、最新の内容を取得して表示します。反映されていない変更は入力し直してください。",
+        `${lead}一部のみ反映されている可能性があるため、最新の内容を取得して表示します。反映されていない変更は入力し直してください。`,
       );
     },
   });
