@@ -274,22 +274,28 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
     eqCalls: [] as [string, unknown][][],
     concurrentUpdatedAt: {} as Record<number, string>,
     vanishedIds: [] as number[],
+    inCalls: 0,
+    recheckError: false,
   };
 
   const mockSupabase = (currentRows: ReturnType<typeof dbRow>[]) => {
-    let selectCalls = 0;
+    // Flips when the first write runs: rows in operations.vanishedIds existed at the pre-write check
+    // but are gone by write time (and at the re-check after a 0-row write).
+    let writeStarted = false;
     createServerSupabase.mockReturnValue({
       from: () => {
         const query: Record<string, unknown> = {};
         query.select = vi.fn(() => query);
-        // The first SELECT is the pre-write check; later ones are re-checks after a 0-row write,
-        // where rows in operations.vanishedIds no longer exist.
         query.in = vi.fn((_col: string, ids: number[]) => {
-          selectCalls += 1;
+          operations.inCalls += 1;
+          // After a write has run, any further SELECT is the re-check of a 0-row write.
+          if (writeStarted && operations.recheckError) {
+            return Promise.resolve({ data: null, error: { message: "boom" } });
+          }
           const data = currentRows.filter(
             (row) =>
               ids.includes(row.id) &&
-              (selectCalls === 1 || !operations.vanishedIds.includes(row.id)),
+              !(writeStarted && operations.vanishedIds.includes(row.id)),
           );
           return Promise.resolve({ data, error: null });
         });
@@ -312,6 +318,7 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
               return chain;
             }),
             select: vi.fn(() => {
+              writeStarted = true;
               const id = eqs.find(([col]) => col === "id")?.[1] as number;
               operations.eqCalls.push(eqs);
               if (!matchesAtWrite(eqs)) {
@@ -339,6 +346,8 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
     operations.eqCalls = [];
     operations.concurrentUpdatedAt = {};
     operations.vanishedIds = [];
+    operations.inCalls = 0;
+    operations.recheckError = false;
     operations.inserts = [];
     operations.deletes = [];
     createServerSupabase.mockReset();
@@ -656,6 +665,26 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
 
     expect(result).toEqual({});
     expect(operations.deletes).toEqual([]);
+    // The pre-write check plus the re-check after the 0-row DELETE.
+    expect(operations.inCalls).toBe(2);
+  });
+
+  it("0 行だった削除の再確認が失敗したら、行が残っているものとして報告し、ログに残す", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockSupabase([dbRow(1, "Aチーム")]);
+    operations.vanishedIds = [1];
+    operations.recheckError = true;
+
+    const result = await bulkSaveBudgetRecurringItems([
+      listRow(1, "Aチーム", { isRemoved: true }),
+    ]);
+
+    expect(result.error?.kind).toBe("partialWriteFailed");
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("再確認に失敗"),
+      expect.anything(),
+    );
+    errorSpy.mockRestore();
   });
 
   it("表示後に他のユーザーが既に削除した行は、削除対象にせず成功扱いにする", async () => {

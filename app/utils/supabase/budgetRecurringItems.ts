@@ -317,8 +317,8 @@ export const bulkSaveBudgetRecurringItems = async (
       : [];
   // UPDATE and DELETE are one request per row so each write can match updated_at: closing the gap
   // between the check above and the write, a row saved by someone else in between matches 0 rows and is
-  // reported, not overwritten. (A single transactional RPC would avoid the partial-write states, but is
-  // a larger change than this PR; see the review discussion.)
+  // reported, not overwritten. These writes are not transactional, so a failure or a 0-row match can
+  // leave the save partially applied (reported as partialWriteFailed).
   const updateOperations = rowsToUpdate.map((row) =>
     supabase
       .from("budget_recurring_items")
@@ -384,6 +384,9 @@ export const bulkSaveBudgetRecurringItems = async (
       .select("id")
       .in("id", unmatchedDeleteIds);
     // If the re-check fails, assume the conservative case (the row still exists).
+    if (remainingError) {
+      console.error(`${SUBJECT}の削除後の再確認に失敗しました:`, remainingError);
+    }
     unmatchedDeletes = remainingError
       ? unmatchedDeleteIds.length
       : (remaining ?? []).length;
