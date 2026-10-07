@@ -21,6 +21,7 @@ import {
   UserValidationErrors,
   validateUserUpdates,
 } from "../utils/userList";
+import { ROLE_LABELS } from "../utils/permissions";
 import { sortUserList } from "../utils/userListSort";
 import { groupUsersByRole, teamRowColor } from "../utils/userListGroup";
 import { useViewportSize } from "@mantine/hooks";
@@ -32,6 +33,7 @@ const elementListOfUser = [
   "名前",
   "メールアドレス",
   "権限",
+  ROLE_LABELS.teamleader,
   "チーム",
   "slack ID",
 ];
@@ -120,18 +122,27 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
     userId: number,
     updates: Partial<ProfilesType>,
   ) => {
-    // Reverting the role to its loaded value restores the team too (otherwise the team stays cleared with no "changed" state or error); changing to a non-teamleader role clears the team (PC and mobile).
+    // Clearing the flag of a row that was loaded as a teamleader clears its team; setting it back restores the loaded team only while the team is still empty (otherwise the team stays cleared with no "changed" state or error). Rows loaded without the flag keep their team when the checkbox is toggled (PC and mobile).
     const saved = baseline.get(userId);
-    const normalized: Partial<ProfilesType> =
-      "class" in updates && saved && updates.class === saved.class
-        ? { ...updates, team: saved.team }
-        : "class" in updates && updates.class !== "teamleader"
-          ? { ...updates, team: null }
-          : updates;
     setRows((prev) =>
-      prev.map((user) =>
-        user.id === userId ? { ...user, ...normalized } : user,
-      ),
+      prev.map((user) => {
+        if (user.id !== userId) return user;
+        if (!("is_teamleader" in updates)) return { ...user, ...updates };
+        if (!updates.is_teamleader) {
+          return saved?.is_teamleader === true
+            ? { ...user, ...updates, team: null }
+            : { ...user, ...updates };
+        }
+        const restoreTeam =
+          saved?.is_teamleader === true &&
+          user.team === null &&
+          !("team" in updates);
+        return {
+          ...user,
+          ...updates,
+          ...(restoreTeam ? { team: saved.team } : {}),
+        };
+      }),
     );
   };
 
@@ -157,13 +168,16 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
     try {
       // Send only fields needed for writing (name is for server error messages).
       const { error } = await bulkUpdateProfiles(
-        changedRows.map(({ id, name, class: userClass, team, slack_id }) => ({
-          id,
-          name,
-          class: userClass,
-          team,
-          slack_id,
-        })),
+        changedRows.map(
+          ({ id, name, class: userClass, is_teamleader, team, slack_id }) => ({
+            id,
+            name,
+            class: userClass,
+            is_teamleader,
+            team,
+            slack_id,
+          }),
+        ),
       );
       if (error) {
         // Nothing was saved; keep the edits on screen.

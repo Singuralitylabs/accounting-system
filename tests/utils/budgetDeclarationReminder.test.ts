@@ -178,18 +178,18 @@ describe("canManageBudgetDeclarationReminderSettings", () => {
   it.each(["admin", "accounting"])(
     "%s はリマインド設定を編集できる",
     (profileClass) => {
-      expect(canManageBudgetDeclarationReminderSettings(profileClass)).toBe(
-        true,
-      );
+      expect(
+        canManageBudgetDeclarationReminderSettings(profileClass, false),
+      ).toBe(true);
     },
   );
 
   it.each(["teamleader", "public", null, undefined])(
     "%s はリマインド設定を編集できない",
     (profileClass) => {
-      expect(canManageBudgetDeclarationReminderSettings(profileClass)).toBe(
-        false,
-      );
+      expect(
+        canManageBudgetDeclarationReminderSettings(profileClass, false),
+      ).toBe(false);
     },
   );
 });

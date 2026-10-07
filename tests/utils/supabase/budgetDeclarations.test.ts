@@ -293,7 +293,7 @@ describe("saveBudgetDeclaration", () => {
 
   it("書き込み権限が無いチームへの保存は RPC を呼ばず forbidden を返す", async () => {
     getAuthorizedViewer.mockResolvedValue({
-      profileInfo: { id: 1, class: "teamleader", team: "Bチーム" },
+      profileInfo: { id: 1, class: "public", is_teamleader: true, team: "Bチーム" },
     });
 
     const result = await saveBudgetDeclaration(baseInput);
@@ -421,7 +421,7 @@ describe("deleteBudgetDeclaration", () => {
 
   it("チームリーダーは他チームの申告を削除できない（DB を呼ばず forbidden）", async () => {
     getAuthorizedViewer.mockResolvedValue({
-      profileInfo: { id: 2, class: "teamleader", team: "Bチーム" },
+      profileInfo: { id: 2, class: "public", is_teamleader: true, team: "Bチーム" },
     });
 
     const result = await deleteBudgetDeclaration(1, "Aチーム");
@@ -441,7 +441,7 @@ describe("getBudgetDeclarationList", () => {
       error: null,
     } as never);
     getAuthorizedViewer.mockResolvedValue({
-      profileInfo: { id: 2, class: "teamleader", team: "Bチーム" },
+      profileInfo: { id: 2, class: "public", is_teamleader: true, team: "Bチーム" },
     });
     const order = vi.fn().mockResolvedValue({
       data: [
@@ -478,7 +478,7 @@ describe("getBudgetDeclarationList", () => {
       error: null,
     } as never);
     getAuthorizedViewer.mockResolvedValue({
-      profileInfo: { id: 2, class: "teamleader", team: "旧チーム" },
+      profileInfo: { id: 2, class: "public", is_teamleader: true, team: "旧チーム" },
     });
     createServerSupabase.mockReturnValue({
       from: () => ({
@@ -531,7 +531,7 @@ describe("getBudgetDeclarationList", () => {
       error: null,
     } as never);
     getAuthorizedViewer.mockResolvedValue({
-      profileInfo: { id: 2, class: "teamleader", team: "Bチーム" },
+      profileInfo: { id: 2, class: "public", is_teamleader: true, team: "Bチーム" },
     });
     getMemberOptions.mockResolvedValue({
       memberOptions: [{ id: 10, name: "他チームの山田" }],
@@ -611,7 +611,7 @@ describe("getBudgetDeclarationList", () => {
 describe("getBudgetDeclarationDetail", () => {
   it("読めない担当者名はメンバー一覧から補い、担当者なしは null のまま", async () => {
     getAuthorizedViewer.mockResolvedValue({
-      profileInfo: { id: 2, class: "teamleader", team: "Bチーム" },
+      profileInfo: { id: 2, class: "public", is_teamleader: true, team: "Bチーム" },
     });
     getMemberOptions.mockResolvedValue({
       memberOptions: [{ id: 10, name: "他チームの山田" }],

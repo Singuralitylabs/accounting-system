@@ -94,7 +94,7 @@ export const getTeamLeaderSlackContacts = async (
   const { data, error } = await supabase
     .from("profiles")
     .select("team, slack_id")
-    .eq("class", "teamleader")
+    .eq("is_teamleader", true)
     .in("team", teams as string[]);
 
   if (error) {

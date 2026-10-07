@@ -154,6 +154,7 @@ const renderList = (
       initialData={null}
       initialDataUpdatedAt={Date.now()}
       profileClass="accounting"
+      isTeamleader={false}
       memberList={[]}
       {...props}
     />,
@@ -377,6 +378,7 @@ describe("BudgetDeclarationList", () => {
     rerender(
       <BudgetDeclarationList
         initialMonth="2026-10"
+        isTeamleader={false}
         initialData={null}
         initialDataUpdatedAt={Date.now()}
         profileClass="accounting"
@@ -398,6 +400,7 @@ describe("BudgetDeclarationList", () => {
     rerender(
       <BudgetDeclarationList
         initialMonth="2026-10"
+        isTeamleader={false}
         initialData={null}
         initialDataUpdatedAt={Date.now()}
         profileClass="accounting"
@@ -539,7 +542,13 @@ describe("BudgetDeclarationList", () => {
         row({ team: "開発チーム", declarationId: 1 }),
         row({ team: "広報チーム", declarationId: 2 }),
       ],
-      { props: { profileClass: "teamleader", profileTeam: "開発チーム" } },
+      {
+        props: {
+          profileClass: "public",
+          isTeamleader: true,
+          profileTeam: "開発チーム",
+        },
+      },
     );
 
     expect(desk().getAllByRole("button", { name: "明細を表示" })).toHaveLength(
@@ -601,7 +610,7 @@ describe("BudgetDeclarationList", () => {
 
   it("所属チーム未設定のチームリーダーには、編集できない理由を案内する", () => {
     renderList([row()], {
-      props: { profileClass: "teamleader", profileTeam: null },
+      props: { profileClass: "public", isTeamleader: true, profileTeam: null },
     });
 
     expect(screen.getByText("所属チームが未設定です")).toBeInTheDocument();
@@ -612,7 +621,11 @@ describe("BudgetDeclarationList", () => {
 
   it("所属チームのあるチームリーダーには未設定の案内を出さない", () => {
     renderList([row()], {
-      props: { profileClass: "teamleader", profileTeam: "開発チーム" },
+      props: {
+        profileClass: "public",
+        isTeamleader: true,
+        profileTeam: "開発チーム",
+      },
     });
 
     expect(
@@ -632,6 +645,7 @@ describe("BudgetDeclarationList", () => {
     rerender(
       <BudgetDeclarationList
         initialMonth="2026-10"
+        isTeamleader={false}
         initialData={null}
         initialDataUpdatedAt={Date.now()}
         profileClass="accounting"

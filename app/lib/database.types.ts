@@ -488,6 +488,7 @@ export type Database = {
           email: string
           id: number
           inserted_at: string
+          is_teamleader: boolean
           name: string
           slack_id: string | null
           team: string | null
@@ -499,6 +500,7 @@ export type Database = {
           email: string
           id?: number
           inserted_at?: string
+          is_teamleader?: boolean
           name: string
           slack_id?: string | null
           team?: string | null
@@ -510,6 +512,7 @@ export type Database = {
           email?: string
           id?: number
           inserted_at?: string
+          is_teamleader?: boolean
           name?: string
           slack_id?: string | null
           team?: string | null
@@ -978,6 +981,7 @@ export type Database = {
         }[]
       }
       auth_user_class: { Args: never; Returns: string }
+      auth_user_is_teamleader: { Args: never; Returns: boolean }
       auth_user_team: { Args: never; Returns: string }
       can_access_team_budget: {
         Args: { target_team: string }

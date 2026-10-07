@@ -87,10 +87,14 @@ export const getBudgetDeclarationList = async (
     };
   }
 
-  // A teamleader whose team was disabled/renamed in the master must still get a row for their own
+  // A teamleader (including accounting / admin with the flag) whose team was disabled/renamed in the master must still get a row for their own
   // team, or they could never declare it (RLS still allows the write).
   const teams = teamResult.options.map((option) => option.value);
-  for (const ownTeam of ownBudgetTeams(profileInfo.class, profileInfo.team)) {
+  for (const ownTeam of ownBudgetTeams(
+    profileInfo.class,
+    profileInfo.team,
+    profileInfo.is_teamleader,
+  )) {
     if (!teams.includes(ownTeam)) {
       teams.push(ownTeam);
     }
@@ -225,7 +229,12 @@ export const saveBudgetDeclaration = async (
   }
 
   // RLS is the last defense; this returns a clearer message first.
-  if (!canWriteBudgetTeam(profileInfo.class, profileInfo.team, input.team)) {
+  if (!canWriteBudgetTeam(
+      profileInfo.class,
+      profileInfo.team,
+      input.team,
+      profileInfo.is_teamleader,
+    )) {
     return {
       error: {
         kind: "forbidden",
@@ -396,7 +405,12 @@ export const deleteBudgetDeclaration = async (
     return { error: accessError };
   }
 
-  if (!canWriteBudgetTeam(profileInfo.class, profileInfo.team, team)) {
+  if (!canWriteBudgetTeam(
+      profileInfo.class,
+      profileInfo.team,
+      team,
+      profileInfo.is_teamleader,
+    )) {
     return {
       error: {
         kind: "forbidden",

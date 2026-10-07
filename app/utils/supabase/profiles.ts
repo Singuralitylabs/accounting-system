@@ -188,7 +188,11 @@ export const bulkUpdateProfiles = async (
       },
     };
   }
-  if (!hasClassAccess(PROFILE_WRITE_CLASSES, profileInfo.class)) {
+  if (!hasClassAccess(
+      PROFILE_WRITE_CLASSES,
+      profileInfo.class,
+      profileInfo.is_teamleader,
+    )) {
     console.error(
       `ユーザー情報を保存する権限がありません（管理者のみ）。profiles.id: ${profileInfo.id}`,
     );

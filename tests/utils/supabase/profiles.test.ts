@@ -69,11 +69,19 @@ describe("bulkUpdateProfiles", () => {
     {
       id: 1,
       name: "山田",
-      class: "teamleader",
+      class: "public",
+      is_teamleader: true,
       team: "チームA",
       slack_id: "U1",
     },
-    { id: 2, name: "佐藤", class: "public", team: null, slack_id: "" },
+    {
+      id: 2,
+      name: "佐藤",
+      class: "public",
+      is_teamleader: false,
+      team: null,
+      slack_id: "",
+    },
   ];
 
   beforeEach(() => {
@@ -106,7 +114,14 @@ describe("bulkUpdateProfiles", () => {
         .mockImplementation(() => {});
 
       const ownSlackId = await bulkUpdateProfiles([
-        { id: 5, name: "自分", class: "public", team: null, slack_id: "U5" },
+        {
+          id: 5,
+          name: "自分",
+          class: "public",
+          is_teamleader: false,
+          team: null,
+          slack_id: "U5",
+        },
       ]);
       const invalid = await bulkUpdateProfiles([{ ...updates[0], team: null }]);
 
@@ -149,8 +164,20 @@ describe("bulkUpdateProfiles", () => {
     expect(rpc).toHaveBeenCalledTimes(1);
     expect(rpc).toHaveBeenCalledWith("update_profiles", {
       p_updates: [
-        { id: 1, class: "teamleader", team: "チームA", slack_id: "U1" },
-        { id: 2, class: "public", team: null, slack_id: null },
+        {
+          id: 1,
+          class: "public",
+          is_teamleader: true,
+          team: "チームA",
+          slack_id: "U1",
+        },
+        {
+          id: 2,
+          class: "public",
+          is_teamleader: false,
+          team: null,
+          slack_id: null,
+        },
       ],
     });
   });
@@ -160,7 +187,7 @@ describe("bulkUpdateProfiles", () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
-  it("入力エラー（権限が空・teamleader のチームが空）があれば RPC を呼ばずに拒否する", async () => {
+  it("入力エラー（権限が空・チームリーダーのチームが空）があれば RPC を呼ばずに拒否する", async () => {
     const result = await bulkUpdateProfiles([
       { ...updates[0], team: null },
       { ...updates[1], class: null },

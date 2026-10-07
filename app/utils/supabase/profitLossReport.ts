@@ -35,7 +35,7 @@ export const getProfitLossReport = async (
   }
 
   // Adjustment-target supplement runs in parallel with the display-title fetch (fewer round trips).
-  const flags = reportFlags(profileInfo.class);
+  const flags = reportFlags(profileInfo.class, profileInfo.is_teamleader);
   const rows = await fetchReportSourceRows(
     { startMonth: month, endMonth: month },
     {
@@ -118,7 +118,7 @@ export const getAnnualTrend = async (
       // The annual trend does not display orphaned adjustments / post-closing changes (counts come from
       // getClosingDiffSummary), so skip 12 months of computation.
       includeMonthlyDetails: false,
-      ...reportFlags(profileInfo.class),
+      ...reportFlags(profileInfo.class, profileInfo.is_teamleader),
     }),
   );
 

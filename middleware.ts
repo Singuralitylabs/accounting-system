@@ -1,8 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { hasClassAccess } from "./app/utils/permissions";
-import { readClassClaim } from "./app/utils/authClaims";
+import { readRoleClaims } from "./app/utils/authClaims";
 import type { Database } from "./app/lib/database.types";
 import type { AuthError } from "@supabase/supabase-js";
 import {
@@ -11,6 +10,7 @@ import {
   AUTH_PROFILES_TIMEOUT_MS,
   classifyPath,
   createTimeoutFetch,
+  decideRoleAccess,
   isProfilesTimeoutError,
   isTransientAuthError,
   withAuthTimeout,
@@ -112,33 +112,47 @@ export async function middleware(req: NextRequest) {
         const {
           data: { session },
         } = await supabase.auth.getSession();
-        // Invalid claim (hook disabled / old token / profile not yet created) falls back to a profiles query.
-        let userClass = readClassClaim(session?.access_token);
+        // Invalid claims (hook disabled / old token / profile not yet created) fall back to a profiles query.
+        const claims = readRoleClaims(session?.access_token);
+        let userClass = claims.userClass;
+        let isTeamleader = claims.isTeamleader;
 
-        if (userClass === null) {
-          // Outer timeout is AUTH_PROFILES_TIMEOUT_MS (inner + 1s) so the inner abort fires first on
-          // header hangs; postgrest-js turns it into `{ error }`, hence isProfilesTimeoutError -> 503.
-          // A body stall throws into the catch's 503. Other fetch failures redirect to `/`.
-          const profileQuery = supabase
-            .from("profiles")
-            .select("class")
-            .eq("user_id", user.id)
-            .single();
-          const { data: profile, error: profileError } = await withAuthTimeout(
-            Promise.resolve(profileQuery),
-            AUTH_PROFILES_TIMEOUT_MS,
-          );
+        const decision = decideRoleAccess(
+          pathClass.allowed,
+          userClass,
+          isTeamleader,
+        );
+        if (decision === "allow") return res;
+        if (decision === "deny") return redirectTo("/");
 
-          if (profileError) {
-            if (isProfilesTimeoutError(profileError)) {
-              return serviceUnavailable(profileError);
-            }
-            console.error("Profile fetch error:", profileError);
+        // Outer timeout is AUTH_PROFILES_TIMEOUT_MS (inner + 1s) so the inner abort fires first on
+        // header hangs; postgrest-js turns it into `{ error }`, hence isProfilesTimeoutError -> 503.
+        // A body stall throws into the catch's 503. Other fetch failures redirect to `/`.
+        const profileQuery = supabase
+          .from("profiles")
+          .select("class, is_teamleader")
+          .eq("user_id", user.id)
+          .single();
+        const { data: profile, error: profileError } = await withAuthTimeout(
+          Promise.resolve(profileQuery),
+          AUTH_PROFILES_TIMEOUT_MS,
+        );
+
+        if (profileError) {
+          if (isProfilesTimeoutError(profileError)) {
+            return serviceUnavailable(profileError);
           }
-          userClass = profile?.class ?? null;
+          console.error("Profile fetch error:", profileError);
         }
+        // Dropping the JWT class is safe: this branch is reached only when the claims alone did not grant access.
+        userClass = profile?.class ?? null;
+        // Keep a valid JWT flag when the query fails or returns no row.
+        isTeamleader = profile?.is_teamleader ?? isTeamleader ?? false;
 
-        if (!hasClassAccess(pathClass.allowed, userClass)) {
+        if (
+          decideRoleAccess(pathClass.allowed, userClass, isTeamleader) !==
+          "allow"
+        ) {
           return redirectTo("/");
         }
         return res;

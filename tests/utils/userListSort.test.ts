@@ -5,6 +5,7 @@ type User = {
   id: number;
   name: string;
   class: string | null;
+  is_teamleader: boolean;
   team: string | null;
 };
 
@@ -13,6 +14,7 @@ const user = (overrides: Partial<User>): User => ({
   id: nextId++,
   name: "山田",
   class: "public",
+  is_teamleader: false,
   team: null,
   ...overrides,
 });
@@ -22,11 +24,10 @@ const names = (users: User[]) => users.map((u) => u.name);
 const teamList = ["開発", "営業", "広報"];
 
 describe("sortUserList", () => {
-  it("権限は admin → accounting → teamleader → public の順で、それ以外の値・未設定は末尾", () => {
+  it("権限は admin → accounting → public の順で、それ以外の値・未設定は末尾", () => {
     const users = [
       user({ name: "一般", class: "public" }),
       user({ name: "未設定", class: null }),
-      user({ name: "リーダー", class: "teamleader", team: "開発" }),
       user({ name: "不明", class: "guest" }),
       user({ name: "経理", class: "accounting" }),
       user({ name: "管理者", class: "admin" }),
@@ -34,15 +35,15 @@ describe("sortUserList", () => {
 
     const sorted = names(sortUserList(users, teamList));
 
-    expect(sorted.slice(0, 4)).toEqual(["管理者", "経理", "リーダー", "一般"]);
-    expect(sorted.slice(4).sort()).toEqual(["不明", "未設定"].sort());
+    expect(sorted.slice(0, 3)).toEqual(["管理者", "経理", "一般"]);
+    expect(sorted.slice(3).sort()).toEqual(["不明", "未設定"].sort());
   });
 
   it("同じ権限の中はチームの表示順（選択肢の順）に並べる", () => {
     const users = [
-      user({ name: "A", class: "teamleader", team: "広報" }),
-      user({ name: "B", class: "teamleader", team: "開発" }),
-      user({ name: "C", class: "teamleader", team: "営業" }),
+      user({ name: "A", class: "public", team: "広報" }),
+      user({ name: "B", class: "public", team: "開発" }),
+      user({ name: "C", class: "public", team: "営業" }),
     ];
 
     expect(names(sortUserList(users, teamList))).toEqual(["B", "C", "A"]);
@@ -83,11 +84,11 @@ describe("sortUserList", () => {
     ]);
   });
 
-  it("権限・チーム・名前の優先順で並べ、元の配列は変更しない", () => {
+  it("権限・チームリーダー・チーム・名前の優先順で並べ、元の配列は変更しない", () => {
     const users = [
       user({ name: "あ", class: "public", team: "開発" }),
-      user({ name: "い", class: "teamleader", team: "広報" }),
-      user({ name: "う", class: "teamleader", team: "開発" }),
+      user({ name: "い", class: "public", is_teamleader: true, team: "広報" }),
+      user({ name: "う", class: "public", is_teamleader: true, team: "開発" }),
       user({ name: "え", class: "admin", team: null }),
     ];
     const original = [...users];
@@ -109,5 +110,40 @@ describe("sortUserList", () => {
     ];
 
     expect(names(sortUserList(users, []))).toEqual(["営業", "開発", "未設定"]);
+  });
+
+  it("同じ権限の中ではチームリーダーが先頭に並び、その中でチームの表示順になる", () => {
+    const users = [
+      user({ name: "一般開発", class: "public", team: "開発" }),
+      user({ name: "リーダー広報", is_teamleader: true, team: "広報" }),
+      user({ name: "リーダー開発", is_teamleader: true, team: "開発" }),
+      user({ name: "一般営業", class: "public", team: "営業" }),
+    ];
+
+    expect(names(sortUserList(users, teamList))).toEqual([
+      "リーダー開発",
+      "リーダー広報",
+      "一般開発",
+      "一般営業",
+    ]);
+  });
+
+  it("チームリーダーのフラグは権限の順位を超えず、経理のリーダーも一般より前に並ぶ", () => {
+    const users = [
+      user({ name: "一般リーダー", is_teamleader: true, team: "開発" }),
+      user({
+        name: "経理リーダー",
+        class: "accounting",
+        is_teamleader: true,
+        team: "広報",
+      }),
+      user({ name: "経理", class: "accounting" }),
+    ];
+
+    expect(names(sortUserList(users, teamList))).toEqual([
+      "経理リーダー",
+      "経理",
+      "一般リーダー",
+    ]);
   });
 });

@@ -79,11 +79,15 @@ describe("getTeamMatterInfoList", () => {
     createServerSupabase.mockReturnValue({ from: fromMatters });
   });
 
-  it.each(["teamleader", "admin"])(
-    "%s でチームが設定されていれば、そのチームの案件を返す",
-    async (cls) => {
+  it.each([
+    ["public", true],
+    ["accounting", true],
+    ["admin", false],
+  ])(
+    "class %s・teamleader フラグ %s でチームが設定されていれば、そのチームの案件を返す",
+    async (cls, isTeamleader) => {
       getProfileInfo.mockResolvedValue({
-        profileInfo: { class: cls, team: "チームA" },
+        profileInfo: { class: cls, is_teamleader: isTeamleader, team: "チームA" },
         error: null,
       });
 
@@ -92,11 +96,11 @@ describe("getTeamMatterInfoList", () => {
     },
   );
 
-  it.each(["public", "accounting", null])(
-    "権限のないクラス（%s）は案件を取得せず null を返す",
+  it.each(["public", "accounting", "teamleader", null])(
+    "フラグのないクラス（%s）は案件を取得せず null を返す",
     async (cls) => {
       getProfileInfo.mockResolvedValue({
-        profileInfo: { class: cls, team: "チームA" },
+        profileInfo: { class: cls, is_teamleader: false, team: "チームA" },
         error: null,
       });
 
@@ -107,7 +111,7 @@ describe("getTeamMatterInfoList", () => {
 
   it("チーム未設定なら null を返す", async () => {
     getProfileInfo.mockResolvedValue({
-      profileInfo: { class: "teamleader", team: null },
+      profileInfo: { class: "public", is_teamleader: true, team: null },
       error: null,
     });
 

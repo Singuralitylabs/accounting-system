@@ -52,6 +52,7 @@ const DynamicBudgetDeclarations = async () => {
 
   const canManageReminderSettings = canManageBudgetDeclarationReminderSettings(
     profileInfo?.class,
+    profileInfo?.is_teamleader,
   );
 
   // The reminder settings button renders for admin / accounting only, so do not call the Server Action for other roles (avoids permission-denied logs).
@@ -73,10 +74,12 @@ const DynamicBudgetDeclarations = async () => {
       // Without the seed time TanStack Query treats initialData as fetched now and shows stale data after GC without refetching.
       initialDataUpdatedAt={Date.now()}
       profileClass={profileInfo?.class ?? null}
+      isTeamleader={profileInfo?.is_teamleader ?? false}
       profileTeam={profileInfo?.team ?? null}
       canCloseMonth={hasClassAccess(
         BUDGET_CLOSING_WRITE_CLASSES,
         profileInfo?.class,
+        profileInfo?.is_teamleader,
       )}
       initialClosings={closings ?? null}
       canManageReminderSettings={canManageReminderSettings}
