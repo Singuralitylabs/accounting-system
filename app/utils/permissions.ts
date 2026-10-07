@@ -147,7 +147,7 @@ const NAV_ITEMS: NavItem[] = [
 
 export const visibleNavItems = (
   profileClass: string | null | undefined,
-  isTeamleader?: boolean | null,
+  isTeamleader: boolean | null | undefined,
 ) =>
   NAV_ITEMS.filter((item) => {
     const allowedClasses = ROUTE_PERMISSIONS[item.href];

@@ -239,7 +239,7 @@ describe("visibleNavItems", () => {
   });
 
   it("すべてのナビ項目にハブ用の説明文がある", () => {
-    const items = visibleNavItems("admin");
+    const items = visibleNavItems("admin", false);
     expect(items).toHaveLength(4);
     for (const item of items) {
       expect(item.description.length).toBeGreaterThan(0);

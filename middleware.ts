@@ -1,7 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { hasClassAccess } from "./app/utils/permissions";
 import { readRoleClaims } from "./app/utils/authClaims";
 import type { Database } from "./app/lib/database.types";
 import type { AuthError } from "@supabase/supabase-js";
@@ -150,7 +149,10 @@ export async function middleware(req: NextRequest) {
         // Keep a valid JWT flag when the query fails or returns no row.
         isTeamleader = profile?.is_teamleader ?? isTeamleader ?? false;
 
-        if (!hasClassAccess(pathClass.allowed, userClass, isTeamleader)) {
+        if (
+          decideRoleAccess(pathClass.allowed, userClass, isTeamleader) !==
+          "allow"
+        ) {
           return redirectTo("/");
         }
         return res;

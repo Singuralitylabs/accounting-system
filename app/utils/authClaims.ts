@@ -33,6 +33,7 @@ export const readRoleClaims = (
   const flagClaim = payload?.user_is_teamleader;
   // Tokens issued before migration 41 carry user_class: 'teamleader'. The token is signature-verified, so
   // reading it as public + flag avoids a profiles query per request until it refreshes (~1 hour).
+  // Transitional: unreachable once those tokens have expired, so remove this branch after the migration 41 release.
   if (classClaim === "teamleader") {
     return { userClass: "public", isTeamleader: true };
   }

@@ -43,7 +43,7 @@ type Props = {
   // Viewer's role / team: writes follow canWriteBudgetTeam (accounting/admin all teams, teamleader own team only); other teams are view-only.
   profileClass: string | null;
   // profiles.is_teamleader: writes to the own team (in addition to the class's access).
-  isTeamleader?: boolean;
+  isTeamleader: boolean;
   profileTeam?: string | null;
   // Role that can close/reopen a month (accounting/admin). Others see the state only.
   canCloseMonth?: boolean;
@@ -82,7 +82,7 @@ const BudgetDeclarationList = ({
   initialData,
   initialDataUpdatedAt,
   profileClass,
-  isTeamleader = false,
+  isTeamleader,
   profileTeam = null,
   canCloseMonth = false,
   initialClosings = null,

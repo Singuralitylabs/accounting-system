@@ -154,6 +154,7 @@ const renderList = (
       initialData={null}
       initialDataUpdatedAt={Date.now()}
       profileClass="accounting"
+      isTeamleader={false}
       memberList={[]}
       {...props}
     />,
@@ -377,6 +378,7 @@ describe("BudgetDeclarationList", () => {
     rerender(
       <BudgetDeclarationList
         initialMonth="2026-10"
+        isTeamleader={false}
         initialData={null}
         initialDataUpdatedAt={Date.now()}
         profileClass="accounting"
@@ -398,6 +400,7 @@ describe("BudgetDeclarationList", () => {
     rerender(
       <BudgetDeclarationList
         initialMonth="2026-10"
+        isTeamleader={false}
         initialData={null}
         initialDataUpdatedAt={Date.now()}
         profileClass="accounting"
@@ -642,6 +645,7 @@ describe("BudgetDeclarationList", () => {
     rerender(
       <BudgetDeclarationList
         initialMonth="2026-10"
+        isTeamleader={false}
         initialData={null}
         initialDataUpdatedAt={Date.now()}
         profileClass="accounting"
