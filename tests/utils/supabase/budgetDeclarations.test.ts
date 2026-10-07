@@ -469,6 +469,61 @@ describe("getBudgetDeclarationList", () => {
     expect(result.rows?.[0].summary.incomeTotal).toBe(1000);
   });
 
+  it("所属チームのある public（フラグなし）も、マスタから外れたチームなら自チームの行を持つ", async () => {
+    const { getSelectOptions } = await import(
+      "@/app/utils/supabase/selectOptions"
+    );
+    vi.mocked(getSelectOptions).mockResolvedValue({
+      options: [{ value: "Aチーム" }],
+      error: null,
+    } as never);
+    getAuthorizedViewer.mockResolvedValue({
+      profileInfo: { id: 3, class: "public", is_teamleader: false, team: "旧チーム" },
+    });
+    createServerSupabase.mockReturnValue({
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            order: vi.fn().mockResolvedValue({ data: [], error: null }),
+          }),
+        }),
+      }),
+    });
+
+    const result = await getBudgetDeclarationList("2026-10");
+
+    expect(result.rows?.map((r) => r.team)).toEqual(["Aチーム", "旧チーム"]);
+  });
+
+  it("所属チーム未設定の public もログイン済みなら全チームの一覧を取得できる（閲覧のみ）", async () => {
+    const { getSelectOptions } = await import(
+      "@/app/utils/supabase/selectOptions"
+    );
+    vi.mocked(getSelectOptions).mockResolvedValue({
+      options: [{ value: "Aチーム" }, { value: "Bチーム" }],
+      error: null,
+    } as never);
+    getAuthorizedViewer.mockResolvedValue({
+      profileInfo: { id: 3, class: "public", is_teamleader: false, team: null },
+    });
+    createServerSupabase.mockReturnValue({
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            order: vi.fn().mockResolvedValue({ data: [], error: null }),
+          }),
+        }),
+      }),
+    });
+
+    const result = await getBudgetDeclarationList("2026-10");
+
+    expect(getAuthorizedViewer.mock.calls.at(-1)?.[0]).toEqual(
+      expect.arrayContaining(["public", "teamleader", "accounting", "admin"]),
+    );
+    expect(result.rows?.map((r) => r.team)).toEqual(["Aチーム", "Bチーム"]);
+  });
+
   it("マスタから外れたチームのリーダーは、未申告でも自チームの行を持つ（申告できなくならない）", async () => {
     const { getSelectOptions } = await import(
       "@/app/utils/supabase/selectOptions"

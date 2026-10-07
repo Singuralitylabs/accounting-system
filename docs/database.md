@@ -96,7 +96,7 @@ PostgreSQL（Supabase）/ スキーマ `public`（補助関数は `private`）�
 
 ### 3.9 budget_declarations テーブル
 
-事前収支申告のヘッダ。チームリーダーが翌月のチーム収支を申告する。`(target_month, team)` が UNIQUE（1 チーム × 1 対象月 = 1 行）。合計金額は非正規化せず明細から集計する。`declared_by` は最終更新者（表示・監査補助用。5.8 参照）。`completed_at`（NULL = 入力中、値あり = 申告済み）と `completed_by` は申告の完了状態で、ヘッダ行が存在するだけでは申告済みとしない（migration 39。既存行は移行時にすべて申告済みへ設定済み）。確定済みの月（3.10a）のヘッダは書き込めない。
+事前収支申告のヘッダ。各チームのメンバーが翌月のチーム収支を申告する。`(target_month, team)` が UNIQUE（1 チーム × 1 対象月 = 1 行）。合計金額は非正規化せず明細から集計する。`declared_by` は最終更新者（表示・監査補助用。5.8 参照）。`completed_at`（NULL = 入力中、値あり = 申告済み）と `completed_by` は申告の完了状態で、ヘッダ行が存在するだけでは申告済みとしない（migration 39。既存行は移行時にすべて申告済みへ設定済み）。確定済みの月（3.10a）のヘッダは書き込めない。
 
 ### 3.10 budget_declaration_items テーブル
 
@@ -191,7 +191,7 @@ RLS は行スコープのゲートで、テーブルへの `GRANT SELECT / INSER
 
 #### 担当者選択肢用の関数（get_member_options / validate_member_ids）
 
-事前収支申告の明細担当者は全メンバーから選ぶが、teamleader は上記 SELECT で自チームしか読めない。そこで `SECURITY DEFINER` の `get_member_options()`（`id` / `name` のみ返す）と、保存前の実在確認用 `validate_member_ids(bigint[])`（実在する id のみ返す）を用意している。PostgREST の RPC はテーブル RLS と独立に公開されるため、関数内で呼び出しロール（`class` が accounting / admin、または `is_teamleader`）を絞り、それ以外は 0 行を返す（public に id/name を再び開けないため）。
+事前収支申告の明細担当者は全メンバーから選ぶが、経理・管理者以外は上記 SELECT で自チーム（と自分）しか読めない。そこで `SECURITY DEFINER` の `get_member_options()`（`id` / `name` のみ返す）と、保存前の実在確認用 `validate_member_ids(bigint[])`（実在する id のみ返す）を用意している。PostgREST の RPC はテーブル RLS と独立に公開されるため、関数内でログイン済み（`auth.uid()` あり）に絞り、未ログイン相当は 0 行を返す（migration 44 で事前収支申告を全ユーザーに開放したため、ロールでは絞らない。anon には EXECUTE を付けない）。
 
 #### ユーザーリストの一括更新（`update_profiles`。migration 33）
 
@@ -249,22 +249,22 @@ recurring_costs と同じ方針（書き込みは経理・管理者のみ。SELE
 
 ### 5.8 budget_declarations テーブル
 
-recurring_costs / extra_entries と異なり、**チームリーダーに自チーム分の書き込みを許可する**（自分で入力するため）。SELECT は経理・管理者・チームリーダーの**全チーム**に許可する（他チームとの比較・全体把握のため。migration 38）。INSERT / UPDATE / DELETE は経理・管理者は全行、チームリーダーは自チームの行のみで、public は全操作不可。UPDATE は WITH CHECK でも team を制約し他チームへの付け替えを防ぐ。
+recurring_costs / extra_entries と異なり、**所属チームのユーザー全員に自チーム分の書き込みを許可する**（自分で入力するため。ロール・`is_teamleader` に依存しない）。SELECT は**ログイン済みの全ユーザー**の**全チーム**に許可する（`(select auth.uid()) IS NOT NULL`。他チームとの比較・全体把握のため。migration 44。所属チーム未設定の public も可）。INSERT / UPDATE / DELETE は経理・管理者は全行、それ以外は自チーム（`profiles.team` 一致）の行のみ。所属チーム未設定は閲覧のみ。UPDATE は WITH CHECK でも team を制約し他チームへの付け替えを防ぐ。
 
 #### 確定月の編集ロックと直列化（migration 38）
 
 書き込みポリシー（ヘッダ・明細の INSERT / UPDATE / DELETE）に `NOT private.is_budget_month_closed(target_month)` を加え、確定済みの月は全ロールで拒否する。RLS だけでは確定のコミットをまたいだ書き込みを防げないため、月単位の advisory lock（`private.lock_budget_month`。ロッククラス 222）で直列化する。書き込みトリガー（`guard_budget_closed_month_*`）と `save_budget_declaration` は共有ロックを取って確定済みを再確認し、確定（`budget_declaration_closings` の BEFORE INSERT トリガー）は排他ロックを取る。確定済みの月への書き込みは `MONTH_CLOSED`（SQLSTATE 42501）。削除は RLS の USING が確定月の行を隠して 0 行（エラーなし）になり「確定月」と「削除済み」を区別できないため、`delete_budget_declaration(p_declaration_id, p_team)`（SECURITY INVOKER。共有ロック → 確定判定 → DELETE、削除した行の id を返す。0 行 = 対象なし or 権限なし）を経由する。RLS が適用されない実行者（postgres / service_role）はトリガーの対象外。参考実装は損益計算書の月次収支確定（5.14。ロッククラス 148）。
 
 - 判定は `public.can_access_team_budget(text)`（`auth_user_class()` / `auth_user_team()` を呼ぶ）に切り出している。ヘッダ・明細で 10 箇所必要なため、逐語コピーだと将来ロール条件を変えたとき 1 箇所直し忘れて古いルールが残る（エラーにならない）RLS バグを踏みやすい。行ごとに評価されるが行数は小さいため許容している。
-- アプリ側にも同じ区分がある（`app/utils/budgetDeclaration.ts` の `BUDGET_WRITE_ALL_TEAMS_CLASSES` / `BUDGET_OWN_TEAM_ONLY_CLASSES`。書き込み可否の判定 `canWriteBudgetTeam` のため。閲覧は全チームなので区分は不要）。ロール条件を変えるときは **DB とアプリの両方**を直す（アプリ側は `ROUTE_PERMISSIONS["/budget-declarations"]` から導出しており、許可ロールの追加には自動追随する）。
+- アプリ側にも同じ判定がある（`app/utils/budgetDeclaration.ts` の `BUDGET_WRITE_ALL_TEAMS_CLASSES`（accounting / admin）と `ownBudgetTeams` / `canWriteBudgetTeam`。閲覧は全ユーザーのため `/budget-declarations` は `AUTH_ONLY_ROUTES`）。条件を変えるときは **DB とアプリの両方**を直す。
 
 #### declared_by の扱い（DB が保証する範囲）
 
-INSERT の WITH CHECK に限り、チームリーダーには `declared_by` = 自分自身の profiles.id を強制する（経理・管理者は代理入力があるため制約しない）。**これは INSERT 単体のなりすまし防止にとどまり、UPDATE 経由で他人名義に付け替える迂回は塞げない**（WITH CHECK から OLD 行を参照できず、明細の書き込みも親ヘッダの team だけで判定するため、UPDATE だけ縛っても意味がなく、縛ると既存行をそのまま書き戻す更新や profiles 削除前の付け替え運用が 42501 になる）。したがって `declared_by` は**アプリが最終更新者で更新する表示・監査補助用の項目**とし、改ざん耐性のある監査証跡が必要になった時点で BEFORE UPDATE トリガーによる強制を検討する。
+INSERT の WITH CHECK に限り、経理・管理者以外には `declared_by` = 自分自身の profiles.id を強制する（経理・管理者は代理入力があるため制約しない）。**これは INSERT 単体のなりすまし防止にとどまり、UPDATE 経由で他人名義に付け替える迂回は塞げない**（WITH CHECK から OLD 行を参照できず、明細の書き込みも親ヘッダの team だけで判定するため、UPDATE だけ縛っても意味がなく、縛ると既存行をそのまま書き戻す更新や profiles 削除前の付け替え運用が 42501 になる）。したがって `declared_by` は**アプリが最終更新者で更新する表示・監査補助用の項目**とし、改ざん耐性のある監査証跡が必要になった時点で BEFORE UPDATE トリガーによる強制を検討する。
 
 ### 5.9 budget_declaration_items テーブル
 
-SELECT は 5.8 と同じく経理・管理者・チームリーダーの全チームに許可する。書き込み（INSERT / UPDATE / DELETE）は親ヘッダへの EXISTS で 5.8 と同じ条件（`can_access_team_budget(d.team)` かつ確定月でないこと）を課す。SELECT が書き込みより広くなったため、以前の `FOR ALL` 1 本からコマンド別のポリシーに分けた（UPDATE / INSERT は WITH CHECK でも同条件を課し、`declaration_id` の書き換えによる他チームへの付け替えを防ぐ）。
+SELECT は 5.8 と同じくログイン済みの全ユーザーの全チームに許可する。書き込み（INSERT / UPDATE / DELETE）は親ヘッダへの EXISTS で 5.8 と同じ条件（`can_access_team_budget(d.team)` かつ確定月でないこと）を課す。SELECT が書き込みより広くなったため、以前の `FOR ALL` 1 本からコマンド別のポリシーに分けた（UPDATE / INSERT は WITH CHECK でも同条件を課し、`declaration_id` の書き換えによる他チームへの付け替えを防ぐ）。
 
 #### 申告の原子的な保存（`save_budget_declaration`）
 
@@ -284,7 +284,7 @@ admin / accounting のみ SELECT / INSERT / UPDATE / DELETE（`can_access_team_b
 
 ### 5.11 budget_recurring_items テーブル
 
-5.8 と同じ `can_access_team_budget`（`FOR ALL` 1 本）。新規申告作成時の展開（`getActiveBudgetRecurringItems`）は通常の SELECT で RLS が適用される（チームリーダーは自チーム分のみ）。展開先の `budget_declaration_items` への INSERT は 5.9 の RLS に従う。
+SELECT はログイン済みの全ユーザーの全チームに許可し、INSERT / UPDATE / DELETE は 5.8 と同じ `can_access_team_budget`（migration 44 で `FOR ALL` 1 本をコマンド別に分けた）。新規申告作成時の展開（`getActiveBudgetRecurringItems`）は通常の SELECT で、自チームを指定して取得する。展開先の `budget_declaration_items` への INSERT は 5.9 の RLS に従う。
 
 ### 5.12 profit_loss_adjustments テーブル
 

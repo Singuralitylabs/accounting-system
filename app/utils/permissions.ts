@@ -50,7 +50,6 @@ export const ROUTE_PERMISSIONS: Record<string, Role[]> = {
   "/profit-loss": ["teamleader", "accounting", "admin"],
   "/recurring-costs": ["accounting", "admin"],
   "/extra-entries": ["accounting", "admin"],
-  "/budget-declarations": ["teamleader", "accounting", "admin"],
   "/dashboard": ["admin"],
 };
 
@@ -106,7 +105,11 @@ export const matchesRoute = (pathname: string, route: string) =>
   pathname === route || pathname.startsWith(`${route}/`);
 
 // Login-only routes. matchesRoute("/matters", "/") is false, so "/" matches only the top page.
-export const AUTH_ONLY_ROUTES = ["/", "/matters"] as const;
+export const AUTH_ONLY_ROUTES = [
+  "/",
+  "/matters",
+  "/budget-declarations",
+] as const;
 
 export const isAuthOnlyPath = (pathname: string) =>
   AUTH_ONLY_ROUTES.some((route) => matchesRoute(pathname, route));

@@ -173,6 +173,10 @@ const BudgetRecurringItemList = ({
     }
   };
 
+  // Every user sees all teams' lines, but only accounting / admin or the owner team can edit a row.
+  const isEditableRow = (row: BudgetRecurringItemInListType) =>
+    canEditAllTeams || (!!ownTeam && row.team === ownTeam);
+
   const visibleRows = rows.filter((row) => !row.isRemoved);
   const unregisteredCategoryCount = visibleRows.filter((row) =>
     isCategoryUnregistered(
@@ -270,7 +274,7 @@ const BudgetRecurringItemList = ({
                 classNames={MOBILE_ONLY_LABEL}
                 data={ENTRY_TYPE_OPTIONS}
                 value={row.entry_type}
-                disabled={formLocked}
+                disabled={formLocked || !isEditableRow(row)}
                 allowDeselect={false}
                 onChange={(value) =>
                   handleUpdateRow(row.id, {
@@ -290,7 +294,7 @@ const BudgetRecurringItemList = ({
                   itemList,
                 )}
                 value={row.category || null}
-                disabled={formLocked}
+                disabled={formLocked || !isEditableRow(row)}
                 placeholder="分類を選択"
                 error={
                   isCategoryUnregistered(
@@ -310,7 +314,7 @@ const BudgetRecurringItemList = ({
                 label="内容"
                 classNames={MOBILE_ONLY_LABEL}
                 value={row.description}
-                disabled={formLocked}
+                disabled={formLocked || !isEditableRow(row)}
                 placeholder="例: ○○保守契約"
                 onChange={(event) =>
                   handleUpdateRow(row.id, {
@@ -322,7 +326,7 @@ const BudgetRecurringItemList = ({
                 label="金額"
                 classNames={MOBILE_ONLY_LABEL}
                 value={row.amount}
-                disabled={formLocked}
+                disabled={formLocked || !isEditableRow(row)}
                 min={0}
                 step={1000}
                 thousandSeparator=","
@@ -343,7 +347,7 @@ const BudgetRecurringItemList = ({
                     ? "担当者一覧を取得できませんでした"
                     : "担当者を選択"
                 }
-                disabled={memberListError || formLocked}
+                disabled={memberListError || formLocked || !isEditableRow(row)}
                 searchable
                 clearable
                 onChange={(value) =>
@@ -356,7 +360,7 @@ const BudgetRecurringItemList = ({
                 label="適用開始月"
                 classNames={MOBILE_ONLY_LABEL}
                 placeholder="開始月"
-                disabled={formLocked}
+                disabled={formLocked || !isEditableRow(row)}
                 value={row.start_month ? row.start_month.slice(0, 7) : null}
                 onChange={(month) =>
                   handleUpdateRow(row.id, {
@@ -368,7 +372,7 @@ const BudgetRecurringItemList = ({
                 label="適用終了月"
                 classNames={MOBILE_ONLY_LABEL}
                 placeholder="終了月（継続中は空欄）"
-                disabled={formLocked}
+                disabled={formLocked || !isEditableRow(row)}
                 value={row.end_month ? row.end_month.slice(0, 7) : null}
                 onChange={(month) =>
                   handleUpdateRow(row.id, {
@@ -381,7 +385,7 @@ const BudgetRecurringItemList = ({
                 type="button"
                 aria-label="削除"
                 className="absolute right-3 top-2 text-red-500 hover:text-red-700 disabled:text-gray-300 disabled:cursor-not-allowed md:static"
-                disabled={formLocked}
+                disabled={formLocked || !isEditableRow(row)}
                 onClick={() => handleRemoveRow(row.id)}
               >
                 <RiDeleteBin6Line size="1.2rem" />

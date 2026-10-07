@@ -5,7 +5,7 @@ import {
   BudgetClosingWriteResult,
   BudgetClosingsResult,
 } from "../../types/types";
-import { BUDGET_DECLARATION_ALLOWED_CLASSES } from "../budgetDeclaration";
+import { BUDGET_DECLARATION_VIEW_CLASSES } from "../budgetDeclaration";
 import { isMonthKey, toFirstOfMonth } from "../formatter";
 import { BUDGET_CLOSING_WRITE_CLASSES } from "../permissions";
 import { createServerSupabase } from "./clients";
@@ -18,7 +18,7 @@ const SUBJECT = "事前収支申告の月次確定";
 export const getBudgetDeclarationClosings =
   async (): Promise<BudgetClosingsResult> => {
     const { error: accessError } = await getAuthorizedViewer(
-      BUDGET_DECLARATION_ALLOWED_CLASSES,
+      BUDGET_DECLARATION_VIEW_CLASSES,
       SUBJECT,
     );
     if (accessError) {

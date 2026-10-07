@@ -11,25 +11,19 @@ import {
   BudgetSummaryType,
 } from "../types/types";
 import { addMonths, currentJstMonth } from "./formatter";
-import { ROUTE_PERMISSIONS, Role, hasClassAccess } from "./permissions";
+import { ROLES, Role, hasClassAccess } from "./permissions";
 
 // Re-exported so existing importers keep working (addMonths lives in formatter.ts).
 export { addMonths };
 
-// Always matches the /budget-declarations route protection.
-export const BUDGET_DECLARATION_ALLOWED_CLASSES =
-  ROUTE_PERMISSIONS["/budget-declarations"];
+// Every logged-in user may view declarations (passed to getAuthorizedViewer; middleware only requires login).
+export const BUDGET_DECLARATION_VIEW_CLASSES: readonly Role[] = ROLES;
 
-// Roles that may write only their own team's declarations. Mirrors DB `public.can_access_team_budget`
-// (migration 19); change both together or the app and RLS diverge. Reading is open to every role
-// that can open the page (SELECT policies, migration 38).
-export const BUDGET_OWN_TEAM_ONLY_CLASSES: Role[] = ["teamleader"];
-
-// Derived from route permissions, so adding a role there widens the list automatically.
-export const BUDGET_WRITE_ALL_TEAMS_CLASSES =
-  BUDGET_DECLARATION_ALLOWED_CLASSES.filter(
-    (role) => !BUDGET_OWN_TEAM_ONLY_CLASSES.includes(role),
-  );
+// Roles that may write every team's declarations. Everyone else writes only their own team
+// (profiles.team), whatever their role. Mirrors DB `public.can_access_team_budget` (migration 44);
+// change both together or the app and RLS diverge. Reading is open to every logged-in user
+// (SELECT policies, migration 44), so /budget-declarations is login-only.
+export const BUDGET_WRITE_ALL_TEAMS_CLASSES: Role[] = ["accounting", "admin"];
 
 export type BudgetItemAmount = {
   entry_type: string;
@@ -62,26 +56,19 @@ export const summarizeBudgetItems = (
   };
 };
 
-// Write access to every team (accounting / admin); teamleaders write only their own team. A user who
-// is both (e.g. accounting + teamleader flag) gets the wider all-team access.
+// Write access to every team (accounting / admin); other users write only their own team.
 export const canWriteAllBudgetTeams = (
   profileClass: string | null | undefined,
   isTeamleader: boolean | null | undefined,
 ): boolean =>
   hasClassAccess(BUDGET_WRITE_ALL_TEAMS_CLASSES, profileClass, isTeamleader);
 
-// Empty when the role has no access or no team is set.
+// The user's own team, independent of role; empty when no team is set (view-only).
 export const ownBudgetTeams = (
-  profileClass: string | null | undefined,
   profileTeam: string | null | undefined,
-  isTeamleader: boolean | null | undefined,
-): string[] =>
-  hasClassAccess(BUDGET_OWN_TEAM_ONLY_CLASSES, profileClass, isTeamleader) &&
-  profileTeam
-    ? [profileTeam]
-    : [];
+): string[] => (profileTeam ? [profileTeam] : []);
 
-// Mirrors DB `public.can_access_team_budget` (migrations 19 / 41); change both together.
+// Mirrors DB `public.can_access_team_budget` (migration 44); change both together.
 export const canWriteBudgetTeam = (
   profileClass: string | null | undefined,
   profileTeam: string | null | undefined,
@@ -89,7 +76,7 @@ export const canWriteBudgetTeam = (
   isTeamleader: boolean | null | undefined,
 ): boolean =>
   canWriteAllBudgetTeams(profileClass, isTeamleader) ||
-  ownBudgetTeams(profileClass, profileTeam, isTeamleader).includes(targetTeam);
+  ownBudgetTeams(profileTeam).includes(targetTeam);
 
 // Row background per entry type (for the `bg` prop, as in AccountingTablebody). The `-light`
 // variables are translucent and theme-aware, so income / expense stay distinguishable in both light

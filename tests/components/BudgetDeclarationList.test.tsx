@@ -611,23 +611,51 @@ describe("BudgetDeclarationList", () => {
     expect(desk().getByRole("button", { name: "編集する" })).toBeDisabled();
   });
 
-  it("所属チーム未設定のチームリーダーには、編集できない理由を案内する", () => {
-    renderList([row()], {
-      props: { profileClass: "public", isTeamleader: true, profileTeam: null },
-    });
+  it.each([true, false])(
+    "所属チーム未設定の public（チームリーダーフラグ=%s）には、閲覧のみである理由を案内し編集ボタンを出さない",
+    (isTeamleader) => {
+      renderList([row()], {
+        props: { profileClass: "public", isTeamleader, profileTeam: null },
+      });
 
-    expect(screen.getByText("所属チームが未設定です")).toBeInTheDocument();
+      expect(screen.getByText("所属チームが未設定です")).toBeInTheDocument();
+      expect(
+        screen.getByText(/閲覧のみ（編集には所属チームの設定が必要です）/),
+      ).toBeInTheDocument();
+      expect(
+        desk().queryByRole("button", { name: "編集する" }),
+      ).not.toBeInTheDocument();
+    },
+  );
+
+  it("所属チームのある public（フラグなし）は自チーム行だけ編集でき、他チーム行は閲覧のみで、未設定の案内は出ない", () => {
+    renderList(
+      [
+        row({ team: "開発チーム", declarationId: 1 }),
+        row({ team: "広報チーム", declarationId: 2 }),
+      ],
+      {
+        props: {
+          profileClass: "public",
+          isTeamleader: false,
+          profileTeam: "開発チーム",
+        },
+      },
+    );
+
+    expect(desk().getAllByRole("button", { name: "編集する" })).toHaveLength(1);
+    expect(desk().getByText("閲覧のみ")).toBeInTheDocument();
     expect(
-      desk().queryByRole("button", { name: "編集する" }),
+      screen.queryByText("所属チームが未設定です"),
     ).not.toBeInTheDocument();
   });
 
-  it("所属チームのあるチームリーダーには未設定の案内を出さない", () => {
+  it("経理・管理者はチーム未設定でも未設定の案内を出さない", () => {
     renderList([row()], {
       props: {
-        profileClass: "public",
-        isTeamleader: true,
-        profileTeam: "開発チーム",
+        profileClass: "accounting",
+        isTeamleader: false,
+        profileTeam: null,
       },
     });
 

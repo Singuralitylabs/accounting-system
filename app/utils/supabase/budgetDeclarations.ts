@@ -9,11 +9,12 @@ import {
   BudgetDeclarationSaveResult,
 } from "../../types/types";
 import {
-  BUDGET_DECLARATION_ALLOWED_CLASSES,
+  BUDGET_DECLARATION_VIEW_CLASSES,
   BudgetDeclarationWithItems,
   addMonths,
   buildBudgetDeclarationStatusList,
   BUDGET_MONTH_CLOSED_MESSAGE,
+  canWriteAllBudgetTeams,
   canWriteBudgetTeam,
   ownBudgetTeams,
 } from "../budgetDeclaration";
@@ -50,12 +51,12 @@ const DECLARATION_LIST_SELECT = `
   budget_declaration_items (entry_type, amount)
 `;
 
-// Every role that can open the page reads all teams; writing is restricted separately (canWriteBudgetTeam).
+// Every logged-in user reads all teams; writing is restricted separately (canWriteBudgetTeam).
 export const getBudgetDeclarationList = async (
   month: string,
 ): Promise<BudgetDeclarationListResult> => {
   const { profileInfo, error: accessError } = await getAuthorizedViewer(
-    BUDGET_DECLARATION_ALLOWED_CLASSES,
+    BUDGET_DECLARATION_VIEW_CLASSES,
     SUBJECT,
   );
   if (accessError) {
@@ -87,14 +88,17 @@ export const getBudgetDeclarationList = async (
     };
   }
 
-  // A teamleader (including accounting / admin with the flag) whose team was disabled/renamed in the master must still get a row for their own
-  // team, or they could never declare it (RLS still allows the write).
+  // A user who can write only their own team and whose team was disabled/renamed in the master must
+  // still get a row for it, or they could never declare it (RLS still allows the write). Accounting /
+  // admin write every team, so they get no extra row.
   const teams = teamResult.options.map((option) => option.value);
-  for (const ownTeam of ownBudgetTeams(
+  const ownTeams = canWriteAllBudgetTeams(
     profileInfo.class,
-    profileInfo.team,
     profileInfo.is_teamleader,
-  )) {
+  )
+    ? []
+    : ownBudgetTeams(profileInfo.team);
+  for (const ownTeam of ownTeams) {
     if (!teams.includes(ownTeam)) {
       teams.push(ownTeam);
     }
@@ -113,7 +117,7 @@ export const getBudgetDeclarationDetail = async (
   declarationId: number,
 ): Promise<BudgetDeclarationDetailResult> => {
   const { error: accessError } = await getAuthorizedViewer(
-    BUDGET_DECLARATION_ALLOWED_CLASSES,
+    BUDGET_DECLARATION_VIEW_CLASSES,
     SUBJECT,
   );
   if (accessError) {
@@ -123,7 +127,7 @@ export const getBudgetDeclarationDetail = async (
   const supabase = createServerSupabase();
 
   // No inner join on manager_id's profiles either: an unreadable profile would drop the line. The
-  // join name is filled from the member list when RLS hides it (other teams, for a teamleader).
+  // join name is filled from the member list when RLS hides it (other teams, for a member).
   const [{ data, error }, memberNames] = await Promise.all([
     supabase
       .from("budget_declarations")
@@ -173,7 +177,7 @@ export const getPreviousBudgetDeclarationItems = async (
   team: string,
 ): Promise<BudgetDeclarationPreviousItemsResult> => {
   const { error: accessError } = await getAuthorizedViewer(
-    BUDGET_DECLARATION_ALLOWED_CLASSES,
+    BUDGET_DECLARATION_VIEW_CLASSES,
     SUBJECT,
   );
   if (accessError) {
@@ -221,7 +225,7 @@ export const saveBudgetDeclaration = async (
   input: BudgetDeclarationSaveInput,
 ): Promise<BudgetDeclarationSaveResult> => {
   const { profileInfo, error: accessError } = await getAuthorizedViewer(
-    BUDGET_DECLARATION_ALLOWED_CLASSES,
+    BUDGET_DECLARATION_VIEW_CLASSES,
     SUBJECT,
   );
   if (accessError) {
@@ -262,7 +266,7 @@ export const saveBudgetDeclaration = async (
   // Type checks cannot verify manager_id exists in profiles (a member may be deleted after the form
   // opens). Check before saving to avoid an obscure FK violation (23503). Use assertManagerIdsExist()
   // (validateMemberIds() = validate_member_ids, migration 21), not a direct profiles SELECT: RLS
-  // limits a teamleader to their team and would misjudge other teams' members as missing. Only the
+  // limits a member to their team and would misjudge other teams' members as missing. Only the
   // given ID set is checked instead of fetching all members with get_member_options().
   const managerIds = Array.from(
     new Set(
@@ -398,7 +402,7 @@ export const deleteBudgetDeclaration = async (
   team: string,
 ): Promise<BudgetDeclarationDeleteResult> => {
   const { profileInfo, error: accessError } = await getAuthorizedViewer(
-    BUDGET_DECLARATION_ALLOWED_CLASSES,
+    BUDGET_DECLARATION_VIEW_CLASSES,
     SUBJECT,
   );
   if (accessError) {
@@ -458,7 +462,7 @@ export const deleteBudgetDeclaration = async (
 };
 
 // id -> name for every member via get_member_options (SECURITY DEFINER). A direct profiles read is
-// limited to the own team for a teamleader (RLS), which would show other teams' declarers / managers
+// limited to the own team for a non-accounting user (RLS), which would show other teams' declarers / managers
 // as "-". Auxiliary: on failure return an empty map (names fall back to the RLS-limited join).
 const fetchMemberNames = async (): Promise<Map<number, string>> => {
   const { memberOptions, error } = await getMemberOptions();

@@ -97,6 +97,52 @@ describe("BudgetRecurringItemList", () => {
     expect(teamInput).toBeDisabled();
   });
 
+  it("他チームの行は閲覧のみ（入力・削除が無効）で、自チームの行は編集できる", () => {
+    const otherRow = {
+      ...existingRow,
+      id: 2,
+      team: "経理チーム",
+      description: "他チームの契約",
+    };
+    useBudgetRecurringItemList.mockReturnValue({
+      data: [existingRow, otherRow],
+    });
+    renderList({ initialData: [existingRow, otherRow] });
+
+    expect(screen.getByDisplayValue("他チームの契約")).toBeDisabled();
+    expect(screen.getByDisplayValue("○○保守契約")).not.toBeDisabled();
+    const deleteButtons = screen.getAllByRole("button", { name: "削除" });
+    expect(deleteButtons).toHaveLength(2);
+    expect(deleteButtons[0]).not.toBeDisabled();
+    expect(deleteButtons[1]).toBeDisabled();
+  });
+
+  it("経理・管理者（canEditAllTeams=true）は他チームの行も編集できる", () => {
+    const otherRow = {
+      ...existingRow,
+      id: 2,
+      team: "経理チーム",
+      description: "他チームの契約",
+    };
+    useBudgetRecurringItemList.mockReturnValue({
+      data: [existingRow, otherRow],
+    });
+    renderList({
+      initialData: [existingRow, otherRow],
+      canEditAllTeams: true,
+      ownTeam: null,
+    });
+
+    expect(screen.getByDisplayValue("他チームの契約")).not.toBeDisabled();
+  });
+
+  it("所属チームのない閲覧者（ownTeam=null）は全行が閲覧のみで、行の追加もできない", () => {
+    renderList({ ownTeam: null });
+
+    expect(screen.getByDisplayValue("○○保守契約")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "定期明細追加" })).toBeDisabled();
+  });
+
   it("行を追加・削除できる", () => {
     renderList();
 

@@ -7,7 +7,7 @@ import {
   BudgetRecurringItemSaveResult,
 } from "../../types/types";
 import {
-  BUDGET_DECLARATION_ALLOWED_CLASSES,
+  BUDGET_DECLARATION_VIEW_CLASSES,
   canWriteBudgetTeam,
 } from "../budgetDeclaration";
 import {
@@ -22,11 +22,11 @@ import { getAuthorizedViewer } from "./viewerAccess";
 
 const SUBJECT = "事前収支申告の定期明細";
 
-// Visibility is bounded by RLS (accounting/admin: all teams; teamleader: own team, same as budget_declarations).
+// Every logged-in user reads all teams (SELECT policy, migration 44); writes are limited to the own team (canWriteBudgetTeam).
 export const getBudgetRecurringItemList =
   async (): Promise<BudgetRecurringItemListResult> => {
     const { error: accessError } = await getAuthorizedViewer(
-      BUDGET_DECLARATION_ALLOWED_CLASSES,
+      BUDGET_DECLARATION_VIEW_CLASSES,
       SUBJECT,
     );
     if (accessError) {
@@ -59,7 +59,7 @@ export const getActiveBudgetRecurringItems = async (
   team: string,
 ): Promise<ActiveBudgetRecurringItemsResult> => {
   const { error: accessError } = await getAuthorizedViewer(
-    BUDGET_DECLARATION_ALLOWED_CLASSES,
+    BUDGET_DECLARATION_VIEW_CLASSES,
     SUBJECT,
   );
   if (accessError) {
@@ -106,7 +106,7 @@ export const bulkSaveBudgetRecurringItems = async (
   rows: BudgetRecurringItemInListType[],
 ): Promise<BudgetRecurringItemSaveResult> => {
   const { profileInfo, error: accessError } = await getAuthorizedViewer(
-    BUDGET_DECLARATION_ALLOWED_CLASSES,
+    BUDGET_DECLARATION_VIEW_CLASSES,
     SUBJECT,
   );
   if (accessError) {
@@ -119,27 +119,6 @@ export const bulkSaveBudgetRecurringItems = async (
       error: {
         kind: "validationFailed",
         message: getBudgetRecurringItemValidationMessage(validation),
-      },
-    };
-  }
-
-  // RLS is the last defense; check first for a clearer message. Deleted rows' teams are checked too,
-  // to reject deleting another team's row.
-  const teams = Array.from(new Set(rows.map((row) => row.team)));
-  const forbiddenTeam = teams.find(
-    (team) =>
-      !canWriteBudgetTeam(
-        profileInfo.class,
-        profileInfo.team,
-        team,
-        profileInfo.is_teamleader,
-      ),
-  );
-  if (forbiddenTeam) {
-    return {
-      error: {
-        kind: "forbidden",
-        message: `${forbiddenTeam}の${SUBJECT}を編集する権限がありません。`,
       },
     };
   }
@@ -214,8 +193,9 @@ export const bulkSaveBudgetRecurringItems = async (
   // (lost update). Compare with current DB values and UPDATE only truly changed rows. Version-based
   // conflict detection (updated_at) is not done here.
   let rowsToUpdate = updateRows;
+  let currentRows: { id: number; team: string }[] | null = null;
   if (updateRows.length > 0) {
-    const { data: currentRows, error: currentError } = await supabase
+    const { data, error: currentError } = await supabase
       .from("budget_recurring_items")
       .select(
         "id, team, entry_type, category, description, amount, manager_id, start_month, end_month, display_order",
@@ -235,9 +215,8 @@ export const bulkSaveBudgetRecurringItems = async (
       };
     }
 
-    const currentById = new Map(
-      (currentRows ?? []).map((row) => [row.id, row]),
-    );
+    currentRows = data;
+    const currentById = new Map((data ?? []).map((row) => [row.id, row]));
     rowsToUpdate = updateRows.filter((row) => {
       const current = currentById.get(row.id);
       // A row deleted by someone else just before saving hits 0 rows harmlessly; keep it anyway.
@@ -247,6 +226,39 @@ export const bulkSaveBudgetRecurringItems = async (
         (key) => desired[key] !== current[key],
       );
     });
+  }
+
+  // RLS is the last defense; check first for a clearer message. Only rows actually written count:
+  // everyone sees all teams' lines, so untouched rows of other teams must not block the save. A
+  // changed row is checked against both its stored team and its new team (moving a row out of
+  // another team's list is a write to that team too).
+  const currentTeamById = new Map(
+    (currentRows ?? []).map((row) => [row.id, row.team]),
+  );
+  const writtenTeams = new Set<string>([
+    ...newRows.map((row) => row.team),
+    ...deleteRows.map((row) => row.team),
+    ...rowsToUpdate.flatMap((row) => {
+      const stored = currentTeamById.get(row.id);
+      return stored ? [row.team, stored] : [row.team];
+    }),
+  ]);
+  const forbiddenTeam = Array.from(writtenTeams).find(
+    (team) =>
+      !canWriteBudgetTeam(
+        profileInfo.class,
+        profileInfo.team,
+        team,
+        profileInfo.is_teamleader,
+      ),
+  );
+  if (forbiddenTeam) {
+    return {
+      error: {
+        kind: "forbidden",
+        message: `${forbiddenTeam}の${SUBJECT}を編集する権限がありません。`,
+      },
+    };
   }
 
   const operations = [];

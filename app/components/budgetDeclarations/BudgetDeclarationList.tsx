@@ -41,9 +41,8 @@ type Props = {
   initialMonth: string; // "YYYY-MM"
   initialData: BudgetDeclarationStatusType[] | null;
   initialDataUpdatedAt: number;
-  // Viewer's role / team: writes follow canWriteBudgetTeam (accounting/admin all teams, teamleader own team only); other teams are view-only.
+  // Viewer's role / team: writes follow canWriteBudgetTeam (accounting/admin all teams, everyone else their own team only); other teams are view-only.
   profileClass: string | null;
-  // profiles.is_teamleader: writes to the own team (in addition to the class's access).
   isTeamleader: boolean;
   profileTeam?: string | null;
   // Role that can close/reopen a month (accounting/admin). Others see the state only.
@@ -302,15 +301,14 @@ const BudgetDeclarationList = ({
           )}
         </Paper>
 
-        {isTeamleader &&
-          !profileTeam &&
+        {!profileTeam &&
           !canWriteAllBudgetTeams(profileClass, isTeamleader) && (
             <Alert
               color="yellow"
               className="mb-4"
               title="所属チームが未設定です"
             >
-              所属チームが設定されていないため、申告の作成・編集はできません（全チームの閲覧のみ）。管理者にお問い合わせください。
+              閲覧のみ（編集には所属チームの設定が必要です）。所属チームが設定されていないため、申告の作成・編集はできません。管理者にお問い合わせください。
             </Alert>
           )}
 

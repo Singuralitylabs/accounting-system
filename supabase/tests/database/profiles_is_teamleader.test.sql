@@ -1,7 +1,7 @@
 -- pgTAP tests for the profiles.is_teamleader flag (migration 41)
 -- Run: supabase test db (local Supabase running; docs/testing.md 3.8)
 BEGIN;
-SELECT plan(26);
+SELECT plan(28);
 
 INSERT INTO auth.users (id, email) VALUES
   ('11111111-1111-1111-1111-111111111111', 'accleader@example.com'),
@@ -64,6 +64,9 @@ SELECT throws_ok(
   $$UPDATE public.profiles SET is_teamleader = true WHERE user_id = '55555555-5555-5555-5555-555555555555'$$,
   '42501', NULL, 'public ユーザーは自分に is_teamleader を付与できない');
 SELECT is((SELECT count(*) FROM public.matters)::int, 1, 'フラグの無い public は自分の案件のみ閲覧できる');
+-- Budget write access follows the team, not the role or the flag (migration 44)
+SELECT is((SELECT public.can_access_team_budget('Aチーム')), true, 'フラグの無い public でも所属チームの事前収支申告を書き込める');
+SELECT is((SELECT public.can_access_team_budget('Bチーム')), false, 'フラグの無い public は他チームの事前収支申告を書き込めない');
 
 -- ===== self-insert: only as a plain member =====
 SELECT set_config('request.jwt.claims', '{"sub":"66666666-6666-6666-6666-666666666666","role":"authenticated"}', true);

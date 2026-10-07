@@ -209,3 +209,169 @@ describe("bulkSaveBudgetRecurringItems の display_order 採番（Issue #136）"
     expect(updates[0].row).toMatchObject({ display_order: 1, amount: 200000 });
   });
 });
+
+describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #245）", () => {
+  const dbRow = (id: number, team: string, amount = 100000) => ({
+    id,
+    team,
+    entry_type: "expense",
+    category: "外注費",
+    description: "○○保守契約",
+    amount,
+    manager_id: null,
+    start_month: "2026-04-01",
+    end_month: null,
+    display_order: 0,
+  });
+  const listRow = (
+    id: number,
+    team: string,
+    override: Partial<BudgetRecurringItemInListType> = {},
+  ): BudgetRecurringItemInListType => ({ ...baseRow, id, team, ...override });
+
+  const operations = {
+    updates: [] as number[],
+    inserts: [] as unknown[],
+    deletes: [] as number[][],
+  };
+
+  const mockSupabase = (currentRows: ReturnType<typeof dbRow>[]) => {
+    createServerSupabase.mockReturnValue({
+      from: () => {
+        const query: Record<string, unknown> = {};
+        query.select = vi.fn(() => query);
+        query.in = vi.fn(() =>
+          Promise.resolve({ data: currentRows, error: null }),
+        );
+        query.update = vi.fn(() => ({
+          eq: vi.fn((_col: string, id: number) => {
+            operations.updates.push(id);
+            return Promise.resolve({ error: null });
+          }),
+        }));
+        query.insert = vi.fn((rows: unknown) => {
+          operations.inserts.push(rows);
+          return Promise.resolve({ error: null });
+        });
+        query.delete = vi.fn(() => ({
+          in: vi.fn((_col: string, ids: number[]) => {
+            operations.deletes.push(ids);
+            return Promise.resolve({ error: null });
+          }),
+        }));
+        return query;
+      },
+    });
+  };
+
+  beforeEach(() => {
+    operations.updates = [];
+    operations.inserts = [];
+    operations.deletes = [];
+    createServerSupabase.mockReset();
+    getAuthorizedViewer.mockReset();
+    getAuthorizedViewer.mockResolvedValue({
+      profileInfo: { id: 5, class: "public", is_teamleader: false, team: "Aチーム" },
+    });
+    assertManagerIdsExist.mockReset();
+    assertManagerIdsExist.mockResolvedValue(null);
+    getActiveSelectOptionsByType.mockReset();
+    getActiveSelectOptionsByType.mockResolvedValue({
+      optionsByType: {
+        category: [{ value: "セミナー" }],
+        item: [{ value: "外注費" }],
+      },
+      error: null,
+    });
+  });
+
+  it("全ユーザーに閲覧が開放されているため、ログイン済みの全ロールで認可を通す", async () => {
+    mockSupabase([dbRow(1, "Aチーム")]);
+
+    await bulkSaveBudgetRecurringItems([listRow(1, "Aチーム")]);
+
+    const allowed = getAuthorizedViewer.mock.calls[0][0] as string[];
+    expect(allowed).toEqual(
+      expect.arrayContaining(["public", "teamleader", "accounting", "admin"]),
+    );
+  });
+
+  it("所属チームのある public は、他チームの変更していない行が含まれていても自チームの変更を保存できる", async () => {
+    mockSupabase([dbRow(1, "Aチーム"), dbRow(2, "Bチーム")]);
+
+    const result = await bulkSaveBudgetRecurringItems([
+      listRow(1, "Aチーム", { amount: 200000 }),
+      listRow(2, "Bチーム"),
+    ]);
+
+    expect(result).toEqual({});
+    expect(operations.updates).toEqual([1]);
+  });
+
+  it("他チームの行の編集は forbidden で、何も書き込まない", async () => {
+    mockSupabase([dbRow(1, "Aチーム"), dbRow(2, "Bチーム")]);
+
+    const result = await bulkSaveBudgetRecurringItems([
+      listRow(1, "Aチーム"),
+      listRow(2, "Bチーム", { amount: 1 }),
+    ]);
+
+    expect(result.error?.kind).toBe("forbidden");
+    expect(result.error?.message).toContain("Bチーム");
+    expect(operations.updates).toEqual([]);
+  });
+
+  it("自チームの行を他チームへ付け替える変更は forbidden", async () => {
+    mockSupabase([dbRow(1, "Aチーム")]);
+
+    const result = await bulkSaveBudgetRecurringItems([
+      listRow(1, "Bチーム"),
+    ]);
+
+    expect(result.error?.kind).toBe("forbidden");
+    expect(operations.updates).toEqual([]);
+  });
+
+  it("他チームの行の新規追加・削除は forbidden", async () => {
+    mockSupabase([dbRow(2, "Bチーム")]);
+
+    const added = await bulkSaveBudgetRecurringItems([
+      listRow(10, "Bチーム", { isNew: true }),
+    ]);
+    const removed = await bulkSaveBudgetRecurringItems([
+      listRow(2, "Bチーム", { isRemoved: true }),
+    ]);
+
+    expect(added.error?.kind).toBe("forbidden");
+    expect(removed.error?.kind).toBe("forbidden");
+    expect(operations.inserts).toEqual([]);
+    expect(operations.deletes).toEqual([]);
+  });
+
+  it("所属チーム未設定の public は閲覧のみで、新規追加は forbidden", async () => {
+    getAuthorizedViewer.mockResolvedValue({
+      profileInfo: { id: 5, class: "public", is_teamleader: false, team: null },
+    });
+    mockSupabase([]);
+
+    const result = await bulkSaveBudgetRecurringItems([
+      listRow(10, "Aチーム", { isNew: true }),
+    ]);
+
+    expect(result.error?.kind).toBe("forbidden");
+  });
+
+  it("経理は全チームの行を保存できる", async () => {
+    getAuthorizedViewer.mockResolvedValue({
+      profileInfo: { id: 1, class: "accounting", team: null },
+    });
+    mockSupabase([dbRow(2, "Bチーム")]);
+
+    const result = await bulkSaveBudgetRecurringItems([
+      listRow(2, "Bチーム", { amount: 1 }),
+    ]);
+
+    expect(result).toEqual({});
+    expect(operations.updates).toEqual([2]);
+  });
+});
