@@ -273,21 +273,32 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
     deletes: [] as number[],
     eqCalls: [] as [string, unknown][][],
     concurrentUpdatedAt: {} as Record<number, string>,
+    vanishedIds: [] as number[],
   };
 
   const mockSupabase = (currentRows: ReturnType<typeof dbRow>[]) => {
+    let selectCalls = 0;
     createServerSupabase.mockReturnValue({
       from: () => {
         const query: Record<string, unknown> = {};
         query.select = vi.fn(() => query);
-        query.in = vi.fn(() =>
-          Promise.resolve({ data: currentRows, error: null }),
-        );
+        // The first SELECT is the pre-write check; later ones are re-checks after a 0-row write,
+        // where rows in operations.vanishedIds no longer exist.
+        query.in = vi.fn((_col: string, ids: number[]) => {
+          selectCalls += 1;
+          const data = currentRows.filter(
+            (row) =>
+              ids.includes(row.id) &&
+              (selectCalls === 1 || !operations.vanishedIds.includes(row.id)),
+          );
+          return Promise.resolve({ data, error: null });
+        });
         // Mimics PostgREST: the write matches a row only when every .eq() condition holds, so an
         // updated_at that differs from the row's value at write time matches nothing.
         const matchesAtWrite = (eqs: [string, unknown][]) => {
           const id = eqs.find(([col]) => col === "id")?.[1] as number;
           const sent = eqs.find(([col]) => col === "updated_at");
+          if (operations.vanishedIds.includes(id)) return false;
           const atWrite =
             operations.concurrentUpdatedAt[id] ??
             currentRows.find((row) => row.id === id)?.updated_at;
@@ -327,6 +338,7 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
     operations.updates = [];
     operations.eqCalls = [];
     operations.concurrentUpdatedAt = {};
+    operations.vanishedIds = [];
     operations.inserts = [];
     operations.deletes = [];
     createServerSupabase.mockReset();
@@ -630,6 +642,19 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
       ],
     ]);
     expect(result.error?.kind).toBe("partialWriteFailed");
+    expect(operations.deletes).toEqual([]);
+  });
+
+  it("確認と削除の間に他のユーザーが同じ行を削除していたら（目的どおり消えている）、報告せず成功扱いにする", async () => {
+    mockSupabase([dbRow(1, "Aチーム"), dbRow(2, "Aチーム")]);
+    operations.vanishedIds = [1];
+
+    const result = await bulkSaveBudgetRecurringItems([
+      listRow(1, "Aチーム", { isRemoved: true }),
+      listRow(2, "Aチーム"),
+    ]);
+
+    expect(result).toEqual({});
     expect(operations.deletes).toEqual([]);
   });
 

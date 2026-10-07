@@ -310,12 +310,15 @@ export const bulkSaveBudgetRecurringItems = async (
     };
   }
 
-  // One request per row so each write can match updated_at: closing the gap between the check above and
-  // the write, a row saved by someone else in between matches 0 rows and is reported, not overwritten.
+  // INSERT is one request for all new rows.
   const insertOperations =
     newRows.length > 0
       ? [supabase.from("budget_recurring_items").insert(newRows.map(toDbRow))]
       : [];
+  // UPDATE and DELETE are one request per row so each write can match updated_at: closing the gap
+  // between the check above and the write, a row saved by someone else in between matches 0 rows and is
+  // reported, not overwritten. (A single transactional RPC would avoid the partial-write states, but is
+  // a larger change than this PR; see the review discussion.)
   const updateOperations = rowsToUpdate.map((row) =>
     supabase
       .from("budget_recurring_items")
@@ -366,10 +369,26 @@ export const bulkSaveBudgetRecurringItems = async (
     !result.data || result.data.length === 0;
   // Only rows the user edited or deleted are reported; an untouched row in rowsToUpdate (renumbered
   // display_order only) that someone else changed in between is simply left alone, like at the check above.
-  const unmatchedCount =
-    updateResults.filter(
-      (result, index) => rowsToUpdate[index].isEdited && isUnmatched(result),
-    ).length + deleteResults.filter(isUnmatched).length;
+  const unmatchedUpdates = updateResults.filter(
+    (result, index) => rowsToUpdate[index].isEdited && isUnmatched(result),
+  ).length;
+  // A delete that matched 0 rows is a conflict only if the row still exists (someone changed it in
+  // between); if it is gone, someone else deleted it and the goal is met, as in the check above.
+  const unmatchedDeleteIds = rowsToDelete
+    .filter((_, index) => isUnmatched(deleteResults[index]))
+    .map((row) => row.id);
+  let unmatchedDeletes = 0;
+  if (unmatchedDeleteIds.length > 0) {
+    const { data: remaining, error: remainingError } = await supabase
+      .from("budget_recurring_items")
+      .select("id")
+      .in("id", unmatchedDeleteIds);
+    // If the re-check fails, assume the conservative case (the row still exists).
+    unmatchedDeletes = remainingError
+      ? unmatchedDeleteIds.length
+      : (remaining ?? []).length;
+  }
+  const unmatchedCount = unmatchedUpdates + unmatchedDeletes;
   if (unmatchedCount > 0) {
     // The other writes already went through, so this is a partial write like the errors above.
     return {
