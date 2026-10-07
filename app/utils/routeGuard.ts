@@ -140,14 +140,15 @@ export const withAuthTimeout = <T>(
 export type RoleDecision = "allow" | "deny" | "fetch_profile";
 
 // What to do with a restricted route given the JWT claims (null = missing / invalid). Claims that
-// already grant access never need the DB: a stale or failing profiles query must not turn a valid
-// JWT role into a denial. The flag is only worth a DB round trip on routes that allow teamleader.
+// already grant access (even a null class with the teamleader flag) never need the DB: a stale or
+// failing profiles query must not turn a valid JWT role into a denial. The flag is only worth a DB
+// round trip on routes that allow teamleader.
 export const decideRoleAccess = (
   allowed: readonly Role[],
   userClass: string | null,
   isTeamleader: boolean | null,
 ): RoleDecision => {
-  if (userClass !== null && hasClassAccess(allowed, userClass, isTeamleader)) {
+  if (hasClassAccess(allowed, userClass, isTeamleader)) {
     return "allow";
   }
   if (userClass === null) return "fetch_profile";

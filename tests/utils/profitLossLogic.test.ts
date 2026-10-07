@@ -294,7 +294,7 @@ describe("reportFlags", () => {
   });
 
   it("class が 'teamleader' の値はフラグが無ければ何も持たない", () => {
-    expect(reportFlags("teamleader")).toEqual({
+    expect(reportFlags("teamleader", false)).toEqual({
       includeTeamBreakdown: false,
       includeAdjustmentDetails: false,
     });
@@ -305,8 +305,8 @@ describe("reportFlags", () => {
       includeTeamBreakdown: true,
       includeAdjustmentDetails: true,
     };
-    expect(reportFlags("accounting")).toEqual(expected);
-    expect(reportFlags("admin")).toEqual(expected);
+    expect(reportFlags("accounting", false)).toEqual(expected);
+    expect(reportFlags("admin", false)).toEqual(expected);
   });
 
   it("public / 未設定ロールはすべてのフラグが false になる", () => {
@@ -314,10 +314,10 @@ describe("reportFlags", () => {
       includeTeamBreakdown: false,
       includeAdjustmentDetails: false,
     };
-    expect(reportFlags("public")).toEqual(expected);
-    expect(reportFlags(null)).toEqual(expected);
-    expect(reportFlags(undefined)).toEqual(expected);
-    expect(reportFlags("")).toEqual(expected);
+    expect(reportFlags("public", false)).toEqual(expected);
+    expect(reportFlags(null, false)).toEqual(expected);
+    expect(reportFlags(undefined, false)).toEqual(expected);
+    expect(reportFlags("", false)).toEqual(expected);
   });
 });
 

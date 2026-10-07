@@ -565,9 +565,14 @@ describe("decideRoleAccess（JWT クレームからの権限判定）", () => {
     expect(decideRoleAccess(accountingRoute, "public", false)).toBe("deny");
   });
 
-  it("class のクレームが無いときは、フラグの有無にかかわらず DB を引く", () => {
+  it("class のクレームが無くても、フラグが true でチームリーダーのルートなら DB を引かずに許可する", () => {
+    expect(decideRoleAccess(teamRoute, null, true)).toBe("allow");
+  });
+
+  it("class のクレームが無く、フラグでも許可されないときは DB を引く", () => {
     expect(decideRoleAccess(teamRoute, null, null)).toBe("fetch_profile");
-    expect(decideRoleAccess(teamRoute, null, true)).toBe("fetch_profile");
+    expect(decideRoleAccess(teamRoute, null, false)).toBe("fetch_profile");
+    expect(decideRoleAccess(accountingRoute, null, true)).toBe("fetch_profile");
   });
 
   it("class のクレームが 'teamleader'（旧値）でもチームリーダー扱いにはしない", () => {

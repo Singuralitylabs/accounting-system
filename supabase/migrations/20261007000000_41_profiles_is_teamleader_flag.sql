@@ -40,6 +40,18 @@ CREATE POLICY "Users can view own profile"
     )
   );
 
+-- A user can only create their own row as a plain member: otherwise a user without a profile yet
+-- could insert themselves with is_teamleader = true (or class = 'admin') straight through PostgREST.
+DROP POLICY "Users can insert own profile" ON profiles;
+CREATE POLICY "Users can insert own profile"
+  ON profiles FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    (select auth.uid()) = user_id
+    AND class IS NOT DISTINCT FROM 'public'
+    AND is_teamleader = false
+  );
+
 -- Non-admins cannot change their own is_teamleader flag.
 DROP POLICY "Users can update own profile or admin can update any profile" ON profiles;
 CREATE POLICY "Users can update own profile or admin can update any profile"

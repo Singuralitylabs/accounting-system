@@ -21,6 +21,7 @@ import {
   UserValidationErrors,
   validateUserUpdates,
 } from "../utils/userList";
+import { ROLE_LABELS } from "../utils/permissions";
 import { sortUserList } from "../utils/userListSort";
 import { groupUsersByRole, teamRowColor } from "../utils/userListGroup";
 import { useViewportSize } from "@mantine/hooks";
@@ -32,7 +33,7 @@ const elementListOfUser = [
   "名前",
   "メールアドレス",
   "権限",
-  "チームリーダー",
+  ROLE_LABELS.teamleader,
   "チーム",
   "slack ID",
 ];
@@ -121,20 +122,25 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
     userId: number,
     updates: Partial<ProfilesType>,
   ) => {
-    // Reverting the teamleader flag to its loaded value restores the team too (otherwise the team stays cleared with no "changed" state or error); clearing the flag clears the team (PC and mobile).
+    // Clearing the teamleader flag clears the team. Setting it back to its loaded value restores the loaded team only when the team is still empty (otherwise the team stays cleared with no "changed" state or error), so a team the admin picked in between is kept (PC and mobile).
     const saved = baseline.get(userId);
-    const normalized: Partial<ProfilesType> =
-      "is_teamleader" in updates &&
-      saved &&
-      updates.is_teamleader === saved.is_teamleader
-        ? { ...updates, team: saved.team }
-        : "is_teamleader" in updates && !updates.is_teamleader
-          ? { ...updates, team: null }
-          : updates;
     setRows((prev) =>
-      prev.map((user) =>
-        user.id === userId ? { ...user, ...normalized } : user,
-      ),
+      prev.map((user) => {
+        if (user.id !== userId) return user;
+        if (!("is_teamleader" in updates)) return { ...user, ...updates };
+        if (!updates.is_teamleader) {
+          return { ...user, ...updates, team: null };
+        }
+        const restoreTeam =
+          saved?.is_teamleader === true &&
+          user.team === null &&
+          !("team" in updates);
+        return {
+          ...user,
+          ...updates,
+          ...(restoreTeam ? { team: saved.team } : {}),
+        };
+      }),
     );
   };
 

@@ -110,7 +110,7 @@ export const isRecurringCostChargedInMonth = (
 // only the adjustment / closing-diff details (actionable by accounting / admin) stay restricted.
 export const reportFlags = (
   profileClass: string | null | undefined,
-  isTeamleader?: boolean | null,
+  isTeamleader: boolean | null | undefined,
 ) => ({
   includeTeamBreakdown: hasClassAccess(
     ["teamleader", "accounting", "admin"],
@@ -120,6 +120,7 @@ export const reportFlags = (
   includeAdjustmentDetails: hasClassAccess(
     ["accounting", "admin"],
     profileClass,
+    isTeamleader,
   ),
 });
 

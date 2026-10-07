@@ -25,17 +25,24 @@ const readPayload = (
   }
 };
 
-export const readClassClaim = (
+export const readRoleClaims = (
   accessToken: string | undefined,
-): string | null => {
-  const claim = readPayload(accessToken)?.user_class;
-  return typeof claim === "string" && claim.length > 0 ? claim : null;
+): { userClass: string | null; isTeamleader: boolean | null } => {
+  const payload = readPayload(accessToken);
+  const classClaim = payload?.user_class;
+  const flagClaim = payload?.user_is_teamleader;
+  return {
+    userClass:
+      typeof classClaim === "string" && classClaim.length > 0
+        ? classClaim
+        : null,
+    // Only a real boolean is valid; anything else (missing / null / string / number) is treated as absent.
+    isTeamleader: typeof flagClaim === "boolean" ? flagClaim : null,
+  };
 };
 
-// Only a real boolean is valid; anything else (missing / null / string / number) is treated as absent.
-export const readTeamleaderClaim = (
-  accessToken: string | undefined,
-): boolean | null => {
-  const claim = readPayload(accessToken)?.user_is_teamleader;
-  return typeof claim === "boolean" ? claim : null;
-};
+export const readClassClaim = (accessToken: string | undefined) =>
+  readRoleClaims(accessToken).userClass;
+
+export const readTeamleaderClaim = (accessToken: string | undefined) =>
+  readRoleClaims(accessToken).isTeamleader;

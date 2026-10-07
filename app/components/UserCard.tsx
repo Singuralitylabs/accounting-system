@@ -1,7 +1,7 @@
 import { Badge, Checkbox, Select, Stack, Text, TextInput } from "@mantine/core";
 import { ProfilesType } from "../types/types";
 import { UserValidationErrors } from "../utils/userList";
-import { CLASS_SELECT_OPTIONS } from "@/app/utils/permissions";
+import { CLASS_SELECT_OPTIONS, ROLE_LABELS } from "@/app/utils/permissions";
 import { CHANGED_ROW_MARK_COLOR } from "../utils/userListGroup";
 import { teamOptionsFor } from "./UserList";
 
@@ -78,10 +78,10 @@ const UserCard = ({
 
         <div>
           <Text size="sm" fw={500} c="dimmed">
-            チームリーダー
+            {ROLE_LABELS.teamleader}
           </Text>
           <Checkbox
-            aria-label={`${userInfo.name}のチームリーダー`}
+            aria-label={`${userInfo.name}の${ROLE_LABELS.teamleader}`}
             checked={userInfo.is_teamleader}
             onChange={(e) =>
               onUpdateUserList(userInfo.id, {

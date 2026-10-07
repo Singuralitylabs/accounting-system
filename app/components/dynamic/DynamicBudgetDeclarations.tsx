@@ -78,6 +78,7 @@ const DynamicBudgetDeclarations = async () => {
       canCloseMonth={hasClassAccess(
         BUDGET_CLOSING_WRITE_CLASSES,
         profileInfo?.class,
+        profileInfo?.is_teamleader,
       )}
       initialClosings={closings ?? null}
       canManageReminderSettings={canManageReminderSettings}

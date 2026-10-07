@@ -96,7 +96,7 @@ export const effectiveRoles = (
 export const hasClassAccess = (
   allowedClasses: readonly Role[],
   profileClass: string | null | undefined,
-  isTeamleader?: boolean | null,
+  isTeamleader: boolean | null | undefined,
 ) =>
   effectiveRoles(profileClass, isTeamleader).some((role) =>
     allowedClasses.includes(role),

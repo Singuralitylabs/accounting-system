@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { hasClassAccess } from "./app/utils/permissions";
-import { readClassClaim, readTeamleaderClaim } from "./app/utils/authClaims";
+import { readRoleClaims } from "./app/utils/authClaims";
 import type { Database } from "./app/lib/database.types";
 import type { AuthError } from "@supabase/supabase-js";
 import {
@@ -114,8 +114,9 @@ export async function middleware(req: NextRequest) {
           data: { session },
         } = await supabase.auth.getSession();
         // Invalid claims (hook disabled / old token / profile not yet created) fall back to a profiles query.
-        let userClass = readClassClaim(session?.access_token);
-        let isTeamleader = readTeamleaderClaim(session?.access_token);
+        const claims = readRoleClaims(session?.access_token);
+        let userClass = claims.userClass;
+        let isTeamleader = claims.isTeamleader;
 
         const decision = decideRoleAccess(
           pathClass.allowed,
@@ -144,9 +145,9 @@ export async function middleware(req: NextRequest) {
           }
           console.error("Profile fetch error:", profileError);
         }
-        // Keep a valid JWT class when the query fails or returns no row.
-        userClass = profile?.class ?? userClass;
-        isTeamleader = profile?.is_teamleader ?? false;
+        userClass = profile?.class ?? null;
+        // Keep a valid JWT flag when the query fails or returns no row.
+        isTeamleader = profile?.is_teamleader ?? isTeamleader ?? false;
 
         if (!hasClassAccess(pathClass.allowed, userClass, isTeamleader)) {
           return redirectTo("/");

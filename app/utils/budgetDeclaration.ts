@@ -66,7 +66,9 @@ export const summarizeBudgetItems = (
 // is both (e.g. accounting + teamleader flag) gets the wider all-team access.
 export const canWriteAllBudgetTeams = (
   profileClass: string | null | undefined,
-): boolean => hasClassAccess(BUDGET_WRITE_ALL_TEAMS_CLASSES, profileClass);
+): boolean =>
+  // The list has no teamleader role, so the flag cannot change the result.
+  hasClassAccess(BUDGET_WRITE_ALL_TEAMS_CLASSES, profileClass, false);
 
 // Empty when the role has no access or no team is set.
 export const ownBudgetTeams = (

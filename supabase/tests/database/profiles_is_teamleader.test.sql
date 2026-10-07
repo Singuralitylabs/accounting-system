@@ -1,14 +1,15 @@
 -- pgTAP tests for the profiles.is_teamleader flag (migration 41)
 -- Run: supabase test db (local Supabase running; docs/testing.md 3.8)
 BEGIN;
-SELECT plan(23);
+SELECT plan(26);
 
 INSERT INTO auth.users (id, email) VALUES
   ('11111111-1111-1111-1111-111111111111', 'accleader@example.com'),
   ('22222222-2222-2222-2222-222222222222', 'publeader@example.com'),
   ('33333333-3333-3333-3333-333333333333', 'other@example.com'),
   ('44444444-4444-4444-4444-444444444444', 'admin@example.com'),
-  ('55555555-5555-5555-5555-555555555555', 'pub@example.com');
+  ('55555555-5555-5555-5555-555555555555', 'pub@example.com'),
+  ('66666666-6666-6666-6666-666666666666', 'new@example.com');
 INSERT INTO public.profiles (user_id, email, name, class, team, is_teamleader) VALUES
   ('11111111-1111-1111-1111-111111111111', 'accleader@example.com', '経理リーダー', 'accounting', 'Aチーム', true),
   ('22222222-2222-2222-2222-222222222222', 'publeader@example.com', 'リーダー', 'public', 'Aチーム', true),
@@ -63,6 +64,21 @@ SELECT throws_ok(
   $$UPDATE public.profiles SET is_teamleader = true WHERE user_id = '55555555-5555-5555-5555-555555555555'$$,
   '42501', NULL, 'public ユーザーは自分に is_teamleader を付与できない');
 SELECT is((SELECT count(*) FROM public.matters)::int, 1, 'フラグの無い public は自分の案件のみ閲覧できる');
+
+-- ===== self-insert: only as a plain member =====
+SELECT set_config('request.jwt.claims', '{"sub":"66666666-6666-6666-6666-666666666666","role":"authenticated"}', true);
+SELECT throws_ok(
+  $$INSERT INTO public.profiles (user_id, email, name, class, is_teamleader)
+    VALUES ('66666666-6666-6666-6666-666666666666', 'new@example.com', '新規', 'public', true)$$,
+  '42501', NULL, '自分の行を is_teamleader = true で作成できない');
+SELECT throws_ok(
+  $$INSERT INTO public.profiles (user_id, email, name, class)
+    VALUES ('66666666-6666-6666-6666-666666666666', 'new@example.com', '新規', 'admin')$$,
+  '42501', NULL, '自分の行を class = admin で作成できない');
+SELECT lives_ok(
+  $$INSERT INTO public.profiles (user_id, email, name, class)
+    VALUES ('66666666-6666-6666-6666-666666666666', 'new@example.com', '新規', 'public')$$,
+  '自分の行を class = public・フラグなしでは作成できる');
 
 -- ===== admin: can set the flag through update_profiles =====
 SELECT set_config('request.jwt.claims', '{"sub":"44444444-4444-4444-4444-444444444444","role":"authenticated"}', true);

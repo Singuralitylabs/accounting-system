@@ -99,4 +99,6 @@ export const canManageBudgetDeclarationReminderSettings = (
   hasClassAccess(
     BUDGET_DECLARATION_REMINDER_SETTINGS_ALLOWED_CLASSES,
     profileClass,
+    // The list has no teamleader role, so the flag cannot change the result.
+    false,
   );

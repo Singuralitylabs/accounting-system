@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { readClassClaim, readTeamleaderClaim } from "@/app/utils/authClaims";
+import {
+  readClassClaim,
+  readRoleClaims,
+  readTeamleaderClaim,
+} from "@/app/utils/authClaims";
 
 // Build a "token" containing only a base64url-encoded JWT payload. Signature verification is out of scope
 // (the function assumes the caller already verified it).
@@ -89,5 +93,32 @@ describe("readTeamleaderClaim", () => {
     expect(readTeamleaderClaim(fakeToken(null))).toBeNull();
     expect(readTeamleaderClaim(fakeToken("text"))).toBeNull();
     expect(readClassClaim(fakeToken(null))).toBeNull();
+  });
+});
+
+describe("readRoleClaims", () => {
+  it("class とフラグのクレームを 1 回のデコードでまとめて返す", () => {
+    expect(
+      readRoleClaims(
+        fakeToken({ user_class: "accounting", user_is_teamleader: true }),
+      ),
+    ).toEqual({ userClass: "accounting", isTeamleader: true });
+  });
+
+  it("どちらも無効（token なし・null・不正な型）なら null を返す", () => {
+    expect(readRoleClaims(undefined)).toEqual({
+      userClass: null,
+      isTeamleader: null,
+    });
+    expect(
+      readRoleClaims(fakeToken({ user_class: "", user_is_teamleader: "true" })),
+    ).toEqual({ userClass: null, isTeamleader: null });
+  });
+
+  it("class だけ有効でも、もう一方は独立して null になる", () => {
+    expect(readRoleClaims(fakeToken({ user_class: "admin" }))).toEqual({
+      userClass: "admin",
+      isTeamleader: null,
+    });
   });
 });

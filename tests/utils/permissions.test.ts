@@ -20,27 +20,31 @@ import {
 
 describe("hasClassAccess", () => {
   it("許可ロールに含まれる場合は true を返す", () => {
-    expect(hasClassAccess(["teamleader", "admin"], "admin")).toBe(true);
+    expect(hasClassAccess(["teamleader", "admin"], "admin", false)).toBe(true);
     expect(hasClassAccess(["teamleader", "admin"], "public", true)).toBe(true);
   });
 
   it("許可ロールに含まれない場合は false を返す", () => {
-    expect(hasClassAccess(["teamleader", "admin"], "public")).toBe(false);
-    expect(hasClassAccess(["admin"], "accounting")).toBe(false);
+    expect(hasClassAccess(["teamleader", "admin"], "public", false)).toBe(
+      false,
+    );
+    expect(hasClassAccess(["admin"], "accounting", false)).toBe(false);
   });
 
   it("ロールが null / undefined / 空文字の場合は false を返す", () => {
-    expect(hasClassAccess(["admin"], null)).toBe(false);
-    expect(hasClassAccess(["admin"], undefined)).toBe(false);
-    expect(hasClassAccess(["admin"], "")).toBe(false);
+    expect(hasClassAccess(["admin"], null, false)).toBe(false);
+    expect(hasClassAccess(["admin"], undefined, false)).toBe(false);
+    expect(hasClassAccess(["admin"], "", false)).toBe(false);
   });
 
   it("未知のロール文字列の場合は false を返す", () => {
-    expect(hasClassAccess(["admin"], "superuser")).toBe(false);
+    expect(hasClassAccess(["admin"], "superuser", false)).toBe(false);
   });
 
   it("teamleader は class ではなくフラグでのみ満たされる", () => {
-    expect(hasClassAccess(["teamleader", "admin"], "teamleader")).toBe(false);
+    expect(hasClassAccess(["teamleader", "admin"], "teamleader", false)).toBe(
+      false,
+    );
     expect(hasClassAccess(["teamleader", "admin"], "public", true)).toBe(true);
     expect(hasClassAccess(["teamleader", "admin"], "public", false)).toBe(
       false,
@@ -142,13 +146,13 @@ describe("ROUTE_PERMISSIONS による各保護ルートの認可", () => {
 
   it("admin はすべての保護ルートにアクセスできる", () => {
     for (const allowedClasses of Object.values(ROUTE_PERMISSIONS)) {
-      expect(hasClassAccess(allowedClasses, "admin")).toBe(true);
+      expect(hasClassAccess(allowedClasses, "admin", false)).toBe(true);
     }
   });
 
   it("public はすべての保護ルートにアクセスできない", () => {
     for (const allowedClasses of Object.values(ROUTE_PERMISSIONS)) {
-      expect(hasClassAccess(allowedClasses, "public")).toBe(false);
+      expect(hasClassAccess(allowedClasses, "public", false)).toBe(false);
     }
   });
 });
@@ -325,7 +329,9 @@ describe("PROFILE_WRITE_CLASSES（ユーザーリストの一括保存の権限�
 
   it("書き込めるロールは、管理画面（/dashboard）を開けるロールに必ず含まれる", () => {
     for (const role of PROFILE_WRITE_CLASSES) {
-      expect(hasClassAccess(ROUTE_PERMISSIONS["/dashboard"], role)).toBe(true);
+      expect(hasClassAccess(ROUTE_PERMISSIONS["/dashboard"], role, false)).toBe(
+        true,
+      );
     }
   });
 });
