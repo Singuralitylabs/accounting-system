@@ -77,6 +77,10 @@ BEGIN
     RAISE EXCEPTION 'p_rows must be a JSON array' USING ERRCODE = '22023';
   END IF;
 
+  -- Serialize concurrent replacements: under READ COMMITTED a second DELETE would not see rows the
+  -- first transaction just inserted, leaving a union of both saves or a 23505.
+  LOCK TABLE public.budget_declaration_reminder_days IN SHARE ROW EXCLUSIVE MODE;
+
   DELETE FROM public.budget_declaration_reminder_days WHERE true;
 
   INSERT INTO public.budget_declaration_reminder_days (day, message)

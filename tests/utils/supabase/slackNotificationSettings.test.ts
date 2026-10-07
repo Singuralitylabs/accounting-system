@@ -35,9 +35,10 @@ describe("getSlackNotificationSettings", () => {
     const result = await getSlackNotificationSettings();
 
     expect(getAuthorizedViewer).toHaveBeenCalledWith(
-      ["admin", "accounting"],
+      expect.arrayContaining(["admin", "accounting"]),
       expect.any(String),
     );
+    expect(getAuthorizedViewer.mock.calls[0][0]).toHaveLength(2);
     expect(result).toEqual({ settings: { header: "H", bodyTemplate: "B{message}" } });
   });
 

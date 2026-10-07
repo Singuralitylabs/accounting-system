@@ -650,6 +650,16 @@ describe("BudgetDeclarationList", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("プロフィール取得に失敗した（profileClass が null）ときは「所属チームが未設定」と誤案内しない", () => {
+    renderList([row()], {
+      props: { profileClass: null, isTeamleader: false, profileTeam: null },
+    });
+
+    expect(
+      screen.queryByText("所属チームが未設定です"),
+    ).not.toBeInTheDocument();
+  });
+
   it("経理・管理者はチーム未設定でも未設定の案内を出さない", () => {
     renderList([row()], {
       props: {

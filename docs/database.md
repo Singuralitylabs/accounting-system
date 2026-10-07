@@ -111,7 +111,7 @@ PostgreSQL（Supabase）/ スキーマ `public`（補助関数は `private`）�
 未申告 Slack リマインド（`app/api/cron/budget-declaration-reminder/route.ts`）の対象日（`day`、JST の日、1〜31）と、その日の文面（`message`。メッセージ 1 行目のテンプレート。プレースホルダ `{month}` `{deadline}`）を 1 日 1 行で持つ。**行を 0 件にするとリマインド停止。** Supabase ダッシュボード直編集（RLS バイパス）でも typo を防ぐため日の範囲と空文面を CHECK で検証している。migration 43 で旧 `budget_declaration_reminder_settings`（`target_days` 配列。migration 20）から移行し、旧テーブルは DROP した（既存の対象日は現行と同じ既定文面で引き継ぎ）。
 
 - cron は service role で読む。取得失敗（DB エラー・例外）は `DEFAULT_BUDGET_DECLARATION_REMINDER_DAYS`（15 / 18 / 20 日・既定文面）にフォールバックする（fail-open）。行を 0 件にして意図的に止めていても、取得が一時的に失敗すればデフォルトに戻る点は許容している。
-- 編集は `/budget-declarations` の「リマインド設定」モーダルから admin / accounting が行う。保存は `replace_budget_declaration_reminder_days(p_rows jsonb)`（SECURITY INVOKER）で、1 トランザクションで全行を DELETE → INSERT する。同じ日の重複は主キー違反で失敗し全体がロールバックされる。呼び出し元が admin / accounting でなければ、空配列でも 42501 で拒否する（RLS だけだと DELETE が 0 行で黙って成功してしまうため）。Server Action 側でも保存前に正規化・文面検証し、`getAuthorizedViewer` で拒否する。
+- 編集は `/budget-declarations` の「リマインド設定」モーダルから admin / accounting が行う。保存は `replace_budget_declaration_reminder_days(p_rows jsonb)`（SECURITY INVOKER）で、テーブルロック（SHARE ROW EXCLUSIVE）を取って同時保存を直列化したうえで、1 トランザクションで全行を DELETE → INSERT する。同じ日の重複は主キー違反で失敗し全体がロールバックされる。呼び出し元が admin / accounting でなければ、空配列でも 42501 で拒否する（RLS だけだと DELETE が 0 行で黙って成功してしまうため）。Server Action 側でも保存前に正規化・文面検証し、`getAuthorizedViewer` で拒否する。
 
 ### 3.12 budget_recurring_items テーブル
 
@@ -249,7 +249,7 @@ recurring_costs と同じ方針（書き込みは経理・管理者のみ。SELE
 
 ### 5.8 budget_declarations テーブル
 
-recurring_costs / extra_entries と異なり、**所属チームのユーザー全員に自チーム分の書き込みを許可する**（自分で入力するため。ロール・`is_teamleader` に依存しない）。SELECT は**ログイン済みの全ユーザー**の**全チーム**に許可する（`(select auth.uid()) IS NOT NULL`。他チームとの比較・全体把握のため。migration 44。所属チーム未設定の public も可）。INSERT / UPDATE / DELETE は経理・管理者は全行、それ以外は自チーム（`profiles.team` 一致）の行のみ。所属チーム未設定は閲覧のみ。UPDATE は WITH CHECK でも team を制約し他チームへの付け替えを防ぐ。
+recurring_costs / extra_entries と異なり、**所属チームのユーザー全員に自チーム分の書き込みを許可する**（自分で入力するため。ロール・`is_teamleader` に依存しない）。`profiles` の自己 INSERT は `team IS NULL` を必須にしている（チームが書き込み権限になったため、プロフィール未作成のユーザーが PostgREST から任意のチームを名乗れないようにする。チームは管理者がユーザー管理で設定する）。SELECT は**ログイン済みの全ユーザー**の**全チーム**に許可する（`(select auth.uid()) IS NOT NULL`。他チームとの比較・全体把握のため。migration 44。所属チーム未設定の public も可）。INSERT / UPDATE / DELETE は経理・管理者は全行、それ以外は自チーム（`profiles.team` 一致）の行のみ。所属チーム未設定は閲覧のみ。UPDATE は WITH CHECK でも team を制約し他チームへの付け替えを防ぐ。
 
 #### 確定月の編集ロックと直列化（migration 38）
 

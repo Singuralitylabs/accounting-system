@@ -551,7 +551,7 @@ describe("getBudgetDeclarationList", () => {
     expect(result.rows?.[1].status).toBe("notDeclared");
   });
 
-  it("経理・管理者にはマスタ外の未申告チーム行を追加しない", async () => {
+  it("経理・管理者も、マスタから外れた自チームの行を持つ（従来どおり）", async () => {
     const { getSelectOptions } = await import(
       "@/app/utils/supabase/selectOptions"
     );
@@ -574,7 +574,7 @@ describe("getBudgetDeclarationList", () => {
 
     const result = await getBudgetDeclarationList("2026-10");
 
-    expect(result.rows?.map((r) => r.team)).toEqual(["Aチーム"]);
+    expect(result.rows?.map((r) => r.team)).toEqual(["Aチーム", "旧チーム"]);
   });
 
   it("他チームの申告者名が profiles の RLS で読めなくても、メンバー一覧から補って表示する", async () => {

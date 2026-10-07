@@ -32,7 +32,6 @@ export type SlackNotificationMetadata = {
   assignee?: string;
   matterId?: number;
   matterTitle?: string;
-  sender?: string;
 };
 
 export type MatterInfoWithUserNameType = {

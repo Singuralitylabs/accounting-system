@@ -113,7 +113,19 @@ export const bulkSaveBudgetRecurringItems = async (
     return { error: accessError };
   }
 
-  const validation = validateBudgetRecurringItemList(rows);
+  const canWriteTeam = (team: string) =>
+    canWriteBudgetTeam(
+      profileInfo.class,
+      profileInfo.team,
+      team,
+      profileInfo.is_teamleader,
+    );
+
+  // Rows of teams the user cannot write are read-only and never saved, so their problems (e.g. a
+  // category removed from the master) must not block saving the user's own rows.
+  const writableRows = rows.filter((row) => canWriteTeam(row.team));
+
+  const validation = validateBudgetRecurringItemList(writableRows);
   if (validation !== "ok") {
     return {
       error: {
@@ -133,14 +145,7 @@ export const bulkSaveBudgetRecurringItems = async (
     .map((row) => {
       // Teams the user cannot write keep their stored order: renumbering them could mark rows as
       // changed (legacy gaps / ties) and make an own-team save look like a write to another team.
-      if (
-        !canWriteBudgetTeam(
-          profileInfo.class,
-          profileInfo.team,
-          row.team,
-          profileInfo.is_teamleader,
-        )
-      ) {
+      if (!canWriteTeam(row.team)) {
         return row;
       }
       const order = orderByTeam.get(row.team) ?? 0;
@@ -182,7 +187,7 @@ export const bulkSaveBudgetRecurringItems = async (
       },
     };
   }
-  const categoryValidation = validateBudgetRecurringItemList(rows, {
+  const categoryValidation = validateBudgetRecurringItemList(writableRows, {
     categoryList: (categoryOptionsByType.category ?? []).map(
       (option) => option.value,
     ),
@@ -231,6 +236,9 @@ export const bulkSaveBudgetRecurringItems = async (
     const currentById = new Map((data ?? []).map((row) => [row.id, row]));
     rowsToUpdate = updateRows.filter((row) => {
       const current = currentById.get(row.id);
+      // Read-only rows (another team's, by stored team) are sent back unchanged by the client and may
+      // have been changed or deleted by someone else since; ignore them instead of failing the save.
+      if (!canWriteTeam(current?.team ?? row.team)) return false;
       // A row deleted by someone else just before saving hits 0 rows harmlessly; keep it anyway.
       if (!current) return true;
       const desired = toDbRow(row);
@@ -256,13 +264,7 @@ export const bulkSaveBudgetRecurringItems = async (
     }),
   ]);
   const forbiddenTeam = Array.from(writtenTeams).find(
-    (team) =>
-      !canWriteBudgetTeam(
-        profileInfo.class,
-        profileInfo.team,
-        team,
-        profileInfo.is_teamleader,
-      ),
+    (team) => !canWriteTeam(team),
   );
   if (forbiddenTeam) {
     return {

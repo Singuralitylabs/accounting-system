@@ -11,11 +11,13 @@ import {
   MatterNoticeSettings,
   validateMatterNoticeSettings,
 } from "../slackNotificationTemplate";
+import { ROUTE_PERMISSIONS } from "../permissions";
 import { createServerSupabase } from "./clients";
 import { getAuthorizedViewer } from "./viewerAccess";
 
 const SUBJECT = "Slack通知設定";
-const ALLOWED_CLASSES = ["admin", "accounting"] as const;
+// Same roles as the page that hosts the settings button.
+const ALLOWED_CLASSES = ROUTE_PERMISSIONS["/matters/accounting"];
 
 export const getSlackNotificationSettings =
   async (): Promise<SlackNotificationSettingsResult> => {

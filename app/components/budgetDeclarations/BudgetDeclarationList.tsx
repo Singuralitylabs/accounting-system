@@ -301,7 +301,9 @@ const BudgetDeclarationList = ({
           )}
         </Paper>
 
-        {!profileTeam &&
+        {/* profileClass is null when the profile fetch failed (logged server-side); do not blame the team setting then. */}
+        {profileClass !== null &&
+          !profileTeam &&
           !canWriteAllBudgetTeams(profileClass, isTeamleader) && (
             <Alert
               color="yellow"

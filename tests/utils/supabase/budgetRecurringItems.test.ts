@@ -308,7 +308,7 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
     expect(operations.updates).toEqual([1]);
   });
 
-  it("他チームの行の編集は forbidden で、何も書き込まない", async () => {
+  it("他チームの行（読み取り専用）が送られてきても無視し、forbidden にせず何も書き込まない", async () => {
     mockSupabase([dbRow(1, "Aチーム"), dbRow(2, "Bチーム")]);
 
     const result = await bulkSaveBudgetRecurringItems([
@@ -316,9 +316,34 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
       listRow(2, "Bチーム", { amount: 1 }),
     ]);
 
-    expect(result.error?.kind).toBe("forbidden");
-    expect(result.error?.message).toContain("Bチーム");
+    expect(result).toEqual({});
     expect(operations.updates).toEqual([]);
+  });
+
+  it("他チームの行が画面表示後に削除・変更されていても、自チームの変更は保存できる", async () => {
+    // Row 3 (Bチーム) was deleted by someone else: it is absent from the DB.
+    mockSupabase([dbRow(1, "Aチーム"), dbRow(2, "Bチーム", 999)]);
+
+    const result = await bulkSaveBudgetRecurringItems([
+      listRow(1, "Aチーム", { amount: 200000 }),
+      listRow(2, "Bチーム"),
+      listRow(3, "Bチーム"),
+    ]);
+
+    expect(result).toEqual({});
+    expect(operations.updates).toEqual([1]);
+  });
+
+  it("他チームの行にマスタ未登録の分類があっても、自チームの保存は検証で止まらない", async () => {
+    mockSupabase([dbRow(1, "Aチーム"), dbRow(2, "Bチーム")]);
+
+    const result = await bulkSaveBudgetRecurringItems([
+      listRow(1, "Aチーム", { amount: 200000 }),
+      listRow(2, "Bチーム", { category: "削除済み分類" }),
+    ]);
+
+    expect(result).toEqual({});
+    expect(operations.updates).toEqual([1]);
   });
 
   it("自チームの行を他チームへ付け替える変更は forbidden", async () => {

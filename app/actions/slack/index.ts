@@ -48,13 +48,7 @@ export async function sendSlackNotification(
       elements: [
         {
           type: "mrkdwn",
-          text: [
-            metadata?.matterTitle ? `*案件:* ${metadata.matterTitle}` : null,
-            sender ? `*送信者:* ${sender}` : null,
-            `*送信日時:* ${sentAt}`,
-          ]
-            .filter(Boolean)
-            .join(" | "),
+          text: [`*送信日時:* ${sentAt}`].filter(Boolean).join(" | "),
         },
       ],
     },

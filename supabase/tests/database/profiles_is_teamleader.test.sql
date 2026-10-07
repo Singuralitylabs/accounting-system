@@ -1,7 +1,7 @@
 -- pgTAP tests for the profiles.is_teamleader flag (migration 41)
 -- Run: supabase test db (local Supabase running; docs/testing.md 3.8)
 BEGIN;
-SELECT plan(28);
+SELECT plan(29);
 
 INSERT INTO auth.users (id, email) VALUES
   ('11111111-1111-1111-1111-111111111111', 'accleader@example.com'),
@@ -78,6 +78,10 @@ SELECT throws_ok(
   $$INSERT INTO public.profiles (user_id, email, name, class)
     VALUES ('66666666-6666-6666-6666-666666666666', 'new@example.com', '新規', 'admin')$$,
   '42501', NULL, '自分の行を class = admin で作成できない');
+SELECT throws_ok(
+  $$INSERT INTO public.profiles (user_id, email, name, class, team)
+    VALUES ('66666666-6666-6666-6666-666666666666', 'new@example.com', '新規', 'public', 'Bチーム')$$,
+  '42501', NULL, '自分の行を team 付きでは作成できない（team は事前収支申告の書き込み権限になるため。migration 44）');
 SELECT lives_ok(
   $$INSERT INTO public.profiles (user_id, email, name, class)
     VALUES ('66666666-6666-6666-6666-666666666666', 'new@example.com', '新規', 'public')$$,

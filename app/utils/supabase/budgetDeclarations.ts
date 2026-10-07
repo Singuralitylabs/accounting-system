@@ -14,7 +14,6 @@ import {
   addMonths,
   buildBudgetDeclarationStatusList,
   BUDGET_MONTH_CLOSED_MESSAGE,
-  canWriteAllBudgetTeams,
   canWriteBudgetTeam,
   ownBudgetTeams,
 } from "../budgetDeclaration";
@@ -88,17 +87,10 @@ export const getBudgetDeclarationList = async (
     };
   }
 
-  // A user who can write only their own team and whose team was disabled/renamed in the master must
-  // still get a row for it, or they could never declare it (RLS still allows the write). Accounting /
-  // admin write every team, so they get no extra row.
+  // A user whose team was disabled/renamed in the master must still get a row for it, or they could
+  // never declare it (RLS still allows the write). Applies to every role, accounting / admin included.
   const teams = teamResult.options.map((option) => option.value);
-  const ownTeams = canWriteAllBudgetTeams(
-    profileInfo.class,
-    profileInfo.is_teamleader,
-  )
-    ? []
-    : ownBudgetTeams(profileInfo.team);
-  for (const ownTeam of ownTeams) {
+  for (const ownTeam of ownBudgetTeams(profileInfo.team)) {
     if (!teams.includes(ownTeam)) {
       teams.push(ownTeam);
     }

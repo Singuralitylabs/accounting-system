@@ -145,11 +145,19 @@ const BudgetRecurringItemList = ({
     );
   };
 
+  // Every user sees all teams' lines, but only accounting / admin or the owner team can edit a row.
+  const isEditableRow = (row: BudgetRecurringItemInListType) =>
+    canEditAllTeams || (!!ownTeam && row.team === ownTeam);
+
   const handleSave = async () => {
-    const validation = validateBudgetRecurringItemList(rows, {
-      categoryList,
-      itemList,
-    });
+    // Read-only rows (other teams) are not saved, so their problems must not block the save.
+    const validation = validateBudgetRecurringItemList(
+      rows.filter(isEditableRow),
+      {
+        categoryList,
+        itemList,
+      },
+    );
     if (validation !== "ok") {
       notifyError(getBudgetRecurringItemValidationMessage(validation));
       return;
@@ -173,19 +181,17 @@ const BudgetRecurringItemList = ({
     }
   };
 
-  // Every user sees all teams' lines, but only accounting / admin or the owner team can edit a row.
-  const isEditableRow = (row: BudgetRecurringItemInListType) =>
-    canEditAllTeams || (!!ownTeam && row.team === ownTeam);
-
   const visibleRows = rows.filter((row) => !row.isRemoved);
-  const unregisteredCategoryCount = visibleRows.filter((row) =>
-    isCategoryUnregistered(
-      row.entry_type,
-      row.category,
-      categoryList,
-      itemList,
-    ),
-  ).length;
+  const unregisteredCategoryCount = visibleRows
+    .filter(isEditableRow)
+    .filter((row) =>
+      isCategoryUnregistered(
+        row.entry_type,
+        row.category,
+        categoryList,
+        itemList,
+      ),
+    ).length;
 
   return (
     <div className="px-4 pb-8 max-w-6xl mx-auto relative">

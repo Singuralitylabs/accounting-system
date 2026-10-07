@@ -22,6 +22,8 @@
 
 **チームリーダーのフラグ化（`profiles.is_teamleader`。migration 41）を含むリリースの適用順**: 旧アプリと新 migration、新アプリと旧 DB のどちらの組み合わせでも既存のチームリーダーが一時的に権限を失う（旧アプリは `class = 'public'` を、新アプリは `is_teamleader` を見るため）。ユーザー管理の保存も、旧アプリが `is_teamleader` を送らない間は失敗する。新アプリ＋旧 DB の間は、チームリーダーを許可するルート（`/matters/team` `/profit-loss` `/budget-declarations`）で `class` だけでは許可されないユーザーが `profiles` の `is_teamleader` 列を引いて失敗するため、チームリーダー以外にも影響しうる（admin / accounting は JWT の `user_class` だけで通る）。migration 41 を適用したら**すぐに**新アプリをデプロイする（間隔を空けない。Vercel の自動デプロイが先に走らないよう、マージのタイミングに注意する。本番動作確認の前にこの 2 つを続けて行う）。
 
+**未申告リマインドの文面編集（migration 43）を含むリリースの適用順**: migration 43 は旧 `budget_declaration_reminder_settings` を DROP して `budget_declaration_reminder_days` へ移行する。適用とデプロイの間は、旧アプリの cron / 設定モーダルが旧テーブルを、新アプリが新テーブルを読めず、どちらも既定の 15 / 18 / 20 日にフォールバックする（fail-open）。管理者がリマインドを停止（対象日を空）していても、その間に対象日が重なると送信されるため、**対象日（15 / 18 / 20 日。cron は 09:00 JST）を避けて、migration 適用と新アプリのデプロイを続けて行う**。
+
 ワークフローが本番 DB へ書き込むことはない（`release-pr.yml` の DB アクセスは `supabase migration list` の読み取りのみ）。
 
 ## 事前準備（管理者作業・初回のみ）

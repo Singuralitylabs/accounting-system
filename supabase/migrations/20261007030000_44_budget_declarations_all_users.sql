@@ -5,8 +5,23 @@
 --   3. budget_recurring_items: split the single FOR ALL policy (migration 22) into open SELECT and
 --      team-restricted writes.
 --   4. get_member_options / validate_member_ids open to every authenticated user (manager picker).
+--   5. profiles INSERT (migration 41) additionally requires team IS NULL: team is now a write
+--      permission, so a user without a profile must not be able to self-insert any team through
+--      PostgREST. Teams are assigned by an admin afterwards.
 -- Unchanged: budget_declaration_closings INSERT / DELETE and budget_declaration_reminder_days
 -- (accounting / admin only); the declared_by = self INSERT condition; month-closed guards.
+
+-- ===== 0. A self-inserted profile cannot carry a team =====
+DROP POLICY "Users can insert own profile" ON profiles;
+CREATE POLICY "Users can insert own profile"
+  ON profiles FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    (select auth.uid()) = user_id
+    AND class IS NOT DISTINCT FROM 'public'
+    AND is_teamleader = false
+    AND team IS NULL
+  );
 
 -- ===== 1. Write access follows the user's own team =====
 CREATE OR REPLACE FUNCTION public.can_access_team_budget(target_team text)
