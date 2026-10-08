@@ -46,6 +46,21 @@ const Harness = ({ channelName }: { channelName?: string }) => {
   );
 };
 
+// Parent that keeps the modal mounted and only toggles `opened`.
+const KeepMountedHarness = () => {
+  const [opened, setOpened] = useState(true);
+  return (
+    <>
+      <button onClick={() => setOpened(true)}>再度開く</button>
+      <NotificationMessage
+        opened={opened}
+        setOpened={setOpened}
+        onSendMessage={onSendMessage}
+      />
+    </>
+  );
+};
+
 const waitLongerThanTransition = () =>
   new Promise((resolve) => setTimeout(resolve, 400));
 
@@ -271,5 +286,22 @@ describe("NotificationMessage（担当者に連絡モーダル）", () => {
 
     resolveSend(true);
     await screen.findByText("closed");
+  });
+
+  it("閉じて開き直すと、親が mount したままでも常に「送信」タブから始まる", async () => {
+    renderWithMantine(<KeepMountedHarness />);
+    fireEvent.click(await screen.findByRole("tab", { name: "文面の設定" }));
+    await screen.findByDisplayValue("ヘッダ");
+
+    fireEvent.click(screen.getByRole("button", { name: "閉じる" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "再度開く" }));
+
+    expect(await screen.findByRole("tab", { name: "送信" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 });

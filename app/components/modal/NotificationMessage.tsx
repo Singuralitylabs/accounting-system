@@ -35,11 +35,18 @@ export const NotificationMessage = ({
 
   const isBusy = isSending || isSettingsBusy;
 
+  // Every close path starts the next open from a clean "送信" tab, even if the parent keeps this mounted.
+  const resetAndClose = () => {
+    setMessage("");
+    setTab("send");
+    setSettingsVisited(false);
+    setOpened(false);
+  };
+
   const closeModal = () => {
     // Esc / overlay / × are disabled while busy; guard anyway so a draft is never dropped mid-save.
     if (isBusy) return;
-    setMessage("");
-    setOpened(false);
+    resetAndClose();
   };
 
   const handleSendMessage = async () => {
@@ -49,8 +56,7 @@ export const NotificationMessage = ({
       setIsSending(true);
       const sent = await onSendMessage(message);
       if (!sent) return;
-      setMessage("");
-      setOpened(false);
+      resetAndClose();
     } catch (error) {
       console.error("通知送信エラー:", error);
     } finally {
