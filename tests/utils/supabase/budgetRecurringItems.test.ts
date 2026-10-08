@@ -675,16 +675,20 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
     operations.vanishedIds = [1];
     operations.recheckError = true;
 
-    const result = await bulkSaveBudgetRecurringItems([
-      listRow(1, "Aチーム", { isRemoved: true }),
-    ]);
+    try {
+      const result = await bulkSaveBudgetRecurringItems([
+        listRow(1, "Aチーム", { isRemoved: true }),
+      ]);
 
-    expect(result.error?.kind).toBe("partialWriteFailed");
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("再確認に失敗"),
-      expect.anything(),
-    );
-    errorSpy.mockRestore();
+      expect(result.error?.kind).toBe("partialWriteFailed");
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("再確認に失敗"),
+        expect.anything(),
+      );
+    } finally {
+      // Restore even when an assertion fails, so later tests keep their console.error output.
+      errorSpy.mockRestore();
+    }
   });
 
   it("表示後に他のユーザーが既に削除した行は、削除対象にせず成功扱いにする", async () => {
