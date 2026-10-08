@@ -83,7 +83,7 @@ const DynamicBudgetDeclarations = async () => {
       )}
       initialClosings={closings ?? null}
       canManageReminderSettings={canManageReminderSettings}
-      initialReminderTargetDays={reminderSettings?.targetDays ?? null}
+      initialReminderDays={reminderSettings?.days ?? null}
       memberList={(memberOptions ?? []).map((member) => ({
         value: String(member.id),
         label: member.name,

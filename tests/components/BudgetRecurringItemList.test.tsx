@@ -97,6 +97,87 @@ describe("BudgetRecurringItemList", () => {
     expect(teamInput).toBeDisabled();
   });
 
+  it("他チームの行は閲覧のみ（入力・削除が無効）で、自チームの行は編集できる", () => {
+    const otherRow = {
+      ...existingRow,
+      id: 2,
+      team: "経理チーム",
+      description: "他チームの契約",
+    };
+    useBudgetRecurringItemList.mockReturnValue({
+      data: [existingRow, otherRow],
+    });
+    renderList({ initialData: [existingRow, otherRow] });
+
+    expect(screen.getByDisplayValue("他チームの契約")).toBeDisabled();
+    expect(screen.getByDisplayValue("○○保守契約")).not.toBeDisabled();
+    const deleteButtons = screen.getAllByRole("button", { name: "削除" });
+    expect(deleteButtons).toHaveLength(2);
+    expect(deleteButtons[0]).not.toBeDisabled();
+    expect(deleteButtons[1]).toBeDisabled();
+  });
+
+  it("経理・管理者（canEditAllTeams=true）は他チームの行も編集できる", () => {
+    const otherRow = {
+      ...existingRow,
+      id: 2,
+      team: "経理チーム",
+      description: "他チームの契約",
+    };
+    useBudgetRecurringItemList.mockReturnValue({
+      data: [existingRow, otherRow],
+    });
+    renderList({
+      initialData: [existingRow, otherRow],
+      canEditAllTeams: true,
+      ownTeam: null,
+    });
+
+    expect(screen.getByDisplayValue("他チームの契約")).not.toBeDisabled();
+  });
+
+  it("プロフィール取得失敗時は「所属チーム未設定」と誤案内せず、再読み込みを促して保存を無効にする", () => {
+    renderList({
+      canEditAllTeams: false,
+      ownTeam: null,
+      profileLoadFailed: true,
+    });
+
+    expect(
+      screen.getByText("権限情報の取得に失敗しました"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("所属チームが未設定です"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+  });
+
+  it("マスタ未登録の分類エラーは編集できる行にだけ表示する", () => {
+    const otherRow = {
+      ...existingRow,
+      id: 2,
+      team: "経理チーム",
+      category: "旧分類",
+    };
+    const own = { ...existingRow, category: "旧分類" };
+    useBudgetRecurringItemList.mockReturnValue({ data: [own, otherRow] });
+    renderList({ initialData: [own, otherRow] });
+
+    expect(
+      screen.getAllByText("マスタ未登録のため選び直してください"),
+    ).toHaveLength(1);
+  });
+
+  it("所属チームのない閲覧者（ownTeam=null）は全行が閲覧のみで、行の追加も保存もできず、理由を案内する", () => {
+    renderList({ ownTeam: null });
+
+    expect(screen.getByText("所属チームが未設定です")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+
+    expect(screen.getByDisplayValue("○○保守契約")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "定期明細追加" })).toBeDisabled();
+  });
+
   it("行を追加・削除できる", () => {
     renderList();
 
@@ -118,6 +199,23 @@ describe("BudgetRecurringItemList", () => {
     );
     expect(saveMutation.mutateAsync).not.toHaveBeenCalled();
     expect(confirmAction).not.toHaveBeenCalled();
+  });
+
+  it("編集した行だけ isEdited を付けて保存し、触っていない行には付けない", async () => {
+    confirmAction.mockResolvedValue(true);
+    const second = { ...existingRow, id: 2, description: "△△契約" };
+    useBudgetRecurringItemList.mockReturnValue({ data: [existingRow, second] });
+    renderList({ initialData: [existingRow, second] });
+
+    fireEvent.change(screen.getByDisplayValue("△△契約"), {
+      target: { value: "△△契約（改定）" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await vi.waitFor(() => expect(saveMutation.mutateAsync).toHaveBeenCalled());
+
+    const sent = saveMutation.mutateAsync.mock.calls[0][0];
+    expect(sent.find((r: { id: number }) => r.id === 1).isEdited).toBeFalsy();
+    expect(sent.find((r: { id: number }) => r.id === 2).isEdited).toBe(true);
   });
 
   it("確認後に一括保存する", async () => {

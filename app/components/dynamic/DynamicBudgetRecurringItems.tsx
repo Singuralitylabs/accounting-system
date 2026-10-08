@@ -55,6 +55,7 @@ const DynamicBudgetRecurringItems = async () => {
         label: member.name,
       }))}
       memberListError={!!memberOptionsError}
+      profileLoadFailed={!!profileError || !profileInfo}
     />
   );
 };

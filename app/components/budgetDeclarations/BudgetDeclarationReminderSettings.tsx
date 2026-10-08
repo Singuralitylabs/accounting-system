@@ -5,14 +5,23 @@ import {
   Badge,
   Button,
   Chip,
+  Code,
   Group,
   LoadingOverlay,
   Modal,
   Text,
+  Textarea,
 } from "@mantine/core";
 import { useState } from "react";
-import { normalizeBudgetDeclarationReminderTargetDays } from "@/app/utils/budgetDeclarationReminder";
-import { updateBudgetDeclarationReminderTargetDays } from "@/app/utils/supabase/budgetDeclarationReminderSettings";
+import {
+  BUDGET_DECLARATION_REMINDER_PLACEHOLDERS,
+  BudgetDeclarationReminderDay,
+  DEFAULT_BUDGET_DECLARATION_REMINDER_MESSAGE,
+  normalizeBudgetDeclarationReminderDays,
+  validateBudgetDeclarationReminderMessage,
+} from "@/app/utils/budgetDeclarationReminder";
+import { expandSlackTemplate, sampleValues } from "@/app/utils/slackTemplate";
+import { updateBudgetDeclarationReminderDays } from "@/app/utils/supabase/budgetDeclarationReminderSettings";
 import { confirmAction } from "@/app/utils/confirmAction";
 import { notifyError, notifySuccess } from "@/app/utils/notify";
 
@@ -20,29 +29,37 @@ const ALL_DAYS = Array.from({ length: 31 }, (_, index) => index + 1);
 
 type Props = {
   // null when the fetch failed (the modal shows only an error message).
-  initialTargetDays: number[] | null;
+  initialDays: BudgetDeclarationReminderDay[] | null;
 };
 
+const toMessageMap = (rows: readonly BudgetDeclarationReminderDay[]) =>
+  Object.fromEntries(rows.map(({ day, message }) => [String(day), message]));
+
 // Reminder settings button and modal; always mounted in the list's button row, so the saved value persists across open/close.
-const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
+const BudgetDeclarationReminderSettings = ({ initialDays }: Props) => {
   const [opened, setOpened] = useState(false);
   const [selectedDays, setSelectedDays] = useState<string[]>(
-    (initialTargetDays ?? []).map(String),
+    (initialDays ?? []).map(({ day }) => String(day)),
   );
-  // Currently saved target days; updated only on successful save. Kept separate from the unsaved draft (selectedDays) so removing a chip does not show "reminders disabled".
-  const [savedTargetDays, setSavedTargetDays] = useState<number[]>(
-    initialTargetDays ?? [],
+  // Draft message per day. Kept after a chip is deselected so re-selecting restores the text; only selected days are saved.
+  const [messages, setMessages] = useState<Record<string, string>>(
+    toMessageMap(initialDays ?? []),
+  );
+  // Currently saved rows; updated only on successful save. Kept separate from the unsaved draft (selectedDays) so removing a chip does not show "reminders disabled".
+  const [savedDays, setSavedDays] = useState<BudgetDeclarationReminderDay[]>(
+    initialDays ?? [],
   );
   const [isLoading, setIsLoading] = useState(false);
   // True while the confirm dialog is shown. Mantine 7.13 lets every open Modal handle Esc, so closing the dialog with Esc would also close this modal and discard the selection.
   const [isConfirming, setIsConfirming] = useState(false);
 
-  const isFetchFailed = initialTargetDays === null;
+  const isFetchFailed = initialDays === null;
   const isBusy = isLoading || isConfirming;
 
   const openModal = () => {
     // Discard the unsaved selection on close; re-init from saved days on open.
-    setSelectedDays(savedTargetDays.map(String));
+    setSelectedDays(savedDays.map(({ day }) => String(day)));
+    setMessages(toMessageMap(savedDays));
     setOpened(true);
   };
 
@@ -52,10 +69,24 @@ const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
     setOpened(false);
   };
 
+  // A newly selected day starts from the default message.
+  const messageOf = (day: string) =>
+    messages[day] ?? DEFAULT_BUDGET_DECLARATION_REMINDER_MESSAGE;
+
+  const draftRows = normalizeBudgetDeclarationReminderDays(
+    selectedDays.map((day) => ({ day: Number(day), message: messageOf(day) })),
+  );
+  const errorsByDay = new Map(
+    draftRows.flatMap(({ day, message }) => {
+      const error = validateBudgetDeclarationReminderMessage(message);
+      return error ? [[day, error] as const] : [];
+    }),
+  );
+  const previewValues = sampleValues(BUDGET_DECLARATION_REMINDER_PLACEHOLDERS);
+
   const handleSave = async () => {
-    const normalized = normalizeBudgetDeclarationReminderTargetDays(
-      selectedDays.map(Number),
-    );
+    if (errorsByDay.size > 0) return;
+    const normalized = draftRows;
 
     let confirmed: boolean;
     try {
@@ -72,15 +103,15 @@ const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
 
     try {
       setIsLoading(true);
-      const { error } =
-        await updateBudgetDeclarationReminderTargetDays(normalized);
+      const { error } = await updateBudgetDeclarationReminderDays(normalized);
       if (error) {
         // Keep the modal open on failure so the selection can be redone.
         notifyError(error.message);
         return;
       }
-      setSelectedDays(normalized.map(String));
-      setSavedTargetDays(normalized);
+      setSelectedDays(normalized.map(({ day }) => String(day)));
+      setMessages(toMessageMap(normalized));
+      setSavedDays(normalized);
       notifySuccess("リマインド設定を更新しました。");
       setOpened(false);
     } catch (error) {
@@ -95,7 +126,7 @@ const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
     <>
       <Group gap="xs">
         {/* Shown next to the button so a disabled reminder is noticeable (hidden when fetch failed: state unknown). */}
-        {!isFetchFailed && savedTargetDays.length === 0 && (
+        {!isFetchFailed && savedDays.length === 0 && (
           <Badge color="yellow">リマインド無効</Badge>
         )}
         <Button type="button" size="xs" variant="light" onClick={openModal}>
@@ -121,9 +152,9 @@ const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
             <LoadingOverlay visible={isLoading} />
             <Text size="sm" c="dimmed" mb="xs">
               未申告チームへの Slack
-              リマインド対象日（JST）を選択してください。29〜31日は存在しない月があり、その月はスキップされます。
+              リマインド対象日（JST）を選択し、日ごとに文面を設定してください。29〜31日は存在しない月があり、その月はスキップされます。
             </Text>
-            {savedTargetDays.length === 0 ? (
+            {savedDays.length === 0 ? (
               <Alert color="yellow" title="現在リマインドは無効です" mb="sm">
                 対象日が選択されていないため、Slack リマインドは送信されません。
               </Alert>
@@ -152,12 +183,54 @@ const BudgetDeclarationReminderSettings = ({ initialTargetDays }: Props) => {
                 ))}
               </Group>
             </Chip.Group>
+            {draftRows.map(({ day, message }) => (
+              <div key={day} className="mt-4">
+                <Textarea
+                  label={`${day}日の文面`}
+                  description={
+                    <>
+                      使用できるプレースホルダ:{" "}
+                      {BUDGET_DECLARATION_REMINDER_PLACEHOLDERS.map(
+                        ({ key, description }) => (
+                          <span key={key} className="mr-2">
+                            <Code>{`{${key}}`}</Code> {description}
+                          </span>
+                        ),
+                      )}
+                      。未申告チーム・期限・URL は文面の後ろに自動で付きます。
+                    </>
+                  }
+                  value={message}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    setMessages((prev) => ({ ...prev, [String(day)]: value }));
+                  }}
+                  error={errorsByDay.get(day)}
+                  autosize
+                  minRows={2}
+                />
+                {!errorsByDay.has(day) && (
+                  <Text
+                    size="xs"
+                    c="dimmed"
+                    className="whitespace-pre-wrap"
+                    data-testid={`reminder-preview-${day}`}
+                  >
+                    プレビュー: {expandSlackTemplate(message, previewValues)}
+                  </Text>
+                )}
+              </div>
+            ))}
             <Group justify="flex-end" mt="lg">
               <Button variant="default" disabled={isBusy} onClick={closeModal}>
                 キャンセル
               </Button>
               {/* Disabled while confirming too: double click would stack dialogs and save twice. */}
-              <Button type="button" disabled={isBusy} onClick={handleSave}>
+              <Button
+                type="button"
+                disabled={isBusy || errorsByDay.size > 0}
+                onClick={handleSave}
+              >
                 保存
               </Button>
             </Group>

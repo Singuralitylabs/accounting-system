@@ -50,7 +50,6 @@ export const ROUTE_PERMISSIONS: Record<string, Role[]> = {
   "/profit-loss": ["teamleader", "accounting", "admin"],
   "/recurring-costs": ["accounting", "admin"],
   "/extra-entries": ["accounting", "admin"],
-  "/budget-declarations": ["teamleader", "accounting", "admin"],
   "/dashboard": ["admin"],
 };
 
@@ -70,9 +69,13 @@ export const PL_LABEL_WRITE_CLASSES: Role[] = ["accounting", "admin"];
 // profit_loss_closing_lines RLS (write: accounting / admin).
 export const PL_CLOSING_WRITE_CLASSES: Role[] = ["accounting", "admin"];
 
+// Roles behind DB `auth_user_class() IN ('admin', 'accounting')` policies (closing, reminder / Slack
+// settings, all-team budget writes). Change the DB policies and this together.
+export const ACCOUNTING_ROLES: Role[] = ["accounting", "admin"];
+
 // Closing/reopening a month of budget declarations. Matches budget_declaration_closings RLS
 // (write: accounting / admin); teamleaders may only view the closing state.
-export const BUDGET_CLOSING_WRITE_CLASSES: Role[] = ["accounting", "admin"];
+export const BUDGET_CLOSING_WRITE_CLASSES: Role[] = ACCOUNTING_ROLES;
 
 // Roles that may bulk-save the user list (bulkUpdateProfiles). Granting roles is privilege
 // escalation, so this is separate from ROUTE_PERMISSIONS["/dashboard"]. Matches profiles UPDATE RLS
@@ -106,7 +109,11 @@ export const matchesRoute = (pathname: string, route: string) =>
   pathname === route || pathname.startsWith(`${route}/`);
 
 // Login-only routes. matchesRoute("/matters", "/") is false, so "/" matches only the top page.
-export const AUTH_ONLY_ROUTES = ["/", "/matters"] as const;
+export const AUTH_ONLY_ROUTES = [
+  "/",
+  "/matters",
+  "/budget-declarations",
+] as const;
 
 export const isAuthOnlyPath = (pathname: string) =>
   AUTH_ONLY_ROUTES.some((route) => matchesRoute(pathname, route));

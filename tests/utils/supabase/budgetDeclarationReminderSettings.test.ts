@@ -10,16 +10,16 @@ vi.mock("@/app/utils/supabase/viewerAccess", () => ({ getAuthorizedViewer }));
 
 import {
   getBudgetDeclarationReminderSettings,
-  updateBudgetDeclarationReminderTargetDays,
+  updateBudgetDeclarationReminderDays,
 } from "@/app/utils/supabase/budgetDeclarationReminderSettings";
 
 describe("getBudgetDeclarationReminderSettings", () => {
-  const maybeSingle = vi.fn();
-  const select = vi.fn(() => ({ maybeSingle }));
+  const order = vi.fn();
+  const select = vi.fn(() => ({ order }));
   const from = vi.fn(() => ({ select }));
 
   beforeEach(() => {
-    maybeSingle.mockReset();
+    order.mockReset();
     select.mockClear();
     from.mockClear();
     createServerSupabase.mockReturnValue({ from });
@@ -29,16 +29,14 @@ describe("getBudgetDeclarationReminderSettings", () => {
     });
   });
 
-  it("admin / accounting は現在の対象日を取得できる", async () => {
-    maybeSingle.mockResolvedValue({
-      data: { target_days: [15, 18, 20] },
-      error: null,
-    });
+  it("admin / accounting は現在の対象日と文面を取得できる", async () => {
+    const rows = [{ day: 15, message: "予告" }];
+    order.mockResolvedValue({ data: rows, error: null });
 
     const result = await getBudgetDeclarationReminderSettings();
 
-    expect(from).toHaveBeenCalledWith("budget_declaration_reminder_settings");
-    expect(result).toEqual({ targetDays: [15, 18, 20] });
+    expect(from).toHaveBeenCalledWith("budget_declaration_reminder_days");
+    expect(result).toEqual({ days: rows });
   });
 
   it("権限不足のときは取得せずエラーを返す", async () => {
@@ -53,7 +51,7 @@ describe("getBudgetDeclarationReminderSettings", () => {
   });
 
   it("DB エラー時はエラーを返す（cron 用と異なりデフォルト値へフォールバックしない）", async () => {
-    maybeSingle.mockResolvedValue({
+    order.mockResolvedValue({
       data: null,
       error: { message: "permission denied" },
     });
@@ -64,43 +62,46 @@ describe("getBudgetDeclarationReminderSettings", () => {
   });
 });
 
-describe("updateBudgetDeclarationReminderTargetDays", () => {
-  const select = vi.fn();
-  const eq = vi.fn(() => ({ select }));
-  const update = vi.fn(() => ({ eq }));
-  const from = vi.fn(() => ({ update }));
+describe("updateBudgetDeclarationReminderDays", () => {
+  const rpc = vi.fn();
 
   beforeEach(() => {
-    select.mockReset();
-    eq.mockClear();
-    update.mockClear();
-    from.mockClear();
-    createServerSupabase.mockReturnValue({ from });
+    rpc.mockReset();
+    createServerSupabase.mockReturnValue({ rpc });
     getAuthorizedViewer.mockReset();
     getAuthorizedViewer.mockResolvedValue({
       profileInfo: { id: 1, class: "accounting" },
     });
   });
 
-  it("正規化した対象日で id = 1 の行だけを更新する", async () => {
-    select.mockResolvedValue({ data: [{ id: 1 }], error: null });
+  it("正規化した行を全置換 RPC に渡す（範囲外は除外・重複は後勝ち・日付昇順）", async () => {
+    rpc.mockResolvedValue({ error: null });
 
-    const result = await updateBudgetDeclarationReminderTargetDays([
-      20, 15, 15, 0, 32,
+    const result = await updateBudgetDeclarationReminderDays([
+      { day: 20, message: "{month}期限" },
+      { day: 15, message: "a" },
+      { day: 15, message: "b" },
+      { day: 0, message: "x" },
+      { day: 32, message: "x" },
     ]);
 
-    expect(from).toHaveBeenCalledWith("budget_declaration_reminder_settings");
-    expect(update).toHaveBeenCalledWith({ target_days: [15, 20] });
-    expect(eq).toHaveBeenCalledWith("id", 1);
+    expect(rpc).toHaveBeenCalledWith("replace_budget_declaration_reminder_days", {
+      p_rows: [
+        { day: 15, message: "b" },
+        { day: 20, message: "{month}期限" },
+      ],
+    });
     expect(result).toEqual({});
   });
 
-  it("空配列で保存するとそのまま空配列で更新する（リマインド停止）", async () => {
-    select.mockResolvedValue({ data: [{ id: 1 }], error: null });
+  it("空配列で保存するとそのまま空配列で置換する（リマインド停止）", async () => {
+    rpc.mockResolvedValue({ error: null });
 
-    await updateBudgetDeclarationReminderTargetDays([]);
+    await updateBudgetDeclarationReminderDays([]);
 
-    expect(update).toHaveBeenCalledWith({ target_days: [] });
+    expect(rpc).toHaveBeenCalledWith("replace_budget_declaration_reminder_days", {
+      p_rows: [],
+    });
   });
 
   it("権限不足のときは更新せずエラーを返す", async () => {
@@ -108,24 +109,46 @@ describe("updateBudgetDeclarationReminderTargetDays", () => {
       error: { kind: "forbidden", message: "権限がありません。" },
     });
 
-    const result = await updateBudgetDeclarationReminderTargetDays([15]);
+    const result = await updateBudgetDeclarationReminderDays([
+      { day: 15, message: "a" },
+    ]);
 
-    expect(from).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
     expect(result.error?.kind).toBe("forbidden");
   });
 
-  it("RLS で 0 行のとき（更新対象が見つからない）はエラーを返す", async () => {
-    select.mockResolvedValue({ data: [], error: null });
+  it("配列でない入力・文字列でない文面は TypeError にせず validationFailed を返す", async () => {
+    const notArray = await updateBudgetDeclarationReminderDays(
+      "x" as never,
+    );
+    const nullMessage = await updateBudgetDeclarationReminderDays([
+      { day: 15, message: null },
+    ] as never);
 
-    const result = await updateBudgetDeclarationReminderTargetDays([15]);
-
-    expect(result.error?.kind).toBe("fetchFailed");
+    expect(rpc).not.toHaveBeenCalled();
+    expect(notArray.error?.kind).toBe("validationFailed");
+    expect(nullMessage.error?.kind).toBe("validationFailed");
   });
 
-  it("DB エラー時はエラーを返す", async () => {
-    select.mockResolvedValue({ data: null, error: { message: "boom" } });
+  it("未知のプレースホルダ・空の文面は更新せずエラーを返す", async () => {
+    const unknown = await updateBudgetDeclarationReminderDays([
+      { day: 15, message: "{foo}" },
+    ]);
+    const empty = await updateBudgetDeclarationReminderDays([
+      { day: 20, message: " " },
+    ]);
 
-    const result = await updateBudgetDeclarationReminderTargetDays([15]);
+    expect(rpc).not.toHaveBeenCalled();
+    expect(unknown.error?.message).toContain("15日");
+    expect(empty.error?.message).toContain("20日");
+  });
+
+  it("RPC エラー時はエラーを返す", async () => {
+    rpc.mockResolvedValue({ error: { message: "boom" } });
+
+    const result = await updateBudgetDeclarationReminderDays([
+      { day: 15, message: "a" },
+    ]);
 
     expect(result.error?.kind).toBe("fetchFailed");
   });

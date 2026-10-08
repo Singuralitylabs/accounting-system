@@ -33,6 +33,7 @@ import { notifyError, notifyInfo } from "../../utils/notify";
 import { confirmAction } from "../../utils/confirmAction";
 import { ActiveMatterFilterBar } from "./ActiveMatterFilterBar";
 import { LoadingSpinner } from "../LoadingSpinner";
+import SlackNotificationSettings from "./SlackNotificationSettings";
 
 export const AccountingMatterList = ({
   initialData,
@@ -250,6 +251,7 @@ export const AccountingMatterList = ({
       <LoadingOverlay visible={isListBusy && hasList} />
       <div className="sticky top-4 bg-white z-[5]">
         <div className="flex justify-end gap-4 my-4 px-4">
+          <SlackNotificationSettings />
           <Button
             color="green"
             loading={checkCompletedMutation.isPending}

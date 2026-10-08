@@ -46,6 +46,8 @@ type Props = {
   teamList: string[];
   memberList: { value: string; label: string }[];
   memberListError?: boolean;
+  // True when the profile fetch failed: the role / team are unknown, so editing is disabled with a reload hint.
+  profileLoadFailed?: boolean;
 };
 
 // Column widths from md up (same minimums as the former table); below md each row is a vertical block.
@@ -67,6 +69,7 @@ const BudgetRecurringItemList = ({
   teamList,
   memberList,
   memberListError = false,
+  profileLoadFailed = false,
 }: Props) => {
   const { categoryList, itemList } = useAtomValue(optionsAtom);
   const {
@@ -110,7 +113,9 @@ const BudgetRecurringItemList = ({
   ) => {
     setIsDirty(true);
     setRows((prev) =>
-      prev.map((row) => (row.id === id ? { ...row, ...updates } : row)),
+      prev.map((row) =>
+        row.id === id ? { ...row, ...updates, isEdited: true } : row,
+      ),
     );
   };
 
@@ -145,11 +150,24 @@ const BudgetRecurringItemList = ({
     );
   };
 
+  // Every user sees all teams' lines, but only accounting / admin or the owner team can edit a row.
+  const isEditableRow = (row: BudgetRecurringItemInListType) =>
+    canEditAllTeams || (!!ownTeam && row.team === ownTeam);
+
+  // No team and not accounting / admin: nothing can be edited or saved.
+  const isViewOnly = !profileLoadFailed && !canEditAllTeams && !ownTeam;
+  // The role is unknown, so nothing can be saved; do not blame the team setting.
+  const isSaveDisabled = isViewOnly || profileLoadFailed;
+
   const handleSave = async () => {
-    const validation = validateBudgetRecurringItemList(rows, {
-      categoryList,
-      itemList,
-    });
+    // Read-only rows (other teams) are not saved, so their problems must not block the save.
+    const validation = validateBudgetRecurringItemList(
+      rows.filter(isEditableRow),
+      {
+        categoryList,
+        itemList,
+      },
+    );
     if (validation !== "ok") {
       notifyError(getBudgetRecurringItemValidationMessage(validation));
       return;
@@ -174,14 +192,16 @@ const BudgetRecurringItemList = ({
   };
 
   const visibleRows = rows.filter((row) => !row.isRemoved);
-  const unregisteredCategoryCount = visibleRows.filter((row) =>
-    isCategoryUnregistered(
-      row.entry_type,
-      row.category,
-      categoryList,
-      itemList,
-    ),
-  ).length;
+  const unregisteredCategoryCount = visibleRows
+    .filter(isEditableRow)
+    .filter((row) =>
+      isCategoryUnregistered(
+        row.entry_type,
+        row.category,
+        categoryList,
+        itemList,
+      ),
+    ).length;
 
   return (
     <div className="px-4 pb-8 max-w-6xl mx-auto relative">
@@ -203,6 +223,20 @@ const BudgetRecurringItemList = ({
       >
         ← 事前収支申告一覧に戻る
       </Link>
+      {profileLoadFailed && (
+        <Alert
+          color="red"
+          className="mt-2"
+          title="権限情報の取得に失敗しました"
+        >
+          時間をおいてページを再読み込みしてください。
+        </Alert>
+      )}
+      {isViewOnly && (
+        <Alert color="yellow" className="mt-2" title="所属チームが未設定です">
+          閲覧のみ（編集には所属チームの設定が必要です）。管理者にお問い合わせください。
+        </Alert>
+      )}
       <div className="flex justify-between items-center mb-4 mt-2 gap-4">
         <p className="text-sm text-gray-600">
           毎月固定で発生する収入・支出を登録します。適用期間内の対象月で新規の事前収支申告を作成すると、明細として自動で取り込まれます（取り込み後は申告ごとに編集・削除できます）。金額改定は既存行の適用終了月を設定して打ち切り、新しい行を追加してください。
@@ -210,7 +244,7 @@ const BudgetRecurringItemList = ({
         <Button
           type="button"
           className="shrink-0"
-          disabled={formLocked}
+          disabled={formLocked || isSaveDisabled}
           onClick={handleSave}
         >
           保存
@@ -270,7 +304,7 @@ const BudgetRecurringItemList = ({
                 classNames={MOBILE_ONLY_LABEL}
                 data={ENTRY_TYPE_OPTIONS}
                 value={row.entry_type}
-                disabled={formLocked}
+                disabled={formLocked || !isEditableRow(row)}
                 allowDeselect={false}
                 onChange={(value) =>
                   handleUpdateRow(row.id, {
@@ -290,9 +324,10 @@ const BudgetRecurringItemList = ({
                   itemList,
                 )}
                 value={row.category || null}
-                disabled={formLocked}
+                disabled={formLocked || !isEditableRow(row)}
                 placeholder="分類を選択"
                 error={
+                  isEditableRow(row) &&
                   isCategoryUnregistered(
                     row.entry_type,
                     row.category,
@@ -310,7 +345,7 @@ const BudgetRecurringItemList = ({
                 label="内容"
                 classNames={MOBILE_ONLY_LABEL}
                 value={row.description}
-                disabled={formLocked}
+                disabled={formLocked || !isEditableRow(row)}
                 placeholder="例: ○○保守契約"
                 onChange={(event) =>
                   handleUpdateRow(row.id, {
@@ -322,7 +357,7 @@ const BudgetRecurringItemList = ({
                 label="金額"
                 classNames={MOBILE_ONLY_LABEL}
                 value={row.amount}
-                disabled={formLocked}
+                disabled={formLocked || !isEditableRow(row)}
                 min={0}
                 step={1000}
                 thousandSeparator=","
@@ -343,7 +378,7 @@ const BudgetRecurringItemList = ({
                     ? "担当者一覧を取得できませんでした"
                     : "担当者を選択"
                 }
-                disabled={memberListError || formLocked}
+                disabled={memberListError || formLocked || !isEditableRow(row)}
                 searchable
                 clearable
                 onChange={(value) =>
@@ -356,7 +391,7 @@ const BudgetRecurringItemList = ({
                 label="適用開始月"
                 classNames={MOBILE_ONLY_LABEL}
                 placeholder="開始月"
-                disabled={formLocked}
+                disabled={formLocked || !isEditableRow(row)}
                 value={row.start_month ? row.start_month.slice(0, 7) : null}
                 onChange={(month) =>
                   handleUpdateRow(row.id, {
@@ -368,7 +403,7 @@ const BudgetRecurringItemList = ({
                 label="適用終了月"
                 classNames={MOBILE_ONLY_LABEL}
                 placeholder="終了月（継続中は空欄）"
-                disabled={formLocked}
+                disabled={formLocked || !isEditableRow(row)}
                 value={row.end_month ? row.end_month.slice(0, 7) : null}
                 onChange={(month) =>
                   handleUpdateRow(row.id, {
@@ -381,7 +416,7 @@ const BudgetRecurringItemList = ({
                 type="button"
                 aria-label="削除"
                 className="absolute right-3 top-2 text-red-500 hover:text-red-700 disabled:text-gray-300 disabled:cursor-not-allowed md:static"
-                disabled={formLocked}
+                disabled={formLocked || !isEditableRow(row)}
                 onClick={() => handleRemoveRow(row.id)}
               >
                 <RiDeleteBin6Line size="1.2rem" />

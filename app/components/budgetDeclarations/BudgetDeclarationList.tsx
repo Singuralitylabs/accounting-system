@@ -34,15 +34,15 @@ import { LoadingSpinner } from "../LoadingSpinner";
 import BudgetClosingControl from "./BudgetClosingControl";
 import BudgetDeclarationForm from "./BudgetDeclarationForm";
 import BudgetDeclarationItemTable from "./BudgetDeclarationItemTable";
+import type { BudgetDeclarationReminderDay } from "@/app/utils/budgetDeclarationReminder";
 import BudgetDeclarationReminderSettings from "./BudgetDeclarationReminderSettings";
 
 type Props = {
   initialMonth: string; // "YYYY-MM"
   initialData: BudgetDeclarationStatusType[] | null;
   initialDataUpdatedAt: number;
-  // Viewer's role / team: writes follow canWriteBudgetTeam (accounting/admin all teams, teamleader own team only); other teams are view-only.
+  // Viewer's role / team: writes follow canWriteBudgetTeam (accounting/admin all teams, everyone else their own team only); other teams are view-only.
   profileClass: string | null;
-  // profiles.is_teamleader: writes to the own team (in addition to the class's access).
   isTeamleader: boolean;
   profileTeam?: string | null;
   // Role that can close/reopen a month (accounting/admin). Others see the state only.
@@ -51,7 +51,7 @@ type Props = {
   // Role that can show the reminder settings button (admin / accounting). Defaults to false.
   canManageReminderSettings?: boolean;
   // null when fetch failed, even if canManageReminderSettings.
-  initialReminderTargetDays?: number[] | null;
+  initialReminderDays?: BudgetDeclarationReminderDay[] | null;
   memberList: { value: string; label: string }[];
   // Manager Select is disabled while true (see BudgetDeclarationForm).
   memberListError?: boolean;
@@ -87,7 +87,7 @@ const BudgetDeclarationList = ({
   canCloseMonth = false,
   initialClosings = null,
   canManageReminderSettings = false,
-  initialReminderTargetDays = null,
+  initialReminderDays = null,
   memberList,
   memberListError = false,
 }: Props) => {
@@ -211,7 +211,7 @@ const BudgetDeclarationList = ({
         {/* Modal-opened rather than always expanded; kept mounted so saved values persist across open/close. */}
         {canManageReminderSettings && (
           <BudgetDeclarationReminderSettings
-            initialTargetDays={initialReminderTargetDays}
+            initialDays={initialReminderDays}
           />
         )}
         <Button
@@ -301,7 +301,8 @@ const BudgetDeclarationList = ({
           )}
         </Paper>
 
-        {isTeamleader &&
+        {/* profileClass is null when the profile fetch failed (logged server-side); do not blame the team setting then. */}
+        {profileClass !== null &&
           !profileTeam &&
           !canWriteAllBudgetTeams(profileClass, isTeamleader) && (
             <Alert
@@ -309,7 +310,7 @@ const BudgetDeclarationList = ({
               className="mb-4"
               title="所属チームが未設定です"
             >
-              所属チームが設定されていないため、申告の作成・編集はできません（全チームの閲覧のみ）。管理者にお問い合わせください。
+              閲覧のみ（編集には所属チームの設定が必要です）。所属チームが設定されていないため、申告の作成・編集はできません。管理者にお問い合わせください。
             </Alert>
           )}
 

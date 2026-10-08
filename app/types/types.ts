@@ -1,3 +1,5 @@
+import type { BudgetDeclarationReminderDay } from "../utils/budgetDeclarationReminder";
+import type { MatterNoticeSettings } from "../utils/slackNotificationTemplate";
 import { Database } from "../lib/database.types";
 
 export type PageTitleProps = {
@@ -27,9 +29,9 @@ export type SlackNotificationResponse = {
 };
 
 export type SlackNotificationMetadata = {
+  assignee?: string;
   matterId?: number;
   matterTitle?: string;
-  sender?: string;
 };
 
 export type MatterInfoWithUserNameType = {
@@ -400,8 +402,8 @@ export type BudgetDeclarationPreviousItemsResult =
   | { items?: undefined; error: AccessFailure };
 
 export type BudgetDeclarationReminderSettingsResult =
-  | { targetDays: number[]; error?: undefined }
-  | { targetDays?: undefined; error: AccessFailure };
+  | { days: BudgetDeclarationReminderDay[]; error?: undefined }
+  | { days?: undefined; error: AccessFailure };
 
 export type BudgetDeclarationReminderSettingsSaveResult = {
   error?: AccessFailure;
@@ -411,10 +413,12 @@ type BudgetRecurringItemsTable =
   Database["public"]["Tables"]["budget_recurring_items"];
 export type BudgetRecurringItemType = BudgetRecurringItemsTable["Row"];
 
-// Local edit state (isNew/isRemoved) is never sent to the server.
+// Local edit state (isNew/isRemoved/isEdited) is never persisted. isEdited marks rows the user changed,
+// so the server can tell them from untouched rows that were merely sent back as displayed.
 export type BudgetRecurringItemInListType = BudgetRecurringItemType & {
   isNew: boolean;
   isRemoved: boolean;
+  isEdited?: boolean;
 };
 
 export type BudgetRecurringItemListResult =
@@ -491,4 +495,12 @@ export type ClosingDiffSummary = { month: string; count: number }[];
 export type ClosingDiffSummaryData = {
   summary: ClosingDiffSummary;
   fromMonth: string; // "YYYY-MM"
+};
+
+export type SlackNotificationSettingsResult =
+  | { settings: MatterNoticeSettings; error?: undefined }
+  | { settings?: undefined; error: AccessFailure };
+
+export type SlackNotificationSettingsSaveResult = {
+  error?: AccessFailure;
 };

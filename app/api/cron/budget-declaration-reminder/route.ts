@@ -2,15 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { defaultTargetMonth } from "@/app/utils/budgetDeclaration";
 import {
   buildBudgetDeclarationReminderMessage,
+  expandBudgetDeclarationReminderMessage,
+  findBudgetDeclarationReminderForDay,
   groupSlackIdsByTeam,
-  isBudgetDeclarationReminderTargetDay,
   undeclaredBudgetTeams,
 } from "@/app/utils/budgetDeclarationReminder";
 import { toFirstOfMonth } from "@/app/utils/formatter";
 import { sendBudgetDeclarationReminderToSlack } from "@/app/utils/slack/sendBudgetDeclarationReminder";
 import {
   getActiveBudgetTeams,
-  getBudgetDeclarationReminderTargetDays,
+  getBudgetDeclarationReminderDays,
   getDeclaredBudgetTeams,
   getTeamLeaderSlackContacts,
   isBudgetMonthClosed,
@@ -36,8 +37,12 @@ export async function GET(request: NextRequest) {
   }
 
   const now = new Date();
-  const targetDays = await getBudgetDeclarationReminderTargetDays();
-  if (!isBudgetDeclarationReminderTargetDay(now, targetDays)) {
+  const reminderDays = await getBudgetDeclarationReminderDays();
+  const reminderForToday = findBudgetDeclarationReminderForDay(
+    now,
+    reminderDays,
+  );
+  if (!reminderForToday) {
     return NextResponse.json({ skipped: true, reason: "not-target-day" });
   }
 
@@ -83,7 +88,10 @@ export async function GET(request: NextRequest) {
 
   const message = buildBudgetDeclarationReminderMessage(
     reminderTeams,
-    targetMonth,
+    expandBudgetDeclarationReminderMessage(
+      reminderForToday.message,
+      targetMonth,
+    ),
     resolveBudgetDeclarationUrl(),
   );
 

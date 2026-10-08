@@ -120,20 +120,20 @@ export type Database = {
           },
         ]
       }
-      budget_declaration_reminder_settings: {
+      budget_declaration_reminder_days: {
         Row: {
-          id: number
-          target_days: number[]
+          day: number
+          message: string
           updated_at: string
         }
         Insert: {
-          id?: number
-          target_days?: number[]
+          day: number
+          message: string
           updated_at?: string
         }
         Update: {
-          id?: number
-          target_days?: number[]
+          day?: number
+          message?: string
           updated_at?: string
         }
         Relationships: []
@@ -965,6 +965,27 @@ export type Database = {
           },
         ]
       }
+      slack_notification_settings: {
+        Row: {
+          id: number
+          matter_notice_body_template: string
+          matter_notice_header: string
+          updated_at: string
+        }
+        Insert: {
+          id?: number
+          matter_notice_body_template?: string
+          matter_notice_header?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: number
+          matter_notice_body_template?: string
+          matter_notice_header?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -1019,6 +1040,10 @@ export type Database = {
           id: number
           name: string
         }[]
+      }
+      replace_budget_declaration_reminder_days: {
+        Args: { p_rows: Json }
+        Returns: undefined
       }
       // p_declaration_id / p_comment は SQL 側で DEFAULT NULL を付けているため
       // 省略可能（supabase gen types は DEFAULT の有無だけを見て `?:` を付け、

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BUDGET_WRITE_ALL_TEAMS_CLASSES,
-  BUDGET_DECLARATION_ALLOWED_CLASSES,
+  BUDGET_DECLARATION_VIEW_CLASSES,
   BudgetDeclarationError,
   BudgetDeclarationWithItems,
   buildBudgetDeclarationStatusList,
@@ -20,7 +20,7 @@ import {
   summarizeBudgetItems,
   totalBudgetSummary,
 } from "@/app/utils/budgetDeclaration";
-import { ROUTE_PERMISSIONS } from "@/app/utils/permissions";
+import { ROLES } from "@/app/utils/permissions";
 
 const declaration = (
   overrides: Partial<BudgetDeclarationWithItems> & { team: string },
@@ -121,11 +121,15 @@ describe("canWriteBudgetTeam", () => {
     expect(canWriteBudgetTeam("admin", "Bチーム", "Aチーム", false)).toBe(true);
   });
 
-  it("フラグ付きの public（チームリーダー）は自チームのみ書き込める", () => {
-    expect(canWriteBudgetTeam("public", "Aチーム", "Aチーム", true)).toBe(true);
-    expect(canWriteBudgetTeam("public", "Aチーム", "Bチーム", true)).toBe(
-      false,
-    );
+  it("所属チームがある public は、フラグの有無にかかわらず自チームのみ書き込める", () => {
+    for (const isTeamleader of [true, false, null]) {
+      expect(
+        canWriteBudgetTeam("public", "Aチーム", "Aチーム", isTeamleader),
+      ).toBe(true);
+      expect(
+        canWriteBudgetTeam("public", "Aチーム", "Bチーム", isTeamleader),
+      ).toBe(false);
+    }
   });
 
   it("フラグ付きの経理（兼任）は全チームへ書き込める", () => {
@@ -135,35 +139,26 @@ describe("canWriteBudgetTeam", () => {
     expect(canWriteBudgetTeam("accounting", null, "Aチーム", true)).toBe(true);
   });
 
-  it("チーム未設定のチームリーダーはどのチームにも書き込めない", () => {
-    expect(canWriteBudgetTeam("public", null, "Aチーム", true)).toBe(false);
+  it("所属チーム未設定の public はどのチームにも書き込めない", () => {
+    expect(canWriteBudgetTeam("public", null, "Aチーム", false)).toBe(false);
+    expect(canWriteBudgetTeam("public", "", "Aチーム", true)).toBe(false);
   });
 
-  it("フラグなしの public・ロール未設定は書き込めない", () => {
-    expect(canWriteBudgetTeam("public", "Aチーム", "Aチーム", false)).toBe(
-      false,
-    );
-    expect(canWriteBudgetTeam(null, "Aチーム", "Aチーム", false)).toBe(false);
-    expect(canWriteBudgetTeam(null, "Aチーム", "Aチーム", null)).toBe(false);
-  });
-
-  it("class が 'teamleader' の値はフラグが無ければ書き込めない", () => {
-    expect(canWriteBudgetTeam("teamleader", "Aチーム", "Aチーム", false)).toBe(
-      false,
-    );
+  it("ロール未設定でも所属チームの判定は class に依存しない（閲覧可否は別途ログイン判定）", () => {
+    expect(canWriteBudgetTeam(null, "Aチーム", "Aチーム", false)).toBe(true);
+    expect(canWriteBudgetTeam(null, "Aチーム", "Bチーム", null)).toBe(false);
   });
 });
 
 describe("ownBudgetTeams", () => {
-  it("フラグ付きでチームがあれば自チームだけを返す", () => {
-    expect(ownBudgetTeams("public", "Aチーム", true)).toEqual(["Aチーム"]);
-    expect(ownBudgetTeams("accounting", "Aチーム", true)).toEqual(["Aチーム"]);
+  it("所属チームがあれば（ロールに関係なく）自チームだけを返す", () => {
+    expect(ownBudgetTeams("Aチーム")).toEqual(["Aチーム"]);
   });
 
-  it("フラグなし・チーム未設定では空配列を返す", () => {
-    expect(ownBudgetTeams("public", "Aチーム", false)).toEqual([]);
-    expect(ownBudgetTeams("accounting", "Aチーム", false)).toEqual([]);
-    expect(ownBudgetTeams("public", null, true)).toEqual([]);
+  it("チーム未設定（null / undefined / 空文字）では空配列を返す", () => {
+    expect(ownBudgetTeams(null)).toEqual([]);
+    expect(ownBudgetTeams(undefined)).toEqual([]);
+    expect(ownBudgetTeams("")).toEqual([]);
   });
 });
 
@@ -341,20 +336,15 @@ describe("totalBudgetSummary", () => {
 });
 
 describe("閲覧ロールの定義", () => {
-  it("/budget-declarations のルート保護と同じロール定義を参照する", () => {
-    expect(BUDGET_DECLARATION_ALLOWED_CLASSES).toBe(
-      ROUTE_PERMISSIONS["/budget-declarations"],
-    );
+  it("閲覧はログイン済みの全ロールに開放されている", () => {
+    expect([...BUDGET_DECLARATION_VIEW_CLASSES]).toEqual([...ROLES]);
   });
 
-  it("全チーム書き込みロールは、閲覧可ロールから自チーム限定ロールを除いたもの", () => {
-    // Regression: the list's visible scope follows when a role is added to ROUTE_PERMISSIONS.
-    expect(BUDGET_WRITE_ALL_TEAMS_CLASSES).toEqual(
-      BUDGET_DECLARATION_ALLOWED_CLASSES.filter(
-        (role) => role !== "teamleader",
-      ),
-    );
+  it("全チーム書き込みロールは経理・管理者だけで、閲覧ロールに含まれる", () => {
     expect(BUDGET_WRITE_ALL_TEAMS_CLASSES).toEqual(["accounting", "admin"]);
+    for (const role of BUDGET_WRITE_ALL_TEAMS_CLASSES) {
+      expect(BUDGET_DECLARATION_VIEW_CLASSES).toContain(role);
+    }
   });
 });
 

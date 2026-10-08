@@ -1,65 +1,110 @@
 import { describe, expect, it } from "vitest";
 import {
   BUDGET_DECLARATION_DEADLINE_DAY,
-  DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS,
+  DEFAULT_BUDGET_DECLARATION_REMINDER_DAYS,
   buildBudgetDeclarationReminderMessage,
   canManageBudgetDeclarationReminderSettings,
   groupSlackIdsByTeam,
-  isBudgetDeclarationReminderTargetDay,
+  expandBudgetDeclarationReminderMessage,
+  findBudgetDeclarationReminderForDay,
+  validateBudgetDeclarationReminderMessage,
   isValidBudgetDeclarationReminderTargetDay,
-  normalizeBudgetDeclarationReminderTargetDays,
+  normalizeBudgetDeclarationReminderDays,
   undeclaredBudgetTeams,
 } from "@/app/utils/budgetDeclarationReminder";
 
 // TZ is pinned to Asia/Tokyo in vitest.config.ts (the app assumes JST).
 
-describe("isBudgetDeclarationReminderTargetDay", () => {
-  it.each(DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS)(
-    "JST %d日は対象日である",
-    (day) => {
+describe("findBudgetDeclarationReminderForDay", () => {
+  it.each(DEFAULT_BUDGET_DECLARATION_REMINDER_DAYS)(
+    "JST $day日は当日の行を返す",
+    ({ day }) => {
       const dateString = `2026-09-${String(day).padStart(2, "0")}T03:00:00Z`; // 12:00 JST
       expect(
-        isBudgetDeclarationReminderTargetDay(
+        findBudgetDeclarationReminderForDay(
           new Date(dateString),
-          DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS,
-        ),
-      ).toBe(true);
+          DEFAULT_BUDGET_DECLARATION_REMINDER_DAYS,
+        )?.day,
+      ).toBe(day);
     },
   );
 
-  it("対象日以外は false", () => {
+  it("日ごとに異なる文面から当日の文面を返す", () => {
+    const rows = [
+      { day: 15, message: "予告" },
+      { day: 20, message: "本日期限" },
+    ];
     expect(
-      isBudgetDeclarationReminderTargetDay(
+      findBudgetDeclarationReminderForDay(
+        new Date("2026-09-20T03:00:00Z"),
+        rows,
+      )?.message,
+    ).toBe("本日期限");
+  });
+
+  it("対象日以外は null", () => {
+    expect(
+      findBudgetDeclarationReminderForDay(
         new Date("2026-09-16T03:00:00Z"),
-        DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS,
+        DEFAULT_BUDGET_DECLARATION_REMINDER_DAYS,
       ),
-    ).toBe(false);
+    ).toBeNull();
   });
 
   it("UTC 深夜は JST 日付にシフトして判定する", () => {
     // 2026-09-14T15:00:00Z = 2026-09-15T00:00 JST (target day)
     expect(
-      isBudgetDeclarationReminderTargetDay(
+      findBudgetDeclarationReminderForDay(
         new Date("2026-09-14T15:00:00Z"),
-        DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS,
-      ),
-    ).toBe(true);
-    // 2026-09-19T15:00:00Z = 2026-09-20T00:00 JST (target day)
-    expect(
-      isBudgetDeclarationReminderTargetDay(
-        new Date("2026-09-19T15:00:00Z"),
-        DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS,
-      ),
-    ).toBe(true);
+        DEFAULT_BUDGET_DECLARATION_REMINDER_DAYS,
+      )?.day,
+    ).toBe(15);
   });
 
-  it("対象日リストが空なら常に false（リマインド停止。Issue #94）", () => {
+  it("行が空なら常に null（リマインド停止。Issue #94）", () => {
     expect(
-      isBudgetDeclarationReminderTargetDay(
-        new Date("2026-09-20T03:00:00Z"),
-        [],
+      findBudgetDeclarationReminderForDay(new Date("2026-09-20T03:00:00Z"), []),
+    ).toBeNull();
+  });
+});
+
+describe("default reminder days", () => {
+  it("既定は 15 / 18 / 20 日で、現行の 1 行目と同じ既定文面を持つ", () => {
+    expect(DEFAULT_BUDGET_DECLARATION_REMINDER_DAYS.map((r) => r.day)).toEqual([
+      15, 18, 20,
+    ]);
+    expect(
+      expandBudgetDeclarationReminderMessage(
+        DEFAULT_BUDGET_DECLARATION_REMINDER_DAYS[0].message,
+        "2026-10",
       ),
-    ).toBe(false);
+    ).toBe(
+      "【事前収支申告リマインド】2026年10月分の事前収支申告が未申告・未完了のチームがあります。",
+    );
+  });
+});
+
+describe("expandBudgetDeclarationReminderMessage", () => {
+  it("{month} と {deadline} を展開する", () => {
+    expect(
+      expandBudgetDeclarationReminderMessage(
+        "{month}分は{deadline}日まで",
+        "2026-10",
+      ),
+    ).toBe(`2026年10月分は${BUDGET_DECLARATION_DEADLINE_DAY}日まで`);
+  });
+});
+
+describe("validateBudgetDeclarationReminderMessage", () => {
+  it("許可されたプレースホルダだけなら null", () => {
+    expect(
+      validateBudgetDeclarationReminderMessage("{month} {deadline}"),
+    ).toBeNull();
+  });
+
+  it("未知のプレースホルダ・空はエラー", () => {
+    expect(validateBudgetDeclarationReminderMessage("{foo}")).not.toBeNull();
+    expect(validateBudgetDeclarationReminderMessage("")).not.toBeNull();
   });
 });
 
@@ -104,17 +149,17 @@ describe("groupSlackIdsByTeam", () => {
 
 describe("buildBudgetDeclarationReminderMessage", () => {
   const url = "https://example.com/budget-declarations";
+  const HEADER =
+    "【事前収支申告リマインド】2026年10月分の事前収支申告が未申告・未完了のチームがあります。";
 
   it("未申告チームが 0 件なら null を返す（申告済みチームには通知しない）", () => {
-    expect(
-      buildBudgetDeclarationReminderMessage([], "2026-10", url),
-    ).toBeNull();
+    expect(buildBudgetDeclarationReminderMessage([], HEADER, url)).toBeNull();
   });
 
   it("slack_id 設定済みのチームはメンション付きで表示する", () => {
     const message = buildBudgetDeclarationReminderMessage(
       [{ team: "営業チーム", slackIds: ["U001"] }],
-      "2026-10",
+      HEADER,
       url,
     );
 
@@ -127,7 +172,7 @@ describe("buildBudgetDeclarationReminderMessage", () => {
   it("複数リーダーは全員分メンションする", () => {
     const message = buildBudgetDeclarationReminderMessage(
       [{ team: "営業チーム", slackIds: ["U001", "U002"] }],
-      "2026-10",
+      HEADER,
       url,
     );
 
@@ -137,7 +182,7 @@ describe("buildBudgetDeclarationReminderMessage", () => {
   it("slack_id 未設定・リーダー不在チームはメンションなしでチーム名のみ表示する", () => {
     const message = buildBudgetDeclarationReminderMessage(
       [{ team: "広報チーム", slackIds: [] }],
-      "2026-10",
+      HEADER,
       url,
     );
 
@@ -156,21 +201,30 @@ describe("isValidBudgetDeclarationReminderTargetDay", () => {
   });
 });
 
-describe("normalizeBudgetDeclarationReminderTargetDays", () => {
-  it("範囲外の値を除外し、重複を排除して昇順ソートする", () => {
+describe("normalizeBudgetDeclarationReminderDays", () => {
+  const row = (day: number, message = "m") => ({ day, message });
+
+  it("範囲外の日を除外し、同じ日は後勝ちで重複排除して昇順ソートする", () => {
     expect(
-      normalizeBudgetDeclarationReminderTargetDays([20, 0, 15, 20, 32, 5]),
-    ).toEqual([5, 15, 20]);
+      normalizeBudgetDeclarationReminderDays([
+        row(20),
+        row(0),
+        row(15, "a"),
+        row(15, "b"),
+        row(32),
+        row(5),
+      ]),
+    ).toEqual([row(5), row(15, "b"), row(20)]);
   });
 
   it("空配列はそのまま空配列を返す（リマインド停止）", () => {
-    expect(normalizeBudgetDeclarationReminderTargetDays([])).toEqual([]);
+    expect(normalizeBudgetDeclarationReminderDays([])).toEqual([]);
   });
 
-  it("全て無効な値なら空配列を返す", () => {
-    expect(normalizeBudgetDeclarationReminderTargetDays([0, 32, -5])).toEqual(
-      [],
-    );
+  it("全て無効な日なら空配列を返す", () => {
+    expect(
+      normalizeBudgetDeclarationReminderDays([row(0), row(32), row(-5)]),
+    ).toEqual([]);
   });
 });
 

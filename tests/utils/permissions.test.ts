@@ -117,9 +117,6 @@ describe("ROUTE_PERMISSIONS による各保護ルートの認可", () => {
     ["/recurring-costs", "public", true, false],
     ["/extra-entries", "accounting", false, true],
     ["/extra-entries", "public", true, false],
-    ["/budget-declarations", "public", true, true],
-    ["/budget-declarations", "accounting", false, true],
-    ["/budget-declarations", "public", false, false],
     ["/dashboard", "admin", false, true],
     ["/dashboard", "accounting", true, false],
   ])(
@@ -158,8 +155,14 @@ describe("ROUTE_PERMISSIONS による各保護ルートの認可", () => {
 });
 
 describe("AUTH_ONLY_ROUTES / isAuthOnlyPath", () => {
-  it("ログイン必須ルートは /, /matters である", () => {
-    expect(AUTH_ONLY_ROUTES).toEqual(["/", "/matters"]);
+  it("ログイン必須ルートは /, /matters, /budget-declarations である", () => {
+    expect(AUTH_ONLY_ROUTES).toEqual(["/", "/matters", "/budget-declarations"]);
+  });
+
+  it("/budget-declarations はロール制限を持たず、サブルートもログインのみ", () => {
+    expect(ROUTE_PERMISSIONS["/budget-declarations"]).toBeUndefined();
+    expect(isAuthOnlyPath("/budget-declarations")).toBe(true);
+    expect(isAuthOnlyPath("/budget-declarations/recurring")).toBe(true);
   });
 
   it.each([
@@ -192,8 +195,8 @@ describe("visibleNavItems", () => {
     ]);
   });
 
-  it("public には案件カードのみ表示する", () => {
-    expect(hrefsFor("public")).toEqual(["/matters"]);
+  it("public には案件カード・事前収支申告を表示する", () => {
+    expect(hrefsFor("public")).toEqual(["/matters", "/budget-declarations"]);
   });
 
   it("フラグ付きの public には案件カード・損益計算書・事前収支申告を表示する", () => {
@@ -221,8 +224,11 @@ describe("visibleNavItems", () => {
     ]);
   });
 
-  it("class が 'teamleader' の値は実効ロールにならず案件カードのみ表示する", () => {
-    expect(hrefsFor("teamleader")).toEqual(["/matters"]);
+  it("class が 'teamleader' の値は実効ロールにならず案件カード・事前収支申告のみ表示する", () => {
+    expect(hrefsFor("teamleader")).toEqual([
+      "/matters",
+      "/budget-declarations",
+    ]);
   });
 
   it("accounting には案件カード・損益計算書・事前収支申告を表示する", () => {
@@ -233,9 +239,9 @@ describe("visibleNavItems", () => {
     ]);
   });
 
-  it("ロールが null の場合は案件カードのみ表示する", () => {
-    expect(hrefsFor(null)).toEqual(["/matters"]);
-    expect(hrefsFor(null, false)).toEqual(["/matters"]);
+  it("ロールが null の場合も案件カード・事前収支申告を表示する（ログイン必須の項目）", () => {
+    expect(hrefsFor(null)).toEqual(["/matters", "/budget-declarations"]);
+    expect(hrefsFor(null, false)).toEqual(["/matters", "/budget-declarations"]);
   });
 
   it("すべてのナビ項目にハブ用の説明文がある", () => {

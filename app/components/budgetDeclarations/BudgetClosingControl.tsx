@@ -21,7 +21,7 @@ type Props = {
 };
 
 // On = close the month for all teams (no one can create/edit/delete declarations); off = reopen.
-// Teamleaders see the state only.
+// Others see the state only.
 const BudgetClosingControl = ({
   month,
   closing,

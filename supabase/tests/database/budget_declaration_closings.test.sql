@@ -1,20 +1,22 @@
 -- pgTAP tests for all-team read access and monthly closing of budget declarations
 -- Run: supabase test db (local Supabase running; docs/testing.md 3.8)
 BEGIN;
-SELECT plan(31);
+SELECT plan(38);
 
 INSERT INTO auth.users (id, email) VALUES
   ('11111111-1111-1111-1111-111111111111', 'acc@example.com'),
   ('22222222-2222-2222-2222-222222222222', 'tla@example.com'),
   ('33333333-3333-3333-3333-333333333333', 'tlb@example.com'),
   ('44444444-4444-4444-4444-444444444444', 'pub@example.com'),
-  ('55555555-5555-5555-5555-555555555555', 'adm@example.com');
+  ('55555555-5555-5555-5555-555555555555', 'adm@example.com'),
+  ('66666666-6666-6666-6666-666666666666', 'mem@example.com');
 INSERT INTO public.profiles (user_id, email, name, class, team) VALUES
   ('11111111-1111-1111-1111-111111111111', 'acc@example.com', '経理', 'accounting', NULL),
   ('22222222-2222-2222-2222-222222222222', 'tla@example.com', 'リーダーA', 'public', 'Aチーム'),
   ('33333333-3333-3333-3333-333333333333', 'tlb@example.com', 'リーダーB', 'public', 'Bチーム'),
   ('44444444-4444-4444-4444-444444444444', 'pub@example.com', '一般', 'public', NULL),
-  ('55555555-5555-5555-5555-555555555555', 'adm@example.com', '管理者', 'admin', NULL);
+  ('55555555-5555-5555-5555-555555555555', 'adm@example.com', '管理者', 'admin', NULL),
+  ('66666666-6666-6666-6666-666666666666', 'mem@example.com', 'メンバー', 'public', 'Aチーム');
 -- Teamleaders are the is_teamleader flag on top of class (migration 41)
 UPDATE public.profiles SET is_teamleader = true WHERE email IN ('tla@example.com', 'tlb@example.com');
 
@@ -52,14 +54,35 @@ SELECT throws_ok(
     SELECT DATE '2026-10-01', id, name FROM public.profiles WHERE email = 'tla@example.com'$$,
   '42501', NULL, 'teamleader は確定できない');
 
--- ===== public: no access =====
+-- ===== public without a team: read-only (migration 44) =====
 SELECT set_config('request.jwt.claims', '{"sub":"44444444-4444-4444-4444-444444444444","role":"authenticated"}', true);
-SELECT is((SELECT count(*) FROM public.budget_declarations)::int, 0, 'public は申告を閲覧できない');
-SELECT is((SELECT count(*) FROM public.budget_declaration_closings)::int, 0, 'public は確定状態を閲覧できない');
+SELECT is((SELECT count(*) FROM public.budget_declarations WHERE target_month = DATE '2026-10-01')::int, 2, '所属チームなしの public も全チームの申告ヘッダを閲覧できる');
+SELECT is((SELECT count(*) FROM public.budget_declaration_items)::int, 2, '所属チームなしの public も全チームの申告明細を閲覧できる');
+SELECT throws_ok(
+  $$INSERT INTO public.budget_declarations (target_month, team, declared_by)
+    SELECT DATE '2027-01-01', 'Aチーム', id FROM public.profiles WHERE email = 'pub@example.com'$$,
+  '42501', NULL, '所属チームなしの public はどのチームの申告も作成できない');
 SELECT throws_ok(
   $$INSERT INTO public.budget_declaration_closings (target_month, closed_by, closed_by_name)
     SELECT DATE '2026-10-01', id, name FROM public.profiles WHERE email = 'pub@example.com'$$,
   '42501', NULL, 'public は確定できない');
+
+-- ===== public with a team (no teamleader flag): reads all teams, writes own team only =====
+SELECT set_config('request.jwt.claims', '{"sub":"66666666-6666-6666-6666-666666666666","role":"authenticated"}', true);
+SELECT is((SELECT count(*) FROM public.budget_declarations WHERE target_month = DATE '2026-10-01')::int, 2, 'フラグなしの public も全チームの申告を閲覧できる');
+SELECT lives_ok(
+  $$SELECT public.save_budget_declaration(DATE '2026-12-01', 'Aチーム', '[]'::jsonb)$$,
+  'フラグなしの public は所属チームの申告を作成できる');
+SELECT throws_ok(
+  $$INSERT INTO public.budget_declarations (target_month, team, declared_by)
+    SELECT DATE '2027-01-01', 'Bチーム', id FROM public.profiles WHERE email = 'mem@example.com'$$,
+  '42501', NULL, 'フラグなしの public は他チームの申告を作成できない');
+WITH u AS (UPDATE public.budget_declarations SET comment = 'x' WHERE team = 'Bチーム' RETURNING 1)
+SELECT is((SELECT count(*) FROM u)::int, 0, 'フラグなしの public は他チームの申告を更新できない');
+SELECT throws_ok(
+  $$INSERT INTO public.budget_declaration_closings (target_month, closed_by, closed_by_name)
+    SELECT DATE '2026-10-01', id, name FROM public.profiles WHERE email = 'mem@example.com'$$,
+  '42501', NULL, 'チーム所属の public も確定できない');
 
 -- ===== accounting: closing =====
 SELECT set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', true);
@@ -76,6 +99,9 @@ SELECT lives_ok(
     SELECT DATE '2026-10-01', id, 'ニセ' FROM public.profiles WHERE email = 'acc@example.com'$$,
   'accounting は確定できる');
 SELECT is((SELECT closed_by_name FROM public.budget_declaration_closings), '経理', '確定者名は profiles から採用され、直接 INSERT で偽装できない');
+SELECT set_config('request.jwt.claims', '{"sub":"44444444-4444-4444-4444-444444444444","role":"authenticated"}', true);
+SELECT is((SELECT count(*) FROM public.budget_declaration_closings)::int, 1, 'public も確定状態を閲覧できる');
+SELECT set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', true);
 
 -- ===== closed month: no writes for any role =====
 SELECT throws_ok(
