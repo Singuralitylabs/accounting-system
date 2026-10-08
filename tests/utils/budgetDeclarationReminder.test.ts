@@ -11,6 +11,7 @@ import {
   isValidBudgetDeclarationReminderTargetDay,
   normalizeBudgetDeclarationReminderDays,
   undeclaredBudgetTeams,
+  buildBudgetDeclarationReminderSampleAutoText,
 } from "@/app/utils/budgetDeclarationReminder";
 
 // TZ is pinned to Asia/Tokyo in vitest.config.ts (the app assumes JST).
@@ -188,6 +189,25 @@ describe("buildBudgetDeclarationReminderMessage", () => {
 
     expect(message).toContain("- 広報チーム");
     expect(message).not.toContain("<@");
+  });
+});
+
+describe("buildBudgetDeclarationReminderSampleAutoText", () => {
+  it("実際の投稿と同じ形式で、本文の後ろに付く部分（チーム一覧・期限・URL）だけを返す", () => {
+    const header = "ヘッダ";
+    const real = buildBudgetDeclarationReminderMessage(
+      [
+        { team: "Aチーム", slackIds: ["U01234567"] },
+        { team: "Bチーム", slackIds: [] },
+      ],
+      header,
+      "https://example.com/budget-declarations",
+    );
+
+    const auto = buildBudgetDeclarationReminderSampleAutoText();
+
+    expect(`${header}\n${auto}`).toBe(real);
+    expect(auto).toContain("期限: 毎月20日");
   });
 });
 

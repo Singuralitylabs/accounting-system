@@ -71,23 +71,26 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
 
 # Slack 通知。未使用なら空でよい。
 SLACK_WEBHOOK_URL=
+# 経理用一覧に表示する投稿先チャンネル名（表示専用・任意。例: #経理連絡）。
+SLACK_CHANNEL_NAME=
 
 # 事前収支申告リマインド（Vercel Cron）用。ローカルでは任意の値でよい。
 CRON_SECRET=your-cron-secret
 ```
 
-`.env.local` に書くのは次の 8 つ。
+`.env.local` に書くのは次の 8 つ（任意の `SLACK_CHANNEL_NAME` を除く）。
 
-| 変数                            | 参照箇所                                                                         | 取り扱い                                                                                                                                                                    |
-| ------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_SUPABASE_URL`      | `app/utils/supabase/clients.ts`、`middleware.ts`                                 | ローカルは `http://127.0.0.1:54321`。ホスト版は `https://<project-ref>.supabase.co`                                                                                         |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | 同上                                                                             | 低権限のキー。公開リポジトリや共有ドキュメントに値を書かない                                                                                                                |
-| `SUPABASE_SERVICE_ROLE_KEY`     | `createServiceRoleSupabase`（`app/utils/supabase/clients.ts`）                   | RLS をバイパスする。サーバ側のみ。本アプリでは `app/api/cron/budget-declaration-reminder/route.ts` の読み取りにだけ使うが、キー自体の権限はそれに限定されない               |
-| `PROJECT_ID`                    | `package.json` の `db:types`、`.mcp.json`                                        | 公開可能な project ref。`config.toml` の `project_id` とは別物                                                                                                              |
-| `GOOGLE_CLIENT_ID`              | `supabase/config.toml` の `env(GOOGLE_CLIENT_ID)`                                | ローカル Supabase 専用                                                                                                                                                      |
-| `GOOGLE_CLIENT_SECRET`          | `supabase/config.toml` の `env(GOOGLE_CLIENT_SECRET)`                            | 秘匿。ローカル Supabase 専用                                                                                                                                                |
-| `SLACK_WEBHOOK_URL`             | `app/actions/slack/index.ts`、`app/utils/slack/sendBudgetDeclarationReminder.ts` | 秘匿。投稿先チャンネルはこの Webhook で決まる。チャンネルを変えるときは Slack で新しい Webhook を作成し、本番の環境変数を差し替えて再デプロイする（画面からは変更できない） |
-| `CRON_SECRET`                   | `app/api/cron/budget-declaration-reminder/route.ts`                              | 秘匿。第三者に知られると cron エンドポイントを叩ける                                                                                                                        |
+| 変数                            | 参照箇所                                                                         | 取り扱い                                                                                                                                                                                                                                           |
+| ------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`      | `app/utils/supabase/clients.ts`、`middleware.ts`                                 | ローカルは `http://127.0.0.1:54321`。ホスト版は `https://<project-ref>.supabase.co`                                                                                                                                                                |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | 同上                                                                             | 低権限のキー。公開リポジトリや共有ドキュメントに値を書かない                                                                                                                                                                                       |
+| `SUPABASE_SERVICE_ROLE_KEY`     | `createServiceRoleSupabase`（`app/utils/supabase/clients.ts`）                   | RLS をバイパスする。サーバ側のみ。本アプリでは `app/api/cron/budget-declaration-reminder/route.ts` の読み取りにだけ使うが、キー自体の権限はそれに限定されない                                                                                      |
+| `PROJECT_ID`                    | `package.json` の `db:types`、`.mcp.json`                                        | 公開可能な project ref。`config.toml` の `project_id` とは別物                                                                                                                                                                                     |
+| `GOOGLE_CLIENT_ID`              | `supabase/config.toml` の `env(GOOGLE_CLIENT_ID)`                                | ローカル Supabase 専用                                                                                                                                                                                                                             |
+| `GOOGLE_CLIENT_SECRET`          | `supabase/config.toml` の `env(GOOGLE_CLIENT_SECRET)`                            | 秘匿。ローカル Supabase 専用                                                                                                                                                                                                                       |
+| `SLACK_WEBHOOK_URL`             | `app/actions/slack/index.ts`、`app/utils/slack/sendBudgetDeclarationReminder.ts` | 秘匿。投稿先チャンネルはこの Webhook で決まる。チャンネルを変えるときは Slack で新しい Webhook を作成し、本番の環境変数を差し替えて再デプロイする（画面からは変更できない）。表示用の `SLACK_CHANNEL_NAME` も合わせて更新する                      |
+| `SLACK_CHANNEL_NAME`            | `app/components/dynamic/DynamicAccounting.tsx`                                   | 表示専用・任意。経理用一覧の「担当者に連絡」に出す投稿先チャンネル名（例: `#経理連絡`）。実際の投稿先は `SLACK_WEBHOOK_URL` の Webhook で決まり、この値は影響しない。未設定なら表示しない。クライアントには露出しない（`NEXT_PUBLIC_` を付けない） |
+| `CRON_SECRET`                   | `app/api/cron/budget-declaration-reminder/route.ts`                              | 秘匿。第三者に知られると cron エンドポイントを叩ける                                                                                                                                                                                               |
 
 次の名前は `.env.local` に書かない: `NEXT_PUBLIC_ENV`（未使用）、`SUPABASE_URL`（アプリは参照しない。keep-alive ジョブ内の環境変数名で、Secret 名は `KEEPALIVE_SUPABASE_URL_DEV` / `_PROD`）、`LOCAL_DB_URL`（未使用）、`VERCEL_URL` / `VERCEL_PROJECT_PRODUCTION_URL`（Vercel が本番ランタイムに注入。申告ページ URL の組み立て用）、`ANALYZE`（`ANALYZE=true yarn build` のときだけバンドル分析）。
 

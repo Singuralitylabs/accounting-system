@@ -183,6 +183,8 @@ Unit Tests (多数・最優先)
 - `/matters`・`/matters/team`・`/matters/accounting` で 25 件以上あるとき、2 ページ目に残りが表示され「N件中 X〜Y件を表示」が合っていること
 - 表示件数（12/24/48/96）を切り替えると 1 ページ目に戻ること
 - 経理用一覧で絞り込み（`ActiveMatterFilterBar`）を変えると 1 ページ目に戻り、フィルタ結果だけがページ分けされること（選択肢は全件から作られ、ページをめくっても変わらない）
+- 経理用一覧（accounting / admin）の操作ボタンが「確認完了」「担当者に連絡」だけで「通知設定」が無いこと。「担当者に連絡」を押すと 1 つのモーダルが開き、「送信」と「文面の設定」タブを切り替えられること。`SLACK_CHANNEL_NAME` を設定するとボタンの下とモーダルのタイトルに投稿先が出て、未設定・空なら出ずエラーにならないこと。文面の設定タブは案件を選択していなくても開け、プレースホルダの表とプレビューが出ること。保存中・確認ダイアログ表示中・送信中はタブ切り替えとモーダルを閉じる操作（Esc・オーバーレイ・×）ができないこと
+- 事前収支申告のリマインド設定（accounting / admin。PC 幅・モバイル幅）: モーダル上部にプレースホルダの表が 1 つだけあること。「日付を追加」で未使用の日を追加でき（使用済みの日は選べず、追加した日のカードが昇順に並び既定文面が入る）、カードの削除ボタンで日を消せること。文面の入力欄が幅いっぱいで、プレビューに自動付与される部分（未申告チーム・期限・URL）が薄く続くこと。0 件で保存すると確認ダイアログが出て「リマインド無効」バッジが付くこと
 - 経理用一覧で 1 ページ目にチェックを入れたまま 2 ページ目へ移動しても外れず、確認完了・担当者連絡の対象に含まれること（絞り込みで非表示の分だけが対象外になり、その旨の案内が出る）
 - 損益レポートの絞り込み前後で月次・年間推移の集計値が変わらないこと。特に `matters.start_date` / `entry_date` が NULL の「月未確定」行が脱落していないこと
 - 年間推移が月単位の 12 回クエリになっていないこと（Network で往復が増えていない）
@@ -477,6 +479,7 @@ SQL 関数（RPC）に移した業務ロジックは、Vitest では RPC をモ�
 - 対象: `slack_notification_settings`（Slack 担当者連絡の定型文。`slack_notification_settings.test.sql`）。admin / accounting は SELECT・UPDATE 可、teamleader / public は 0 行、INSERT / DELETE 不可、`{message}` を含まない本文は CHECK で拒否
 - 対象: `budget_declaration_reminder_days`（未申告リマインドの対象日・文面。`budget_declaration_reminder_days.test.sql`）。移行済みの既定行、admin / accounting の全置換（古い行が消える・日ごとの文面が保存される・空配列で 0 件）、重複日・範囲外・空文面の拒否とロールバック、teamleader / public は閲覧不可・全置換不可（空配列でも 42501）・直接書き込み不可
 - 対象: `budget_declaration_completion`（事前収支申告の完了チェック。`budget_declaration_completion.test.sql`）。`save_budget_declaration` の `p_completed`（false で入力中、true で申告済み、明細 0 件でも完了可、NULL は変更なし、完了済みの再保存で `completed_at` を保持、チェックを外すと NULL に戻る）、`completed_by` が `auth.uid()` から解決されクライアントから指定できないこと、他チームのリーダーは変更不可、`completed_at` / `completed_by` の CHECK 制約、確定月での変更拒否（`MONTH_CLOSED`）。既存行の移行（全行を申告済みにする UPDATE）はマイグレーション適用時の一度きりの処理のため pgTAP の対象外で、適用時に手動確認した
+- 対象: `save_budget_recurring_items`（定期明細の一括保存。`save_budget_recurring_items.test.sql`）。新規・編集・削除を 1 回の呼び出しで保存、`updated_at` 不一致（編集・削除した行）で `BUDGET_RECURRING_ITEMS_CONFLICT` により全体が中止され同じ呼び出しの新規行も保存されないこと、触っていない行（keep）と既に削除された行は無視されること、他チームの行の編集・削除・新規追加・付け替えは 42501、経理は全チーム可、所属チーム未設定・anon は不可。同時実行（行ロックの待ち合わせ）は pgTAP では扱えないため、2 つのブラウザで同じ行を同時に保存して後から保存した側が何も保存されず再読み込みを促されることを手動で確認する
 - 対象: `budget_declaration_closing_trigger`（確定月の書き込みトリガー単体。`budget_declaration_closing_trigger.test.sql`）。RLS の確定月条件と同じ 42501 で区別できないため、別ファイル（別トランザクション）で書き込みポリシーを確定月条件なしに差し替え、ヘッダの INSERT / UPDATE / DELETE、未確定月から確定月への付け替え、明細の INSERT / DELETE がトリガー（`MONTH_CLOSED`）だけで拒否されることを確認する
 - 対象: `copy_extra_entries`（前月コピーの重複判定。`copy_extra_entries.test.sql`）。全列一致のスキップ、1 列ずつ異なる行の登録、NULL 同士の一致、対象月の範囲外の行を重複とみなさないこと、戻り値の件数、空配列（0 / 0）、不正な入力（配列でない・要素がオブジェクトでない・`entry_date` が対象月外 / NULL → `INVALID_INPUT`）、FORBIDDEN。NOT NULL 列の NULL 同士の一致（`= ` への退行）は、テストのトランザクション内だけ `ALTER TABLE ... DROP NOT NULL` して確認する
 - `db-test.yml` は `supabase/**` を変更する PR / `main` への push で実行する。リリース PR の品質ゲート（`release-pr.yml`）には含めない（DB の変更は `main` に入る PR の時点で検証済みで、`release` は `main` のある時点と一致するため）

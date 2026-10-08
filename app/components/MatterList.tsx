@@ -19,6 +19,7 @@ type UserMatterListProps = {
 type AccountingMatterListProps = {
   variant: "accounting";
   initialData?: MatterWithProfileType[];
+  slackChannelName?: string;
 };
 
 type ReadonlyMatterListProps = {
@@ -33,7 +34,12 @@ export type MatterListProps =
 
 export function MatterList(props: MatterListProps) {
   if (props.variant === "accounting") {
-    return <AccountingMatterList initialData={props.initialData} />;
+    return (
+      <AccountingMatterList
+        initialData={props.initialData}
+        slackChannelName={props.slackChannelName}
+      />
+    );
   }
   if (props.variant === "readonly") {
     return <ReadonlyMatterList matterList={props.matterList} />;

@@ -30,13 +30,14 @@ const settings = {
   bodyTemplate: "案件：{matter}\n{assignee}\n{message}",
 };
 
-const openModal = async () => {
-  fireEvent.click(screen.getByRole("button", { name: "通知設定" }));
-  await screen.findByRole("dialog");
+const onBusyChange = vi.fn();
+
+const renderPanel = async () => {
+  renderWithMantine(<SlackNotificationSettings onBusyChange={onBusyChange} />);
   await screen.findByDisplayValue("ヘッダ");
 };
 
-describe("SlackNotificationSettings", () => {
+describe("SlackNotificationSettings（文面の設定）", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getSlackNotificationSettings.mockResolvedValue({ settings });
@@ -45,8 +46,7 @@ describe("SlackNotificationSettings", () => {
   });
 
   it("開くと現在の設定とサンプル値のプレビューが表示される", async () => {
-    renderWithMantine(<SlackNotificationSettings />);
-    await openModal();
+    await renderPanel();
 
     expect(screen.getByLabelText("本文テンプレート")).toHaveValue(
       "案件：{matter}\n{assignee}\n{message}",
@@ -56,9 +56,18 @@ describe("SlackNotificationSettings", () => {
     );
   });
 
+  it("プレースホルダの説明は意味と例を持つ表 1 つで、必須の印が付く", async () => {
+    await renderPanel();
+
+    const table = screen.getByTestId("slack-placeholder-table");
+    expect(table).toHaveTextContent("{matter}");
+    expect(table).toHaveTextContent("サンプル案件");
+    expect(table).toHaveTextContent("送信時に入力したメッセージ（必須）");
+    expect(screen.getAllByTestId("slack-placeholder-table")).toHaveLength(1);
+  });
+
   it("確認後に編集内容を保存する", async () => {
-    renderWithMantine(<SlackNotificationSettings />);
-    await openModal();
+    await renderPanel();
 
     fireEvent.change(screen.getByLabelText("ヘッダ"), {
       target: { value: "新ヘッダ" },
@@ -72,12 +81,12 @@ describe("SlackNotificationSettings", () => {
       }),
     );
     expect(notifySuccess).toHaveBeenCalled();
+    expect(screen.getByLabelText("ヘッダ")).toHaveValue("新ヘッダ");
   });
 
   it("確認ダイアログでキャンセルすると保存しない", async () => {
     confirmAction.mockResolvedValue(false);
-    renderWithMantine(<SlackNotificationSettings />);
-    await openModal();
+    await renderPanel();
 
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
@@ -86,8 +95,7 @@ describe("SlackNotificationSettings", () => {
   });
 
   it("{message} を消すとエラー表示で保存ボタンが無効になる", async () => {
-    renderWithMantine(<SlackNotificationSettings />);
-    await openModal();
+    await renderPanel();
 
     fireEvent.change(screen.getByLabelText("本文テンプレート"), {
       target: { value: "案件：{matter}" },
@@ -97,27 +105,43 @@ describe("SlackNotificationSettings", () => {
     expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
   });
 
-  it("保存失敗時はエラー通知してモーダルを開いたままにする", async () => {
+  it("保存失敗時はエラー通知して編集内容を残す", async () => {
     updateSlackNotificationSettings.mockResolvedValue({
       error: { kind: "fetchFailed", message: "失敗しました" },
     });
-    renderWithMantine(<SlackNotificationSettings />);
-    await openModal();
+    await renderPanel();
 
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() =>
       expect(notifyError).toHaveBeenCalledWith("失敗しました"),
     );
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByLabelText("ヘッダ")).toBeInTheDocument();
+  });
+
+  it("保存中・確認中は busy を親に通知する", async () => {
+    let resolveConfirm: (value: boolean) => void = () => {};
+    confirmAction.mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        resolveConfirm = resolve;
+      }),
+    );
+    await renderPanel();
+
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(true));
+
+    resolveConfirm(false);
+    await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(false));
   });
 
   it("取得に失敗したらエラーを表示する", async () => {
     getSlackNotificationSettings.mockResolvedValue({
       error: { kind: "fetchFailed", message: "x" },
     });
-    renderWithMantine(<SlackNotificationSettings />);
-    fireEvent.click(screen.getByRole("button", { name: "通知設定" }));
+    renderWithMantine(
+      <SlackNotificationSettings onBusyChange={onBusyChange} />,
+    );
 
     expect(
       await screen.findByText("Slack通知設定の取得に失敗しました"),

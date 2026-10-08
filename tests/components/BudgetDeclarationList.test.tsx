@@ -434,14 +434,12 @@ describe("BudgetDeclarationList", () => {
     expect(
       recurringButton.parentElement?.contains(reminderButton),
     ).toBeTruthy();
-    expect(
-      screen.queryByRole("checkbox", { name: "15" }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("15日の文面")).not.toBeInTheDocument();
     expect(screen.queryByText("リマインド無効")).not.toBeInTheDocument();
 
     fireEvent.click(reminderButton);
 
-    expect(await screen.findByRole("checkbox", { name: "15" })).toBeChecked();
+    expect(await screen.findByLabelText("15日の文面")).toBeInTheDocument();
   });
 
   it("canManageReminderSettings が true で保存済みの対象日が0件のときは「リマインド無効」バッジを表示する", () => {

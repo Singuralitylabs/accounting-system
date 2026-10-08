@@ -33,12 +33,13 @@ import { notifyError, notifyInfo } from "../../utils/notify";
 import { confirmAction } from "../../utils/confirmAction";
 import { ActiveMatterFilterBar } from "./ActiveMatterFilterBar";
 import { LoadingSpinner } from "../LoadingSpinner";
-import SlackNotificationSettings from "./SlackNotificationSettings";
 
 export const AccountingMatterList = ({
   initialData,
+  slackChannelName,
 }: {
   initialData?: MatterWithProfileType[];
+  slackChannelName?: string;
 }) => {
   const slackNotificationMutation = useSlackNotification();
   const checkCompletedMutation = useCheckCompleted();
@@ -251,7 +252,6 @@ export const AccountingMatterList = ({
       <LoadingOverlay visible={isListBusy && hasList} />
       <div className="sticky top-4 bg-white z-[5]">
         <div className="flex justify-end gap-4 my-4 px-4">
-          <SlackNotificationSettings />
           <Button
             color="green"
             loading={checkCompletedMutation.isPending}
@@ -259,13 +259,23 @@ export const AccountingMatterList = ({
           >
             確認完了
           </Button>
-          <Button
-            color="indigo"
-            loading={slackNotificationMutation.isPending}
-            onClick={() => setNotificationOpened(true)}
-          >
-            担当者に連絡
-          </Button>
+          <div className="flex flex-col items-center">
+            <Button
+              color="indigo"
+              loading={slackNotificationMutation.isPending}
+              onClick={() => setNotificationOpened(true)}
+            >
+              担当者に連絡
+            </Button>
+            {slackChannelName && (
+              <span
+                className="text-xs text-gray-500 mt-1"
+                data-testid="slack-channel-name-label"
+              >
+                投稿先: {slackChannelName}
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex justify-between items-center">
           <span className="text-red-700 text-sm m-4">
@@ -381,6 +391,7 @@ export const AccountingMatterList = ({
           opened={notificationOpened}
           setOpened={setNotificationOpened}
           onSendMessage={handleSendMessage}
+          channelName={slackChannelName}
         />
       )}
     </div>

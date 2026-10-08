@@ -19,7 +19,7 @@ export const BUDGET_DECLARATION_REMINDER_PLACEHOLDERS: readonly SlackPlaceholder
   [
     {
       key: "month",
-      description: "対象月（例: 2026年10月）",
+      description: "対象月",
       sample: "2026年10月",
     },
     {
@@ -129,6 +129,20 @@ export const buildBudgetDeclarationReminderMessage = (
     declarationUrl,
   ].join("\n");
 };
+
+// Sample of the part appended after the header message, in the exact format of the real post.
+export const buildBudgetDeclarationReminderSampleAutoText = (): string =>
+  // Empty header leaves a leading newline; the preview draws the header separately.
+  (
+    buildBudgetDeclarationReminderMessage(
+      [
+        { team: "Aチーム", slackIds: ["U01234567"] },
+        { team: "Bチーム", slackIds: [] },
+      ],
+      "",
+      "https://example.com/budget-declarations",
+    ) ?? ""
+  ).replace(/^\n/, "");
 
 export const isValidBudgetDeclarationReminderTargetDay = (
   day: number,
