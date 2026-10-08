@@ -128,7 +128,7 @@ Studio `http://127.0.0.1:54323` / API `http://127.0.0.1:54321` / PostgreSQL `pos
 
 ログインできるのは `@future-tech-association.org` のみ。判定は `app/utils/constants.ts` の `isAllowedEmailDomain`、強制は `app/auth/callback/route.ts`（ログインボタン側のチェックは UX 用で、そこだけ変えてもコールバックが拒否する）。
 
-その他のコマンドは `CLAUDE.md` を参照。スキーマ変更後は `yarn db:types-local`（本番から生成する場合のみ `yarn db:types`）。
+その他のコマンドは `CLAUDE.md` を参照。スキーマ変更後は `yarn -s db:types-local > /tmp/generated.ts`（本番から生成する場合のみ `yarn -s db:types`）で生成結果を標準出力に出し、`app/lib/database.types.ts` との差分から必要な部分だけを手で反映する（このファイルは手で保つ。上書きしない。詳細は `CLAUDE.md`）。
 
 ---
 
@@ -228,7 +228,7 @@ supabase start
 
 ### Docker / DB 接続 / スキーマのエラー
 
-Docker 未起動なら起動する。`docker ps` で状態確認、`supabase stop && supabase start` で再起動。DB 接続は `psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -c "SELECT version();"` で確認。スキーマ不整合は `supabase db reset` → `yarn db:types-local`。
+Docker 未起動なら起動する。`docker ps` で状態確認、`supabase stop && supabase start` で再起動。DB 接続は `psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -c "SELECT version();"` で確認。スキーマ不整合は `supabase db reset`。型は `app/lib/database.types.ts` を手で保つ（再生成して上書きしない）。
 
 ### `yarn dev` が App Router と無関係なエラーで落ちる
 

@@ -276,6 +276,7 @@ SELECT は 5.8 と同じくログイン済みの全ユーザーの全チーム�
 - `p_declaration_id` 指定時は `team` / `target_month` も一致する行のみ更新し、該当なしは `DECLARATION_NOT_FOUND`（SQLSTATE P0002）。
 - 存在しない `manager_id` は FK 違反（23503）で全体ロールバックされる（アプリは事前に `assertManagerIdsExist()` で確認）。
 - 本番反映は **マイグレーションを先に適用してからアプリをデプロイ**する（新アプリが呼ぶ 6 引数の関数が無いと保存が失敗する）。`p_completed` は `DEFAULT NULL`（変更なし）のため、適用後に旧アプリが動いている間の保存もエラーにならず、完了状態は変わらない。旧 5 引数のシグネチャは DROP 済み。
+- `app/lib/database.types.ts` は手で保つファイルで、再生成して上書きしない（`CLAUDE.md`）。次の DEFAULT 付き引数と `save_budget_declaration` の呼び出し方の説明も、このファイルに手書きのコメントとして残している。
 - `p_declaration_id` / `p_comment` / `p_completed` に `DEFAULT NULL` を付けているのは、`supabase gen types` が引数を DEFAULT の有無でしか区別せず、付けると生成型が省略可能（`?:`）になり呼び出し側が `undefined` を渡せるため。DEFAULT 付き引数は SQL 構文上末尾に置く。
 
 ### 5.10 budget_declaration_reminder_days テーブル

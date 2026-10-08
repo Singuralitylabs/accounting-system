@@ -91,7 +91,7 @@ Unit Tests (多数・最優先)
 ### 3.3 型安全性テスト
 
 - `tsc --noEmit`（`yarn typecheck`）と ESLint で型不整合を検知する。
-- スキーマ変更時は `yarn db:types-local` で `app/lib/database.types.ts` を更新する（CLAUDE.md / setup.md）。CI での型再生成・差分チェックは未導入。
+- スキーマ変更時は `yarn -s db:types-local` の生成結果と `app/lib/database.types.ts` を見比べ、変更に必要な部分（新しい列・関数など）だけを手で反映する。このファイルは手書きのコメントと `| null` を含むため、再生成して上書きしない（CLAUDE.md / setup.md）。CI での型再生成・差分チェックは未導入（手で保つため、生成結果との完全一致は検査しない）。
 
 ### 3.4 ビルドテスト
 

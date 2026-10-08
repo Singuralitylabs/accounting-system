@@ -19,7 +19,4 @@ echo "[install] Bringing up Docker + Supabase to apply migrations..."
 bash .cursor/setup/docker-up.sh
 bash .cursor/setup/supabase-up.sh
 
-echo "[install] Regenerating database types from the local schema..."
-yarn db:types-local
-
 echo "[install] Done."
