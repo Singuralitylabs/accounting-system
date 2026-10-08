@@ -258,19 +258,9 @@ describe("AccountingMatterList", () => {
       ).not.toBeInTheDocument();
     });
 
-    it("投稿先チャンネル名をボタンの近くに表示し、未設定なら表示しない", () => {
-      const { unmount } = renderWithMantine(
-        <AccountingMatterList slackChannelName="#経理連絡" />,
-      );
-      expect(screen.getByTestId("slack-channel-name-label")).toHaveTextContent(
-        "#経理連絡",
-      );
-      unmount();
-
-      renderWithMantine(<AccountingMatterList />);
-      expect(
-        screen.queryByTestId("slack-channel-name-label"),
-      ).not.toBeInTheDocument();
+    it("「担当者に連絡」ボタンの下に投稿先チャンネル名を表示しない", () => {
+      renderWithMantine(<AccountingMatterList slackChannelName="#経理連絡" />);
+      expect(screen.queryByText(/投稿先/)).not.toBeInTheDocument();
     });
 
     it("押すと 1 つのモーダルが開き、タイトルに投稿先チャンネル名が出る。「送信」「文面の設定」を切り替えられる", async () => {

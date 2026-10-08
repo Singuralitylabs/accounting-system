@@ -260,23 +260,13 @@ export const AccountingMatterList = ({
           >
             確認完了
           </Button>
-          <div className="flex flex-col items-center">
-            <Button
-              color="indigo"
-              loading={slackNotificationMutation.isPending}
-              onClick={() => setNotificationOpened(true)}
-            >
-              担当者に連絡
-            </Button>
-            {slackChannelName && (
-              <span
-                className="text-xs text-gray-500 mt-1"
-                data-testid="slack-channel-name-label"
-              >
-                投稿先: {slackChannelName}
-              </span>
-            )}
-          </div>
+          <Button
+            color="indigo"
+            loading={slackNotificationMutation.isPending}
+            onClick={() => setNotificationOpened(true)}
+          >
+            担当者に連絡
+          </Button>
         </div>
         <div className="flex justify-between items-center">
           <span className="text-red-700 text-sm m-4">
