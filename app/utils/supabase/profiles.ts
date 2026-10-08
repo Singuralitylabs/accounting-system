@@ -75,10 +75,8 @@ export const validateMemberIds = async (targetIds: number[]) => {
 };
 
 // Shared pre-save check that manager_id exists in profiles: returns null if OK, otherwise an
-// AccessFailure to return as-is. Avoids an obscure FK violation (23503) and, for
-// budgetRecurringItems.ts (parallel non-transactional writes), a partial write
-// (partialWriteFailed). budgetDeclarations.ts saves in one transaction (save_budget_declaration,
-// migration 24), so an FK violation there rolls back fully.
+// AccessFailure to return as-is. Avoids an obscure FK violation (23503). Both callers save in one
+// transaction (save_budget_declaration, save_budget_recurring_items), so an FK violation would roll back fully.
 export const assertManagerIdsExist = async (
   managerIds: number[],
   subject: string,

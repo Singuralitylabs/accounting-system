@@ -1,3 +1,4 @@
+// Maintained by hand; do not overwrite with `yarn db:types*` (see CLAUDE.md for the update procedure).
 export type Json =
   | string
   | number
@@ -1061,6 +1062,10 @@ export type Database = {
         Returns: {
           id: number
         }[]
+      }
+      save_budget_recurring_items: {
+        Args: { p_rows: Json }
+        Returns: undefined
       }
       save_extra_entries: {
         Args: {

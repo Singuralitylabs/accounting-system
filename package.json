@@ -12,8 +12,8 @@
     "test:watch": "vitest",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "db:types": "source .env.local && supabase gen types typescript --project-id ${PROJECT_ID} --schema public > app/lib/database.types.ts",
-    "db:types-local": "supabase gen types typescript --local > app/lib/database.types.ts"
+    "db:types": "source .env.local && supabase gen types typescript --project-id ${PROJECT_ID} --schema public",
+    "db:types-local": "supabase gen types typescript --local"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

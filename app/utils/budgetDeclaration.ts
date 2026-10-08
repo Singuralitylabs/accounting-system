@@ -234,17 +234,9 @@ export const isForbiddenError = (error: unknown): boolean =>
 export const retryUnlessForbidden = (failureCount: number, error: Error) =>
   !isForbiddenError(error) && failureCount < 2;
 
-// Failure midway through header save -> line replacement may leave a partial write.
-// budget_recurring_items lines are written non-transactionally (parallel INSERT/UPDATE/DELETE), so
-// this is still needed; saveBudgetDeclaration is a single transaction (migration 24) and never
-// returns partialWriteFailed.
-export const isPartialWriteFailureError = (error: unknown): boolean =>
-  getBudgetDeclarationErrorKind(error) === "partialWriteFailed";
-
 // True only when the server answered with a failure that happens before any write.
 // A thrown Error without kind (Failed to fetch, timeout) may mean the writes already ran;
 // treating that as "nothing was written" lets the user save new rows again and duplicate them.
 export const isPreWriteFailureError = (error: unknown): boolean => {
-  const kind = getBudgetDeclarationErrorKind(error);
-  return kind !== undefined && kind !== "partialWriteFailed";
+  return getBudgetDeclarationErrorKind(error) !== undefined;
 };

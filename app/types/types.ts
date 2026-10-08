@@ -347,14 +347,12 @@ export type BudgetDeclarationDetailType = {
 
 // forbidden is not recoverable by retry, unlike transient fetchFailed; conflating them causes pointless react-query retries and a wrong "reload later" hint.
 // duplicate: unique violation on (target_month, team). validationFailed: client-side validation failure.
-// partialWriteFailed: only for multi-step writes that may have partially applied (e.g. bulk recurring-item update); save_budget_declaration is a single transaction and never returns it.
 // Plain objects rather than Error: React Flight cannot serialize Error in Server Action results.
 export type AccessFailureKind =
   | "forbidden"
   | "fetchFailed"
   | "duplicate"
-  | "validationFailed"
-  | "partialWriteFailed";
+  | "validationFailed";
 
 export type AccessFailure = {
   kind: AccessFailureKind;

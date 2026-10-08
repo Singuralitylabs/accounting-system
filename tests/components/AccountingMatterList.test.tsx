@@ -245,4 +245,125 @@ describe("AccountingMatterList", () => {
     expect(screen.queryByText("テスト案件")).not.toBeInTheDocument();
     expect(screen.queryByRole("status", { name: "読み込み中" })).toBeNull();
   });
+
+  describe("担当者に連絡", () => {
+    it("操作ボタンは「担当者に連絡」だけで、「通知設定」ボタンは無い", () => {
+      renderWithMantine(<AccountingMatterList />);
+
+      expect(
+        screen.getAllByRole("button", { name: "担当者に連絡" }),
+      ).toHaveLength(1);
+      expect(
+        screen.queryByRole("button", { name: "通知設定" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("投稿先チャンネル名をボタンの近くに表示し、未設定なら表示しない", () => {
+      const { unmount } = renderWithMantine(
+        <AccountingMatterList slackChannelName="#経理連絡" />,
+      );
+      expect(screen.getByTestId("slack-channel-name-label")).toHaveTextContent(
+        "#経理連絡",
+      );
+      unmount();
+
+      renderWithMantine(<AccountingMatterList />);
+      expect(
+        screen.queryByTestId("slack-channel-name-label"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("押すと 1 つのモーダルが開き、タイトルに投稿先チャンネル名が出る。「送信」「文面の設定」を切り替えられる", async () => {
+      renderWithMantine(<AccountingMatterList slackChannelName="#経理連絡" />);
+
+      fireEvent.click(screen.getByRole("button", { name: "担当者に連絡" }));
+
+      expect(await screen.findAllByRole("dialog")).toHaveLength(1);
+      expect(screen.getByTestId("slack-channel-name")).toHaveTextContent(
+        "#経理連絡",
+      );
+      expect(screen.getByRole("tab", { name: "送信" })).toBeInTheDocument();
+      expect(
+        screen.getByRole("tab", { name: "文面の設定" }),
+      ).toBeInTheDocument();
+    });
+
+    it("チェックした案件に、入力したメッセージを送信する", async () => {
+      slackMutateAsync.mockResolvedValue({
+        failedTitles: [],
+        dbUpdateFailed: false,
+      });
+      renderWithMantine(<AccountingMatterList />);
+
+      fireEvent.click(screen.getAllByLabelText("案件チェック")[0]);
+      fireEvent.click(screen.getByRole("button", { name: "担当者に連絡" }));
+      fireEvent.change(
+        await screen.findByPlaceholderText(
+          "案件担当者に通知したい内容をご記載ください。",
+        ),
+        { target: { value: "確認してください" } },
+      );
+      fireEvent.click(screen.getByRole("button", { name: "slack通知" }));
+
+      await vi.waitFor(() =>
+        expect(slackMutateAsync).toHaveBeenCalledWith(
+          expect.objectContaining({ message: "確認してください" }),
+        ),
+      );
+      await vi.waitFor(() =>
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+      );
+    });
+
+    it("案件を選択せずに送信するとモーダルを閉じず、入力したメッセージを保持する", async () => {
+      renderWithMantine(<AccountingMatterList />);
+
+      fireEvent.click(screen.getByRole("button", { name: "担当者に連絡" }));
+      const textarea = await screen.findByPlaceholderText(
+        "案件担当者に通知したい内容をご記載ください。",
+      );
+      fireEvent.change(textarea, { target: { value: "確認してください" } });
+      fireEvent.click(screen.getByRole("button", { name: "slack通知" }));
+
+      await vi.waitFor(() =>
+        expect(notifyError).toHaveBeenCalledWith(
+          "送信対象となる案件にチェックを入れてください。",
+        ),
+      );
+      expect(slackMutateAsync).not.toHaveBeenCalled();
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(textarea).toHaveValue("確認してください");
+    });
+
+    it("Slack通知に失敗した場合はモーダルを閉じず、入力したメッセージを保持する", async () => {
+      slackMutateAsync.mockRejectedValue(new Error("network"));
+      renderWithMantine(<AccountingMatterList />);
+
+      fireEvent.click(screen.getAllByLabelText("案件チェック")[0]);
+      fireEvent.click(screen.getByRole("button", { name: "担当者に連絡" }));
+      const textarea = await screen.findByPlaceholderText(
+        "案件担当者に通知したい内容をご記載ください。",
+      );
+      fireEvent.change(textarea, { target: { value: "確認してください" } });
+      fireEvent.click(screen.getByRole("button", { name: "slack通知" }));
+
+      await vi.waitFor(() =>
+        expect(notifyError).toHaveBeenCalledWith("Slack通知に失敗しました。"),
+      );
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(textarea).toHaveValue("確認してください");
+    });
+
+    it("案件を選択していない場合、送信はエラー通知になるが文面の設定タブは開ける", async () => {
+      renderWithMantine(<AccountingMatterList />);
+
+      fireEvent.click(screen.getByRole("button", { name: "担当者に連絡" }));
+      fireEvent.click(await screen.findByRole("tab", { name: "文面の設定" }));
+
+      expect(screen.getByRole("tab", { name: "文面の設定" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    });
+  });
 });

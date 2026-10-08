@@ -12,12 +12,12 @@ Guidance for Claude Code in this repository. Product: accounting system of æœªæ
 
 ```bash
 yarn dev | build | lint (includes no-console / no-debugger) | typecheck | test | test:watch | format | format:check
-yarn db:types          # generate types from production Supabase (PROJECT_ID in .env.local)
-yarn db:types-local    # generate types from local Supabase
+yarn db:types          # print generated types from production Supabase to stdout (PROJECT_ID in .env.local)
+yarn db:types-local    # print generated types from local Supabase to stdout
 supabase start | stop | reset   # local Supabase (reset re-applies supabase/migrations/)
 ```
 
-- After any schema change run `yarn db:types-local` and update `app/lib/database.types.ts`.
+- `app/lib/database.types.ts` is **maintained by hand**, not a regenerated artifact: it carries hand-written comments (e.g. `save_budget_declaration` DEFAULT NULL args) and `| null` types that are wider than the generator emits (e.g. `save_profit_loss_adjustment`), and it omits `graphql_public` / `__InternalSupabase`. Never redirect `yarn db:types*` over it. After a schema change, run `yarn -s db:types-local > /tmp/generated.ts`, diff it against the file, and copy over only what the change needs (new columns / functions), keeping the comments and `| null`. Ignore unrelated generator diffs (formatting, argument order, `__InternalSupabase`).
 - Schema changes (tables / RLS / triggers / enums / seed data) **must** be added as `supabase/migrations/YYYYMMDDHHMMSS_<snake_case_name>.sql`. Changes applied directly to a remote must be back-filled as a migration so `supabase db reset` reproduces the same state.
 - Update `docs/database.md` in the same PR only when a table's role, an RLS intent, or a trigger / function purpose changes (no column lists or SQL there, except SQL that an applied migration or workflow refers to). Keep the content of sections that migrations / workflows reference by number (e.g. 1.3, 3.2, 5.x, 7).
 - Tests are Vitest under `tests/` (`*.test.ts` pure functions, `*.test.tsx` components with jsdom, TZ=Asia/Tokyo). SQL functions / RLS are tested with pgTAP: run `supabase test db` when you change `supabase/**` (CI: `db-test.yml`). See `docs/testing.md` for policy; update tests when you change tested code.

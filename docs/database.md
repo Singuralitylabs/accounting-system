@@ -276,6 +276,7 @@ SELECT は 5.8 と同じくログイン済みの全ユーザーの全チーム�
 - `p_declaration_id` 指定時は `team` / `target_month` も一致する行のみ更新し、該当なしは `DECLARATION_NOT_FOUND`（SQLSTATE P0002）。
 - 存在しない `manager_id` は FK 違反（23503）で全体ロールバックされる（アプリは事前に `assertManagerIdsExist()` で確認）。
 - 本番反映は **マイグレーションを先に適用してからアプリをデプロイ**する（新アプリが呼ぶ 6 引数の関数が無いと保存が失敗する）。`p_completed` は `DEFAULT NULL`（変更なし）のため、適用後に旧アプリが動いている間の保存もエラーにならず、完了状態は変わらない。旧 5 引数のシグネチャは DROP 済み。
+- `app/lib/database.types.ts` は手で保つファイル（手順は `CLAUDE.md` を参照）。次の DEFAULT 付き引数と `save_budget_declaration` の呼び出し方の説明も、このファイルに手書きのコメントとして残している。
 - `p_declaration_id` / `p_comment` / `p_completed` に `DEFAULT NULL` を付けているのは、`supabase gen types` が引数を DEFAULT の有無でしか区別せず、付けると生成型が省略可能（`?:`）になり呼び出し側が `undefined` を渡せるため。DEFAULT 付き引数は SQL 構文上末尾に置く。
 
 ### 5.10 budget_declaration_reminder_days テーブル
@@ -285,6 +286,15 @@ admin / accounting のみ SELECT / INSERT / UPDATE / DELETE（`auth_user_class()
 ### 5.11 budget_recurring_items テーブル
 
 SELECT はログイン済みの全ユーザーの全チームに許可し、INSERT / UPDATE / DELETE は 5.8 と同じ `can_access_team_budget`（migration 44 で `FOR ALL` 1 本をコマンド別に分けた）。新規申告作成時の展開（`getActiveBudgetRecurringItems`）は通常の SELECT で、自チームを指定して取得する。展開先の `budget_declaration_items` への INSERT は 5.9 の RLS に従う。
+
+#### 一括保存（`save_budget_recurring_items`）
+
+保存処理（`app/utils/supabase/budgetRecurringItems.ts`）は、保存前の検証（分類マスタ・担当者・書き込み可能なチームの判定）の後にこの関数を 1 回呼ぶだけで完結する。新規・編集・削除・並び順の再採番を 1 トランザクションで行い、**1 件でも競合すれば全体を中止して何も保存しない**（途中まで反映された状態にならない）。migration 45。
+
+- SECURITY INVOKER（書き込み権限は呼び出し元の RLS = `can_access_team_budget` が担う）。行は `id` 順に `FOR UPDATE` でロックし、確認と書き込みを一体にする。同時に保存された場合は、後続はロック解除後の最新の `updated_at` で判定される。
+- 行ごとの `state` は `new`（INSERT）/ `edited`（全列 UPDATE）/ `removed`（DELETE）/ `keep`（触っていない行。`display_order` の再採番だけ）。
+- `edited` / `removed` の行が存在しない（`removed` は無視）、または `updated_at` が表示時と異なる場合は、`BUDGET_RECURRING_ITEMS_CONFLICT`（SQLSTATE `40001`）で中止する。`keep` の行が変わっている・消えている場合は無視する（他の行の保存を妨げない）。
+- RLS で更新できない他チームの行は、`edited` / `removed` なら `42501`、`keep` なら無視する。
 
 ### 5.12 profit_loss_adjustments テーブル
 
