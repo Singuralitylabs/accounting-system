@@ -14,7 +14,6 @@ import {
   defaultTargetMonth,
   isCategoryUnregistered,
   isForbiddenError,
-  isPartialWriteFailureError,
   isPreWriteFailureError,
   previousItemsToFormRows,
   summarizeBudgetItems,
@@ -377,51 +376,6 @@ describe("BudgetDeclarationError / isForbiddenError", () => {
   });
 });
 
-describe("isPartialWriteFailureError", () => {
-  // saveBudgetDeclaration runs in a single transaction inside save_budget_declaration (migration 24), so it
-  // never returns partialWriteFailed. Currently only the bulk update in budgetRecurringItems.ts can return this kind.
-  it("複数行の一括更新が途中で失敗した場合（partialWriteFailed）は一部反映の可能性があると判定する", () => {
-    expect(
-      isPartialWriteFailureError(
-        new BudgetDeclarationError({
-          kind: "partialWriteFailed",
-          message: "定期明細の更新に失敗しました。",
-        }),
-      ),
-    ).toBe(true);
-  });
-
-  it("何も書き込まれていない失敗（fetchFailed・forbidden・validationFailed・duplicate）は対象外", () => {
-    // fetchFailed is also used for a failed header save / no target rows; nothing was written in those
-    // cases, so exclude them.
-    expect(
-      isPartialWriteFailureError(
-        new BudgetDeclarationError({ kind: "fetchFailed", message: "" }),
-      ),
-    ).toBe(false);
-    expect(
-      isPartialWriteFailureError(
-        new BudgetDeclarationError({ kind: "forbidden", message: "" }),
-      ),
-    ).toBe(false);
-    expect(
-      isPartialWriteFailureError(
-        new BudgetDeclarationError({ kind: "validationFailed", message: "" }),
-      ),
-    ).toBe(false);
-    expect(
-      isPartialWriteFailureError(
-        new BudgetDeclarationError({ kind: "duplicate", message: "" }),
-      ),
-    ).toBe(false);
-  });
-
-  it("無関係なエラーは対象外", () => {
-    expect(isPartialWriteFailureError(new Error("network"))).toBe(false);
-    expect(isPartialWriteFailureError(null)).toBe(false);
-  });
-});
-
 describe("isPreWriteFailureError", () => {
   it("サーバーが書き込み前に返した失敗だけ真になる", () => {
     for (const kind of [
@@ -438,15 +392,7 @@ describe("isPreWriteFailureError", () => {
     }
   });
 
-  it("一部書き込みと、応答が失われた失敗は書き込み前と確定しない", () => {
-    expect(
-      isPreWriteFailureError(
-        new BudgetDeclarationError({
-          kind: "partialWriteFailed",
-          message: "定期明細の更新に失敗しました。",
-        }),
-      ),
-    ).toBe(false);
+  it("応答が失われた失敗は書き込み前と確定しない", () => {
     expect(isPreWriteFailureError(new TypeError("Failed to fetch"))).toBe(
       false,
     );

@@ -1062,6 +1062,10 @@ export type Database = {
           id: number
         }[]
       }
+      save_budget_recurring_items: {
+        Args: { p_rows: Json }
+        Returns: undefined
+      }
       save_extra_entries: {
         Args: {
           p_delete_ids: number[]
