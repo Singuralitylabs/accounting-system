@@ -325,9 +325,14 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
       teamRow(1, "Bチーム", { isRemoved: true }),
     ]);
 
-    expect(added.error?.kind).toBe("forbidden");
+    expect(added.error).toEqual({
+      kind: "forbidden",
+      message: "Bチームの事前収支申告の定期明細を編集する権限がありません。",
+    });
     expect(removed.error?.kind).toBe("forbidden");
     expect(rpc).not.toHaveBeenCalled();
+    expect(getActiveSelectOptionsByType).not.toHaveBeenCalled();
+    expect(assertManagerIdsExist).not.toHaveBeenCalled();
   });
 
   it("自チームの行を他チームへ付け替える変更は書き込まない（事前チェックでは自チーム扱いにならず無視される。DB の RLS も拒否する）", async () => {

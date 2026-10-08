@@ -496,7 +496,8 @@ describe("BudgetDeclarationReminderSettings", () => {
     await openModal();
 
     const auto = screen.getByTestId("slack-preview-auto");
-    expect(auto).toHaveTextContent("Aチーム");
+    expect(auto).toHaveTextContent("@Aチームリーダー Aチーム");
+    expect(auto).not.toHaveTextContent("<@");
     expect(auto).toHaveTextContent("期限: 毎月20日");
     expect(auto).toHaveTextContent("https://");
   });

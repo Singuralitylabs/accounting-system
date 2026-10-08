@@ -1,6 +1,5 @@
 -- save_budget_recurring_items: bulk save of budget_recurring_items in one transaction.
--- Replaces the app's parallel INSERT / UPDATE / DELETE requests, which could leave a save partially
--- applied. A concurrent change to a row the user edited or deleted aborts the whole call
+-- A concurrent change to a row the user edited or deleted aborts the whole call
 -- (RAISE), so a conflict always means "nothing was saved".
 --
 -- p_rows: [{"state": "new" | "edited" | "removed" | "keep", "id": 1, "updated_at": "...", "team": "...",

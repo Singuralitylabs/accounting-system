@@ -310,6 +310,48 @@ describe("AccountingMatterList", () => {
           expect.objectContaining({ message: "確認してください" }),
         ),
       );
+      await vi.waitFor(() =>
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+      );
+    });
+
+    it("案件を選択せずに送信するとモーダルを閉じず、入力したメッセージを保持する", async () => {
+      renderWithMantine(<AccountingMatterList />);
+
+      fireEvent.click(screen.getByRole("button", { name: "担当者に連絡" }));
+      const textarea = await screen.findByPlaceholderText(
+        "案件担当者に通知したい内容をご記載ください。",
+      );
+      fireEvent.change(textarea, { target: { value: "確認してください" } });
+      fireEvent.click(screen.getByRole("button", { name: "slack通知" }));
+
+      await vi.waitFor(() =>
+        expect(notifyError).toHaveBeenCalledWith(
+          "送信対象となる案件にチェックを入れてください。",
+        ),
+      );
+      expect(slackMutateAsync).not.toHaveBeenCalled();
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(textarea).toHaveValue("確認してください");
+    });
+
+    it("Slack通知に失敗した場合はモーダルを閉じず、入力したメッセージを保持する", async () => {
+      slackMutateAsync.mockRejectedValue(new Error("network"));
+      renderWithMantine(<AccountingMatterList />);
+
+      fireEvent.click(screen.getAllByLabelText("案件チェック")[0]);
+      fireEvent.click(screen.getByRole("button", { name: "担当者に連絡" }));
+      const textarea = await screen.findByPlaceholderText(
+        "案件担当者に通知したい内容をご記載ください。",
+      );
+      fireEvent.change(textarea, { target: { value: "確認してください" } });
+      fireEvent.click(screen.getByRole("button", { name: "slack通知" }));
+
+      await vi.waitFor(() =>
+        expect(notifyError).toHaveBeenCalledWith("Slack通知に失敗しました。"),
+      );
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(textarea).toHaveValue("確認してください");
     });
 
     it("案件を選択していない場合、送信はエラー通知になるが文面の設定タブは開ける", async () => {

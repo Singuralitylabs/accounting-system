@@ -151,12 +151,17 @@ export const bulkSaveBudgetRecurringItems = async (
   const payload: SaveRecurringItemPayload[] = [];
   for (const row of rows) {
     if (!canWriteTeam(row.team)) {
-      // Read-only rows come back as displayed and are ignored; adding or deleting another team's row
-      // is still sent so the forbidden check below rejects it.
-      if (row.isRemoved && !row.isNew) {
-        payload.push({ state: "removed", ...toPayloadRow(row) });
-      } else if (row.isNew && !row.isRemoved) {
-        payload.push({ state: "new", ...toPayloadRow(row) });
+      // Read-only rows come back as displayed and are ignored. Adding or deleting another team's row
+      // is rejected here, before any DB round trip, for a clearer message; RLS inside the function is
+      // the last defense and also checks an edited row's stored team (moving a row out of another
+      // team's list is a write to it too).
+      if ((row.isRemoved && !row.isNew) || (row.isNew && !row.isRemoved)) {
+        return {
+          error: {
+            kind: "forbidden",
+            message: `${row.team}の${SUBJECT}を編集する権限がありません。`,
+          },
+        };
       }
       continue;
     }
@@ -232,20 +237,6 @@ export const bulkSaveBudgetRecurringItems = async (
   );
   if (managerIdError) {
     return { error: managerIdError };
-  }
-
-  // Own-team check first for a clearer message; RLS inside the function is the last defense and also
-  // checks an edited row's stored team (moving a row out of another team's list is a write to it too).
-  const forbiddenTeam = payload.find(
-    (row) => row.state !== "keep" && !canWriteTeam(row.team),
-  )?.team;
-  if (forbiddenTeam) {
-    return {
-      error: {
-        kind: "forbidden",
-        message: `${forbiddenTeam}の${SUBJECT}を編集する権限がありません。`,
-      },
-    };
   }
 
   const { error: rpcError } = await supabase.rpc("save_budget_recurring_items", {

@@ -131,18 +131,24 @@ export const buildBudgetDeclarationReminderMessage = (
 };
 
 // Sample of the part appended after the header message, in the exact format of the real post.
+// Slack renders <@ID> as @name, so the sample mention is shown in that rendered form.
+const SAMPLE_SLACK_ID = "U01234567";
+const SAMPLE_MENTION_NAME = "Aチームリーダー";
+
 export const buildBudgetDeclarationReminderSampleAutoText = (): string =>
   // Empty header leaves a leading newline; the preview draws the header separately.
   (
     buildBudgetDeclarationReminderMessage(
       [
-        { team: "Aチーム", slackIds: ["U01234567"] },
+        { team: "Aチーム", slackIds: [SAMPLE_SLACK_ID] },
         { team: "Bチーム", slackIds: [] },
       ],
       "",
       "https://example.com/budget-declarations",
     ) ?? ""
-  ).replace(/^\n/, "");
+  )
+    .replace(/^\n/, "")
+    .replace(`<@${SAMPLE_SLACK_ID}>`, `@${SAMPLE_MENTION_NAME}`);
 
 export const isValidBudgetDeclarationReminderTargetDay = (
   day: number,

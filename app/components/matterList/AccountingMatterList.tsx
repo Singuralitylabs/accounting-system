@@ -190,14 +190,14 @@ export const AccountingMatterList = ({
   }, [matterList, checkedMatterIdList, checkCompletedMutation]);
 
   const handleSendMessage = useCallback(
-    async (message: string) => {
+    async (message: string): Promise<boolean> => {
       if (checkedMatterIdList.length === 0) {
         notifyError("送信対象となる案件にチェックを入れてください。");
-        return;
+        return false;
       }
       if (!message.trim()) {
         notifyError("メッセージを入力してください。");
-        return;
+        return false;
       }
 
       const { visibleChecked, hiddenCheckedIds } = partitionCheckedMatters(
@@ -208,14 +208,14 @@ export const AccountingMatterList = ({
         notifyError(
           "表示中の案件にチェックが入っていません。絞り込みを解除するか、表示中の案件にチェックを入れてください。",
         );
-        return;
+        return false;
       }
 
       if (hiddenCheckedIds.length > 0) {
         const confirmed = await confirmAction(
           `チェック済み ${checkedMatterIdList.length} 件のうち ${hiddenCheckedIds.length} 件は絞り込みで非表示のため対象外です。表示中の ${visibleChecked.length} 件に送信しますか？`,
         );
-        if (!confirmed) return;
+        if (!confirmed) return false;
       }
 
       try {
@@ -227,7 +227,6 @@ export const AccountingMatterList = ({
 
         // Uncheck only the sent (displayed) rows and keep hidden checks. Also uncheck on partial failure, since keeping sent IDs would double-notify on resend.
         const sentIds = new Set(visibleChecked.map((matter) => matter.id));
-        setNotificationOpened(false);
         setCheckedMatterIdList((prev) => prev.filter((id) => !sentIds.has(id)));
 
         if (dbUpdateFailed) {
@@ -239,9 +238,11 @@ export const AccountingMatterList = ({
             `以下の案件のSlack通知に失敗しました。対象を再選択して送信し直してください。\n${failedTitles.join("\n")}`,
           );
         }
+        return true;
       } catch (error) {
         console.error("Slack通知に失敗しました:", error);
         notifyError("Slack通知に失敗しました。");
+        return false;
       }
     },
     [checkedMatterIdList, matterList, slackNotificationMutation],

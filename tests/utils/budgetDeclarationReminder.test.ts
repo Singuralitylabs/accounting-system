@@ -193,7 +193,7 @@ describe("buildBudgetDeclarationReminderMessage", () => {
 });
 
 describe("buildBudgetDeclarationReminderSampleAutoText", () => {
-  it("実際の投稿と同じ形式で、本文の後ろに付く部分（チーム一覧・期限・URL）だけを返す", () => {
+  it("実際の投稿と同じ形式で、本文の後ろに付く部分（チーム一覧・期限・URL）だけを返す。メンションは Slack での表示形式（@名前）にする", () => {
     const header = "ヘッダ";
     const real = buildBudgetDeclarationReminderMessage(
       [
@@ -206,8 +206,12 @@ describe("buildBudgetDeclarationReminderSampleAutoText", () => {
 
     const auto = buildBudgetDeclarationReminderSampleAutoText();
 
-    expect(`${header}\n${auto}`).toBe(real);
+    expect(`${header}\n${auto}`).toBe(
+      real?.replace("<@U01234567>", "@Aチームリーダー"),
+    );
     expect(auto).toContain("期限: 毎月20日");
+    expect(auto).toContain("- @Aチームリーダー Aチーム");
+    expect(auto).not.toContain("<@");
   });
 });
 

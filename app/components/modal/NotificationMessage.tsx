@@ -5,7 +5,8 @@ import SlackNotificationSettings from "../matterList/SlackNotificationSettings";
 type Props = {
   opened: boolean;
   setOpened: React.Dispatch<React.SetStateAction<boolean>>;
-  onSendMessage: (message: string) => Promise<void>;
+  // Resolves true only when the message was actually sent; otherwise the draft and modal stay.
+  onSendMessage: (message: string) => Promise<boolean>;
   // Display-only SLACK_CHANNEL_NAME; the real destination is decided by the webhook.
   channelName?: string;
 };
@@ -23,6 +24,14 @@ export const NotificationMessage = ({
   // Saving or confirming in the settings tab; reported by the panel.
   const [isSettingsBusy, setIsSettingsBusy] = useState(false);
   const [tab, setTab] = useState<string | null>("send");
+  // Mount the settings panel on first visit (avoids fetching when only sending), then keep it
+  // mounted so its unsaved draft survives tab switches.
+  const [settingsVisited, setSettingsVisited] = useState(false);
+
+  const handleTabChange = (value: string | null) => {
+    if (value === "settings") setSettingsVisited(true);
+    setTab(value);
+  };
 
   const isBusy = isSending || isSettingsBusy;
 
@@ -38,7 +47,8 @@ export const NotificationMessage = ({
 
     try {
       setIsSending(true);
-      await onSendMessage(message);
+      const sent = await onSendMessage(message);
+      if (!sent) return;
       setMessage("");
       setOpened(false);
     } catch (error) {
@@ -68,7 +78,7 @@ export const NotificationMessage = ({
       closeOnClickOutside={!isBusy}
       closeButtonProps={{ "aria-label": "閉じる" }}
     >
-      <Tabs value={tab} onChange={setTab}>
+      <Tabs value={tab} onChange={handleTabChange}>
         <Tabs.List mb="md">
           <Tabs.Tab value="send" disabled={isBusy}>
             送信
@@ -99,7 +109,9 @@ export const NotificationMessage = ({
           </div>
         </Tabs.Panel>
         <Tabs.Panel value="settings">
-          <SlackNotificationSettings onBusyChange={setIsSettingsBusy} />
+          {settingsVisited && (
+            <SlackNotificationSettings onBusyChange={setIsSettingsBusy} />
+          )}
         </Tabs.Panel>
       </Tabs>
     </Modal>

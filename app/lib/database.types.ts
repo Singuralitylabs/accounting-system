@@ -1,6 +1,4 @@
-// Maintained by hand, not regenerated: it keeps hand-written comments and `| null` argument types the
-// generator drops. After a schema change, diff `yarn -s db:types-local` against this file and copy only
-// what the change needs (see CLAUDE.md).
+// Maintained by hand; do not overwrite with `yarn db:types*` (see CLAUDE.md for the update procedure).
 export type Json =
   | string
   | number

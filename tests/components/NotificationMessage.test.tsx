@@ -55,7 +55,7 @@ describe("NotificationMessage（担当者に連絡モーダル）", () => {
     getSlackNotificationSettings.mockResolvedValue({ settings });
     updateSlackNotificationSettings.mockResolvedValue({});
     confirmAction.mockResolvedValue(true);
-    onSendMessage.mockResolvedValue(undefined);
+    onSendMessage.mockResolvedValue(true);
   });
 
   it("「送信」と「文面の設定」のタブがあり、既定は送信タブ", async () => {
@@ -113,6 +113,50 @@ describe("NotificationMessage（担当者に連絡モーダル）", () => {
       expect(onSendMessage).toHaveBeenCalledWith("確認してください"),
     );
     await screen.findByText("closed");
+  });
+
+  it("送信されなかった場合はモーダルを閉じず、入力したメッセージと未保存の編集を保持する", async () => {
+    onSendMessage.mockResolvedValue(false);
+    renderWithMantine(<Harness />);
+
+    const textarea = await screen.findByPlaceholderText(
+      "案件担当者に通知したい内容をご記載ください。",
+    );
+    fireEvent.change(textarea, { target: { value: "送れなかった" } });
+    fireEvent.click(screen.getByRole("tab", { name: "文面の設定" }));
+    fireEvent.change(await screen.findByDisplayValue("ヘッダ"), {
+      target: { value: "編集中" },
+    });
+    fireEvent.click(screen.getByRole("tab", { name: "送信" }));
+    fireEvent.click(screen.getByRole("button", { name: "slack通知" }));
+
+    await waitFor(() =>
+      expect(onSendMessage).toHaveBeenCalledWith("送れなかった"),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "slack通知" }),
+      ).not.toHaveAttribute("data-loading"),
+    );
+    expect(screen.queryByText("closed")).not.toBeInTheDocument();
+    expect(textarea).toHaveValue("送れなかった");
+    fireEvent.click(screen.getByRole("tab", { name: "文面の設定" }));
+    expect(screen.getByLabelText("ヘッダ")).toHaveValue("編集中");
+  });
+
+  it("文面の設定タブを開くまで文面の設定を取得しない", async () => {
+    renderWithMantine(<Harness />);
+    await screen.findByRole("tab", { name: "送信" });
+    await waitLongerThanTransition();
+    expect(getSlackNotificationSettings).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("tab", { name: "文面の設定" }));
+    expect(await screen.findByDisplayValue("ヘッダ")).toBeInTheDocument();
+    expect(getSlackNotificationSettings).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("tab", { name: "送信" }));
+    fireEvent.click(screen.getByRole("tab", { name: "文面の設定" }));
+    expect(getSlackNotificationSettings).toHaveBeenCalledTimes(1);
   });
 
   it("文面の設定タブで保存でき、タブを切り替えても未送信のメッセージと未保存の編集を保持する", async () => {
@@ -200,9 +244,9 @@ describe("NotificationMessage（担当者に連絡モーダル）", () => {
   });
 
   it("送信中は閉じる操作ができず、完了後に閉じる", async () => {
-    let resolveSend: () => void = () => {};
+    let resolveSend: (sent: boolean) => void = () => {};
     onSendMessage.mockReturnValue(
-      new Promise<void>((resolve) => {
+      new Promise<boolean>((resolve) => {
         resolveSend = resolve;
       }),
     );
@@ -225,7 +269,7 @@ describe("NotificationMessage（担当者に連絡モーダル）", () => {
     await waitLongerThanTransition();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
 
-    resolveSend();
+    resolveSend(true);
     await screen.findByText("closed");
   });
 });
