@@ -262,6 +262,12 @@ export const bulkSaveBudgetRecurringItems = async (
       };
     }
     console.error(`${SUBJECT}の一括更新でエラーが発生しました:`, rpcError);
+    // No SQLSTATE means the request never got a database answer (network failure / timeout), so the
+    // commit may have happened. Throw without a kind: the client then drops the form and refetches
+    // instead of keeping rows that would be inserted twice on a re-save.
+    if (!rpcError.code) {
+      throw new Error(`${SUBJECT}の更新結果を確認できませんでした。`);
+    }
     if (rpcError.code === INSUFFICIENT_PRIVILEGE) {
       return {
         error: {

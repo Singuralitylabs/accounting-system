@@ -45,16 +45,19 @@ SELECT is((SELECT count(*) FROM public.budget_recurring_items WHERE description 
 SELECT is((SELECT count(*) FROM public.budget_recurring_items WHERE description = 'a-new')::int, 1, '新規行が追加される');
 
 -- ===== conflict aborts everything =====
+-- Rows are processed in id order: a1 (valid edit) is written before a3 (stale) raises, so an intact a1
+-- proves the earlier write was rolled back.
 SELECT throws_ok(
   format($f$SELECT public.save_budget_recurring_items(%L::jsonb)$f$, (
     SELECT jsonb_build_array(
-      '{"state":"new","team":"Aチーム","entry_type":"income","category":"セミナー","description":"must-not-exist","amount":1,"manager_id":null,"start_month":"2026-05-01","end_month":null,"display_order":9}'::jsonb,
-      to_jsonb(e) || '{"state":"edited","description":"overwritten","updated_at":"2000-01-01T00:00:00Z"}'::jsonb
+      to_jsonb(ok_row) || '{"state":"edited","description":"rolled-back"}'::jsonb,
+      to_jsonb(stale_row) || '{"state":"edited","description":"overwritten","updated_at":"2000-01-01T00:00:00Z"}'::jsonb
     )
-    FROM public.budget_recurring_items e WHERE e.description = 'a1-edited'
+    FROM public.budget_recurring_items ok_row, public.budget_recurring_items stale_row
+    WHERE ok_row.description = 'a1-edited' AND stale_row.description = 'a3'
   )),
   '40001', 'BUDGET_RECURRING_ITEMS_CONFLICT', '編集した行の updated_at が表示時と違えば競合で中止する');
-SELECT is((SELECT count(*) FROM public.budget_recurring_items WHERE description = 'must-not-exist')::int, 0, '競合のとき同じ呼び出しの新規行も保存されない');
+SELECT is((SELECT count(*) FROM public.budget_recurring_items WHERE description = 'rolled-back')::int, 0, '競合のとき、先に処理された正常な編集も巻き戻される（何も保存されない）');
 SELECT is((SELECT count(*) FROM public.budget_recurring_items WHERE description = 'overwritten')::int, 0, '競合した行は上書きされない');
 
 SELECT throws_ok(

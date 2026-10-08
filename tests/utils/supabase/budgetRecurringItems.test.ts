@@ -242,6 +242,16 @@ describe("bulkSaveBudgetRecurringItems の RPC 呼び出し（Issue #251）", ()
     errorSpy.mockRestore();
   });
 
+  it("SQLSTATE の無い通信エラーは書き込み済みの可能性があるため、kind を付けずに throw する", async () => {
+    mockRpcSupabase({ error: { code: "", message: "TypeError: fetch failed" } });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      bulkSaveBudgetRecurringItems([teamRow(1, "Aチーム", { isEdited: true })]),
+    ).rejects.toThrow("更新結果を確認できませんでした");
+    errorSpy.mockRestore();
+  });
+
   it("その他の RPC エラーは partialWriteFailed にせず、何も保存されていない fetchFailed を返す", async () => {
     mockRpcSupabase({ error: { code: "XX000", message: "boom" } });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
