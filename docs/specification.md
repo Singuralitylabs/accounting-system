@@ -504,7 +504,7 @@ admin のみ。画面は [5.3.9](#539-管理画面)。選択肢（チーム / �
 ## 6. 環境変数（機密情報）
 
 - `SLACK_WEBHOOK_URL`: Slack 通知用 Webhook URL
-- `SLACK_CHANNEL_NAME`（任意）: 経理用一覧に表示する投稿先チャンネル名。表示専用で、実際の投稿先は Webhook で決まる（[4.13](#413-slack-通知-f014)）
+- `SLACK_CHANNEL_NAME`（任意）: 「担当者に連絡」モーダルのタイトルに表示する投稿先チャンネル名。表示専用で、実際の投稿先は Webhook で決まる（[4.13](#413-slack-通知-f014)）
 - `CRON_SECRET`: Vercel Cron ルート（未申告リマインド）の認証用。`Authorization: Bearer` で照合し、不一致は 401
 - `SUPABASE_SERVICE_ROLE_KEY`: RLS を完全にバイパスできる強力なキー。cron ルート限定・読み取り専用でのみ使うが、キー自体の権限は絞られていないため、クライアントへ露出させない
 

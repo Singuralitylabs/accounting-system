@@ -71,7 +71,7 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
 
 # Slack 通知。未使用なら空でよい。
 SLACK_WEBHOOK_URL=
-# 経理用一覧に表示する投稿先チャンネル名（表示専用・任意。例: #経理連絡）。
+# 「担当者に連絡」モーダルのタイトルに表示する投稿先チャンネル名（表示専用・任意。例: #経理連絡）。
 SLACK_CHANNEL_NAME=
 
 # 事前収支申告リマインド（Vercel Cron）用。ローカルでは任意の値でよい。
