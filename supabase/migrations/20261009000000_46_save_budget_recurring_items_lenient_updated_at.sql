@@ -67,11 +67,13 @@ BEGIN
       CONTINUE;
     END IF;
 
-    -- An unusable value (empty, null or not a timestamp) is treated as "no value", so every state
-    -- handles it the same way below instead of aborting the call with a type error.
+    -- An unusable value (empty, null or anything the cast rejects, e.g. bad syntax, out of range or an
+    -- unknown time zone) is treated as "no value", so every state handles it the same way below
+    -- instead of aborting the call with a type error. The block holds only the cast, so catching all
+    -- errors cannot hide anything else.
     BEGIN
       v_seen := NULLIF(r.updated_at, '')::timestamptz;
-    EXCEPTION WHEN invalid_datetime_format OR datetime_field_overflow THEN
+    EXCEPTION WHEN OTHERS THEN
       v_seen := NULL;
     END;
 

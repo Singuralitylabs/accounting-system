@@ -3,7 +3,7 @@
 -- A stale updated_at value stands in for "someone else saved the row after it was displayed":
 -- inside one test transaction now() does not move, so the trigger cannot produce a real change.
 BEGIN;
-SELECT plan(34);
+SELECT plan(35);
 
 INSERT INTO auth.users (id, email) VALUES
   ('11111111-1111-1111-1111-111111111111', 'acc@example.com'),
@@ -86,6 +86,14 @@ SELECT lives_ok(
     FROM public.budget_recurring_items t WHERE t.description = 'a3'
   )),
   'timestamp として読めない updated_at の keep 行は無視され、呼び出しは成功する');
+
+-- Other cast failures (here an unknown time zone, SQLSTATE 22023) are also treated as no value
+SELECT lives_ok(
+  format($f$SELECT public.save_budget_recurring_items(%L::jsonb)$f$, (
+    SELECT jsonb_build_array(to_jsonb(t) || '{"state":"keep","updated_at":"2026-01-01 00:00 America/Foo","display_order":9}'::jsonb)
+    FROM public.budget_recurring_items t WHERE t.description = 'a3'
+  )),
+  '時間帯が不明な updated_at の keep 行も無視され、呼び出しは成功する');
 
 -- ===== conflict aborts everything =====
 -- Rows are processed in id order: a1 (valid edit) is written before a3 (stale) raises, so an intact a1
