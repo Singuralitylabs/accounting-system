@@ -30,12 +30,11 @@ export async function sendSlackNotification(
     "Slack通知を送信する権限がありません。",
   );
   if (accessError) {
-    return {
-      error:
-        accessError.kind === "forbidden"
-          ? accessError.message
-          : "Slack通知の送信者を確認できませんでした。",
-    };
+    const message =
+      accessError.kind === "forbidden"
+        ? accessError.message
+        : "Slack通知の送信者を確認できませんでした。";
+    return { error: message, userMessage: message };
   }
   // Read settings (service role) only after the role check passed.
   const settings = await getMatterNoticeSettingsForSend();
