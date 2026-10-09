@@ -80,4 +80,21 @@ describe("useSlackNotification", () => {
     ]);
     expect(bulkUnfixMatterInfo).not.toHaveBeenCalled();
   });
+
+  it("途中まで成功して途中で中止（aborted）になったら、成功分だけ差し戻し、残りは未送信として返す", async () => {
+    sendMessageToSlack
+      .mockResolvedValueOnce("sent")
+      .mockResolvedValueOnce("aborted");
+    const { result } = renderHook(() => useSlackNotification(), { wrapper });
+
+    result.current.mutate({
+      matters: [matter(1, "案件A"), matter(2, "案件B"), matter(3, "案件C")],
+      message: "m",
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(sendMessageToSlack).toHaveBeenCalledTimes(2);
+    expect(result.current.data?.failedTitles).toEqual(["案件B", "案件C"]);
+    expect(bulkUnfixMatterInfo).toHaveBeenCalledWith([1]);
+  });
 });
