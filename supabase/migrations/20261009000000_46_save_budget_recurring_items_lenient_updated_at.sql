@@ -1,7 +1,9 @@
 -- save_budget_recurring_items: replace migration 45 so that updated_at is parsed only for rows that use it.
 -- The app sends "updated_at": "" for state = 'new' rows; the strict timestamptz cast in
 -- jsonb_to_recordset failed the whole call. updated_at is now read as text and cast per row
--- (NULLIF(..., '')) after the 'new' branch. Behaviour is otherwise unchanged.
+-- (NULLIF(..., '')) after the 'new' branch. An edited / removed row without a usable updated_at is now
+-- rejected with 22023 (invalid input) instead of being reported as a concurrent-edit conflict; a keep row
+-- without one is ignored like any changed row. Behaviour is otherwise unchanged.
 -- Bulk save of budget_recurring_items in one transaction.
 -- A concurrent change to a row the user edited or deleted aborts the whole call
 -- (RAISE), so a conflict always means "nothing was saved".
@@ -65,6 +67,10 @@ BEGIN
     END IF;
 
     v_seen := NULLIF(r.updated_at, '')::timestamptz;
+
+    IF v_seen IS NULL AND r.state IN ('edited', 'removed') THEN
+      RAISE EXCEPTION 'updated_at is required for state %', r.state USING ERRCODE = '22023';
+    END IF;
 
     SELECT t.updated_at INTO cur
     FROM public.budget_recurring_items t

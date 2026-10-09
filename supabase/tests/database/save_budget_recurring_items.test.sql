@@ -3,7 +3,7 @@
 -- A stale updated_at value stands in for "someone else saved the row after it was displayed":
 -- inside one test transaction now() does not move, so the trigger cannot produce a real change.
 BEGIN;
-SELECT plan(29);
+SELECT plan(30);
 
 INSERT INTO auth.users (id, email) VALUES
   ('11111111-1111-1111-1111-111111111111', 'acc@example.com'),
@@ -50,13 +50,19 @@ SELECT lives_ok(
   'updated_at が空文字の新規行も保存できる');
 SELECT is((SELECT count(*) FROM public.budget_recurring_items WHERE description = 'a-new-empty-ts')::int, 1, 'updated_at が空文字の新規行が追加される');
 
--- An edited row without a usable updated_at is a conflict (40001), not a type error (22007)
+-- An edited / removed row without a usable updated_at is invalid input (22023), not a conflict (40001)
 SELECT throws_ok(
   format($f$SELECT public.save_budget_recurring_items(%L::jsonb)$f$, (
     SELECT jsonb_build_array(to_jsonb(t) || '{"state":"edited","updated_at":""}'::jsonb)
     FROM public.budget_recurring_items t WHERE t.description = 'a3'
   )),
-  '40001', 'BUDGET_RECURRING_ITEMS_CONFLICT', 'updated_at が空文字の編集行は型エラーではなく競合として扱う');
+  '22023', 'updated_at is required for state edited', 'updated_at が空文字の編集行は競合ではなく入力不正として扱う');
+SELECT throws_ok(
+  format($f$SELECT public.save_budget_recurring_items(%L::jsonb)$f$, (
+    SELECT jsonb_build_array(to_jsonb(t) || '{"state":"removed","updated_at":null}'::jsonb)
+    FROM public.budget_recurring_items t WHERE t.description = 'a3'
+  )),
+  '22023', 'updated_at is required for state removed', 'updated_at が null の削除行は競合ではなく入力不正として扱う');
 
 -- ===== conflict aborts everything =====
 -- Rows are processed in id order: a1 (valid edit) is written before a3 (stale) raises, so an intact a1

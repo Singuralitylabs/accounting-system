@@ -160,6 +160,21 @@ describe("bulkSaveBudgetRecurringItems の RPC 呼び出し（Issue #251）", ()
     expect(sentRows(rpc)[0]).toMatchObject({ state: "new", updated_at: null });
   });
 
+  it("編集・削除・並べ替えの行は、画面で見た updated_at をそのまま送る（競合検出に使う）", async () => {
+    const rpc = mockRpcSupabase();
+    await bulkSaveBudgetRecurringItems([
+      teamRow(1, "Aチーム", { isEdited: true, amount: 200000 }),
+      teamRow(2, "Aチーム", { isRemoved: true }),
+      teamRow(3, "Aチーム", { display_order: 9 }),
+    ]);
+
+    expect(sentRows(rpc).map((row) => [row.state, row.updated_at])).toEqual([
+      ["edited", "2026-10-01T00:00:00+00:00"],
+      ["removed", "2026-10-02T00:00:00+00:00"],
+      ["keep", "2026-10-03T00:00:00+00:00"],
+    ]);
+  });
+
   it("追加してすぐ削除した行は送らない", async () => {
     const rpc = mockRpcSupabase();
     await bulkSaveBudgetRecurringItems([

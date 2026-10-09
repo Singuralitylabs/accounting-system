@@ -24,18 +24,21 @@ export async function sendSlackNotification(
 
   // Server Actions are callable by any logged-in user, so check the role here; the sender is taken from
   // the verified session, not from client-supplied metadata (which could be spoofed).
-  const [{ profileInfo, error: accessError }, settings] = await Promise.all([
-    getAuthorizedViewer(ACCOUNTING_ROLES, "Slack通知", "送信"),
-    getMatterNoticeSettingsForSend(),
-  ]);
+  const { profileInfo, error: accessError } = await getAuthorizedViewer(
+    ACCOUNTING_ROLES,
+    "Slack通知",
+    "Slack通知を送信する権限がありません。",
+  );
   if (accessError) {
     return {
       error:
         accessError.kind === "forbidden"
-          ? "Slack通知を送信する権限がありません。"
+          ? accessError.message
           : "Slack通知の送信者を確認できませんでした。",
     };
   }
+  // Read settings (service role) only after the role check passed.
+  const settings = await getMatterNoticeSettingsForSend();
   const sender = profileInfo.name;
   const sentAt = new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
   const text = buildMatterNoticeText(settings, {
