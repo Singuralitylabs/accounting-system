@@ -170,8 +170,8 @@ const PROFILES_SAVE_FAILED: AccessFailure = {
 export const bulkUpdateProfiles = async (
   updates: ProfileUpdateInput[],
 ): Promise<BulkUpdateProfilesResult> => {
-  // Not viewerAccess.getAuthorizedViewer: its logs/messages are view-oriented and it imports
-  // profiles.ts (circular import). Do the same profile fetch -> hasClassAccess here and record it as a save permission error.
+  // Not viewerAccess.getAuthorizedViewer: it imports profiles.ts (circular import). Do the same
+  // profile fetch -> hasClassAccess here.
   const { profileInfo, error: profileError } = await getProfileInfo();
   if (profileError || !profileInfo) {
     console.error(

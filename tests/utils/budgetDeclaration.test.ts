@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   BUDGET_WRITE_ALL_TEAMS_CLASSES,
-  BUDGET_DECLARATION_VIEW_CLASSES,
   BudgetDeclarationError,
   BudgetDeclarationWithItems,
   buildBudgetDeclarationStatusList,
@@ -19,7 +18,6 @@ import {
   summarizeBudgetItems,
   totalBudgetSummary,
 } from "@/app/utils/budgetDeclaration";
-import { ROLES } from "@/app/utils/permissions";
 
 const declaration = (
   overrides: Partial<BudgetDeclarationWithItems> & { team: string },
@@ -334,16 +332,9 @@ describe("totalBudgetSummary", () => {
   });
 });
 
-describe("閲覧ロールの定義", () => {
-  it("閲覧はログイン済みの全ロールに開放されている", () => {
-    expect([...BUDGET_DECLARATION_VIEW_CLASSES]).toEqual([...ROLES]);
-  });
-
-  it("全チーム書き込みロールは経理・管理者だけで、閲覧ロールに含まれる", () => {
+describe("書き込みロールの定義", () => {
+  it("全チーム書き込みロールは経理・管理者だけ", () => {
     expect(BUDGET_WRITE_ALL_TEAMS_CLASSES).toEqual(["accounting", "admin"]);
-    for (const role of BUDGET_WRITE_ALL_TEAMS_CLASSES) {
-      expect(BUDGET_DECLARATION_VIEW_CLASSES).toContain(role);
-    }
   });
 });
 

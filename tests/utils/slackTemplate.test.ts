@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   SLACK_TEMPLATE_MAX_LENGTH,
   expandSlackTemplate,
+  usesSlackPlaceholder,
   validateSlackTemplate,
 } from "@/app/utils/slackTemplate";
 import {
@@ -142,5 +143,17 @@ describe("matter notice template", () => {
         bodyTemplate: "{message}",
       }),
     ).not.toBeNull();
+  });
+});
+
+describe("usesSlackPlaceholder", () => {
+  it("テンプレートに指定のプレースホルダがあれば true", () => {
+    expect(usesSlackPlaceholder("送信日時: {datetime}", "datetime")).toBe(true);
+  });
+
+  it("無い場合や、波括弧が別の文字列・大文字小文字違いの場合は false", () => {
+    expect(usesSlackPlaceholder("{message}", "datetime")).toBe(false);
+    expect(usesSlackPlaceholder("{Datetime} {至急}", "datetime")).toBe(false);
+    expect(usesSlackPlaceholder("datetime", "datetime")).toBe(false);
   });
 });

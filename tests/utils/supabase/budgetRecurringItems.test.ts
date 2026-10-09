@@ -2,18 +2,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   createServerSupabase,
-  getAuthorizedViewer,
+  getLoggedInViewer,
   assertManagerIdsExist,
   getActiveSelectOptionsByType,
 } = vi.hoisted(() => ({
   createServerSupabase: vi.fn(),
-  getAuthorizedViewer: vi.fn(),
+  getLoggedInViewer: vi.fn(),
   assertManagerIdsExist: vi.fn(),
   getActiveSelectOptionsByType: vi.fn(),
 }));
 
 vi.mock("@/app/utils/supabase/clients", () => ({ createServerSupabase }));
-vi.mock("@/app/utils/supabase/viewerAccess", () => ({ getAuthorizedViewer }));
+vi.mock("@/app/utils/supabase/viewerAccess", () => ({
+  getLoggedInViewer: getLoggedInViewer,
+}));
 vi.mock("@/app/utils/supabase/profiles", () => ({ assertManagerIdsExist }));
 vi.mock("@/app/utils/supabase/selectOptionsCache", () => ({
   getActiveSelectOptionsByType,
@@ -48,8 +50,8 @@ const mockRpcSupabase = (rpcResult: { error: unknown } = { error: null }) => {
 
 const setupMocks = (viewer: Record<string, unknown>) => {
   createServerSupabase.mockReset();
-  getAuthorizedViewer.mockReset();
-  getAuthorizedViewer.mockResolvedValue({ profileInfo: viewer });
+  getLoggedInViewer.mockReset();
+  getLoggedInViewer.mockResolvedValue({ profileInfo: viewer });
   assertManagerIdsExist.mockReset();
   assertManagerIdsExist.mockResolvedValue(null);
   getActiveSelectOptionsByType.mockReset();
@@ -147,6 +149,30 @@ describe("bulkSaveBudgetRecurringItems の RPC 呼び出し（Issue #251）", ()
       display_order: 0,
     });
     expect(rows[2]).toMatchObject({ description: "新規", display_order: 1 });
+  });
+
+  it("新規行の updated_at（画面では空文字）は null で送る（timestamptz に変換できない値を RPC に渡さない）", async () => {
+    const rpc = mockRpcSupabase();
+    await bulkSaveBudgetRecurringItems([
+      teamRow(0, "Aチーム", { isNew: true, updated_at: "" }),
+    ]);
+
+    expect(sentRows(rpc)[0]).toMatchObject({ state: "new", updated_at: null });
+  });
+
+  it("編集・削除・並べ替えの行は、画面で見た updated_at をそのまま送る（競合検出に使う）", async () => {
+    const rpc = mockRpcSupabase();
+    await bulkSaveBudgetRecurringItems([
+      teamRow(1, "Aチーム", { isEdited: true, amount: 200000 }),
+      teamRow(2, "Aチーム", { isRemoved: true }),
+      teamRow(3, "Aチーム", { display_order: 9 }),
+    ]);
+
+    expect(sentRows(rpc).map((row) => [row.state, row.updated_at])).toEqual([
+      ["edited", "2026-10-01T00:00:00+00:00"],
+      ["removed", "2026-10-02T00:00:00+00:00"],
+      ["keep", "2026-10-03T00:00:00+00:00"],
+    ]);
   });
 
   it("追加してすぐ削除した行は送らない", async () => {
@@ -252,6 +278,22 @@ describe("bulkSaveBudgetRecurringItems の RPC 呼び出し（Issue #251）", ()
     errorSpy.mockRestore();
   });
 
+  it("入力不正（22023）は競合扱いにせず、何も保存されていない fetchFailed を返す", async () => {
+    mockRpcSupabase({
+      error: { code: "22023", message: "updated_at is required for state edited" },
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await bulkSaveBudgetRecurringItems([
+      teamRow(1, "Aチーム", { isEdited: true }),
+    ]);
+
+    expect(result.error?.kind).toBe("fetchFailed");
+    expect(result.error?.message).toContain("何も保存されていません");
+    expect(result.error?.message).not.toContain("他のユーザー");
+    errorSpy.mockRestore();
+  });
+
   it("その他の RPC エラーは partialWriteFailed にせず、何も保存されていない fetchFailed を返す", async () => {
     mockRpcSupabase({ error: { code: "XX000", message: "boom" } });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -283,14 +325,11 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
     setupMocks({ id: 1, class: "public", team: "Aチーム", is_teamleader: false });
   });
 
-  it("全ユーザーに閲覧が開放されているため、ログイン済みの全ロールで認可を通す", async () => {
+  it("閲覧はログイン済みなら誰でも可能なため、ロールでの絞り込みなしで確認する", async () => {
     mockRpcSupabase();
     await bulkSaveBudgetRecurringItems([]);
 
-    expect(getAuthorizedViewer).toHaveBeenCalledWith(
-      ["public", "teamleader", "accounting", "admin"],
-      expect.any(String),
-    );
+    expect(getLoggedInViewer).toHaveBeenCalledWith(expect.any(String));
   });
 
   it("他チームの行（読み取り専用）が編集済み・未編集で送られてきても無視し、forbidden にせず何も書き込まない", async () => {

@@ -1,9 +1,9 @@
--- pgTAP tests for save_budget_recurring_items (migration 45)
+-- pgTAP tests for save_budget_recurring_items (migrations 45, 46)
 -- Run: supabase test db (local Supabase running; docs/testing.md 3.8)
 -- A stale updated_at value stands in for "someone else saved the row after it was displayed":
 -- inside one test transaction now() does not move, so the trigger cannot produce a real change.
 BEGIN;
-SELECT plan(26);
+SELECT plan(35);
 
 INSERT INTO auth.users (id, email) VALUES
   ('11111111-1111-1111-1111-111111111111', 'acc@example.com'),
@@ -43,6 +43,57 @@ SELECT lives_ok(
 SELECT is((SELECT amount FROM public.budget_recurring_items WHERE description = 'a1-edited'), 1500::numeric, '編集した行の列が更新される');
 SELECT is((SELECT count(*) FROM public.budget_recurring_items WHERE description = 'a2')::int, 0, '削除した行が消える');
 SELECT is((SELECT count(*) FROM public.budget_recurring_items WHERE description = 'a-new')::int, 1, '新規行が追加される');
+
+-- Same shape the app sends for a new row: id null and updated_at an empty string
+SELECT lives_ok(
+  $$SELECT public.save_budget_recurring_items('[{"state":"new","id":null,"updated_at":"","team":"Aチーム","entry_type":"expense","category":"外注費","description":"a-new-empty-ts","amount":700,"manager_id":null,"start_month":"2026-05-01","end_month":null,"display_order":4}]'::jsonb)$$,
+  'updated_at が空文字の新規行も保存できる');
+SELECT is((SELECT count(*) FROM public.budget_recurring_items WHERE description = 'a-new-empty-ts')::int, 1, 'updated_at が空文字の新規行が追加される');
+
+-- An edited / removed row without a usable updated_at is invalid input (22023), not a conflict (40001)
+SELECT throws_ok(
+  format($f$SELECT public.save_budget_recurring_items(%L::jsonb)$f$, (
+    SELECT jsonb_build_array(to_jsonb(t) || '{"state":"edited","updated_at":""}'::jsonb)
+    FROM public.budget_recurring_items t WHERE t.description = 'a3'
+  )),
+  '22023', 'updated_at is required for state edited', 'updated_at が空文字の編集行は競合ではなく入力不正として扱う');
+SELECT throws_ok(
+  format($f$SELECT public.save_budget_recurring_items(%L::jsonb)$f$, (
+    SELECT jsonb_build_array(to_jsonb(t) || '{"state":"removed","updated_at":null}'::jsonb)
+    FROM public.budget_recurring_items t WHERE t.description = 'a3'
+  )),
+  '22023', 'updated_at is required for state removed', 'updated_at が null の削除行は競合ではなく入力不正として扱う');
+
+-- A keep row without updated_at is ignored like a changed row: its display_order stays and the call succeeds
+SELECT lives_ok(
+  format($f$SELECT public.save_budget_recurring_items(%L::jsonb)$f$, (
+    SELECT jsonb_build_array(to_jsonb(t) || '{"state":"keep","updated_at":"","display_order":9}'::jsonb)
+    FROM public.budget_recurring_items t WHERE t.description = 'a3'
+  )),
+  'updated_at が空文字の keep 行は無視され、呼び出しは成功する');
+SELECT is((SELECT display_order FROM public.budget_recurring_items WHERE description = 'a3'), 2, 'updated_at が空文字の keep 行は display_order を書き換えない');
+
+-- A value that is not a timestamp is handled like an empty one (22023 for edited, ignored for keep), not a type error
+SELECT throws_ok(
+  format($f$SELECT public.save_budget_recurring_items(%L::jsonb)$f$, (
+    SELECT jsonb_build_array(to_jsonb(t) || '{"state":"edited","updated_at":"abc"}'::jsonb)
+    FROM public.budget_recurring_items t WHERE t.description = 'a3'
+  )),
+  '22023', 'updated_at is required for state edited', 'timestamp として読めない updated_at の編集行は入力不正として扱う');
+SELECT lives_ok(
+  format($f$SELECT public.save_budget_recurring_items(%L::jsonb)$f$, (
+    SELECT jsonb_build_array(to_jsonb(t) || '{"state":"keep","updated_at":"abc","display_order":9}'::jsonb)
+    FROM public.budget_recurring_items t WHERE t.description = 'a3'
+  )),
+  'timestamp として読めない updated_at の keep 行は無視され、呼び出しは成功する');
+
+-- Other cast failures (here an unknown time zone, SQLSTATE 22023) are also treated as no value
+SELECT lives_ok(
+  format($f$SELECT public.save_budget_recurring_items(%L::jsonb)$f$, (
+    SELECT jsonb_build_array(to_jsonb(t) || '{"state":"keep","updated_at":"2026-01-01 00:00 America/Foo","display_order":9}'::jsonb)
+    FROM public.budget_recurring_items t WHERE t.description = 'a3'
+  )),
+  '時間帯が不明な updated_at の keep 行も無視され、呼び出しは成功する');
 
 -- ===== conflict aborts everything =====
 -- Rows are processed in id order: a1 (valid edit) is written before a3 (stale) raises, so an intact a1

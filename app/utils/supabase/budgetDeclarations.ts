@@ -9,7 +9,6 @@ import {
   BudgetDeclarationSaveResult,
 } from "../../types/types";
 import {
-  BUDGET_DECLARATION_VIEW_CLASSES,
   BudgetDeclarationWithItems,
   addMonths,
   buildBudgetDeclarationStatusList,
@@ -33,7 +32,7 @@ import {
 import { assertManagerIdsExist, getMemberOptions } from "./profiles";
 import { getSelectOptions } from "./selectOptions";
 import { getActiveSelectOptionsByType } from "./selectOptionsCache";
-import { getAuthorizedViewer } from "./viewerAccess";
+import { getLoggedInViewer } from "./viewerAccess";
 
 const SUBJECT = "事前収支申告";
 
@@ -54,10 +53,7 @@ const DECLARATION_LIST_SELECT = `
 export const getBudgetDeclarationList = async (
   month: string,
 ): Promise<BudgetDeclarationListResult> => {
-  const { profileInfo, error: accessError } = await getAuthorizedViewer(
-    BUDGET_DECLARATION_VIEW_CLASSES,
-    SUBJECT,
-  );
+  const { profileInfo, error: accessError } = await getLoggedInViewer(SUBJECT);
   if (accessError) {
     return { error: accessError };
   }
@@ -108,10 +104,7 @@ export const getBudgetDeclarationList = async (
 export const getBudgetDeclarationDetail = async (
   declarationId: number,
 ): Promise<BudgetDeclarationDetailResult> => {
-  const { error: accessError } = await getAuthorizedViewer(
-    BUDGET_DECLARATION_VIEW_CLASSES,
-    SUBJECT,
-  );
+  const { error: accessError } = await getLoggedInViewer(SUBJECT);
   if (accessError) {
     return { error: accessError };
   }
@@ -168,10 +161,7 @@ export const getPreviousBudgetDeclarationItems = async (
   targetMonth: string,
   team: string,
 ): Promise<BudgetDeclarationPreviousItemsResult> => {
-  const { error: accessError } = await getAuthorizedViewer(
-    BUDGET_DECLARATION_VIEW_CLASSES,
-    SUBJECT,
-  );
+  const { error: accessError } = await getLoggedInViewer(SUBJECT);
   if (accessError) {
     return { error: accessError };
   }
@@ -216,10 +206,7 @@ export const getPreviousBudgetDeclarationItems = async (
 export const saveBudgetDeclaration = async (
   input: BudgetDeclarationSaveInput,
 ): Promise<BudgetDeclarationSaveResult> => {
-  const { profileInfo, error: accessError } = await getAuthorizedViewer(
-    BUDGET_DECLARATION_VIEW_CLASSES,
-    SUBJECT,
-  );
+  const { profileInfo, error: accessError } = await getLoggedInViewer(SUBJECT);
   if (accessError) {
     return { error: accessError };
   }
@@ -393,10 +380,7 @@ export const deleteBudgetDeclaration = async (
   declarationId: number,
   team: string,
 ): Promise<BudgetDeclarationDeleteResult> => {
-  const { profileInfo, error: accessError } = await getAuthorizedViewer(
-    BUDGET_DECLARATION_VIEW_CLASSES,
-    SUBJECT,
-  );
+  const { profileInfo, error: accessError } = await getLoggedInViewer(SUBJECT);
   if (accessError) {
     return { error: accessError };
   }

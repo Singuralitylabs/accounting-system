@@ -22,6 +22,11 @@ export const expandSlackTemplate = (
     Object.hasOwn(values, key) ? values[key] : whole,
   );
 
+export const usesSlackPlaceholder = (template: string, key: string): boolean =>
+  Array.from(template.matchAll(PLACEHOLDER_PATTERN)).some(
+    (match) => match[1] === key,
+  );
+
 export const sampleValues = (
   placeholders: readonly SlackPlaceholder[],
 ): Record<string, string> =>

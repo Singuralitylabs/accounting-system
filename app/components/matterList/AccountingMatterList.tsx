@@ -219,21 +219,35 @@ export const AccountingMatterList = ({
       }
 
       try {
-        const { failedTitles, dbUpdateFailed } =
+        const { failedTitles, unsentMatterIds, abortReason, dbUpdateFailed } =
           await slackNotificationMutation.mutateAsync({
             matters: visibleChecked,
             message,
           });
 
-        // Uncheck only the sent (displayed) rows and keep hidden checks. Also uncheck on partial failure, since keeping sent IDs would double-notify on resend.
-        const sentIds = new Set(visibleChecked.map((matter) => matter.id));
-        setCheckedMatterIdList((prev) => prev.filter((id) => !sentIds.has(id)));
+        // Uncheck only the attempted (displayed) rows and keep hidden checks. Also uncheck on partial failure, since keeping sent IDs would double-notify on resend. Rows left unsent by an abort stay checked.
+        const unsentIds = new Set(unsentMatterIds);
+        const attemptedIds = new Set(
+          visibleChecked
+            .filter((matter) => !unsentIds.has(matter.id))
+            .map((matter) => matter.id),
+        );
+        setCheckedMatterIdList((prev) =>
+          prev.filter((id) => !attemptedIds.has(id)),
+        );
 
         if (dbUpdateFailed) {
           notifyError(
             "Slack通知は送信しましたが、案件のステータス更新に失敗しました。\n画面を再読み込みして状態を確認してください。",
           );
-        } else if (failedTitles.length > 0) {
+        }
+        if (abortReason) {
+          notifyError(
+            `Slack通知を中止しました。${abortReason}${failedTitles.length > 0 ? `\n送信に失敗した案件:\n${failedTitles.join("\n")}` : ""}`,
+          );
+          return false;
+        }
+        if (!dbUpdateFailed && failedTitles.length > 0) {
           notifyError(
             `以下の案件のSlack通知に失敗しました。対象を再選択して送信し直してください。\n${failedTitles.join("\n")}`,
           );

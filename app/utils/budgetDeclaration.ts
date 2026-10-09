@@ -11,13 +11,10 @@ import {
   BudgetSummaryType,
 } from "../types/types";
 import { addMonths, currentJstMonth } from "./formatter";
-import { ACCOUNTING_ROLES, ROLES, Role, hasClassAccess } from "./permissions";
+import { ACCOUNTING_ROLES, Role, hasClassAccess } from "./permissions";
 
 // Re-exported so existing importers keep working (addMonths lives in formatter.ts).
 export { addMonths };
-
-// Every logged-in user may view declarations (passed to getAuthorizedViewer; middleware only requires login).
-export const BUDGET_DECLARATION_VIEW_CLASSES: readonly Role[] = ROLES;
 
 // Roles that may write every team's declarations. Everyone else writes only their own team
 // (profiles.team), whatever their role. Mirrors DB `public.can_access_team_budget` (migration 44);
