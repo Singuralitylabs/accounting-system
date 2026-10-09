@@ -95,7 +95,7 @@ type SaveRecurringItemPayload = ReturnType<typeof toPayloadRow> & {
 
 const toPayloadRow = (row: BudgetRecurringItemInListType) => ({
   id: row.id,
-  updated_at: row.updated_at,
+  updated_at: row.updated_at || null,
   team: row.team,
   entry_type: row.entry_type.trim(),
   category: row.category.trim(),

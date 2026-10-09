@@ -149,6 +149,15 @@ describe("bulkSaveBudgetRecurringItems の RPC 呼び出し（Issue #251）", ()
     expect(rows[2]).toMatchObject({ description: "新規", display_order: 1 });
   });
 
+  it("新規行の updated_at（画面では空文字）は null で送る（timestamptz に変換できない値を RPC に渡さない）", async () => {
+    const rpc = mockRpcSupabase();
+    await bulkSaveBudgetRecurringItems([
+      teamRow(0, "Aチーム", { isNew: true, updated_at: "" }),
+    ]);
+
+    expect(sentRows(rpc)[0]).toMatchObject({ state: "new", updated_at: null });
+  });
+
   it("追加してすぐ削除した行は送らない", async () => {
     const rpc = mockRpcSupabase();
     await bulkSaveBudgetRecurringItems([

@@ -3,7 +3,7 @@
 -- A stale updated_at value stands in for "someone else saved the row after it was displayed":
 -- inside one test transaction now() does not move, so the trigger cannot produce a real change.
 BEGIN;
-SELECT plan(26);
+SELECT plan(28);
 
 INSERT INTO auth.users (id, email) VALUES
   ('11111111-1111-1111-1111-111111111111', 'acc@example.com'),
@@ -43,6 +43,12 @@ SELECT lives_ok(
 SELECT is((SELECT amount FROM public.budget_recurring_items WHERE description = 'a1-edited'), 1500::numeric, '編集した行の列が更新される');
 SELECT is((SELECT count(*) FROM public.budget_recurring_items WHERE description = 'a2')::int, 0, '削除した行が消える');
 SELECT is((SELECT count(*) FROM public.budget_recurring_items WHERE description = 'a-new')::int, 1, '新規行が追加される');
+
+-- Same shape the app sends for a new row: id null and updated_at an empty string
+SELECT lives_ok(
+  $$SELECT public.save_budget_recurring_items('[{"state":"new","id":null,"updated_at":"","team":"Aチーム","entry_type":"expense","category":"外注費","description":"a-new-empty-ts","amount":700,"manager_id":null,"start_month":"2026-05-01","end_month":null,"display_order":4}]'::jsonb)$$,
+  'updated_at が空文字の新規行も保存できる');
+SELECT is((SELECT count(*) FROM public.budget_recurring_items WHERE description = 'a-new-empty-ts')::int, 1, 'updated_at が空文字の新規行が追加される');
 
 -- ===== conflict aborts everything =====
 -- Rows are processed in id order: a1 (valid edit) is written before a3 (stale) raises, so an intact a1
