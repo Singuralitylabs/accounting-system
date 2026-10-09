@@ -38,4 +38,14 @@ describe("getLoggedInViewer", () => {
 
     expect(result.error?.kind).toBe("forbidden");
   });
+
+  it("action を渡すと拒否メッセージの動詞が変わる", async () => {
+    getProfileInfo.mockResolvedValue({
+      profileInfo: { id: 1, class: "public", is_teamleader: false },
+    });
+
+    const result = await getAuthorizedViewer(["admin"], "Slack通知", "送信");
+
+    expect(result.error?.message).toBe("Slack通知の送信権限がありません。");
+  });
 });

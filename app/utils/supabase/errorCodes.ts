@@ -23,7 +23,7 @@ export const isMonthClosedError = (
 
 export const INSUFFICIENT_PRIVILEGE = "42501";
 
-// save_budget_recurring_items (migration 45) aborts with SQLSTATE 40001 and this message when a row the
+// save_budget_recurring_items aborts with SQLSTATE 40001 and this message when a row the
 // user edited or deleted was changed by someone else; nothing is saved.
 export const BUDGET_RECURRING_ITEMS_CONFLICT = "BUDGET_RECURRING_ITEMS_CONFLICT";
 

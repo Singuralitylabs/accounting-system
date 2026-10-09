@@ -1,9 +1,9 @@
--- pgTAP tests for save_budget_recurring_items (migration 45)
+-- pgTAP tests for save_budget_recurring_items (migrations 45, 46)
 -- Run: supabase test db (local Supabase running; docs/testing.md 3.8)
 -- A stale updated_at value stands in for "someone else saved the row after it was displayed":
 -- inside one test transaction now() does not move, so the trigger cannot produce a real change.
 BEGIN;
-SELECT plan(28);
+SELECT plan(29);
 
 INSERT INTO auth.users (id, email) VALUES
   ('11111111-1111-1111-1111-111111111111', 'acc@example.com'),
@@ -49,6 +49,14 @@ SELECT lives_ok(
   $$SELECT public.save_budget_recurring_items('[{"state":"new","id":null,"updated_at":"","team":"Aチーム","entry_type":"expense","category":"外注費","description":"a-new-empty-ts","amount":700,"manager_id":null,"start_month":"2026-05-01","end_month":null,"display_order":4}]'::jsonb)$$,
   'updated_at が空文字の新規行も保存できる');
 SELECT is((SELECT count(*) FROM public.budget_recurring_items WHERE description = 'a-new-empty-ts')::int, 1, 'updated_at が空文字の新規行が追加される');
+
+-- An edited row without a usable updated_at is a conflict (40001), not a type error (22007)
+SELECT throws_ok(
+  format($f$SELECT public.save_budget_recurring_items(%L::jsonb)$f$, (
+    SELECT jsonb_build_array(to_jsonb(t) || '{"state":"edited","updated_at":""}'::jsonb)
+    FROM public.budget_recurring_items t WHERE t.description = 'a3'
+  )),
+  '40001', 'BUDGET_RECURRING_ITEMS_CONFLICT', 'updated_at が空文字の編集行は型エラーではなく競合として扱う');
 
 -- ===== conflict aborts everything =====
 -- Rows are processed in id order: a1 (valid edit) is written before a3 (stale) raises, so an intact a1

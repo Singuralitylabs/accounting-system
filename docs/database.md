@@ -289,7 +289,7 @@ SELECT はログイン済みの全ユーザーの全チームに許可し、INSE
 
 #### 一括保存（`save_budget_recurring_items`）
 
-保存処理（`app/utils/supabase/budgetRecurringItems.ts`）は、保存前の検証（分類マスタ・担当者・書き込み可能なチームの判定）の後にこの関数を 1 回呼ぶだけで完結する。新規・編集・削除・並び順の再採番を 1 トランザクションで行い、**1 件でも競合すれば全体を中止して何も保存しない**（途中まで反映された状態にならない）。migration 45。
+保存処理（`app/utils/supabase/budgetRecurringItems.ts`）は、保存前の検証（分類マスタ・担当者・書き込み可能なチームの判定）の後にこの関数を 1 回呼ぶだけで完結する。新規・編集・削除・並び順の再採番を 1 トランザクションで行い、**1 件でも競合すれば全体を中止して何も保存しない**（途中まで反映された状態にならない）。定義の正は migration 46（45 の関数を置き換え）。
 
 - SECURITY INVOKER（書き込み権限は呼び出し元の RLS = `can_access_team_budget` が担う）。行は `id` 順に `FOR UPDATE` でロックし、確認と書き込みを一体にする。同時に保存された場合は、後続はロック解除後の最新の `updated_at` で判定される。
 - 行ごとの `state` は `new`（INSERT）/ `edited`（全列 UPDATE）/ `removed`（DELETE）/ `keep`（触っていない行。`display_order` の再採番だけ）。

@@ -33,6 +33,8 @@ export const getAuthorizedViewer = async (
   allowedClasses: readonly Role[],
   // Name used in logs and user-facing messages (e.g. "事前収支申告").
   subject: string,
+  // Verb shown in the forbidden log / message ("閲覧" for reads, "送信" for sends).
+  action = "閲覧",
 ): Promise<ViewerAccessResult> => {
   const { profileInfo, error } = await getLoggedInViewer(subject);
   if (error) {
@@ -43,11 +45,11 @@ export const getAuthorizedViewer = async (
       profileInfo.class,
       profileInfo.is_teamleader,
     )) {
-    console.error(`${subject}の閲覧権限がありません。`);
+    console.error(`${subject}の${action}権限がありません。`);
     return {
       error: {
         kind: "forbidden",
-        message: `${subject}の閲覧権限がありません。`,
+        message: `${subject}の${action}権限がありません。`,
       },
     };
   }

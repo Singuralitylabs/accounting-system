@@ -88,7 +88,8 @@ type SaveRecurringItemPayload = ReturnType<typeof toPayloadRow> & {
 
 const toPayloadRow = (row: BudgetRecurringItemInListType) => ({
   id: row.id,
-  updated_at: row.updated_at || null,
+  // New rows have no server value yet (the form holds ""); the RPC only reads updated_at for other states.
+  updated_at: row.isNew ? null : row.updated_at,
   team: row.team,
   entry_type: row.entry_type.trim(),
   category: row.category.trim(),
@@ -101,7 +102,7 @@ const toPayloadRow = (row: BudgetRecurringItemInListType) => ({
 });
 
 // Bulk save with staged edits, same approach as bulkUpsertRecurringCost in RecurringCostList. Writes and
-// concurrent-edit detection run in one transaction (save_budget_recurring_items, migration 45), so a
+// concurrent-edit detection run in one transaction (save_budget_recurring_items), so a
 // failure or a conflict never leaves the save partially applied.
 export const bulkSaveBudgetRecurringItems = async (
   rows: BudgetRecurringItemInListType[],

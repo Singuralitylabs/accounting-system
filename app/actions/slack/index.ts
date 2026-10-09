@@ -5,6 +5,7 @@ import {
   SlackNotificationResponse,
 } from "@/app/types/types";
 import { postSlackWebhookBlocks } from "@/app/utils/slack/postSlackWebhookBlocks";
+import { usesSlackPlaceholder } from "@/app/utils/slackTemplate";
 import { buildMatterNoticeText } from "@/app/utils/slackNotificationTemplate";
 import { ACCOUNTING_ROLES } from "@/app/utils/permissions";
 import { getMatterNoticeSettingsForSend } from "@/app/utils/supabase/slackNotificationData";
@@ -23,10 +24,10 @@ export async function sendSlackNotification(
 
   // Server Actions are callable by any logged-in user, so check the role here; the sender is taken from
   // the verified session, not from client-supplied metadata (which could be spoofed).
-  const { profileInfo, error: accessError } = await getAuthorizedViewer(
-    ACCOUNTING_ROLES,
-    "Slack通知",
-  );
+  const [{ profileInfo, error: accessError }, settings] = await Promise.all([
+    getAuthorizedViewer(ACCOUNTING_ROLES, "Slack通知", "送信"),
+    getMatterNoticeSettingsForSend(),
+  ]);
   if (accessError) {
     return {
       error:
@@ -35,7 +36,6 @@ export async function sendSlackNotification(
           : "Slack通知の送信者を確認できませんでした。",
     };
   }
-  const settings = await getMatterNoticeSettingsForSend();
   const sender = profileInfo.name;
   const sentAt = new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
   const text = buildMatterNoticeText(settings, {
@@ -50,7 +50,7 @@ export async function sendSlackNotification(
     { type: "section", text: { type: "mrkdwn", text } },
   ];
   // Show the sent time once: only add the footer when the template does not already place {datetime}.
-  if (!settings.bodyTemplate.includes("{datetime}")) {
+  if (!usesSlackPlaceholder(settings.bodyTemplate, "datetime")) {
     blocks.push({
       type: "context",
       elements: [{ type: "mrkdwn", text: `*送信日時:* ${sentAt}` }],
