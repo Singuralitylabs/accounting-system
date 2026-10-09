@@ -68,7 +68,7 @@ describe("sendSlackNotification", () => {
     const result = await sendSlackNotification("m");
 
     expect(result.error).toBe("Slack通知の送信者を確認できませんでした。");
-    expect(result.userMessage).toBe(
+    expect(result.abortReason).toBe(
       "Slack通知の送信者を確認できませんでした。",
     );
     expect(getMatterNoticeSettingsForSend).not.toHaveBeenCalled();
@@ -86,7 +86,7 @@ describe("sendSlackNotification", () => {
       const result = await sendSlackNotification("m", { assignee: "<@U1>" });
 
       expect(result.error).toBe("Slack通知を送信する権限がありません。");
-      expect(result.userMessage).toBe("Slack通知を送信する権限がありません。");
+      expect(result.abortReason).toBe("Slack通知を送信する権限がありません。");
       expect(getMatterNoticeSettingsForSend).not.toHaveBeenCalled();
       expect(postSlackWebhookBlocks).not.toHaveBeenCalled();
     },
@@ -138,6 +138,9 @@ describe("sendSlackNotification", () => {
     const result = await sendSlackNotification("m");
 
     expect(result.error).toBeDefined();
+    expect(result.abortReason).toBe(
+      "Slack通知の設定がありません。管理者に連絡してください。",
+    );
     expect(postSlackWebhookBlocks).not.toHaveBeenCalled();
   });
 });

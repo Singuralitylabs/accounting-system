@@ -220,6 +220,14 @@ export const useDeleteMatter = () => {
   });
 };
 
+export type SlackNotificationResult = {
+  failedTitles: string[];
+  // Matters not attempted because sending was aborted (they stay un-notified and can be resent).
+  unsentMatterIds: number[];
+  abortReason?: string;
+  dbUpdateFailed: boolean;
+};
+
 export const useSlackNotification = () => {
   const queryClient = useQueryClient();
 
@@ -229,7 +237,7 @@ export const useSlackNotification = () => {
     mutationFn: async (data: {
       matters: MatterInfoWithUserNameType[];
       message: string;
-    }): Promise<{ failedTitles: string[]; dbUpdateFailed: boolean }> => {
+    }): Promise<SlackNotificationResult> => {
       const { matters, message } = data;
 
       const [{ default: sendMessageToSlack }, { bulkUnfixMatterInfo }] =
@@ -241,6 +249,8 @@ export const useSlackNotification = () => {
       // Send sequentially (Server Actions run serially per client; Slack rate limit is about 1 msg/s); continue after per-matter failures, but stop on an "aborted" one (e.g. no permission) since every remaining send would fail the same way.
       const notifiedMatterIds: number[] = [];
       const failedTitles: string[] = [];
+      const unsentMatterIds: number[] = [];
+      let abortReason: string | undefined;
       for (let index = 0; index < matters.length; index++) {
         const matter = matters[index];
         const result = await sendMessageToSlack(
@@ -249,13 +259,13 @@ export const useSlackNotification = () => {
           matter.title,
           message,
         );
-        if (result === "sent") {
+        if (result.status === "sent") {
           notifiedMatterIds.push(matter.id);
-          continue;
-        }
-        failedTitles.push(matter.title);
-        if (result === "aborted") {
-          failedTitles.push(...matters.slice(index + 1).map((m) => m.title));
+        } else if (result.status === "failed") {
+          failedTitles.push(matter.title);
+        } else {
+          abortReason = result.reason;
+          unsentMatterIds.push(...matters.slice(index).map((m) => m.id));
           break;
         }
       }
@@ -270,7 +280,7 @@ export const useSlackNotification = () => {
         }
       }
 
-      return { failedTitles, dbUpdateFailed };
+      return { failedTitles, unsentMatterIds, abortReason, dbUpdateFailed };
     },
     onSettled: () => {
       // Invalidate regardless of outcome: the DB may be updated even on partial failure.

@@ -19,7 +19,10 @@ export async function sendSlackNotification(
 
   if (!slackWebhookUrl) {
     console.error("Slack Webhook URL is not configured");
-    return { error: "Slack configuration is missing" };
+    return {
+      error: "Slack configuration is missing",
+      abortReason: "Slack通知の設定がありません。管理者に連絡してください。",
+    };
   }
 
   // Server Actions are callable by any logged-in user, so check the role here; the sender is taken from
@@ -34,7 +37,7 @@ export async function sendSlackNotification(
       accessError.kind === "forbidden"
         ? accessError.message
         : "Slack通知の送信者を確認できませんでした。";
-    return { error: message, userMessage: message };
+    return { error: message, abortReason: message };
   }
   // Read settings (service role) only after the role check passed.
   const settings = await getMatterNoticeSettingsForSend();

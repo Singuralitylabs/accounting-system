@@ -26,8 +26,9 @@ export type SelectOptionType = SelectOptionTable["Row"];
 export type SlackNotificationResponse = {
   success?: boolean;
   error?: string;
-  // Reason safe to show to the user (e.g. no permission); `error` may be an internal message.
-  userMessage?: string;
+  // Set when the failure is not specific to one matter (no permission, Slack not configured), so
+  // sending the rest would fail the same way. Safe to show to the user; `error` may be internal.
+  abortReason?: string;
 };
 
 export type SlackNotificationMetadata = {

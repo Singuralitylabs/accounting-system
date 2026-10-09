@@ -44,8 +44,8 @@ describe("useSlackNotification", () => {
 
   it("案件ごとの失敗（failed）は残りの送信を続け、成功した案件だけ差し戻す", async () => {
     sendMessageToSlack
-      .mockResolvedValueOnce("failed")
-      .mockResolvedValueOnce("sent");
+      .mockResolvedValueOnce({ status: "failed" })
+      .mockResolvedValueOnce({ status: "sent" });
     const { result } = renderHook(() => useSlackNotification(), { wrapper });
 
     result.current.mutate({
@@ -57,13 +57,18 @@ describe("useSlackNotification", () => {
     expect(sendMessageToSlack).toHaveBeenCalledTimes(2);
     expect(result.current.data).toEqual({
       failedTitles: ["案件A"],
+      unsentMatterIds: [],
+      abortReason: undefined,
       dbUpdateFailed: false,
     });
     expect(bulkUnfixMatterInfo).toHaveBeenCalledWith([2]);
   });
 
-  it("権限などの中止（aborted）では残りの案件を送らず、未送信として返す", async () => {
-    sendMessageToSlack.mockResolvedValueOnce("aborted");
+  it("権限などの中止（aborted）では残りの案件を送らず、未送信の案件 ID と理由を返す", async () => {
+    sendMessageToSlack.mockResolvedValueOnce({
+      status: "aborted",
+      reason: "権限がありません。",
+    });
     const { result } = renderHook(() => useSlackNotification(), { wrapper });
 
     result.current.mutate({
@@ -73,18 +78,21 @@ describe("useSlackNotification", () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(sendMessageToSlack).toHaveBeenCalledTimes(1);
-    expect(result.current.data?.failedTitles).toEqual([
-      "案件A",
-      "案件B",
-      "案件C",
-    ]);
+    expect(result.current.data).toMatchObject({
+      failedTitles: [],
+      unsentMatterIds: [1, 2, 3],
+      abortReason: "権限がありません。",
+    });
     expect(bulkUnfixMatterInfo).not.toHaveBeenCalled();
   });
 
   it("途中まで成功して途中で中止（aborted）になったら、成功分だけ差し戻し、残りは未送信として返す", async () => {
     sendMessageToSlack
-      .mockResolvedValueOnce("sent")
-      .mockResolvedValueOnce("aborted");
+      .mockResolvedValueOnce({ status: "sent" })
+      .mockResolvedValueOnce({
+        status: "aborted",
+        reason: "権限がありません。",
+      });
     const { result } = renderHook(() => useSlackNotification(), { wrapper });
 
     result.current.mutate({
@@ -94,7 +102,10 @@ describe("useSlackNotification", () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(sendMessageToSlack).toHaveBeenCalledTimes(2);
-    expect(result.current.data?.failedTitles).toEqual(["案件B", "案件C"]);
+    expect(result.current.data).toMatchObject({
+      failedTitles: [],
+      unsentMatterIds: [2, 3],
+    });
     expect(bulkUnfixMatterInfo).toHaveBeenCalledWith([1]);
   });
 });

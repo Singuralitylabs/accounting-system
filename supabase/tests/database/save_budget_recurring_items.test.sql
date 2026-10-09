@@ -3,7 +3,7 @@
 -- A stale updated_at value stands in for "someone else saved the row after it was displayed":
 -- inside one test transaction now() does not move, so the trigger cannot produce a real change.
 BEGIN;
-SELECT plan(32);
+SELECT plan(34);
 
 INSERT INTO auth.users (id, email) VALUES
   ('11111111-1111-1111-1111-111111111111', 'acc@example.com'),
@@ -72,6 +72,20 @@ SELECT lives_ok(
   )),
   'updated_at が空文字の keep 行は無視され、呼び出しは成功する');
 SELECT is((SELECT display_order FROM public.budget_recurring_items WHERE description = 'a3'), 2, 'updated_at が空文字の keep 行は display_order を書き換えない');
+
+-- A value that is not a timestamp is handled like an empty one (22023 for edited, ignored for keep), not a type error
+SELECT throws_ok(
+  format($f$SELECT public.save_budget_recurring_items(%L::jsonb)$f$, (
+    SELECT jsonb_build_array(to_jsonb(t) || '{"state":"edited","updated_at":"abc"}'::jsonb)
+    FROM public.budget_recurring_items t WHERE t.description = 'a3'
+  )),
+  '22023', 'updated_at is required for state edited', 'timestamp として読めない updated_at の編集行は入力不正として扱う');
+SELECT lives_ok(
+  format($f$SELECT public.save_budget_recurring_items(%L::jsonb)$f$, (
+    SELECT jsonb_build_array(to_jsonb(t) || '{"state":"keep","updated_at":"abc","display_order":9}'::jsonb)
+    FROM public.budget_recurring_items t WHERE t.description = 'a3'
+  )),
+  'timestamp として読めない updated_at の keep 行は無視され、呼び出しは成功する');
 
 -- ===== conflict aborts everything =====
 -- Rows are processed in id order: a1 (valid edit) is written before a3 (stale) raises, so an intact a1

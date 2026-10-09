@@ -348,6 +348,34 @@ describe("AccountingMatterList", () => {
       expect(textarea).toHaveValue("確認してください");
     });
 
+    it("送信が中止（権限なしなど）された場合は理由を 1 回だけ表示し、モーダルとメッセージを保持する", async () => {
+      slackMutateAsync.mockResolvedValue({
+        failedTitles: [],
+        unsentMatterIds: [42],
+        abortReason: "Slack通知を送信する権限がありません。",
+        dbUpdateFailed: false,
+      });
+      renderWithMantine(<AccountingMatterList />);
+
+      fireEvent.click(screen.getAllByLabelText("案件チェック")[0]);
+      fireEvent.click(screen.getByRole("button", { name: "担当者に連絡" }));
+      const textarea = await screen.findByPlaceholderText(
+        "案件担当者に通知したい内容をご記載ください。",
+      );
+      fireEvent.change(textarea, { target: { value: "確認してください" } });
+      fireEvent.click(screen.getByRole("button", { name: "slack通知" }));
+
+      await vi.waitFor(() =>
+        expect(notifyError).toHaveBeenCalledWith(
+          "Slack通知を中止しました。Slack通知を送信する権限がありません。",
+        ),
+      );
+      expect(notifyError).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(textarea).toHaveValue("確認してください");
+      expect(screen.getAllByLabelText("案件チェック")[0]).toBeChecked();
+    });
+
     it("案件を選択していない場合、送信はエラー通知になるが文面の設定タブは開ける", async () => {
       renderWithMantine(<AccountingMatterList />);
 

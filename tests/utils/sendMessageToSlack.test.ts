@@ -19,34 +19,38 @@ describe("sendMessageToSlack", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
-  it("成功したら成功通知を出して true を返す", async () => {
+  it("成功したら成功通知を出して sent を返す", async () => {
     sendSlackNotification.mockResolvedValue({ success: true });
 
-    expect(await sendMessageToSlack("U1", "太郎", "案件A", "m")).toBe("sent");
+    expect(await sendMessageToSlack("U1", "太郎", "案件A", "m")).toEqual({
+      status: "sent",
+    });
     expect(notifySuccess).toHaveBeenCalled();
     expect(notifyError).not.toHaveBeenCalled();
   });
 
-  it("利用者向けの理由（userMessage）があれば失敗通知に含める", async () => {
+  it("中止理由（abortReason）があれば aborted と理由を返し、案件ごとのトーストは出さない", async () => {
     sendSlackNotification.mockResolvedValue({
       error: "Slack通知を送信する権限がありません。",
-      userMessage: "Slack通知を送信する権限がありません。",
+      abortReason: "Slack通知を送信する権限がありません。",
     });
 
-    expect(await sendMessageToSlack("U1", "太郎", "案件A", "m")).toBe(
-      "aborted",
-    );
-    expect(notifyError).toHaveBeenCalledWith(
-      "案件Aの通知に失敗しました（Slack通知を送信する権限がありません。）",
-    );
+    expect(await sendMessageToSlack("U1", "太郎", "案件A", "m")).toEqual({
+      status: "aborted",
+      reason: "Slack通知を送信する権限がありません。",
+    });
+    expect(notifyError).not.toHaveBeenCalled();
+    expect(notifySuccess).not.toHaveBeenCalled();
   });
 
-  it("内部エラー（userMessage なし）は画面に出さない", async () => {
+  it("案件固有の失敗（abortReason なし）は failed を返し、案件名付きのトーストを出す", async () => {
     sendSlackNotification.mockResolvedValue({
-      error: "Slack configuration is missing",
+      error: "Failed to send notification",
     });
 
-    expect(await sendMessageToSlack("U1", "太郎", "案件A", "m")).toBe("failed");
+    expect(await sendMessageToSlack("U1", "太郎", "案件A", "m")).toEqual({
+      status: "failed",
+    });
     expect(notifyError).toHaveBeenCalledWith("案件Aの通知に失敗しました");
   });
 });
