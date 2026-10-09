@@ -278,6 +278,22 @@ describe("bulkSaveBudgetRecurringItems の RPC 呼び出し（Issue #251）", ()
     errorSpy.mockRestore();
   });
 
+  it("入力不正（22023）は競合扱いにせず、何も保存されていない fetchFailed を返す", async () => {
+    mockRpcSupabase({
+      error: { code: "22023", message: "updated_at is required for state edited" },
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await bulkSaveBudgetRecurringItems([
+      teamRow(1, "Aチーム", { isEdited: true }),
+    ]);
+
+    expect(result.error?.kind).toBe("fetchFailed");
+    expect(result.error?.message).toContain("何も保存されていません");
+    expect(result.error?.message).not.toContain("他のユーザー");
+    errorSpy.mockRestore();
+  });
+
   it("その他の RPC エラーは partialWriteFailed にせず、何も保存されていない fetchFailed を返す", async () => {
     mockRpcSupabase({ error: { code: "XX000", message: "boom" } });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});

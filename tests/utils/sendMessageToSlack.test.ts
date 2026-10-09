@@ -22,7 +22,7 @@ describe("sendMessageToSlack", () => {
   it("成功したら成功通知を出して true を返す", async () => {
     sendSlackNotification.mockResolvedValue({ success: true });
 
-    expect(await sendMessageToSlack("U1", "太郎", "案件A", "m")).toBe(true);
+    expect(await sendMessageToSlack("U1", "太郎", "案件A", "m")).toBe("sent");
     expect(notifySuccess).toHaveBeenCalled();
     expect(notifyError).not.toHaveBeenCalled();
   });
@@ -33,7 +33,9 @@ describe("sendMessageToSlack", () => {
       userMessage: "Slack通知を送信する権限がありません。",
     });
 
-    expect(await sendMessageToSlack("U1", "太郎", "案件A", "m")).toBe(false);
+    expect(await sendMessageToSlack("U1", "太郎", "案件A", "m")).toBe(
+      "aborted",
+    );
     expect(notifyError).toHaveBeenCalledWith(
       "案件Aの通知に失敗しました（Slack通知を送信する権限がありません。）",
     );
@@ -44,7 +46,7 @@ describe("sendMessageToSlack", () => {
       error: "Slack configuration is missing",
     });
 
-    expect(await sendMessageToSlack("U1", "太郎", "案件A", "m")).toBe(false);
+    expect(await sendMessageToSlack("U1", "太郎", "案件A", "m")).toBe("failed");
     expect(notifyError).toHaveBeenCalledWith("案件Aの通知に失敗しました");
   });
 });

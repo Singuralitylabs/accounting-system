@@ -238,20 +238,25 @@ export const useSlackNotification = () => {
           import("../utils/supabase/matters"),
         ]);
 
-      // Send sequentially (Server Actions run serially per client; Slack rate limit is about 1 msg/s); continue after failures.
+      // Send sequentially (Server Actions run serially per client; Slack rate limit is about 1 msg/s); continue after per-matter failures, but stop on an "aborted" one (e.g. no permission) since every remaining send would fail the same way.
       const notifiedMatterIds: number[] = [];
       const failedTitles: string[] = [];
-      for (const matter of matters) {
-        const notified = await sendMessageToSlack(
+      for (let index = 0; index < matters.length; index++) {
+        const matter = matters[index];
+        const result = await sendMessageToSlack(
           matter.slack_id ?? "",
           matter.user_name ?? "",
           matter.title,
           message,
         );
-        if (notified) {
+        if (result === "sent") {
           notifiedMatterIds.push(matter.id);
-        } else {
-          failedTitles.push(matter.title);
+          continue;
+        }
+        failedTitles.push(matter.title);
+        if (result === "aborted") {
+          failedTitles.push(...matters.slice(index + 1).map((m) => m.title));
+          break;
         }
       }
 
