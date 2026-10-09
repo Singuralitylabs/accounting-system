@@ -28,7 +28,12 @@ export async function sendSlackNotification(
     "Slack通知",
   );
   if (accessError) {
-    return { error: accessError.message };
+    return {
+      error:
+        accessError.kind === "forbidden"
+          ? "Slack通知を送信する権限がありません。"
+          : "Slack通知の送信者を確認できませんでした。",
+    };
   }
   const settings = await getMatterNoticeSettingsForSend();
   const sender = profileInfo.name;

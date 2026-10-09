@@ -67,7 +67,7 @@ describe("sendSlackNotification", () => {
 
     const result = await sendSlackNotification("m");
 
-    expect(result.error).toBeDefined();
+    expect(result.error).toBe("Slack通知の送信者を確認できませんでした。");
     expect(postSlackWebhookBlocks).not.toHaveBeenCalled();
   });
 
@@ -81,7 +81,7 @@ describe("sendSlackNotification", () => {
 
       const result = await sendSlackNotification("m", { assignee: "<@U1>" });
 
-      expect(result.error).toBeDefined();
+      expect(result.error).toBe("Slack通知を送信する権限がありません。");
       expect(postSlackWebhookBlocks).not.toHaveBeenCalled();
     },
   );
