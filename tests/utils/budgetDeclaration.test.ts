@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   BUDGET_WRITE_ALL_TEAMS_CLASSES,
-  BUDGET_DECLARATION_ALLOWED_CLASSES,
   BudgetDeclarationError,
   BudgetDeclarationWithItems,
   buildBudgetDeclarationStatusList,
@@ -9,17 +8,16 @@ import {
   budgetEntryRowBg,
   canWriteAllBudgetTeams,
   canWriteBudgetTeam,
+  ownBudgetTeams,
   categoryOptionsFor,
   defaultTargetMonth,
   isCategoryUnregistered,
   isForbiddenError,
-  isPartialWriteFailureError,
   isPreWriteFailureError,
   previousItemsToFormRows,
   summarizeBudgetItems,
   totalBudgetSummary,
 } from "@/app/utils/budgetDeclaration";
-import { ROUTE_PERMISSIONS } from "@/app/utils/permissions";
 
 const declaration = (
   overrides: Partial<BudgetDeclarationWithItems> & { team: string },
@@ -93,10 +91,13 @@ describe("summarizeBudgetItems", () => {
 
 describe("canWriteAllBudgetTeams", () => {
   it("全チームへ書き込めるのは経理・管理者のみ", () => {
-    expect(canWriteAllBudgetTeams("accounting")).toBe(true);
-    expect(canWriteAllBudgetTeams("admin")).toBe(true);
-    expect(canWriteAllBudgetTeams("teamleader")).toBe(false);
-    expect(canWriteAllBudgetTeams("public")).toBe(false);
+    expect(canWriteAllBudgetTeams("accounting", false)).toBe(true);
+    expect(canWriteAllBudgetTeams("admin", false)).toBe(true);
+    expect(canWriteAllBudgetTeams("teamleader", false)).toBe(false);
+    expect(canWriteAllBudgetTeams("public", false)).toBe(false);
+    expect(canWriteAllBudgetTeams("public", true)).toBe(false);
+    expect(canWriteAllBudgetTeams("accounting", true)).toBe(true);
+    expect(canWriteAllBudgetTeams(null, false)).toBe(false);
   });
 });
 
@@ -113,22 +114,48 @@ describe("budgetEntryRowBg / budgetAmountColor", () => {
 
 describe("canWriteBudgetTeam", () => {
   it("経理・管理者は全チームへ書き込める", () => {
-    expect(canWriteBudgetTeam("accounting", null, "Aチーム")).toBe(true);
-    expect(canWriteBudgetTeam("admin", "Bチーム", "Aチーム")).toBe(true);
+    expect(canWriteBudgetTeam("accounting", null, "Aチーム", false)).toBe(true);
+    expect(canWriteBudgetTeam("admin", "Bチーム", "Aチーム", false)).toBe(true);
   });
 
-  it("チームリーダーは自チームのみ書き込める", () => {
-    expect(canWriteBudgetTeam("teamleader", "Aチーム", "Aチーム")).toBe(true);
-    expect(canWriteBudgetTeam("teamleader", "Aチーム", "Bチーム")).toBe(false);
+  it("所属チームがある public は、フラグの有無にかかわらず自チームのみ書き込める", () => {
+    for (const isTeamleader of [true, false, null]) {
+      expect(
+        canWriteBudgetTeam("public", "Aチーム", "Aチーム", isTeamleader),
+      ).toBe(true);
+      expect(
+        canWriteBudgetTeam("public", "Aチーム", "Bチーム", isTeamleader),
+      ).toBe(false);
+    }
   });
 
-  it("チーム未設定のチームリーダーはどのチームにも書き込めない", () => {
-    expect(canWriteBudgetTeam("teamleader", null, "Aチーム")).toBe(false);
+  it("フラグ付きの経理（兼任）は全チームへ書き込める", () => {
+    expect(canWriteBudgetTeam("accounting", "Aチーム", "Bチーム", true)).toBe(
+      true,
+    );
+    expect(canWriteBudgetTeam("accounting", null, "Aチーム", true)).toBe(true);
   });
 
-  it("public・ロール未設定は書き込めない", () => {
-    expect(canWriteBudgetTeam("public", "Aチーム", "Aチーム")).toBe(false);
-    expect(canWriteBudgetTeam(null, "Aチーム", "Aチーム")).toBe(false);
+  it("所属チーム未設定の public はどのチームにも書き込めない", () => {
+    expect(canWriteBudgetTeam("public", null, "Aチーム", false)).toBe(false);
+    expect(canWriteBudgetTeam("public", "", "Aチーム", true)).toBe(false);
+  });
+
+  it("ロール未設定でも所属チームの判定は class に依存しない（閲覧可否は別途ログイン判定）", () => {
+    expect(canWriteBudgetTeam(null, "Aチーム", "Aチーム", false)).toBe(true);
+    expect(canWriteBudgetTeam(null, "Aチーム", "Bチーム", null)).toBe(false);
+  });
+});
+
+describe("ownBudgetTeams", () => {
+  it("所属チームがあれば（ロールに関係なく）自チームだけを返す", () => {
+    expect(ownBudgetTeams("Aチーム")).toEqual(["Aチーム"]);
+  });
+
+  it("チーム未設定（null / undefined / 空文字）では空配列を返す", () => {
+    expect(ownBudgetTeams(null)).toEqual([]);
+    expect(ownBudgetTeams(undefined)).toEqual([]);
+    expect(ownBudgetTeams("")).toEqual([]);
   });
 });
 
@@ -305,20 +332,8 @@ describe("totalBudgetSummary", () => {
   });
 });
 
-describe("閲覧ロールの定義", () => {
-  it("/budget-declarations のルート保護と同じロール定義を参照する", () => {
-    expect(BUDGET_DECLARATION_ALLOWED_CLASSES).toBe(
-      ROUTE_PERMISSIONS["/budget-declarations"],
-    );
-  });
-
-  it("全チーム書き込みロールは、閲覧可ロールから自チーム限定ロールを除いたもの", () => {
-    // Regression: the list's visible scope follows when a role is added to ROUTE_PERMISSIONS.
-    expect(BUDGET_WRITE_ALL_TEAMS_CLASSES).toEqual(
-      BUDGET_DECLARATION_ALLOWED_CLASSES.filter(
-        (role) => role !== "teamleader",
-      ),
-    );
+describe("書き込みロールの定義", () => {
+  it("全チーム書き込みロールは経理・管理者だけ", () => {
     expect(BUDGET_WRITE_ALL_TEAMS_CLASSES).toEqual(["accounting", "admin"]);
   });
 });
@@ -352,51 +367,6 @@ describe("BudgetDeclarationError / isForbiddenError", () => {
   });
 });
 
-describe("isPartialWriteFailureError", () => {
-  // saveBudgetDeclaration runs in a single transaction inside save_budget_declaration (migration 24), so it
-  // never returns partialWriteFailed. Currently only the bulk update in budgetRecurringItems.ts can return this kind.
-  it("複数行の一括更新が途中で失敗した場合（partialWriteFailed）は一部反映の可能性があると判定する", () => {
-    expect(
-      isPartialWriteFailureError(
-        new BudgetDeclarationError({
-          kind: "partialWriteFailed",
-          message: "定期明細の更新に失敗しました。",
-        }),
-      ),
-    ).toBe(true);
-  });
-
-  it("何も書き込まれていない失敗（fetchFailed・forbidden・validationFailed・duplicate）は対象外", () => {
-    // fetchFailed is also used for a failed header save / no target rows; nothing was written in those
-    // cases, so exclude them.
-    expect(
-      isPartialWriteFailureError(
-        new BudgetDeclarationError({ kind: "fetchFailed", message: "" }),
-      ),
-    ).toBe(false);
-    expect(
-      isPartialWriteFailureError(
-        new BudgetDeclarationError({ kind: "forbidden", message: "" }),
-      ),
-    ).toBe(false);
-    expect(
-      isPartialWriteFailureError(
-        new BudgetDeclarationError({ kind: "validationFailed", message: "" }),
-      ),
-    ).toBe(false);
-    expect(
-      isPartialWriteFailureError(
-        new BudgetDeclarationError({ kind: "duplicate", message: "" }),
-      ),
-    ).toBe(false);
-  });
-
-  it("無関係なエラーは対象外", () => {
-    expect(isPartialWriteFailureError(new Error("network"))).toBe(false);
-    expect(isPartialWriteFailureError(null)).toBe(false);
-  });
-});
-
 describe("isPreWriteFailureError", () => {
   it("サーバーが書き込み前に返した失敗だけ真になる", () => {
     for (const kind of [
@@ -413,15 +383,7 @@ describe("isPreWriteFailureError", () => {
     }
   });
 
-  it("一部書き込みと、応答が失われた失敗は書き込み前と確定しない", () => {
-    expect(
-      isPreWriteFailureError(
-        new BudgetDeclarationError({
-          kind: "partialWriteFailed",
-          message: "定期明細の更新に失敗しました。",
-        }),
-      ),
-    ).toBe(false);
+  it("応答が失われた失敗は書き込み前と確定しない", () => {
     expect(isPreWriteFailureError(new TypeError("Failed to fetch"))).toBe(
       false,
     );

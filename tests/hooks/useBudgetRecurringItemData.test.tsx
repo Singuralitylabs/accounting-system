@@ -65,11 +65,12 @@ describe("useSaveBudgetRecurringItems の保存失敗", () => {
     );
   });
 
-  it("一部だけ反映された可能性がある失敗では一覧を再取得し、入力し直しを案内する", async () => {
+  it("競合など、サーバが何も保存していないと返した失敗では一覧を再取得せず、その理由を表示する", async () => {
     bulkSaveBudgetRecurringItems.mockResolvedValue({
       error: {
-        kind: "partialWriteFailed",
-        message: "定期明細の更新に失敗しました。",
+        kind: "validationFailed",
+        message:
+          "事前収支申告の定期明細が他のユーザーによって変更されました。何も保存されていません。画面を再読み込みしてやり直してください。",
       },
     });
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
@@ -79,14 +80,9 @@ describe("useSaveBudgetRecurringItems の保存失敗", () => {
 
     await result.current.mutateAsync([]).catch((error) => error);
 
-    expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: ["budgetRecurringItems"],
-    });
-    expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: ["budgetDeclarations", "activeRecurringItems"],
-    });
+    expect(invalidateSpy).not.toHaveBeenCalled();
     expect(notifyError).toHaveBeenCalledWith(
-      "定期明細の更新に失敗しました。一部のみ反映されている可能性があるため、最新の内容を取得して表示します。反映されていない変更は入力し直してください。",
+      expect.stringContaining("何も保存されていません"),
     );
   });
 
@@ -108,7 +104,7 @@ describe("useSaveBudgetRecurringItems の保存失敗", () => {
       queryKey: ["budgetDeclarations", "activeRecurringItems"],
     });
     expect(notifyError).toHaveBeenCalledWith(
-      "定期明細の更新に失敗しました。一部のみ反映されている可能性があるため、最新の内容を取得して表示します。反映されていない変更は入力し直してください。",
+      "定期明細の更新結果を確認できませんでした。保存されたかどうか分からないため、最新の内容を取得して表示します。反映されていない変更は入力し直してください。",
     );
   });
 });

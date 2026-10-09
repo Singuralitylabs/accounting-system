@@ -1,3 +1,4 @@
+// Maintained by hand; do not overwrite with `yarn db:types*` (see CLAUDE.md for the update procedure).
 export type Json =
   | string
   | number
@@ -120,20 +121,20 @@ export type Database = {
           },
         ]
       }
-      budget_declaration_reminder_settings: {
+      budget_declaration_reminder_days: {
         Row: {
-          id: number
-          target_days: number[]
+          day: number
+          message: string
           updated_at: string
         }
         Insert: {
-          id?: number
-          target_days?: number[]
+          day: number
+          message: string
           updated_at?: string
         }
         Update: {
-          id?: number
-          target_days?: number[]
+          day?: number
+          message?: string
           updated_at?: string
         }
         Relationships: []
@@ -488,6 +489,7 @@ export type Database = {
           email: string
           id: number
           inserted_at: string
+          is_teamleader: boolean
           name: string
           slack_id: string | null
           team: string | null
@@ -499,6 +501,7 @@ export type Database = {
           email: string
           id?: number
           inserted_at?: string
+          is_teamleader?: boolean
           name: string
           slack_id?: string | null
           team?: string | null
@@ -510,6 +513,7 @@ export type Database = {
           email?: string
           id?: number
           inserted_at?: string
+          is_teamleader?: boolean
           name?: string
           slack_id?: string | null
           team?: string | null
@@ -962,6 +966,27 @@ export type Database = {
           },
         ]
       }
+      slack_notification_settings: {
+        Row: {
+          id: number
+          matter_notice_body_template: string
+          matter_notice_header: string
+          updated_at: string
+        }
+        Insert: {
+          id?: number
+          matter_notice_body_template?: string
+          matter_notice_header?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: number
+          matter_notice_body_template?: string
+          matter_notice_header?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -978,6 +1003,7 @@ export type Database = {
         }[]
       }
       auth_user_class: { Args: never; Returns: string }
+      auth_user_is_teamleader: { Args: never; Returns: boolean }
       auth_user_team: { Args: never; Returns: string }
       can_access_team_budget: {
         Args: { target_team: string }
@@ -1016,6 +1042,10 @@ export type Database = {
           name: string
         }[]
       }
+      replace_budget_declaration_reminder_days: {
+        Args: { p_rows: Json }
+        Returns: undefined
+      }
       // p_declaration_id / p_comment は SQL 側で DEFAULT NULL を付けているため
       // 省略可能（supabase gen types は DEFAULT の有無だけを見て `?:` を付け、
       // `| null` は付与しない）。呼び出し側は null の代わりに undefined
@@ -1032,6 +1062,10 @@ export type Database = {
         Returns: {
           id: number
         }[]
+      }
+      save_budget_recurring_items: {
+        Args: { p_rows: Json }
+        Returns: undefined
       }
       save_extra_entries: {
         Args: {

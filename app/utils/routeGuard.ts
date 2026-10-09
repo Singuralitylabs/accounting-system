@@ -6,6 +6,7 @@ import {
 import type { AuthError } from "@supabase/supabase-js";
 import {
   ROUTE_PERMISSIONS,
+  hasClassAccess,
   isAuthOnlyPath,
   matchesRoute,
   type Role,
@@ -134,6 +135,27 @@ export const withAuthTimeout = <T>(
       },
     );
   return Promise.race([settle(promise), timeout]);
+};
+
+export type RoleDecision = "allow" | "deny" | "fetch_profile";
+
+// What to do with a restricted route given the JWT claims (null = missing / invalid). Claims that
+// already grant access (even a null class with the teamleader flag) never need the DB: a stale or
+// failing profiles query must not turn a valid JWT role into a denial. The flag is only worth a DB
+// round trip on routes that allow teamleader.
+export const decideRoleAccess = (
+  allowed: readonly Role[],
+  userClass: string | null,
+  isTeamleader: boolean | null,
+): RoleDecision => {
+  if (hasClassAccess(allowed, userClass, isTeamleader)) {
+    return "allow";
+  }
+  if (userClass === null) return "fetch_profile";
+  if (isTeamleader === null && allowed.includes("teamleader")) {
+    return "fetch_profile";
+  }
+  return "deny";
 };
 
 export const isPublicSkipPath = (pathname: string) =>

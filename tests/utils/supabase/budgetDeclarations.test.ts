@@ -2,20 +2,22 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   createServerSupabase,
-  getAuthorizedViewer,
+  getLoggedInViewer,
   assertManagerIdsExist,
   getActiveSelectOptionsByType,
   getMemberOptions,
 } = vi.hoisted(() => ({
   getMemberOptions: vi.fn(),
   createServerSupabase: vi.fn(),
-  getAuthorizedViewer: vi.fn(),
+  getLoggedInViewer: vi.fn(),
   assertManagerIdsExist: vi.fn(),
   getActiveSelectOptionsByType: vi.fn(),
 }));
 
 vi.mock("@/app/utils/supabase/clients", () => ({ createServerSupabase }));
-vi.mock("@/app/utils/supabase/viewerAccess", () => ({ getAuthorizedViewer }));
+vi.mock("@/app/utils/supabase/viewerAccess", () => ({
+  getLoggedInViewer: getLoggedInViewer,
+}));
 vi.mock("@/app/utils/supabase/profiles", () => ({
   assertManagerIdsExist,
   getMemberOptions,
@@ -72,8 +74,8 @@ describe("saveBudgetDeclaration", () => {
     single.mockReset();
     rpc.mockClear();
     createServerSupabase.mockReturnValue({ rpc });
-    getAuthorizedViewer.mockReset();
-    getAuthorizedViewer.mockResolvedValue({
+    getLoggedInViewer.mockReset();
+    getLoggedInViewer.mockResolvedValue({
       profileInfo: { id: 1, class: "accounting", team: null },
     });
     assertManagerIdsExist.mockReset();
@@ -292,8 +294,8 @@ describe("saveBudgetDeclaration", () => {
   });
 
   it("書き込み権限が無いチームへの保存は RPC を呼ばず forbidden を返す", async () => {
-    getAuthorizedViewer.mockResolvedValue({
-      profileInfo: { id: 1, class: "teamleader", team: "Bチーム" },
+    getLoggedInViewer.mockResolvedValue({
+      profileInfo: { id: 1, class: "public", is_teamleader: true, team: "Bチーム" },
     });
 
     const result = await saveBudgetDeclaration(baseInput);
@@ -370,8 +372,8 @@ describe("deleteBudgetDeclaration", () => {
     deleteRpc.mockReset();
     createServerSupabase.mockReset();
     createServerSupabase.mockReturnValue({ rpc: deleteRpc });
-    getAuthorizedViewer.mockReset();
-    getAuthorizedViewer.mockResolvedValue({
+    getLoggedInViewer.mockReset();
+    getLoggedInViewer.mockResolvedValue({
       profileInfo: { id: 1, class: "accounting", team: null },
     });
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -420,8 +422,8 @@ describe("deleteBudgetDeclaration", () => {
   });
 
   it("チームリーダーは他チームの申告を削除できない（DB を呼ばず forbidden）", async () => {
-    getAuthorizedViewer.mockResolvedValue({
-      profileInfo: { id: 2, class: "teamleader", team: "Bチーム" },
+    getLoggedInViewer.mockResolvedValue({
+      profileInfo: { id: 2, class: "public", is_teamleader: true, team: "Bチーム" },
     });
 
     const result = await deleteBudgetDeclaration(1, "Aチーム");
@@ -440,8 +442,8 @@ describe("getBudgetDeclarationList", () => {
       options: [{ value: "Aチーム" }, { value: "Bチーム" }],
       error: null,
     } as never);
-    getAuthorizedViewer.mockResolvedValue({
-      profileInfo: { id: 2, class: "teamleader", team: "Bチーム" },
+    getLoggedInViewer.mockResolvedValue({
+      profileInfo: { id: 2, class: "public", is_teamleader: true, team: "Bチーム" },
     });
     const order = vi.fn().mockResolvedValue({
       data: [
@@ -469,6 +471,59 @@ describe("getBudgetDeclarationList", () => {
     expect(result.rows?.[0].summary.incomeTotal).toBe(1000);
   });
 
+  it("所属チームのある public（フラグなし）も、マスタから外れたチームなら自チームの行を持つ", async () => {
+    const { getSelectOptions } = await import(
+      "@/app/utils/supabase/selectOptions"
+    );
+    vi.mocked(getSelectOptions).mockResolvedValue({
+      options: [{ value: "Aチーム" }],
+      error: null,
+    } as never);
+    getLoggedInViewer.mockResolvedValue({
+      profileInfo: { id: 3, class: "public", is_teamleader: false, team: "旧チーム" },
+    });
+    createServerSupabase.mockReturnValue({
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            order: vi.fn().mockResolvedValue({ data: [], error: null }),
+          }),
+        }),
+      }),
+    });
+
+    const result = await getBudgetDeclarationList("2026-10");
+
+    expect(result.rows?.map((r) => r.team)).toEqual(["Aチーム", "旧チーム"]);
+  });
+
+  it("所属チーム未設定の public もログイン済みなら全チームの一覧を取得できる（閲覧のみ）", async () => {
+    const { getSelectOptions } = await import(
+      "@/app/utils/supabase/selectOptions"
+    );
+    vi.mocked(getSelectOptions).mockResolvedValue({
+      options: [{ value: "Aチーム" }, { value: "Bチーム" }],
+      error: null,
+    } as never);
+    getLoggedInViewer.mockResolvedValue({
+      profileInfo: { id: 3, class: "public", is_teamleader: false, team: null },
+    });
+    createServerSupabase.mockReturnValue({
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            order: vi.fn().mockResolvedValue({ data: [], error: null }),
+          }),
+        }),
+      }),
+    });
+
+    const result = await getBudgetDeclarationList("2026-10");
+
+    expect(getLoggedInViewer).toHaveBeenCalledWith(expect.any(String));
+    expect(result.rows?.map((r) => r.team)).toEqual(["Aチーム", "Bチーム"]);
+  });
+
   it("マスタから外れたチームのリーダーは、未申告でも自チームの行を持つ（申告できなくならない）", async () => {
     const { getSelectOptions } = await import(
       "@/app/utils/supabase/selectOptions"
@@ -477,8 +532,8 @@ describe("getBudgetDeclarationList", () => {
       options: [{ value: "Aチーム" }],
       error: null,
     } as never);
-    getAuthorizedViewer.mockResolvedValue({
-      profileInfo: { id: 2, class: "teamleader", team: "旧チーム" },
+    getLoggedInViewer.mockResolvedValue({
+      profileInfo: { id: 2, class: "public", is_teamleader: true, team: "旧チーム" },
     });
     createServerSupabase.mockReturnValue({
       from: () => ({
@@ -496,7 +551,7 @@ describe("getBudgetDeclarationList", () => {
     expect(result.rows?.[1].status).toBe("notDeclared");
   });
 
-  it("経理・管理者にはマスタ外の未申告チーム行を追加しない", async () => {
+  it("経理・管理者も、マスタから外れた自チームの行を持つ（従来どおり）", async () => {
     const { getSelectOptions } = await import(
       "@/app/utils/supabase/selectOptions"
     );
@@ -504,7 +559,7 @@ describe("getBudgetDeclarationList", () => {
       options: [{ value: "Aチーム" }],
       error: null,
     } as never);
-    getAuthorizedViewer.mockResolvedValue({
+    getLoggedInViewer.mockResolvedValue({
       profileInfo: { id: 1, class: "accounting", team: "旧チーム" },
     });
     createServerSupabase.mockReturnValue({
@@ -519,7 +574,7 @@ describe("getBudgetDeclarationList", () => {
 
     const result = await getBudgetDeclarationList("2026-10");
 
-    expect(result.rows?.map((r) => r.team)).toEqual(["Aチーム"]);
+    expect(result.rows?.map((r) => r.team)).toEqual(["Aチーム", "旧チーム"]);
   });
 
   it("他チームの申告者名が profiles の RLS で読めなくても、メンバー一覧から補って表示する", async () => {
@@ -530,8 +585,8 @@ describe("getBudgetDeclarationList", () => {
       options: [{ value: "Aチーム" }, { value: "Bチーム" }],
       error: null,
     } as never);
-    getAuthorizedViewer.mockResolvedValue({
-      profileInfo: { id: 2, class: "teamleader", team: "Bチーム" },
+    getLoggedInViewer.mockResolvedValue({
+      profileInfo: { id: 2, class: "public", is_teamleader: true, team: "Bチーム" },
     });
     getMemberOptions.mockResolvedValue({
       memberOptions: [{ id: 10, name: "他チームの山田" }],
@@ -572,7 +627,7 @@ describe("getBudgetDeclarationList", () => {
       options: [{ value: "Aチーム" }],
       error: null,
     } as never);
-    getAuthorizedViewer.mockResolvedValue({
+    getLoggedInViewer.mockResolvedValue({
       profileInfo: { id: 1, class: "accounting", team: null },
     });
     getMemberOptions.mockResolvedValue({
@@ -610,8 +665,8 @@ describe("getBudgetDeclarationList", () => {
 
 describe("getBudgetDeclarationDetail", () => {
   it("読めない担当者名はメンバー一覧から補い、担当者なしは null のまま", async () => {
-    getAuthorizedViewer.mockResolvedValue({
-      profileInfo: { id: 2, class: "teamleader", team: "Bチーム" },
+    getLoggedInViewer.mockResolvedValue({
+      profileInfo: { id: 2, class: "public", is_teamleader: true, team: "Bチーム" },
     });
     getMemberOptions.mockResolvedValue({
       memberOptions: [{ id: 10, name: "他チームの山田" }],

@@ -279,9 +279,23 @@ describe("fiscalYearMonths", () => {
 });
 
 describe("reportFlags", () => {
-  it("teamleader はチーム別内訳を持つが、調整・差分の詳細は持たない", () => {
-    expect(reportFlags("teamleader")).toEqual({
+  it("フラグ付きの public はチーム別内訳を持つが、調整・差分の詳細は持たない", () => {
+    expect(reportFlags("public", true)).toEqual({
       includeTeamBreakdown: true,
+      includeAdjustmentDetails: false,
+    });
+  });
+
+  it("フラグ付きの accounting は調整・差分の詳細も持つ", () => {
+    expect(reportFlags("accounting", true)).toEqual({
+      includeTeamBreakdown: true,
+      includeAdjustmentDetails: true,
+    });
+  });
+
+  it("class が 'teamleader' の値はフラグが無ければ何も持たない", () => {
+    expect(reportFlags("teamleader", false)).toEqual({
+      includeTeamBreakdown: false,
       includeAdjustmentDetails: false,
     });
   });
@@ -291,8 +305,8 @@ describe("reportFlags", () => {
       includeTeamBreakdown: true,
       includeAdjustmentDetails: true,
     };
-    expect(reportFlags("accounting")).toEqual(expected);
-    expect(reportFlags("admin")).toEqual(expected);
+    expect(reportFlags("accounting", false)).toEqual(expected);
+    expect(reportFlags("admin", false)).toEqual(expected);
   });
 
   it("public / 未設定ロールはすべてのフラグが false になる", () => {
@@ -300,10 +314,10 @@ describe("reportFlags", () => {
       includeTeamBreakdown: false,
       includeAdjustmentDetails: false,
     };
-    expect(reportFlags("public")).toEqual(expected);
-    expect(reportFlags(null)).toEqual(expected);
-    expect(reportFlags(undefined)).toEqual(expected);
-    expect(reportFlags("")).toEqual(expected);
+    expect(reportFlags("public", false)).toEqual(expected);
+    expect(reportFlags(null, false)).toEqual(expected);
+    expect(reportFlags(undefined, false)).toEqual(expected);
+    expect(reportFlags("", false)).toEqual(expected);
   });
 });
 

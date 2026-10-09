@@ -107,7 +107,11 @@ export const getTeamMatterInfoList = async () => {
   }
 
   if (
-    !hasClassAccess(TEAM_MATTER_VIEW_CLASSES, profileInfo.class) ||
+    !hasClassAccess(
+      TEAM_MATTER_VIEW_CLASSES,
+      profileInfo.class,
+      profileInfo.is_teamleader,
+    ) ||
     !profileInfo.team
   ) {
     return null;

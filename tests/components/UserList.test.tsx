@@ -37,7 +37,8 @@ const makeUser = (overrides: Partial<ProfilesType>): ProfilesType => ({
   user_id: "00000000-0000-0000-0000-000000000001",
   name: "山田太郎",
   email: "taro@future-tech-association.org",
-  class: "teamleader",
+  class: "public",
+  is_teamleader: true,
   team: "チームA",
   slack_id: "U000001",
   inserted_at: "2026-01-01T00:00:00+09:00",
@@ -65,6 +66,7 @@ const editableUserList = [
     name: "鈴木一郎",
     email: "ichiro@future-tech-association.org",
     class: "public",
+    is_teamleader: false,
     team: null,
     slack_id: null,
   }),
@@ -96,6 +98,16 @@ const selectOption = async (label: string, option: string) => {
   fireEvent.click(inputByLabel(label));
   fireEvent.click(await screen.findByRole("option", { name: option }));
 };
+
+const leaderCheckbox = (name: string) => {
+  const input = screen
+    .getAllByLabelText(`${name}のチームリーダー`)
+    .find((element) => element.tagName === "INPUT");
+  if (!input) throw new Error(`checkbox "${name}" not found`);
+  return input as HTMLInputElement;
+};
+
+const toggleLeader = (name: string) => fireEvent.click(leaderCheckbox(name));
 
 const saveButton = () => screen.getByRole("button", { name: "一括保存" });
 const discardButton = () => screen.getByRole("button", { name: "変更を破棄" });
@@ -142,7 +154,7 @@ describe("UserList", () => {
     expect(teamInputValues()).toEqual(["チームA", "旧チーム"]);
   });
 
-  it("画面見出しは「ユーザー管理」で、権限セレクトは表示名の選択肢を ROLES の順に出す", async () => {
+  it("画面見出しは「ユーザー管理」で、権限セレクトは表示名の選択肢を PROFILE_CLASSES の順に出す", async () => {
     renderWithMantine(
       <UserList userList={editableUserList} teamList={teamList} />,
     );
@@ -151,14 +163,36 @@ describe("UserList", () => {
       screen.getByRole("heading", { level: 2, name: "ユーザー管理" }),
     ).toBeInTheDocument();
     expect(inputValue("鈴木一郎の権限")).toBe("メンバー");
-    expect(inputValue("山田太郎の権限")).toBe("チームリーダー");
+    expect(inputValue("山田太郎の権限")).toBe("メンバー");
 
     fireEvent.click(inputByLabel("鈴木一郎の権限"));
     expect(
       (await screen.findAllByRole("option")).map(
         (option) => option.textContent,
       ),
-    ).toEqual(["メンバー", "チームリーダー", "経理", "管理者"]);
+    ).toEqual(["メンバー", "経理", "管理者"]);
+  });
+
+  it("各ユーザーにチームリーダーのチェックボックスがあり、フラグの値を反映する", () => {
+    renderWithMantine(
+      <UserList userList={editableUserList} teamList={teamList} />,
+    );
+
+    expect(leaderCheckbox("山田太郎")).toBeChecked();
+    expect(leaderCheckbox("佐藤花子")).toBeChecked();
+    expect(leaderCheckbox("鈴木一郎")).not.toBeChecked();
+  });
+
+  it("モバイル（カード）でも各ユーザーに「チームリーダー」の項目とチェックボックスがある", () => {
+    viewport.width = 375;
+    renderWithMantine(
+      <UserList userList={editableUserList} teamList={teamList} />,
+    );
+
+    expect(screen.getAllByText("チームリーダー")).toHaveLength(
+      editableUserList.length,
+    );
+    expect(leaderCheckbox("山田太郎")).toBeChecked();
   });
 
   it("行ごとの保存ボタンは無く、PC 表示の見出しと各行のセルの数が揃っている", () => {
@@ -170,7 +204,7 @@ describe("UserList", () => {
       screen.queryByRole("button", { name: "保存" }),
     ).not.toBeInTheDocument();
     // One table per role section, each with the same header.
-    const sectionCount = 2; // teamleader / public
+    const sectionCount = 1; // public only
     const headerCells =
       screen.getAllByRole("columnheader").length / sectionCount;
     const bodyRows = screen
@@ -187,28 +221,43 @@ describe("UserList", () => {
     ["モバイル（カード）", 375],
   ])("%s: 権限ごとのセクションとチーム色", (_label, width) => {
     const mixedUserList = [
-      makeUser({ id: 21, name: "一般 次郎", class: "public", team: null }),
-      makeUser({ id: 22, name: "管理 花子", class: "admin", team: null }),
       makeUser({
-        id: 23,
-        name: "リーダー A",
-        class: "teamleader",
-        team: "チームA",
+        id: 21,
+        name: "一般 次郎",
+        class: "public",
+        is_teamleader: false,
+        team: null,
       }),
       makeUser({
-        id: 24,
-        name: "リーダー B",
-        class: "teamleader",
+        id: 22,
+        name: "管理 花子",
+        class: "admin",
+        is_teamleader: false,
+        team: null,
+      }),
+      makeUser({ id: 23, name: "リーダー A", team: "チームA" }),
+      makeUser({ id: 24, name: "リーダー B", team: "チームB" }),
+      makeUser({ id: 25, name: "リーダー 旧", team: "旧チーム" }),
+      makeUser({
+        id: 26,
+        name: "不明 太郎",
+        class: "unknown",
+        is_teamleader: false,
+        team: null,
+      }),
+      makeUser({
+        id: 27,
+        name: "未設定 花子",
+        class: null,
+        is_teamleader: false,
+        team: null,
+      }),
+      makeUser({
+        id: 28,
+        name: "経理 リーダー",
+        class: "accounting",
         team: "チームB",
       }),
-      makeUser({
-        id: 25,
-        name: "リーダー 旧",
-        class: "teamleader",
-        team: "旧チーム",
-      }),
-      makeUser({ id: 26, name: "不明 太郎", class: "unknown", team: null }),
-      makeUser({ id: 27, name: "未設定 花子", class: null, team: null }),
     ];
     const headings = () =>
       screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
@@ -222,20 +271,24 @@ describe("UserList", () => {
       viewport.width = width;
     });
 
-    it("権限ごとに人数付きの見出しで分け、管理者 → 経理 → チームリーダー → メンバー → 未設定の順に並べる（該当者のいない権限は出さない）", () => {
+    it("権限ごとに人数付きの見出しで分け、管理者 → 経理 → メンバー → 未設定の順に並べる（チームリーダーのセクションは無く、フラグ付きの経理は経理に入る）", () => {
       renderWithMantine(
         <UserList userList={mixedUserList} teamList={teamList} />,
       );
 
       expect(headings()).toEqual([
         "管理者（1 名）",
-        "チームリーダー（3 名）",
-        "メンバー（1 名）",
+        "経理（1 名）",
+        "メンバー（4 名）",
         "未設定（2 名）",
       ]);
       expect(inputValue("一般 次郎の権限")).toBe("メンバー");
       expect(inputValue("管理 花子の権限")).toBe("管理者");
-      expect(inputValue("リーダー Aの権限")).toBe("チームリーダー");
+      expect(inputValue("リーダー Aの権限")).toBe("メンバー");
+      expect(inputValue("経理 リーダーの権限")).toBe("経理");
+      expect(leaderCheckbox("リーダー A")).toBeChecked();
+      expect(leaderCheckbox("経理 リーダー")).toBeChecked();
+      expect(leaderCheckbox("一般 次郎")).not.toBeChecked();
     });
 
     it("チームの表示順に淡い色を割り当て、選択肢に無いチーム・チーム未設定には色を付けない", () => {
@@ -294,8 +347,8 @@ describe("UserList", () => {
       await selectOption("一般 次郎の権限", "管理者");
       expect(headings()).toEqual([
         "管理者（1 名）",
-        "チームリーダー（3 名）",
-        "メンバー（1 名）",
+        "経理（1 名）",
+        "メンバー（4 名）",
         "未設定（2 名）",
       ]);
 
@@ -304,7 +357,8 @@ describe("UserList", () => {
 
       expect(headings()).toEqual([
         "管理者（2 名）",
-        "チームリーダー（3 名）",
+        "経理（1 名）",
+        "メンバー（3 名）",
         "未設定（2 名）",
       ]);
     });
@@ -316,13 +370,29 @@ describe("UserList", () => {
 
       await selectOption("未設定 花子の権限", "メンバー");
       expect(headings()).toContain("未設定（2 名）");
-      expect(headings()).toContain("メンバー（1 名）");
+      expect(headings()).toContain("メンバー（4 名）");
 
       fireEvent.click(saveButton());
       await waitFor(() => expect(refresh).toHaveBeenCalled());
 
-      expect(headings()).toContain("メンバー（2 名）");
+      expect(headings()).toContain("メンバー（5 名）");
       expect(headings()).toContain("未設定（1 名）");
+    });
+
+    it("チームリーダーのフラグを付け外ししてもセクションは変わらない", () => {
+      renderWithMantine(
+        <UserList userList={mixedUserList} teamList={teamList} />,
+      );
+
+      toggleLeader("経理 リーダー");
+      toggleLeader("一般 次郎");
+
+      expect(headings()).toEqual([
+        "管理者（1 名）",
+        "経理（1 名）",
+        "メンバー（4 名）",
+        "未設定（2 名）",
+      ]);
     });
 
     it("変更を破棄すると元のセクションのまま戻る", async () => {
@@ -333,7 +403,7 @@ describe("UserList", () => {
       await selectOption("一般 次郎の権限", "管理者");
       fireEvent.click(discardButton());
 
-      expect(headings()).toContain("メンバー（1 名）");
+      expect(headings()).toContain("メンバー（4 名）");
       expect(inputValue("一般 次郎の権限")).toBe("メンバー");
     });
   });
@@ -343,27 +413,30 @@ describe("UserList", () => {
     ["モバイル（カード）", 375],
   ])("%s: 表示項目と並び順", (_label, width) => {
     const unsortedUserList = [
-      makeUser({ id: 11, name: "一般 次郎", class: "public", team: null }),
       makeUser({
-        id: 12,
-        name: "リーダー B",
-        class: "teamleader",
-        team: "チームB",
+        id: 11,
+        name: "一般 次郎",
+        class: "public",
+        is_teamleader: false,
+        team: null,
       }),
-      makeUser({ id: 13, name: "管理 花子", class: "admin", team: null }),
+      makeUser({ id: 12, name: "リーダー B", team: "チームB" }),
       makeUser({
-        id: 14,
-        name: "リーダー 旧",
-        class: "teamleader",
-        team: "旧チーム",
+        id: 13,
+        name: "管理 花子",
+        class: "admin",
+        is_teamleader: false,
+        team: null,
       }),
-      makeUser({ id: 15, name: "経理 太郎", class: "accounting", team: null }),
+      makeUser({ id: 14, name: "リーダー 旧", team: "旧チーム" }),
       makeUser({
-        id: 16,
-        name: "リーダー A",
-        class: "teamleader",
-        team: "チームA",
+        id: 15,
+        name: "経理 太郎",
+        class: "accounting",
+        is_teamleader: false,
+        team: null,
       }),
+      makeUser({ id: 16, name: "リーダー A", team: "チームA" }),
     ];
     const sortedNames = [
       "管理 花子",
@@ -396,7 +469,7 @@ describe("UserList", () => {
       );
     });
 
-    it("権限 → チームの表示順 → 名前の順に表示する", () => {
+    it("権限 → チームリーダー → チームの表示順 → 名前の順に表示する", () => {
       renderWithMantine(
         <UserList userList={unsortedUserList} teamList={teamList} />,
       );
@@ -410,7 +483,7 @@ describe("UserList", () => {
       );
 
       await selectOption("一般 次郎の権限", "管理者");
-      await selectOption("リーダー Aの権限", "メンバー");
+      toggleLeader("リーダー A");
       expect(displayedNames()).toEqual(sortedNames);
 
       fireEvent.click(saveButton());
@@ -586,7 +659,7 @@ describe("UserList", () => {
       expect(discardButton()).toBeDisabled();
     });
 
-    it("権限・チーム・Slack ID を変えた行がハイライトされ、件数が表示される", async () => {
+    it("権限・チームリーダー・チーム・Slack ID を変えた行がハイライトされ、件数が表示される", async () => {
       const { container } = renderWithMantine(
         <UserList userList={editableUserList} teamList={teamList} />,
       );
@@ -621,27 +694,56 @@ describe("UserList", () => {
       expect(changedRowNames(container)).toEqual([]);
     });
 
-    it("teamleader 以外に変えるとチームが空になる", async () => {
+    it("チームリーダーのフラグを外してもチームは残り、権限は変わらない", async () => {
+      renderWithMantine(
+        <UserList userList={editableUserList} teamList={teamList} />,
+      );
+
+      toggleLeader("山田太郎");
+
+      expect(leaderCheckbox("山田太郎")).not.toBeChecked();
+      expect(inputValue("山田太郎のチーム")).toBe("チームA");
+      expect(inputValue("山田太郎の権限")).toBe("メンバー");
+    });
+
+    it("権限を変えてもチームは消えない", async () => {
       renderWithMantine(
         <UserList userList={editableUserList} teamList={teamList} />,
       );
 
       await selectOption("山田太郎の権限", "経理");
 
-      expect(inputValue("山田太郎のチーム")).toBe("");
+      expect(inputValue("山田太郎のチーム")).toBe("チームA");
+      expect(leaderCheckbox("山田太郎")).toBeChecked();
     });
 
-    it("権限を変えて読み込み時点の値に戻すと、チームも読み込み時点の値に戻り変更なしになる", async () => {
+    it("フラグを外して戻すとチームは変わらず、変更なしになる", () => {
+      const { container } = renderWithMantine(
+        <UserList userList={editableUserList} teamList={teamList} />,
+      );
+
+      toggleLeader("山田太郎");
+      expect(inputValue("山田太郎のチーム")).toBe("チームA");
+      expect(screen.getByText("1 件変更あり")).toBeInTheDocument();
+      toggleLeader("山田太郎");
+      expect(inputValue("山田太郎のチーム")).toBe("チームA");
+
+      expect(screen.getByText("変更はありません")).toBeInTheDocument();
+      expect(changedRowNames(container)).toEqual([]);
+      expect(saveButton()).toBeDisabled();
+    });
+
+    it("フラグ無しで読み込んだ行は、チェックを付けて外しても元のチームが消えず変更なしに戻る", () => {
       const { container } = renderWithMantine(
         <UserList
           userList={[
-            ...editableUserList,
             makeUser({
-              id: 4,
-              user_id: "00000000-0000-0000-0000-000000000004",
-              name: "田中次郎",
-              email: "jiro@future-tech-association.org",
-              class: "public",
+              id: 5,
+              user_id: "00000000-0000-0000-0000-000000000005",
+              name: "高橋三郎",
+              email: "saburo@future-tech-association.org",
+              class: "accounting",
+              is_teamleader: false,
               team: "チームB",
               slack_id: null,
             }),
@@ -650,44 +752,54 @@ describe("UserList", () => {
         />,
       );
 
-      await selectOption("山田太郎の権限", "経理");
-      expect(inputValue("山田太郎のチーム")).toBe("");
-      await selectOption("山田太郎の権限", "チームリーダー");
-      expect(inputValue("山田太郎のチーム")).toBe("チームA");
-
-      await selectOption("田中次郎の権限", "管理者");
-      expect(inputValue("田中次郎のチーム")).toBe("");
-      await selectOption("田中次郎の権限", "メンバー");
-      expect(inputValue("田中次郎のチーム")).toBe("チームB");
+      toggleLeader("高橋三郎");
+      expect(inputValue("高橋三郎のチーム")).toBe("チームB");
+      toggleLeader("高橋三郎");
+      expect(inputValue("高橋三郎のチーム")).toBe("チームB");
 
       expect(screen.getByText("変更はありません")).toBeInTheDocument();
       expect(changedRowNames(container)).toEqual([]);
       expect(saveButton()).toBeDisabled();
     });
 
-    it("保存に成功した後は、保存した権限・チームを基準に戻す", async () => {
+    it("チームリーダーのフラグだけを変えても変更ありになり、戻すと変更なしになる", () => {
+      const { container } = renderWithMantine(
+        <UserList userList={editableUserList} teamList={teamList} />,
+      );
+
+      toggleLeader("鈴木一郎");
+
+      expect(screen.getByText("1 件変更あり")).toBeInTheDocument();
+      expect(changedRowNames(container)).toEqual(["鈴木一郎"]);
+
+      toggleLeader("鈴木一郎");
+
+      expect(screen.getByText("変更はありません")).toBeInTheDocument();
+    });
+
+    it("保存に成功した後は、保存したフラグ・チームを基準に戻す", async () => {
       renderWithMantine(
         <UserList userList={editableUserList} teamList={teamList} />,
       );
 
-      await selectOption("鈴木一郎の権限", "チームリーダー");
+      toggleLeader("鈴木一郎");
       await selectOption("鈴木一郎のチーム", "チームB");
       fireEvent.click(saveButton());
       await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
 
-      await selectOption("鈴木一郎の権限", "メンバー");
-      expect(inputValue("鈴木一郎のチーム")).toBe("");
-      await selectOption("鈴木一郎の権限", "チームリーダー");
+      toggleLeader("鈴木一郎");
+      expect(inputValue("鈴木一郎のチーム")).toBe("チームB");
+      toggleLeader("鈴木一郎");
       expect(inputValue("鈴木一郎のチーム")).toBe("チームB");
       expect(screen.getByText("変更はありません")).toBeInTheDocument();
     });
 
-    it("teamleader でチームを選んでいないと、保存せずにエラーを表示する", async () => {
+    it("チームリーダーでチームを選んでいないと、保存せずにエラーを表示する", async () => {
       renderWithMantine(
         <UserList userList={editableUserList} teamList={teamList} />,
       );
 
-      await selectOption("鈴木一郎の権限", "チームリーダー");
+      toggleLeader("鈴木一郎");
       fireEvent.click(saveButton());
 
       expect(
@@ -705,6 +817,69 @@ describe("UserList", () => {
       ).not.toBeInTheDocument();
       fireEvent.click(saveButton());
       await waitFor(() => expect(bulkUpdateProfiles).toHaveBeenCalled());
+    });
+
+    it("経理・管理者でもフラグを付けてチームが無ければエラー、チームを選べば保存できる", async () => {
+      renderWithMantine(
+        <UserList
+          userList={[
+            makeUser({
+              id: 5,
+              name: "経理 花子",
+              class: "accounting",
+              is_teamleader: false,
+              team: null,
+            }),
+            makeUser({
+              id: 6,
+              name: "管理 太郎",
+              class: "admin",
+              is_teamleader: false,
+              team: null,
+            }),
+          ]}
+          teamList={teamList}
+        />,
+      );
+
+      toggleLeader("経理 花子");
+      toggleLeader("管理 太郎");
+      fireEvent.click(saveButton());
+
+      expect(
+        await screen.findByText(
+          "経理 花子: チームリーダーはチームが必須です。",
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText("管理 太郎: チームリーダーはチームが必須です。"),
+      ).toBeInTheDocument();
+      expect(bulkUpdateProfiles).not.toHaveBeenCalled();
+
+      await selectOption("経理 花子のチーム", "チームA");
+      await selectOption("管理 太郎のチーム", "チームB");
+      fireEvent.click(saveButton());
+
+      await waitFor(() =>
+        expect(bulkUpdateProfiles).toHaveBeenCalledWith([
+          {
+            id: 6,
+            name: "管理 太郎",
+            class: "admin",
+            is_teamleader: true,
+            team: "チームB",
+            slack_id: "U000001",
+          },
+          {
+            id: 5,
+            name: "経理 花子",
+            class: "accounting",
+            is_teamleader: true,
+            team: "チームA",
+            slack_id: "U000001",
+          },
+        ]),
+      );
     });
 
     it("確認ダイアログでキャンセルすると保存しない", async () => {
@@ -742,7 +917,8 @@ describe("UserList", () => {
         {
           id: 1,
           name: "山田太郎",
-          class: "teamleader",
+          class: "public",
+          is_teamleader: true,
           team: "チームA",
           slack_id: "U999999",
         },
@@ -750,6 +926,7 @@ describe("UserList", () => {
           id: 3,
           name: "鈴木一郎",
           class: "accounting",
+          is_teamleader: false,
           team: null,
           slack_id: null,
         },

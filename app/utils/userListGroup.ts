@@ -1,14 +1,14 @@
 import {
-  isRole,
-  ROLE_DISPLAY_RANK,
+  isProfileClass,
+  CLASS_DISPLAY_RANK,
   ROLE_LABELS,
-  ROLES,
-  Role,
+  PROFILE_CLASSES,
+  ProfileClass,
 } from "./permissions";
 
 // Grouping and team colors for the admin user list (sorting is in userListSort.ts).
 
-export type UserRoleSectionKey = Role | "unset";
+export type UserRoleSectionKey = ProfileClass | "unset";
 
 export type UserRoleSection<T> = {
   key: UserRoleSectionKey;
@@ -18,12 +18,13 @@ export type UserRoleSection<T> = {
 
 const UNSET_LABEL = "未設定";
 
-// Roles in display order (admin -> accounting -> teamleader -> public), derived from ROLE_DISPLAY_RANK.
-const ROLES_IN_DISPLAY_ORDER = [...ROLES].sort(
-  (a, b) => ROLE_DISPLAY_RANK[a] - ROLE_DISPLAY_RANK[b],
+// Classes in display order (admin -> accounting -> public), derived from CLASS_DISPLAY_RANK. The
+// teamleader flag does not make a section; teamleaders sort first inside their class (userListSort.ts).
+const CLASSES_IN_DISPLAY_ORDER = [...PROFILE_CLASSES].sort(
+  (a, b) => CLASS_DISPLAY_RANK[a] - CLASS_DISPLAY_RANK[b],
 );
 
-// Splits users into role sections in display order; a missing / invalid role goes to a trailing
+// Splits users into class sections in display order; a missing / invalid role goes to a trailing
 // "unset" section and empty sections are omitted. Order inside a section follows the input order.
 // `sectionRoleOf` lets the caller keep an edited row in its saved section until the save succeeds.
 export const groupUsersByRole = <T extends { class: string | null }>(
@@ -33,11 +34,11 @@ export const groupUsersByRole = <T extends { class: string | null }>(
   const usersByKey = new Map<UserRoleSectionKey, T[]>();
   for (const user of users) {
     const role = sectionRoleOf(user);
-    const key: UserRoleSectionKey = isRole(role) ? role : "unset";
+    const key: UserRoleSectionKey = isProfileClass(role) ? role : "unset";
     usersByKey.set(key, [...(usersByKey.get(key) ?? []), user]);
   }
 
-  return [...ROLES_IN_DISPLAY_ORDER, "unset" as const].flatMap((key) => {
+  return [...CLASSES_IN_DISPLAY_ORDER, "unset" as const].flatMap((key) => {
     const sectionUsers = usersByKey.get(key);
     return sectionUsers
       ? [

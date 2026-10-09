@@ -7,7 +7,6 @@ import {
   BudgetRecurringItemSaveResult,
 } from "../../types/types";
 import {
-  BUDGET_DECLARATION_ALLOWED_CLASSES,
   canWriteBudgetTeam,
 } from "../budgetDeclaration";
 import {
@@ -15,20 +14,18 @@ import {
   validateBudgetRecurringItemList,
 } from "../budgetRecurringItemValidation";
 import { toFirstOfMonth, toFirstOfMonthOrNull } from "../formatter";
+import { INSUFFICIENT_PRIVILEGE, isRecurringItemsConflictError } from "./errorCodes";
 import { createServerSupabase } from "./clients";
 import { assertManagerIdsExist } from "./profiles";
 import { getActiveSelectOptionsByType } from "./selectOptionsCache";
-import { getAuthorizedViewer } from "./viewerAccess";
+import { getLoggedInViewer } from "./viewerAccess";
 
 const SUBJECT = "事前収支申告の定期明細";
 
-// Visibility is bounded by RLS (accounting/admin: all teams; teamleader: own team, same as budget_declarations).
+// Every logged-in user reads all teams (SELECT policy, migration 44); writes are limited to the own team (canWriteBudgetTeam).
 export const getBudgetRecurringItemList =
   async (): Promise<BudgetRecurringItemListResult> => {
-    const { error: accessError } = await getAuthorizedViewer(
-      BUDGET_DECLARATION_ALLOWED_CLASSES,
-      SUBJECT,
-    );
+    const { error: accessError } = await getLoggedInViewer(SUBJECT);
     if (accessError) {
       return { error: accessError };
     }
@@ -58,10 +55,7 @@ export const getActiveBudgetRecurringItems = async (
   targetMonth: string,
   team: string,
 ): Promise<ActiveBudgetRecurringItemsResult> => {
-  const { error: accessError } = await getAuthorizedViewer(
-    BUDGET_DECLARATION_ALLOWED_CLASSES,
-    SUBJECT,
-  );
+  const { error: accessError } = await getLoggedInViewer(SUBJECT);
   if (accessError) {
     return { error: accessError };
   }
@@ -88,7 +82,14 @@ export const getActiveBudgetRecurringItems = async (
   return { items: data ?? [] };
 };
 
-const toDbRow = (row: BudgetRecurringItemInListType) => ({
+type SaveRecurringItemPayload = ReturnType<typeof toPayloadRow> & {
+  state: "new" | "edited" | "removed" | "keep";
+};
+
+const toPayloadRow = (row: BudgetRecurringItemInListType) => ({
+  id: row.id,
+  // New rows have no server value yet (the form holds ""); the RPC only reads updated_at for other states.
+  updated_at: row.isNew ? null : row.updated_at,
   team: row.team,
   entry_type: row.entry_type.trim(),
   category: row.category.trim(),
@@ -100,20 +101,30 @@ const toDbRow = (row: BudgetRecurringItemInListType) => ({
   display_order: row.display_order,
 });
 
-// Bulk save with staged edits, same approach as bulkUpsertRecurringCost in RecurringCostList
-// (INSERT / UPDATE / DELETE run in parallel).
+// Bulk save with staged edits, same approach as bulkUpsertRecurringCost in RecurringCostList. Writes and
+// concurrent-edit detection run in one transaction (save_budget_recurring_items), so a
+// failure or a conflict never leaves the save partially applied.
 export const bulkSaveBudgetRecurringItems = async (
   rows: BudgetRecurringItemInListType[],
 ): Promise<BudgetRecurringItemSaveResult> => {
-  const { profileInfo, error: accessError } = await getAuthorizedViewer(
-    BUDGET_DECLARATION_ALLOWED_CLASSES,
-    SUBJECT,
-  );
+  const { profileInfo, error: accessError } = await getLoggedInViewer(SUBJECT);
   if (accessError) {
     return { error: accessError };
   }
 
-  const validation = validateBudgetRecurringItemList(rows);
+  const canWriteTeam = (team: string) =>
+    canWriteBudgetTeam(
+      profileInfo.class,
+      profileInfo.team,
+      team,
+      profileInfo.is_teamleader,
+    );
+
+  // Rows of teams the user cannot write are read-only and never saved, so their problems (e.g. a
+  // category removed from the master) must not block saving the user's own rows.
+  const writableRows = rows.filter((row) => canWriteTeam(row.team));
+
+  const validation = validateBudgetRecurringItemList(writableRows);
   if (validation !== "ok") {
     return {
       error: {
@@ -123,57 +134,57 @@ export const bulkSaveBudgetRecurringItems = async (
     };
   }
 
-  // RLS is the last defense; check first for a clearer message. Deleted rows' teams are checked too,
-  // to reject deleting another team's row.
-  const teams = Array.from(new Set(rows.map((row) => row.team)));
-  const forbiddenTeam = teams.find(
-    (team) => !canWriteBudgetTeam(profileInfo.class, profileInfo.team, team),
-  );
-  if (forbiddenTeam) {
-    return {
-      error: {
-        kind: "forbidden",
-        message: `${forbiddenTeam}の${SUBJECT}を編集する権限がありません。`,
-      },
-    };
-  }
-
   // Renumber display_order from 0 per team. handleAddRow always adds display_order: 0, so keeping it
   // would put new rows first and break the display_order ordering of the fetches. Numbering across
-  // all teams (array index) would mark other teams' untouched rows as changed and defeat the
-  // changed-rows-only UPDATE that prevents lost updates; per team, untouched teams are not updated.
+  // all teams (array index) would touch other teams' untouched rows; per team, untouched teams are
+  // not written. Teams the user cannot write keep their stored order and are never sent.
   const orderByTeam = new Map<string, number>();
-  const activeRows = rows
-    .filter((row) => !row.isRemoved)
-    .map((row) => {
-      const order = orderByTeam.get(row.team) ?? 0;
-      orderByTeam.set(row.team, order + 1);
-      return { ...row, display_order: order };
-    });
-  const newRows = activeRows.filter((row) => row.isNew);
-  const updateRows = activeRows.filter((row) => !row.isNew);
-  const deleteRows = rows.filter((row) => row.isRemoved && !row.isNew);
-
-  // Writes are parallel and non-transactional, so a missing manager_id could leave only some changes applied.
-  const managerIds = Array.from(
-    new Set(
-      [...newRows, ...updateRows]
-        .map((row) => row.manager_id)
-        .filter((id): id is number => id !== null),
-    ),
-  );
-  const managerIdError = await assertManagerIdsExist(
-    managerIds,
-    SUBJECT,
-    "画面を再読み込みして選び直してください。",
-  );
-  if (managerIdError) {
-    return { error: managerIdError };
+  const payload: SaveRecurringItemPayload[] = [];
+  for (const row of rows) {
+    if (!canWriteTeam(row.team)) {
+      // Read-only rows come back as displayed and are ignored. Adding or deleting another team's row
+      // is rejected here, before any DB round trip, for a clearer message; RLS inside the function is
+      // the last defense and also checks an edited row's stored team (moving a row out of another
+      // team's list is a write to it too).
+      if ((row.isRemoved && !row.isNew) || (row.isNew && !row.isRemoved)) {
+        return {
+          error: {
+            kind: "forbidden",
+            message: `${row.team}の${SUBJECT}を編集する権限がありません。`,
+          },
+        };
+      }
+      continue;
+    }
+    if (row.isRemoved) {
+      // A new row removed before saving never reached the DB.
+      if (!row.isNew) {
+        payload.push({ state: "removed", ...toPayloadRow(row) });
+      }
+      continue;
+    }
+    const order = orderByTeam.get(row.team) ?? 0;
+    orderByTeam.set(row.team, order + 1);
+    const numbered = { ...row, display_order: order };
+    if (row.isNew) {
+      payload.push({ state: "new", ...toPayloadRow(numbered) });
+    } else if (row.isEdited) {
+      payload.push({ state: "edited", ...toPayloadRow(numbered) });
+    } else if (row.display_order !== order) {
+      // Untouched row sent only to renumber; the function ignores it if someone else changed it.
+      payload.push({ state: "keep", ...toPayloadRow(numbered) });
+    }
   }
 
-  // Check categories against the master before saving (same as saveBudgetDeclaration). Recurring lines
-  // expand into later declarations, so an invalid value here would spread. Uses the server's latest
-  // values, not the client's master.
+  if (payload.length === 0) {
+    return {};
+  }
+
+  const supabase = createServerSupabase();
+
+  // The category master check mirrors saveBudgetDeclaration: recurring lines expand into later
+  // declarations, so an invalid value here would spread. It uses the server's latest values, not the
+  // client's master.
   const { optionsByType: categoryOptionsByType, error: categoryMasterError } =
     await getActiveSelectOptionsByType(["category", "item"]);
   if (categoryMasterError) {
@@ -185,7 +196,7 @@ export const bulkSaveBudgetRecurringItems = async (
       },
     };
   }
-  const categoryValidation = validateBudgetRecurringItemList(rows, {
+  const categoryValidation = validateBudgetRecurringItemList(writableRows, {
     categoryList: (categoryOptionsByType.category ?? []).map(
       (option) => option.value,
     ),
@@ -201,92 +212,56 @@ export const bulkSaveBudgetRecurringItems = async (
     };
   }
 
-  const supabase = createServerSupabase();
+  // Only rows actually written need a manager check (untouched rows may reference a removed member).
+  const managerIds = Array.from(
+    new Set(
+      payload
+        .filter((row) => row.state === "new" || row.state === "edited")
+        .map((row) => row.manager_id)
+        .filter((id): id is number => id !== null),
+    ),
+  );
+  const managerIdError = await assertManagerIdsExist(
+    managerIds,
+    SUBJECT,
+    "画面を再読み込みして選び直してください。",
+  );
+  if (managerIdError) {
+    return { error: managerIdError };
+  }
 
-  // Staged editing sends every non-deleted existing row as updateRows, and all-team roles edit other
-  // teams' rows on the same screen; UPDATEing untouched rows would overwrite a concurrent change
-  // (lost update). Compare with current DB values and UPDATE only truly changed rows. Version-based
-  // conflict detection (updated_at) is not done here.
-  let rowsToUpdate = updateRows;
-  if (updateRows.length > 0) {
-    const { data: currentRows, error: currentError } = await supabase
-      .from("budget_recurring_items")
-      .select(
-        "id, team, entry_type, category, description, amount, manager_id, start_month, end_month, display_order",
-      )
-      .in(
-        "id",
-        updateRows.map((row) => row.id),
-      );
+  const { error: rpcError } = await supabase.rpc("save_budget_recurring_items", {
+    p_rows: payload,
+  });
 
-    if (currentError) {
-      console.error(`${SUBJECT}の更新前確認に失敗しました:`, currentError);
+  if (rpcError) {
+    if (isRecurringItemsConflictError(rpcError)) {
       return {
         error: {
-          kind: "fetchFailed",
-          message: `${SUBJECT}の更新前確認に失敗しました。`,
+          kind: "validationFailed",
+          message: `${SUBJECT}が他のユーザーによって変更されました。何も保存されていません。画面を再読み込みしてやり直してください。`,
         },
       };
     }
-
-    const currentById = new Map(
-      (currentRows ?? []).map((row) => [row.id, row]),
-    );
-    rowsToUpdate = updateRows.filter((row) => {
-      const current = currentById.get(row.id);
-      // A row deleted by someone else just before saving hits 0 rows harmlessly; keep it anyway.
-      if (!current) return true;
-      const desired = toDbRow(row);
-      return (Object.keys(desired) as (keyof typeof desired)[]).some(
-        (key) => desired[key] !== current[key],
-      );
-    });
-  }
-
-  const operations = [];
-
-  if (newRows.length > 0) {
-    operations.push(
-      supabase.from("budget_recurring_items").insert(newRows.map(toDbRow)),
-    );
-  }
-
-  if (rowsToUpdate.length > 0) {
-    operations.push(
-      ...rowsToUpdate.map((row) =>
-        supabase
-          .from("budget_recurring_items")
-          .update(toDbRow(row))
-          .eq("id", row.id),
-      ),
-    );
-  }
-
-  if (deleteRows.length > 0) {
-    operations.push(
-      supabase
-        .from("budget_recurring_items")
-        .delete()
-        .in(
-          "id",
-          deleteRows.map((row) => row.id),
-        ),
-    );
-  }
-
-  if (operations.length === 0) {
-    return {};
-  }
-
-  const results = await Promise.all(operations);
-  const errors = results.filter((result) => result.error);
-
-  if (errors.length > 0) {
-    console.error(`${SUBJECT}の一括更新でエラーが発生しました:`, errors);
+    console.error(`${SUBJECT}の一括更新でエラーが発生しました:`, rpcError);
+    // No SQLSTATE means the request never got a database answer (network failure / timeout), so the
+    // commit may have happened. Throw without a kind: the client then drops the form and refetches
+    // instead of keeping rows that would be inserted twice on a re-save.
+    if (!rpcError.code) {
+      throw new Error(`${SUBJECT}の更新結果を確認できませんでした。`);
+    }
+    if (rpcError.code === INSUFFICIENT_PRIVILEGE) {
+      return {
+        error: {
+          kind: "forbidden",
+          message: `${SUBJECT}を編集する権限がありません。`,
+        },
+      };
+    }
     return {
       error: {
-        kind: "partialWriteFailed",
-        message: `${SUBJECT}の更新に失敗しました。`,
+        kind: "fetchFailed",
+        message: `${SUBJECT}の更新に失敗しました。何も保存されていません。`,
       },
     };
   }

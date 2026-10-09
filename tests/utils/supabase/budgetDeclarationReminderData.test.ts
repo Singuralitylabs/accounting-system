@@ -8,60 +8,53 @@ vi.mock("@/app/utils/supabase/clients", () => ({
   createServiceRoleSupabase,
 }));
 
-import { DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS } from "@/app/utils/budgetDeclarationReminder";
+import { DEFAULT_BUDGET_DECLARATION_REMINDER_DAYS } from "@/app/utils/budgetDeclarationReminder";
 import {
-  getBudgetDeclarationReminderTargetDays,
+  getBudgetDeclarationReminderDays,
   getDeclaredBudgetTeams,
   isBudgetMonthClosed,
 } from "@/app/utils/supabase/budgetDeclarationReminderData";
 
-describe("getBudgetDeclarationReminderTargetDays", () => {
-  const maybeSingle = vi.fn();
-  const select = vi.fn(() => ({ maybeSingle }));
+describe("getBudgetDeclarationReminderDays", () => {
+  const order = vi.fn();
+  const select = vi.fn(() => ({ order }));
   const from = vi.fn(() => ({ select }));
 
   beforeEach(() => {
-    maybeSingle.mockReset();
+    order.mockReset();
     select.mockClear();
     from.mockClear();
     createServiceRoleSupabase.mockReset();
     createServiceRoleSupabase.mockReturnValue({ from });
   });
 
-  it("設定行を取得できたら DB の対象日を返す", async () => {
-    maybeSingle.mockResolvedValue({
-      data: { target_days: [10, 25] },
-      error: null,
-    });
+  it("DB の対象日と日ごとの文面を返す", async () => {
+    const rows = [
+      { day: 10, message: "予告" },
+      { day: 25, message: "本日期限" },
+    ];
+    order.mockResolvedValue({ data: rows, error: null });
 
-    const result = await getBudgetDeclarationReminderTargetDays();
+    const result = await getBudgetDeclarationReminderDays();
 
-    expect(from).toHaveBeenCalledWith("budget_declaration_reminder_settings");
-    expect(result).toEqual([10, 25]);
+    expect(from).toHaveBeenCalledWith("budget_declaration_reminder_days");
+    expect(result).toEqual(rows);
   });
 
-  it("対象日を空配列にした設定はそのまま空配列を返す（リマインド停止）", async () => {
-    maybeSingle.mockResolvedValue({ data: { target_days: [] }, error: null });
+  it("行が 0 件ならそのまま空配列を返す（リマインド停止）", async () => {
+    order.mockResolvedValue({ data: [], error: null });
 
-    expect(await getBudgetDeclarationReminderTargetDays()).toEqual([]);
+    expect(await getBudgetDeclarationReminderDays()).toEqual([]);
   });
 
   it("DB エラー時はデフォルト値にフォールバックする", async () => {
-    maybeSingle.mockResolvedValue({
+    order.mockResolvedValue({
       data: null,
       error: { message: "permission denied" },
     });
 
-    expect(await getBudgetDeclarationReminderTargetDays()).toEqual(
-      DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS,
-    );
-  });
-
-  it("設定行が存在しない場合もデフォルト値にフォールバックする", async () => {
-    maybeSingle.mockResolvedValue({ data: null, error: null });
-
-    expect(await getBudgetDeclarationReminderTargetDays()).toEqual(
-      DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS,
+    expect(await getBudgetDeclarationReminderDays()).toEqual(
+      DEFAULT_BUDGET_DECLARATION_REMINDER_DAYS,
     );
   });
 
@@ -70,8 +63,8 @@ describe("getBudgetDeclarationReminderTargetDays", () => {
       throw new Error("supabaseUrl is required.");
     });
 
-    expect(await getBudgetDeclarationReminderTargetDays()).toEqual(
-      DEFAULT_BUDGET_DECLARATION_REMINDER_TARGET_DAYS,
+    expect(await getBudgetDeclarationReminderDays()).toEqual(
+      DEFAULT_BUDGET_DECLARATION_REMINDER_DAYS,
     );
   });
 });

@@ -5,6 +5,11 @@ import {
   SlackNotificationResponse,
 } from "@/app/types/types";
 import { postSlackWebhookBlocks } from "@/app/utils/slack/postSlackWebhookBlocks";
+import { usesSlackPlaceholder } from "@/app/utils/slackTemplate";
+import { buildMatterNoticeText } from "@/app/utils/slackNotificationTemplate";
+import { ACCOUNTING_ROLES } from "@/app/utils/permissions";
+import { getMatterNoticeSettingsForSend } from "@/app/utils/supabase/slackNotificationData";
+import { getAuthorizedViewer } from "@/app/utils/supabase/viewerAccess";
 
 export async function sendSlackNotification(
   message: string,
@@ -14,31 +19,48 @@ export async function sendSlackNotification(
 
   if (!slackWebhookUrl) {
     console.error("Slack Webhook URL is not configured");
-    return { error: "Slack configuration is missing" };
+    return {
+      error: "Slack configuration is missing",
+      abortReason: "Slack通知の設定がありません。管理者に連絡してください。",
+    };
   }
 
-  return postSlackWebhookBlocks(slackWebhookUrl, [
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `案件に関して、経理より通達です。\n\n${message}`,
-      },
-    },
-    {
+  // Server Actions are callable by any logged-in user, so check the role here; the sender is taken from
+  // the verified session, not from client-supplied metadata (which could be spoofed).
+  const { profileInfo, error: accessError } = await getAuthorizedViewer(
+    ACCOUNTING_ROLES,
+    "Slack通知",
+    "Slack通知を送信する権限がありません。",
+  );
+  if (accessError) {
+    const message =
+      accessError.kind === "forbidden"
+        ? accessError.message
+        : "Slack通知の送信者を確認できませんでした。";
+    return { error: message, abortReason: message };
+  }
+  // Read settings (service role) only after the role check passed.
+  const settings = await getMatterNoticeSettingsForSend();
+  const sender = profileInfo.name;
+  const sentAt = new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+  const text = buildMatterNoticeText(settings, {
+    matter: metadata?.matterTitle ?? "",
+    assignee: metadata?.assignee ?? "",
+    message,
+    sender,
+    datetime: sentAt,
+  });
+
+  const blocks: Parameters<typeof postSlackWebhookBlocks>[1] = [
+    { type: "section", text: { type: "mrkdwn", text } },
+  ];
+  // Show the sent time once: only add the footer when the template does not already place {datetime}.
+  if (!usesSlackPlaceholder(settings.bodyTemplate, "datetime")) {
+    blocks.push({
       type: "context",
-      elements: [
-        {
-          type: "mrkdwn",
-          text: [
-            metadata?.matterTitle ? `*案件:* ${metadata.matterTitle}` : null,
-            metadata?.sender ? `*送信者:* ${metadata.sender}` : null,
-            `*送信日時:* ${new Date().toLocaleString("ja-JP")}`,
-          ]
-            .filter(Boolean)
-            .join(" | "),
-        },
-      ],
-    },
-  ]);
+      elements: [{ type: "mrkdwn", text: `*送信日時:* ${sentAt}` }],
+    });
+  }
+
+  return postSlackWebhookBlocks(slackWebhookUrl, blocks);
 }

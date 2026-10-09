@@ -11,25 +11,16 @@ import {
   BudgetSummaryType,
 } from "../types/types";
 import { addMonths, currentJstMonth } from "./formatter";
-import { ROUTE_PERMISSIONS, Role, hasClassAccess } from "./permissions";
+import { ACCOUNTING_ROLES, Role, hasClassAccess } from "./permissions";
 
 // Re-exported so existing importers keep working (addMonths lives in formatter.ts).
 export { addMonths };
 
-// Always matches the /budget-declarations route protection.
-export const BUDGET_DECLARATION_ALLOWED_CLASSES =
-  ROUTE_PERMISSIONS["/budget-declarations"];
-
-// Roles that may write only their own team's declarations. Mirrors DB `public.can_access_team_budget`
-// (migration 19); change both together or the app and RLS diverge. Reading is open to every role
-// that can open the page (SELECT policies, migration 38).
-export const BUDGET_OWN_TEAM_ONLY_CLASSES: Role[] = ["teamleader"];
-
-// Derived from route permissions, so adding a role there widens the list automatically.
-export const BUDGET_WRITE_ALL_TEAMS_CLASSES =
-  BUDGET_DECLARATION_ALLOWED_CLASSES.filter(
-    (role) => !BUDGET_OWN_TEAM_ONLY_CLASSES.includes(role),
-  );
+// Roles that may write every team's declarations. Everyone else writes only their own team
+// (profiles.team), whatever their role. Mirrors DB `public.can_access_team_budget` (migration 44);
+// change both together or the app and RLS diverge. Reading is open to every logged-in user
+// (SELECT policies, migration 44), so /budget-declarations is login-only.
+export const BUDGET_WRITE_ALL_TEAMS_CLASSES: Role[] = ACCOUNTING_ROLES;
 
 export type BudgetItemAmount = {
   entry_type: string;
@@ -62,28 +53,27 @@ export const summarizeBudgetItems = (
   };
 };
 
-// Write access to every team (accounting / admin); teamleaders write only their own team.
+// Write access to every team (accounting / admin); other users write only their own team.
 export const canWriteAllBudgetTeams = (
   profileClass: string | null | undefined,
-): boolean => hasClassAccess(BUDGET_WRITE_ALL_TEAMS_CLASSES, profileClass);
+  isTeamleader: boolean | null | undefined,
+): boolean =>
+  hasClassAccess(BUDGET_WRITE_ALL_TEAMS_CLASSES, profileClass, isTeamleader);
 
-// Empty when the role has no access or no team is set.
+// The user's own team, independent of role; empty when no team is set (view-only).
 export const ownBudgetTeams = (
-  profileClass: string | null | undefined,
   profileTeam: string | null | undefined,
-): string[] =>
-  hasClassAccess(BUDGET_OWN_TEAM_ONLY_CLASSES, profileClass) && profileTeam
-    ? [profileTeam]
-    : [];
+): string[] => (profileTeam ? [profileTeam] : []);
 
-// Mirrors DB `public.can_access_team_budget` (migration 19); change both together.
+// Mirrors DB `public.can_access_team_budget` (migration 44); change both together.
 export const canWriteBudgetTeam = (
   profileClass: string | null | undefined,
   profileTeam: string | null | undefined,
   targetTeam: string,
+  isTeamleader: boolean | null | undefined,
 ): boolean =>
-  canWriteAllBudgetTeams(profileClass) ||
-  ownBudgetTeams(profileClass, profileTeam).includes(targetTeam);
+  canWriteAllBudgetTeams(profileClass, isTeamleader) ||
+  ownBudgetTeams(profileTeam).includes(targetTeam);
 
 // Row background per entry type (for the `bg` prop, as in AccountingTablebody). The `-light`
 // variables are translucent and theme-aware, so income / expense stay distinguishable in both light
@@ -241,17 +231,9 @@ export const isForbiddenError = (error: unknown): boolean =>
 export const retryUnlessForbidden = (failureCount: number, error: Error) =>
   !isForbiddenError(error) && failureCount < 2;
 
-// Failure midway through header save -> line replacement may leave a partial write.
-// budget_recurring_items lines are written non-transactionally (parallel INSERT/UPDATE/DELETE), so
-// this is still needed; saveBudgetDeclaration is a single transaction (migration 24) and never
-// returns partialWriteFailed.
-export const isPartialWriteFailureError = (error: unknown): boolean =>
-  getBudgetDeclarationErrorKind(error) === "partialWriteFailed";
-
 // True only when the server answered with a failure that happens before any write.
 // A thrown Error without kind (Failed to fetch, timeout) may mean the writes already ran;
 // treating that as "nothing was written" lets the user save new rows again and duplicate them.
 export const isPreWriteFailureError = (error: unknown): boolean => {
-  const kind = getBudgetDeclarationErrorKind(error);
-  return kind !== undefined && kind !== "partialWriteFailed";
+  return getBudgetDeclarationErrorKind(error) !== undefined;
 };

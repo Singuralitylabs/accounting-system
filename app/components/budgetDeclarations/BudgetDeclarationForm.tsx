@@ -74,7 +74,7 @@ type Props = {
   targetMonth: string; // "YYYY-MM"
   team: string;
   declarationId: number | null;
-  // Team select is fixed for teamleader, and always when editing (month/team pair must not change).
+  // Team select is fixed for users who can write only their own team, and always when editing (month/team pair must not change).
   teamLocked: boolean;
   memberList: { value: string; label: string }[];
   // While true, the manager Select is disabled: with an empty memberList, existing manager_id values would look cleared.

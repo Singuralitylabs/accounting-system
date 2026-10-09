@@ -664,7 +664,7 @@ describe("表示タイトルを絞って取得しても損益計算書の表示�
         labels,
         closing: rows!.closings.get(month) ?? null,
         includeMonthlyDetails: true,
-        ...reportFlags("accounting"),
+        ...reportFlags("accounting", false),
       });
     const scoped = build(rows!.labels);
     const full = build(allLabels);

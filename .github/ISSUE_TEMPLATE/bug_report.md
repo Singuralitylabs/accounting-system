@@ -20,7 +20,7 @@ assignees: ""
 
 <!-- 権限クラスやブラウザなど、発生条件がわかれば記載してください -->
 
-- 権限クラス：(public / teamleader / accounting / admin)
+- 権限クラス：(public / accounting / admin。チームリーダーのフラグの有無も)
 - ブラウザ：
 
 ## アクション

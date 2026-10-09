@@ -11,26 +11,39 @@ import {
 const user = (overrides: Partial<ProfileUpdateInput>): ProfileUpdateInput => ({
   id: 1,
   name: "山田太郎",
-  class: "teamleader",
+  class: "public",
+  is_teamleader: true,
   team: "チームA",
   slack_id: "U1",
   ...overrides,
 });
 
 describe("toProfileDbRow", () => {
-  it("書き込むのは id・権限・チーム・Slack ID だけで、空文字は null にする", () => {
+  it("書き込むのは id・権限・チームリーダー・チーム・Slack ID だけで、空文字は null にする", () => {
     expect(toProfileDbRow(user({ team: "", slack_id: "" }))).toEqual({
       id: 1,
-      class: "teamleader",
+      class: "public",
+      is_teamleader: true,
       team: null,
       slack_id: null,
     });
+  });
+
+  it("チームリーダーのフラグは boolean で出力し、未指定相当は false にする", () => {
+    expect(toProfileDbRow(user({ is_teamleader: false })).is_teamleader).toBe(
+      false,
+    );
+    expect(
+      toProfileDbRow(user({ is_teamleader: undefined as unknown as boolean }))
+        .is_teamleader,
+    ).toBe(false);
   });
 });
 
 describe("isUserChanged", () => {
   it.each([
     ["権限", { class: "admin" }],
+    ["チームリーダー", { is_teamleader: false }],
     ["チーム", { team: "チームB" }],
     ["Slack ID", { slack_id: "U2" }],
   ])("%s が変われば変更あり", (_label, overrides) => {
@@ -55,7 +68,7 @@ describe("selectChangedUsers", () => {
     const rows = [
       user({ id: 3, slack_id: "U3" }),
       user({ id: 1 }),
-      user({ id: 2, class: "public", team: null }),
+      user({ id: 2, is_teamleader: false, team: null }),
     ];
 
     expect(selectChangedUsers(rows, baseline).map((row) => row.id)).toEqual([
@@ -71,23 +84,59 @@ describe("validateUserUpdates", () => {
     });
   });
 
-  it("権限は選択肢（public / teamleader / accounting / admin）のいずれか", () => {
+  it("権限は選択肢（public / accounting / admin）のいずれか", () => {
     expect(validateUserUpdates([user({ class: "superuser" })]).get(1)).toEqual({
       class: "権限の値が正しくありません。",
     });
   });
 
-  it("teamleader はチームが必須", () => {
+  it("teamleader は権限の値としては不正", () => {
+    expect(validateUserUpdates([user({ class: "teamleader" })]).get(1)).toEqual(
+      {
+        class: "権限の値が正しくありません。",
+      },
+    );
+  });
+
+  it("チームリーダーのフラグが付いた行はチームが必須", () => {
     expect(validateUserUpdates([user({ team: null })]).get(1)).toEqual({
       team: "チームリーダーはチームが必須です。",
     });
   });
 
-  it("teamleader 以外はチームが空でもよく、エラーの無い行は含めない", () => {
+  it("経理・管理者でもフラグが付いていればチームが必須で、チームがあれば有効", () => {
+    expect(
+      validateUserUpdates([
+        user({ id: 1, class: "accounting", team: "チームA" }),
+        user({ id: 2, class: "admin", team: "チームB" }),
+      ]).size,
+    ).toBe(0);
+    const errors = validateUserUpdates([
+      user({ id: 3, class: "accounting", team: null }),
+      user({ id: 4, class: "admin", team: "" }),
+    ]);
+    expect(errors.get(3)).toEqual({
+      team: "チームリーダーはチームが必須です。",
+    });
+    expect(errors.get(4)).toEqual({
+      team: "チームリーダーはチームが必須です。",
+    });
+  });
+
+  it("権限未設定でフラグ付き・チームなしなら権限とチームの両方がエラー", () => {
+    expect(
+      validateUserUpdates([user({ class: null, team: null })]).get(1),
+    ).toEqual({
+      class: "権限を選択してください。",
+      team: "チームリーダーはチームが必須です。",
+    });
+  });
+
+  it("フラグが無ければチームが空でもよく、エラーの無い行は含めない", () => {
     const errors = validateUserUpdates([
       user({ id: 1 }),
-      user({ id: 2, class: "public", team: null }),
-      user({ id: 3, class: "admin", team: null }),
+      user({ id: 2, is_teamleader: false, team: null }),
+      user({ id: 3, class: "admin", is_teamleader: false, team: null }),
     ]);
 
     expect(errors.size).toBe(0);
@@ -99,7 +148,7 @@ describe("formatUserValidationErrors", () => {
     const rows = [
       user({ id: 1, name: "山田", team: null }),
       user({ id: 2, name: "佐藤" }),
-      user({ id: 3, name: "鈴木", class: "" }),
+      user({ id: 3, name: "鈴木", class: "", is_teamleader: false }),
     ];
 
     expect(formatUserValidationErrors(rows, validateUserUpdates(rows))).toEqual(

@@ -75,10 +75,8 @@ export const validateMemberIds = async (targetIds: number[]) => {
 };
 
 // Shared pre-save check that manager_id exists in profiles: returns null if OK, otherwise an
-// AccessFailure to return as-is. Avoids an obscure FK violation (23503) and, for
-// budgetRecurringItems.ts (parallel non-transactional writes), a partial write
-// (partialWriteFailed). budgetDeclarations.ts saves in one transaction (save_budget_declaration,
-// migration 24), so an FK violation there rolls back fully.
+// AccessFailure to return as-is. Avoids an obscure FK violation (23503). Both callers save in one
+// transaction (save_budget_declaration, save_budget_recurring_items), so an FK violation would roll back fully.
 export const assertManagerIdsExist = async (
   managerIds: number[],
   subject: string,
@@ -172,8 +170,8 @@ const PROFILES_SAVE_FAILED: AccessFailure = {
 export const bulkUpdateProfiles = async (
   updates: ProfileUpdateInput[],
 ): Promise<BulkUpdateProfilesResult> => {
-  // Not viewerAccess.getAuthorizedViewer: its logs/messages are view-oriented and it imports
-  // profiles.ts (circular import). Do the same profile fetch -> hasClassAccess here and record it as a save permission error.
+  // Not viewerAccess.getAuthorizedViewer: it imports profiles.ts (circular import). Do the same
+  // profile fetch -> hasClassAccess here.
   const { profileInfo, error: profileError } = await getProfileInfo();
   if (profileError || !profileInfo) {
     console.error(
@@ -188,7 +186,11 @@ export const bulkUpdateProfiles = async (
       },
     };
   }
-  if (!hasClassAccess(PROFILE_WRITE_CLASSES, profileInfo.class)) {
+  if (!hasClassAccess(
+      PROFILE_WRITE_CLASSES,
+      profileInfo.class,
+      profileInfo.is_teamleader,
+    )) {
     console.error(
       `ユーザー情報を保存する権限がありません（管理者のみ）。profiles.id: ${profileInfo.id}`,
     );

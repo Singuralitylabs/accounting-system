@@ -1,7 +1,7 @@
 "use server";
 
 // Server Action for the admin/accounting settings UI. Separate from the cron's service-role
-// getBudgetDeclarationReminderTargetDays: this one runs under RLS (createServerSupabase) after
+// getBudgetDeclarationReminderDays: this one runs under RLS (createServerSupabase) after
 // getAuthorizedViewer.
 
 import {
@@ -10,7 +10,9 @@ import {
 } from "../../types/types";
 import {
   BUDGET_DECLARATION_REMINDER_SETTINGS_ALLOWED_CLASSES,
-  normalizeBudgetDeclarationReminderTargetDays,
+  BudgetDeclarationReminderDay,
+  normalizeBudgetDeclarationReminderDays,
+  validateBudgetDeclarationReminderMessage,
 } from "../budgetDeclarationReminder";
 import { createServerSupabase } from "./clients";
 import { getAuthorizedViewer } from "./viewerAccess";
@@ -29,9 +31,9 @@ export const getBudgetDeclarationReminderSettings =
 
     const supabase = createServerSupabase();
     const { data, error } = await supabase
-      .from("budget_declaration_reminder_settings")
-      .select("target_days")
-      .maybeSingle();
+      .from("budget_declaration_reminder_days")
+      .select("day, message")
+      .order("day");
 
     if (error || !data) {
       console.error(`${SUBJECT}の取得に失敗しました:`, error);
@@ -43,13 +45,13 @@ export const getBudgetDeclarationReminderSettings =
       };
     }
 
-    return { targetDays: data.target_days };
+    return { days: data };
   };
 
-// UPDATE of the existing id = 1 row only (RLS forbids INSERT / DELETE). Normalized again here
-// because Server Actions accept arbitrary arrays (defense in depth).
-export const updateBudgetDeclarationReminderTargetDays = async (
-  targetDays: readonly number[],
+// Replaces every row in one RPC transaction. Normalized and validated again here because Server
+// Actions accept arbitrary input (defense in depth); the RPC also rejects non-admin / accounting callers.
+export const updateBudgetDeclarationReminderDays = async (
+  rows: readonly BudgetDeclarationReminderDay[],
 ): Promise<BudgetDeclarationReminderSettingsSaveResult> => {
   const { error: accessError } = await getAuthorizedViewer(
     BUDGET_DECLARATION_REMINDER_SETTINGS_ALLOWED_CLASSES,
@@ -59,14 +61,37 @@ export const updateBudgetDeclarationReminderTargetDays = async (
     return { error: accessError };
   }
 
+  // Server Actions accept arbitrary input; reject malformed rows before normalizing / validating.
+  if (
+    !Array.isArray(rows) ||
+    rows.some(
+      (row) =>
+        typeof row?.day !== "number" || typeof row?.message !== "string",
+    )
+  ) {
+    return {
+      error: { kind: "validationFailed", message: "入力内容が不正です。" },
+    };
+  }
+
+  const normalized = normalizeBudgetDeclarationReminderDays(rows);
+  for (const { day, message } of normalized) {
+    const validationError = validateBudgetDeclarationReminderMessage(message);
+    if (validationError) {
+      return {
+        error: {
+          kind: "validationFailed",
+          message: `${day}日の${validationError}`,
+        },
+      };
+    }
+  }
+
   const supabase = createServerSupabase();
-  const { data, error } = await supabase
-    .from("budget_declaration_reminder_settings")
-    .update({
-      target_days: normalizeBudgetDeclarationReminderTargetDays(targetDays),
-    })
-    .eq("id", 1)
-    .select("id");
+  const { error } = await supabase.rpc(
+    "replace_budget_declaration_reminder_days",
+    { p_rows: normalized },
+  );
 
   if (error) {
     console.error(`${SUBJECT}の更新に失敗しました:`, error);
@@ -74,17 +99,6 @@ export const updateBudgetDeclarationReminderTargetDays = async (
       error: {
         kind: "fetchFailed",
         message: `${SUBJECT}の更新に失敗しました。`,
-      },
-    };
-  }
-
-  // PostgREST returns [] without error when RLS filters to 0 rows. The id = 1 row always exists, so 0
-  // rows means permission denied.
-  if (!data || data.length !== 1) {
-    return {
-      error: {
-        kind: "fetchFailed",
-        message: `${SUBJECT}の更新対象が見つかりませんでした。`,
       },
     };
   }

@@ -1,18 +1,24 @@
-// Single definition of the roles profiles.class can hold. When adding/renaming a role, update this,
-// the values update_profiles (migration 33) accepts (tests/utils/permissions.test.ts checks),
-// ROLE_DISPLAY_RANK, and ROLE_LABELS.
+// Effective roles. profiles.class holds one of PROFILE_CLASSES; "teamleader" is the profiles.is_teamleader
+// flag, so a user's effective roles are class + (teamleader if flagged) — see effectiveRoles.
+// When adding/renaming a role, update this, PROFILE_CLASSES, the values update_profiles accepts
+// (tests/utils/permissions.test.ts checks), CLASS_DISPLAY_RANK, and ROLE_LABELS.
 export const ROLES = ["public", "teamleader", "accounting", "admin"] as const;
 export type Role = (typeof ROLES)[number];
 
-export const isRole = (value: string | null | undefined): value is Role =>
-  !!value && (ROLES as readonly string[]).includes(value);
+// Values profiles.class can hold (a role other than the teamleader flag).
+export const PROFILE_CLASSES = ["public", "accounting", "admin"] as const;
+export type ProfileClass = (typeof PROFILE_CLASSES)[number];
 
-// Display order in the user list (lower first). Record<Role, number> so a missing rank for a new role fails type checking.
-export const ROLE_DISPLAY_RANK: Record<Role, number> = {
+export const isProfileClass = (
+  value: string | null | undefined,
+): value is ProfileClass =>
+  !!value && (PROFILE_CLASSES as readonly string[]).includes(value);
+
+// Display order in the user list (lower first). Record<ProfileClass, number> so a missing rank for a new class fails type checking.
+export const CLASS_DISPLAY_RANK: Record<ProfileClass, number> = {
   admin: 0,
   accounting: 1,
-  teamleader: 2,
-  public: 3,
+  public: 2,
 };
 
 // User-facing names on the user management screen. Record<Role, string> so a missing label fails type checking.
@@ -24,10 +30,12 @@ export const ROLE_LABELS: Record<Role, string> = {
   public: "メンバー",
 };
 
-// Role select options in ROLES order (not the section display order).
-export const ROLE_SELECT_OPTIONS: { value: Role; label: string }[] = ROLES.map(
-  (role) => ({ value: role, label: ROLE_LABELS[role] }),
-);
+// Class select options in PROFILE_CLASSES order (not the section display order).
+export const CLASS_SELECT_OPTIONS: { value: ProfileClass; label: string }[] =
+  PROFILE_CLASSES.map((profileClass) => ({
+    value: profileClass,
+    label: ROLE_LABELS[profileClass],
+  }));
 
 // Single definition of allowed roles per route, shared by middleware, header navigation and
 // Server Action permission checks.
@@ -42,7 +50,6 @@ export const ROUTE_PERMISSIONS: Record<string, Role[]> = {
   "/profit-loss": ["teamleader", "accounting", "admin"],
   "/recurring-costs": ["accounting", "admin"],
   "/extra-entries": ["accounting", "admin"],
-  "/budget-declarations": ["teamleader", "accounting", "admin"],
   "/dashboard": ["admin"],
 };
 
@@ -62,9 +69,13 @@ export const PL_LABEL_WRITE_CLASSES: Role[] = ["accounting", "admin"];
 // profit_loss_closing_lines RLS (write: accounting / admin).
 export const PL_CLOSING_WRITE_CLASSES: Role[] = ["accounting", "admin"];
 
+// Roles behind DB `auth_user_class() IN ('admin', 'accounting')` policies (closing, reminder / Slack
+// settings, all-team budget writes). Change the DB policies and this together.
+export const ACCOUNTING_ROLES: Role[] = ["accounting", "admin"];
+
 // Closing/reopening a month of budget declarations. Matches budget_declaration_closings RLS
 // (write: accounting / admin); teamleaders may only view the closing state.
-export const BUDGET_CLOSING_WRITE_CLASSES: Role[] = ["accounting", "admin"];
+export const BUDGET_CLOSING_WRITE_CLASSES: Role[] = ACCOUNTING_ROLES;
 
 // Roles that may bulk-save the user list (bulkUpdateProfiles). Granting roles is privilege
 // escalation, so this is separate from ROUTE_PERMISSIONS["/dashboard"]. Matches profiles UPDATE RLS
@@ -72,18 +83,37 @@ export const BUDGET_CLOSING_WRITE_CLASSES: Role[] = ["accounting", "admin"];
 // write must be able to open the page (tests/utils/permissions.test.ts).
 export const PROFILE_WRITE_CLASSES: Role[] = ["admin"];
 
+// Effective role set: class (when it is a known role) plus teamleader when flagged.
+export const effectiveRoles = (
+  profileClass: string | null | undefined,
+  isTeamleader: boolean | null | undefined,
+): Role[] => {
+  const roles: Role[] = [];
+  if (isProfileClass(profileClass)) {
+    roles.push(profileClass);
+  }
+  if (isTeamleader === true) roles.push("teamleader");
+  return roles;
+};
+
 export const hasClassAccess = (
   allowedClasses: readonly Role[],
   profileClass: string | null | undefined,
+  isTeamleader: boolean | null | undefined,
 ) =>
-  !!profileClass &&
-  (allowedClasses as readonly string[]).includes(profileClass);
+  effectiveRoles(profileClass, isTeamleader).some((role) =>
+    allowedClasses.includes(role),
+  );
 
 export const matchesRoute = (pathname: string, route: string) =>
   pathname === route || pathname.startsWith(`${route}/`);
 
 // Login-only routes. matchesRoute("/matters", "/") is false, so "/" matches only the top page.
-export const AUTH_ONLY_ROUTES = ["/", "/matters"] as const;
+export const AUTH_ONLY_ROUTES = [
+  "/",
+  "/matters",
+  "/budget-declarations",
+] as const;
 
 export const isAuthOnlyPath = (pathname: string) =>
   AUTH_ONLY_ROUTES.some((route) => matchesRoute(pathname, route));
@@ -122,8 +152,14 @@ const NAV_ITEMS: NavItem[] = [
   },
 ];
 
-export const visibleNavItems = (profileClass: string | null | undefined) =>
+export const visibleNavItems = (
+  profileClass: string | null | undefined,
+  isTeamleader: boolean | null | undefined,
+) =>
   NAV_ITEMS.filter((item) => {
     const allowedClasses = ROUTE_PERMISSIONS[item.href];
-    return !allowedClasses || hasClassAccess(allowedClasses, profileClass);
+    return (
+      !allowedClasses ||
+      hasClassAccess(allowedClasses, profileClass, isTeamleader)
+    );
   });

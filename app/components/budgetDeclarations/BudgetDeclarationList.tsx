@@ -34,14 +34,16 @@ import { LoadingSpinner } from "../LoadingSpinner";
 import BudgetClosingControl from "./BudgetClosingControl";
 import BudgetDeclarationForm from "./BudgetDeclarationForm";
 import BudgetDeclarationItemTable from "./BudgetDeclarationItemTable";
+import type { BudgetDeclarationReminderDay } from "@/app/utils/budgetDeclarationReminder";
 import BudgetDeclarationReminderSettings from "./BudgetDeclarationReminderSettings";
 
 type Props = {
   initialMonth: string; // "YYYY-MM"
   initialData: BudgetDeclarationStatusType[] | null;
   initialDataUpdatedAt: number;
-  // Viewer's role / team: writes follow canWriteBudgetTeam (accounting/admin all teams, teamleader own team only); other teams are view-only.
+  // Viewer's role / team: writes follow canWriteBudgetTeam (accounting/admin all teams, everyone else their own team only); other teams are view-only.
   profileClass: string | null;
+  isTeamleader: boolean;
   profileTeam?: string | null;
   // Role that can close/reopen a month (accounting/admin). Others see the state only.
   canCloseMonth?: boolean;
@@ -49,7 +51,7 @@ type Props = {
   // Role that can show the reminder settings button (admin / accounting). Defaults to false.
   canManageReminderSettings?: boolean;
   // null when fetch failed, even if canManageReminderSettings.
-  initialReminderTargetDays?: number[] | null;
+  initialReminderDays?: BudgetDeclarationReminderDay[] | null;
   memberList: { value: string; label: string }[];
   // Manager Select is disabled while true (see BudgetDeclarationForm).
   memberListError?: boolean;
@@ -80,11 +82,12 @@ const BudgetDeclarationList = ({
   initialData,
   initialDataUpdatedAt,
   profileClass,
+  isTeamleader,
   profileTeam = null,
   canCloseMonth = false,
   initialClosings = null,
   canManageReminderSettings = false,
-  initialReminderTargetDays = null,
+  initialReminderDays = null,
   memberList,
   memberListError = false,
 }: Props) => {
@@ -134,7 +137,7 @@ const BudgetDeclarationList = ({
   // A failed closing lookup is neither "open" nor "closed": block edits until it loads.
   const editLocked = isClosed || closingUnknown;
   const canWriteTeam = (team: string) =>
-    canWriteBudgetTeam(profileClass, profileTeam, team);
+    canWriteBudgetTeam(profileClass, profileTeam, team, isTeamleader);
 
   const rows = data ?? [];
   const total = totalBudgetSummary(rows);
@@ -208,7 +211,7 @@ const BudgetDeclarationList = ({
         {/* Modal-opened rather than always expanded; kept mounted so saved values persist across open/close. */}
         {canManageReminderSettings && (
           <BudgetDeclarationReminderSettings
-            initialTargetDays={initialReminderTargetDays}
+            initialDays={initialReminderDays}
           />
         )}
         <Button
@@ -298,11 +301,18 @@ const BudgetDeclarationList = ({
           )}
         </Paper>
 
-        {profileClass === "teamleader" && !profileTeam && (
-          <Alert color="yellow" className="mb-4" title="所属チームが未設定です">
-            所属チームが設定されていないため、申告の作成・編集はできません（全チームの閲覧のみ）。管理者にお問い合わせください。
-          </Alert>
-        )}
+        {/* profileClass is null when the profile fetch failed (logged server-side); do not blame the team setting then. */}
+        {profileClass !== null &&
+          !profileTeam &&
+          !canWriteAllBudgetTeams(profileClass, isTeamleader) && (
+            <Alert
+              color="yellow"
+              className="mb-4"
+              title="所属チームが未設定です"
+            >
+              閲覧のみ（編集には所属チームの設定が必要です）。所属チームが設定されていないため、申告の作成・編集はできません。管理者にお問い合わせください。
+            </Alert>
+          )}
 
         {isError ? (
           // Insufficient permission is not fixed by reloading; use a separate message.
@@ -498,7 +508,7 @@ const BudgetDeclarationList = ({
           targetMonth={formTarget.targetMonth}
           team={formTarget.team}
           declarationId={formTarget.declarationId}
-          teamLocked={!canWriteAllBudgetTeams(profileClass)}
+          teamLocked={!canWriteAllBudgetTeams(profileClass, isTeamleader)}
           memberList={memberList}
           memberListError={memberListError}
           // Follows the live closing state of the form's own month, which can differ from the picker.

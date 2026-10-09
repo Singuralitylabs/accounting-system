@@ -1,14 +1,14 @@
-import { Badge, Select, Table, TextInput } from "@mantine/core";
+import { Badge, Checkbox, Select, Table, TextInput } from "@mantine/core";
 import { ProfilesType } from "../types/types";
 import { UserValidationErrors } from "../utils/userList";
-import { ROLE_SELECT_OPTIONS } from "@/app/utils/permissions";
+import { CLASS_SELECT_OPTIONS, ROLE_LABELS } from "@/app/utils/permissions";
 import { CHANGED_ROW_MARK_COLOR } from "../utils/userListGroup";
 import { teamOptionsFor } from "./UserList";
 
 type Props = {
   userInfo: ProfilesType;
   teamList: string[];
-  // Whether role/team/Slack ID changed since load (highlights the row).
+  // Whether role/teamleader flag/team/Slack ID changed since load (highlights the row).
   isChanged: boolean;
   // Row background by team (undefined = no color).
   teamColor?: string;
@@ -53,12 +53,25 @@ const UserTable = ({
       <Table.Td>
         <Select
           aria-label={`${userInfo.name}の権限`}
-          data={ROLE_SELECT_OPTIONS}
+          data={CLASS_SELECT_OPTIONS}
           value={userInfo.class ?? null}
           onChange={(value) => onUpdateUserList(userInfo.id, { class: value })}
           placeholder="権限を選択"
           error={errors?.class}
           disabled={disabled}
+        />
+      </Table.Td>
+      <Table.Td className="text-center">
+        <Checkbox
+          aria-label={`${userInfo.name}の${ROLE_LABELS.teamleader}`}
+          checked={userInfo.is_teamleader}
+          onChange={(e) =>
+            onUpdateUserList(userInfo.id, {
+              is_teamleader: e.currentTarget.checked,
+            })
+          }
+          disabled={disabled}
+          className="inline-flex"
         />
       </Table.Td>
       <Table.Td>

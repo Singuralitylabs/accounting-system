@@ -1,3 +1,5 @@
+import type { BudgetDeclarationReminderDay } from "../utils/budgetDeclarationReminder";
+import type { MatterNoticeSettings } from "../utils/slackNotificationTemplate";
 import { Database } from "../lib/database.types";
 
 export type PageTitleProps = {
@@ -24,12 +26,15 @@ export type SelectOptionType = SelectOptionTable["Row"];
 export type SlackNotificationResponse = {
   success?: boolean;
   error?: string;
+  // Set when the failure is not specific to one matter (no permission, Slack not configured), so
+  // sending the rest would fail the same way. Safe to show to the user; `error` may be internal.
+  abortReason?: string;
 };
 
 export type SlackNotificationMetadata = {
+  assignee?: string;
   matterId?: number;
   matterTitle?: string;
-  sender?: string;
 };
 
 export type MatterInfoWithUserNameType = {
@@ -345,14 +350,12 @@ export type BudgetDeclarationDetailType = {
 
 // forbidden is not recoverable by retry, unlike transient fetchFailed; conflating them causes pointless react-query retries and a wrong "reload later" hint.
 // duplicate: unique violation on (target_month, team). validationFailed: client-side validation failure.
-// partialWriteFailed: only for multi-step writes that may have partially applied (e.g. bulk recurring-item update); save_budget_declaration is a single transaction and never returns it.
 // Plain objects rather than Error: React Flight cannot serialize Error in Server Action results.
 export type AccessFailureKind =
   | "forbidden"
   | "fetchFailed"
   | "duplicate"
-  | "validationFailed"
-  | "partialWriteFailed";
+  | "validationFailed";
 
 export type AccessFailure = {
   kind: AccessFailureKind;
@@ -400,8 +403,8 @@ export type BudgetDeclarationPreviousItemsResult =
   | { items?: undefined; error: AccessFailure };
 
 export type BudgetDeclarationReminderSettingsResult =
-  | { targetDays: number[]; error?: undefined }
-  | { targetDays?: undefined; error: AccessFailure };
+  | { days: BudgetDeclarationReminderDay[]; error?: undefined }
+  | { days?: undefined; error: AccessFailure };
 
 export type BudgetDeclarationReminderSettingsSaveResult = {
   error?: AccessFailure;
@@ -411,10 +414,12 @@ type BudgetRecurringItemsTable =
   Database["public"]["Tables"]["budget_recurring_items"];
 export type BudgetRecurringItemType = BudgetRecurringItemsTable["Row"];
 
-// Local edit state (isNew/isRemoved) is never sent to the server.
+// Local edit state (isNew/isRemoved/isEdited) is never persisted. isEdited marks rows the user changed,
+// so the server can tell them from untouched rows that were merely sent back as displayed.
 export type BudgetRecurringItemInListType = BudgetRecurringItemType & {
   isNew: boolean;
   isRemoved: boolean;
+  isEdited?: boolean;
 };
 
 export type BudgetRecurringItemListResult =
@@ -491,4 +496,12 @@ export type ClosingDiffSummary = { month: string; count: number }[];
 export type ClosingDiffSummaryData = {
   summary: ClosingDiffSummary;
   fromMonth: string; // "YYYY-MM"
+};
+
+export type SlackNotificationSettingsResult =
+  | { settings: MatterNoticeSettings; error?: undefined }
+  | { settings?: undefined; error: AccessFailure };
+
+export type SlackNotificationSettingsSaveResult = {
+  error?: AccessFailure;
 };

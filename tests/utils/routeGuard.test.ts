@@ -10,6 +10,7 @@ import {
   AUTH_PROFILES_TIMEOUT_MS,
   classifyPath,
   createTimeoutFetch,
+  decideRoleAccess,
   isAuthRoute,
   isProfilesTimeoutError,
   isPublicSkipPath,
@@ -525,5 +526,56 @@ describe("profiles 取得のタイムアウト合成（Issue #137）", () => {
     );
     await vi.advanceTimersByTimeAsync(AUTH_PROFILES_TIMEOUT_MS);
     await assertion;
+  });
+});
+
+describe("decideRoleAccess（JWT クレームからの権限判定）", () => {
+  const teamRoute = ["teamleader", "admin"] as const;
+  const accountingRoute = ["accounting", "admin"] as const;
+
+  it("class だけで許可されるなら、フラグのクレームが無くても DB を引かずに許可する", () => {
+    expect(decideRoleAccess(teamRoute, "admin", null)).toBe("allow");
+    expect(decideRoleAccess(accountingRoute, "accounting", null)).toBe("allow");
+  });
+
+  it("フラグのクレームが true なら、チームリーダーを許可するルートを許可する", () => {
+    expect(decideRoleAccess(teamRoute, "public", true)).toBe("allow");
+    expect(decideRoleAccess(teamRoute, "accounting", true)).toBe("allow");
+  });
+
+  it("経理 + フラグは、チームのルートと経理のルートの両方を許可する", () => {
+    expect(decideRoleAccess(teamRoute, "accounting", true)).toBe("allow");
+    expect(decideRoleAccess(accountingRoute, "accounting", true)).toBe("allow");
+  });
+
+  it("フラグのクレームが無く class だけでは許可されない場合、チームリーダーを許可するルートでは DB を引く", () => {
+    expect(decideRoleAccess(teamRoute, "public", null)).toBe("fetch_profile");
+    expect(decideRoleAccess(teamRoute, "accounting", null)).toBe(
+      "fetch_profile",
+    );
+  });
+
+  it("チームリーダーを許可しないルートでは、フラグのクレームが無くても DB を引かず拒否する", () => {
+    expect(decideRoleAccess(accountingRoute, "public", null)).toBe("deny");
+    expect(decideRoleAccess(["admin"], "accounting", null)).toBe("deny");
+  });
+
+  it("フラグのクレームが false で class でも許可されないなら、DB を引かず拒否する", () => {
+    expect(decideRoleAccess(teamRoute, "public", false)).toBe("deny");
+    expect(decideRoleAccess(accountingRoute, "public", false)).toBe("deny");
+  });
+
+  it("class のクレームが無くても、フラグが true でチームリーダーのルートなら DB を引かずに許可する", () => {
+    expect(decideRoleAccess(teamRoute, null, true)).toBe("allow");
+  });
+
+  it("class のクレームが無く、フラグでも許可されないときは DB を引く", () => {
+    expect(decideRoleAccess(teamRoute, null, null)).toBe("fetch_profile");
+    expect(decideRoleAccess(teamRoute, null, false)).toBe("fetch_profile");
+    expect(decideRoleAccess(accountingRoute, null, true)).toBe("fetch_profile");
+  });
+
+  it("class のクレームが 'teamleader'（旧値）でもチームリーダー扱いにはしない", () => {
+    expect(decideRoleAccess(teamRoute, "teamleader", false)).toBe("deny");
   });
 });

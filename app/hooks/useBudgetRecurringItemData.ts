@@ -59,8 +59,9 @@ export const useSaveBudgetRecurringItems = () => {
     },
     onError: (error) => {
       console.error("定期明細の保存エラー:", error);
-      // Keep the form only when the server confirmed nothing was written. partialWriteFailed and a
-      // lost response (no kind: Failed to fetch, timeout) may already have inserted rows.
+      // Keep the form when the server answered with a failure: the save is one transaction, so a
+      // conflict or error means nothing was written. A lost response (no kind: Failed to fetch,
+      // timeout) may have committed, so the form is dropped and the latest data is refetched.
       if (isPreWriteFailureError(error)) {
         notifyError(toErrorMessage(error, "定期明細の更新に失敗しました。"));
         return;
@@ -70,7 +71,7 @@ export const useSaveBudgetRecurringItems = () => {
         queryKey: ["budgetDeclarations", "activeRecurringItems"],
       });
       notifyError(
-        "定期明細の更新に失敗しました。一部のみ反映されている可能性があるため、最新の内容を取得して表示します。反映されていない変更は入力し直してください。",
+        "定期明細の更新結果を確認できませんでした。保存されたかどうか分からないため、最新の内容を取得して表示します。反映されていない変更は入力し直してください。",
       );
     },
   });

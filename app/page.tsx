@@ -4,7 +4,10 @@ import { getCachedProfileInfo } from "./utils/supabase/requestCache";
 
 const HomePage = async () => {
   const { profileInfo, error } = await getCachedProfileInfo();
-  const items = visibleNavItems(error ? null : profileInfo?.class);
+  const items = visibleNavItems(
+    error ? null : profileInfo?.class,
+    error ? null : profileInfo?.is_teamleader,
+  );
 
   return (
     <main className="bg-slate-50 min-h-[60vh] px-4 pb-12 pt-6">

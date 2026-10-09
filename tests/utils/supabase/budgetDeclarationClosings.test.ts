@@ -1,12 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { createServerSupabase, getAuthorizedViewer } = vi.hoisted(() => ({
-  createServerSupabase: vi.fn(),
-  getAuthorizedViewer: vi.fn(),
-}));
+const { createServerSupabase, getAuthorizedViewer, getLoggedInViewer } =
+  vi.hoisted(() => ({
+    createServerSupabase: vi.fn(),
+    getAuthorizedViewer: vi.fn(),
+    getLoggedInViewer: vi.fn(),
+  }));
 
 vi.mock("@/app/utils/supabase/clients", () => ({ createServerSupabase }));
-vi.mock("@/app/utils/supabase/viewerAccess", () => ({ getAuthorizedViewer }));
+vi.mock("@/app/utils/supabase/viewerAccess", () => ({
+  getAuthorizedViewer,
+  getLoggedInViewer,
+}));
 
 import {
   closeBudgetDeclarationMonth,
@@ -15,9 +20,9 @@ import {
 } from "@/app/utils/supabase/budgetDeclarationClosings";
 import { BUDGET_CLOSING_WRITE_CLASSES } from "@/app/utils/permissions";
 
-const forbidden = {
-  error: { kind: "forbidden", message: "事前収支申告の月次確定の閲覧権限がありません。" },
-};
+const forbidden = (message: string) => ({
+  error: { kind: "forbidden", message },
+});
 
 describe("closeBudgetDeclarationMonth", () => {
   const insert = vi.fn();
@@ -40,6 +45,7 @@ describe("closeBudgetDeclarationMonth", () => {
     expect(getAuthorizedViewer).toHaveBeenCalledWith(
       BUDGET_CLOSING_WRITE_CLASSES,
       expect.any(String),
+      expect.any(String),
     );
     expect(BUDGET_CLOSING_WRITE_CLASSES).toEqual(["accounting", "admin"]);
   });
@@ -55,7 +61,9 @@ describe("closeBudgetDeclarationMonth", () => {
   });
 
   it("権限が無ければ INSERT せず、書き込み権限がない旨のエラーを返す（チームリーダーは確定できない）", async () => {
-    getAuthorizedViewer.mockResolvedValue(forbidden);
+    getAuthorizedViewer.mockResolvedValue(
+      forbidden("事前収支申告の月次確定を行う権限がありません。"),
+    );
 
     expect(await closeBudgetDeclarationMonth("2026-10")).toEqual({
       error: {
@@ -63,6 +71,11 @@ describe("closeBudgetDeclarationMonth", () => {
         message: "事前収支申告の月次確定を行う権限がありません。",
       },
     });
+    expect(getAuthorizedViewer).toHaveBeenCalledWith(
+      BUDGET_CLOSING_WRITE_CLASSES,
+      expect.any(String),
+      "事前収支申告の月次確定を行う権限がありません。",
+    );
     expect(insert).not.toHaveBeenCalled();
   });
 
@@ -124,7 +137,9 @@ describe("reopenBudgetDeclarationMonth", () => {
   });
 
   it("権限が無ければ DELETE しない（チームリーダーは解除できない）", async () => {
-    getAuthorizedViewer.mockResolvedValue(forbidden);
+    getAuthorizedViewer.mockResolvedValue(
+      forbidden("事前収支申告の確定解除を行う権限がありません。"),
+    );
 
     expect(await reopenBudgetDeclarationMonth("2026-10")).toEqual({
       error: {
@@ -144,9 +159,9 @@ describe("getBudgetDeclarationClosings", () => {
     createServerSupabase.mockReturnValue({
       from: () => ({ select: () => ({ order }) }),
     });
-    getAuthorizedViewer.mockReset();
-    getAuthorizedViewer.mockResolvedValue({
-      profileInfo: { id: 2, class: "teamleader" },
+    getLoggedInViewer.mockReset();
+    getLoggedInViewer.mockResolvedValue({
+      profileInfo: { id: 2, class: "public", is_teamleader: true },
     });
     vi.spyOn(console, "error").mockImplementation(() => {});
   });

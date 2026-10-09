@@ -7,13 +7,22 @@ import { hasClassAccess, ROUTE_PERMISSIONS } from "../utils/permissions";
 const MattersLayout = async ({ children }: { children: ReactNode }) => {
   const { profileInfo, error } = await getCachedProfileInfo();
   const profileClass = error ? null : profileInfo?.class;
+  const isTeamleader = error ? null : profileInfo?.is_teamleader;
 
   const tabs = [
     { href: "/matters", label: "自分の案件" },
-    ...(hasClassAccess(ROUTE_PERMISSIONS["/matters/team"], profileClass)
+    ...(hasClassAccess(
+      ROUTE_PERMISSIONS["/matters/team"],
+      profileClass,
+      isTeamleader,
+    )
       ? [{ href: "/matters/team", label: "チーム案件" }]
       : []),
-    ...(hasClassAccess(ROUTE_PERMISSIONS["/matters/accounting"], profileClass)
+    ...(hasClassAccess(
+      ROUTE_PERMISSIONS["/matters/accounting"],
+      profileClass,
+      isTeamleader,
+    )
       ? [{ href: "/matters/accounting", label: "経理用一覧" }]
       : []),
   ];

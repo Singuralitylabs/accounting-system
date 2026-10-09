@@ -44,7 +44,10 @@ const DynamicBudgetRecurringItems = async () => {
   return (
     <BudgetRecurringItemList
       initialData={items}
-      canEditAllTeams={canWriteAllBudgetTeams(profileInfo?.class)}
+      canEditAllTeams={canWriteAllBudgetTeams(
+        profileInfo?.class,
+        profileInfo?.is_teamleader,
+      )}
       ownTeam={profileInfo?.team ?? null}
       teamList={teamResult.options.map((option) => option.value)}
       memberList={(memberOptions ?? []).map((member) => ({
@@ -52,6 +55,7 @@ const DynamicBudgetRecurringItems = async () => {
         label: member.name,
       }))}
       memberListError={!!memberOptionsError}
+      profileLoadFailed={!!profileError || !profileInfo}
     />
   );
 };
