@@ -5,22 +5,18 @@ import {
   BudgetClosingWriteResult,
   BudgetClosingsResult,
 } from "../../types/types";
-import { BUDGET_DECLARATION_VIEW_CLASSES } from "../budgetDeclaration";
 import { isMonthKey, toFirstOfMonth } from "../formatter";
 import { BUDGET_CLOSING_WRITE_CLASSES } from "../permissions";
 import { createServerSupabase } from "./clients";
 import { UNIQUE_VIOLATION } from "./errorCodes";
-import { ViewerAccessResult, getAuthorizedViewer } from "./viewerAccess";
+import { ViewerAccessResult, getAuthorizedViewer, getLoggedInViewer } from "./viewerAccess";
 
 const SUBJECT = "事前収支申告の月次確定";
 
 // One row per closed month, so the whole table is small. Every viewer of the page may read it.
 export const getBudgetDeclarationClosings =
   async (): Promise<BudgetClosingsResult> => {
-    const { error: accessError } = await getAuthorizedViewer(
-      BUDGET_DECLARATION_VIEW_CLASSES,
-      SUBJECT,
-    );
+    const { error: accessError } = await getLoggedInViewer(SUBJECT);
     if (accessError) {
       return { error: accessError };
     }

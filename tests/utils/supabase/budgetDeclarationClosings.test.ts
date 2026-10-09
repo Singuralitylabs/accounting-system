@@ -6,7 +6,10 @@ const { createServerSupabase, getAuthorizedViewer } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/app/utils/supabase/clients", () => ({ createServerSupabase }));
-vi.mock("@/app/utils/supabase/viewerAccess", () => ({ getAuthorizedViewer }));
+vi.mock("@/app/utils/supabase/viewerAccess", () => ({
+  getAuthorizedViewer,
+  getLoggedInViewer: getAuthorizedViewer,
+}));
 
 import {
   closeBudgetDeclarationMonth,

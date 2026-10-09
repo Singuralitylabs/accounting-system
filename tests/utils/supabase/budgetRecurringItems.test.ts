@@ -2,18 +2,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   createServerSupabase,
-  getAuthorizedViewer,
+  getLoggedInViewer,
   assertManagerIdsExist,
   getActiveSelectOptionsByType,
 } = vi.hoisted(() => ({
   createServerSupabase: vi.fn(),
-  getAuthorizedViewer: vi.fn(),
+  getLoggedInViewer: vi.fn(),
   assertManagerIdsExist: vi.fn(),
   getActiveSelectOptionsByType: vi.fn(),
 }));
 
 vi.mock("@/app/utils/supabase/clients", () => ({ createServerSupabase }));
-vi.mock("@/app/utils/supabase/viewerAccess", () => ({ getAuthorizedViewer }));
+vi.mock("@/app/utils/supabase/viewerAccess", () => ({
+  getLoggedInViewer: getLoggedInViewer,
+}));
 vi.mock("@/app/utils/supabase/profiles", () => ({ assertManagerIdsExist }));
 vi.mock("@/app/utils/supabase/selectOptionsCache", () => ({
   getActiveSelectOptionsByType,
@@ -48,8 +50,8 @@ const mockRpcSupabase = (rpcResult: { error: unknown } = { error: null }) => {
 
 const setupMocks = (viewer: Record<string, unknown>) => {
   createServerSupabase.mockReset();
-  getAuthorizedViewer.mockReset();
-  getAuthorizedViewer.mockResolvedValue({ profileInfo: viewer });
+  getLoggedInViewer.mockReset();
+  getLoggedInViewer.mockResolvedValue({ profileInfo: viewer });
   assertManagerIdsExist.mockReset();
   assertManagerIdsExist.mockResolvedValue(null);
   getActiveSelectOptionsByType.mockReset();
@@ -292,14 +294,11 @@ describe("bulkSaveBudgetRecurringItems の書き込みチーム判定（Issue #2
     setupMocks({ id: 1, class: "public", team: "Aチーム", is_teamleader: false });
   });
 
-  it("全ユーザーに閲覧が開放されているため、ログイン済みの全ロールで認可を通す", async () => {
+  it("閲覧はログイン済みなら誰でも可能なため、ロールでの絞り込みなしで確認する", async () => {
     mockRpcSupabase();
     await bulkSaveBudgetRecurringItems([]);
 
-    expect(getAuthorizedViewer).toHaveBeenCalledWith(
-      ["public", "teamleader", "accounting", "admin"],
-      expect.any(String),
-    );
+    expect(getLoggedInViewer).toHaveBeenCalledWith(expect.any(String));
   });
 
   it("他チームの行（読み取り専用）が編集済み・未編集で送られてきても無視し、forbidden にせず何も書き込まない", async () => {

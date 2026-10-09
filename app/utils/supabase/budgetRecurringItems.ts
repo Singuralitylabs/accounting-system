@@ -7,7 +7,6 @@ import {
   BudgetRecurringItemSaveResult,
 } from "../../types/types";
 import {
-  BUDGET_DECLARATION_VIEW_CLASSES,
   canWriteBudgetTeam,
 } from "../budgetDeclaration";
 import {
@@ -19,17 +18,14 @@ import { INSUFFICIENT_PRIVILEGE, isRecurringItemsConflictError } from "./errorCo
 import { createServerSupabase } from "./clients";
 import { assertManagerIdsExist } from "./profiles";
 import { getActiveSelectOptionsByType } from "./selectOptionsCache";
-import { getAuthorizedViewer } from "./viewerAccess";
+import { getLoggedInViewer } from "./viewerAccess";
 
 const SUBJECT = "事前収支申告の定期明細";
 
 // Every logged-in user reads all teams (SELECT policy, migration 44); writes are limited to the own team (canWriteBudgetTeam).
 export const getBudgetRecurringItemList =
   async (): Promise<BudgetRecurringItemListResult> => {
-    const { error: accessError } = await getAuthorizedViewer(
-      BUDGET_DECLARATION_VIEW_CLASSES,
-      SUBJECT,
-    );
+    const { error: accessError } = await getLoggedInViewer(SUBJECT);
     if (accessError) {
       return { error: accessError };
     }
@@ -59,10 +55,7 @@ export const getActiveBudgetRecurringItems = async (
   targetMonth: string,
   team: string,
 ): Promise<ActiveBudgetRecurringItemsResult> => {
-  const { error: accessError } = await getAuthorizedViewer(
-    BUDGET_DECLARATION_VIEW_CLASSES,
-    SUBJECT,
-  );
+  const { error: accessError } = await getLoggedInViewer(SUBJECT);
   if (accessError) {
     return { error: accessError };
   }
@@ -113,10 +106,7 @@ const toPayloadRow = (row: BudgetRecurringItemInListType) => ({
 export const bulkSaveBudgetRecurringItems = async (
   rows: BudgetRecurringItemInListType[],
 ): Promise<BudgetRecurringItemSaveResult> => {
-  const { profileInfo, error: accessError } = await getAuthorizedViewer(
-    BUDGET_DECLARATION_VIEW_CLASSES,
-    SUBJECT,
-  );
+  const { profileInfo, error: accessError } = await getLoggedInViewer(SUBJECT);
   if (accessError) {
     return { error: accessError };
   }

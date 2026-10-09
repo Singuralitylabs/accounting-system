@@ -11,9 +11,9 @@ export type ViewerAccessResult =
   | { profileInfo: ProfilesType; error?: undefined }
   | { profileInfo?: undefined; error: AccessFailure };
 
-export const getAuthorizedViewer = async (
-  allowedClasses: readonly Role[],
-  // Name used in logs and user-facing messages (e.g. "事前収支申告").
+// Login-only access (no role check): the profile must exist, whatever its class is, matching
+// middleware AUTH_ONLY_ROUTES and RLS that only require an authenticated user.
+export const getLoggedInViewer = async (
   subject: string,
 ): Promise<ViewerAccessResult> => {
   const { profileInfo, error } = await getProfileInfo();
@@ -26,7 +26,18 @@ export const getAuthorizedViewer = async (
       },
     };
   }
+  return { profileInfo };
+};
 
+export const getAuthorizedViewer = async (
+  allowedClasses: readonly Role[],
+  // Name used in logs and user-facing messages (e.g. "事前収支申告").
+  subject: string,
+): Promise<ViewerAccessResult> => {
+  const { profileInfo, error } = await getLoggedInViewer(subject);
+  if (error) {
+    return { error };
+  }
   if (!hasClassAccess(
       allowedClasses,
       profileInfo.class,
