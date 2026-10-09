@@ -122,27 +122,9 @@ const UserList = ({ userList, teamList, teamListError = false }: Props) => {
     userId: number,
     updates: Partial<ProfilesType>,
   ) => {
-    // Clearing the flag of a row that was loaded as a teamleader clears its team; setting it back restores the loaded team only while the team is still empty (otherwise the team stays cleared with no "changed" state or error). Rows loaded without the flag keep their team when the checkbox is toggled (PC and mobile).
-    const saved = baseline.get(userId);
+    // The teamleader flag and the team are independent: profiles.team is also the write scope of budget declarations for non-leaders, so clearing the flag must not clear the team.
     setRows((prev) =>
-      prev.map((user) => {
-        if (user.id !== userId) return user;
-        if (!("is_teamleader" in updates)) return { ...user, ...updates };
-        if (!updates.is_teamleader) {
-          return saved?.is_teamleader === true
-            ? { ...user, ...updates, team: null }
-            : { ...user, ...updates };
-        }
-        const restoreTeam =
-          saved?.is_teamleader === true &&
-          user.team === null &&
-          !("team" in updates);
-        return {
-          ...user,
-          ...updates,
-          ...(restoreTeam ? { team: saved.team } : {}),
-        };
-      }),
+      prev.map((user) => (user.id === userId ? { ...user, ...updates } : user)),
     );
   };
 

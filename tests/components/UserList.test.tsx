@@ -694,7 +694,7 @@ describe("UserList", () => {
       expect(changedRowNames(container)).toEqual([]);
     });
 
-    it("チームリーダーのフラグを外すとチームが空になり、権限は変わらない", async () => {
+    it("チームリーダーのフラグを外してもチームは残り、権限は変わらない", async () => {
       renderWithMantine(
         <UserList userList={editableUserList} teamList={teamList} />,
       );
@@ -702,11 +702,11 @@ describe("UserList", () => {
       toggleLeader("山田太郎");
 
       expect(leaderCheckbox("山田太郎")).not.toBeChecked();
-      expect(inputValue("山田太郎のチーム")).toBe("");
+      expect(inputValue("山田太郎のチーム")).toBe("チームA");
       expect(inputValue("山田太郎の権限")).toBe("メンバー");
     });
 
-    it("権限を変えてもチームは消えず、フラグを外したときだけ消える", async () => {
+    it("権限を変えてもチームは消えない", async () => {
       renderWithMantine(
         <UserList userList={editableUserList} teamList={teamList} />,
       );
@@ -717,35 +717,16 @@ describe("UserList", () => {
       expect(leaderCheckbox("山田太郎")).toBeChecked();
     });
 
-    it("フラグを外して読み込み時点の値に戻すと、チームも読み込み時点の値に戻り変更なしになる", async () => {
+    it("フラグを外して戻すとチームは変わらず、変更なしになる", () => {
       const { container } = renderWithMantine(
-        <UserList
-          userList={[
-            ...editableUserList,
-            makeUser({
-              id: 4,
-              user_id: "00000000-0000-0000-0000-000000000004",
-              name: "田中次郎",
-              email: "jiro@future-tech-association.org",
-              class: "accounting",
-              team: "チームB",
-              slack_id: null,
-            }),
-          ]}
-          teamList={teamList}
-        />,
+        <UserList userList={editableUserList} teamList={teamList} />,
       );
 
       toggleLeader("山田太郎");
-      expect(inputValue("山田太郎のチーム")).toBe("");
+      expect(inputValue("山田太郎のチーム")).toBe("チームA");
       expect(screen.getByText("1 件変更あり")).toBeInTheDocument();
       toggleLeader("山田太郎");
       expect(inputValue("山田太郎のチーム")).toBe("チームA");
-
-      toggleLeader("田中次郎");
-      expect(inputValue("田中次郎のチーム")).toBe("");
-      toggleLeader("田中次郎");
-      expect(inputValue("田中次郎のチーム")).toBe("チームB");
 
       expect(screen.getByText("変更はありません")).toBeInTheDocument();
       expect(changedRowNames(container)).toEqual([]);
@@ -807,7 +788,7 @@ describe("UserList", () => {
       await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
 
       toggleLeader("鈴木一郎");
-      expect(inputValue("鈴木一郎のチーム")).toBe("");
+      expect(inputValue("鈴木一郎のチーム")).toBe("チームB");
       toggleLeader("鈴木一郎");
       expect(inputValue("鈴木一郎のチーム")).toBe("チームB");
       expect(screen.getByText("変更はありません")).toBeInTheDocument();
